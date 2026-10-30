@@ -13,8 +13,8 @@ import {
   type SourceCatalog
 } from '../src/customLogs/resolved.ts';
 import { createSchemaMemo, memoizedSchemaReader, type ObjectDescribe } from '../src/customLogs/schema.ts';
-import type { Json } from './support/customLogsFixtures.ts';
-import { describeFixture, fakeSchemaReader } from './support/describeFixtures.ts';
+import { headerSource, type Json } from './support/customLogsFixtures.ts';
+import { describeFixture, fakeSchemaReader, logEntryEventDescribe } from './support/describeFixtures.ts';
 
 const nebula = NEBULA_PRESET.definition;
 const unlockedAdmin = describeFixture('unlocked-admin');
@@ -329,6 +329,7 @@ test('detection tells an unrelated Log__c from Nebula through the field fingerpr
   const strangerLog = {
     name: 'Log__c',
     keyPrefix: 'a99',
+    queryable: true,
     fields: [{ ...unlockedAdmin.get('Log__c')!.fields[0]!, name: 'Name' }]
   };
   const stranger = fakeSchemaReader({
@@ -381,6 +382,69 @@ test('an object that exists but describe does not return is unreadable for this 
   const result = await locateSource({ origin: 'builtin', ...NEBULA_PRESET }, reader, new Set());
 
   assert.equal(result.state === 'unavailable' && result.reason, 'objectNotReadable');
+});
+
+test('a record mapping of a platform event is unavailable and says to map it under event', async () => {
+  const event = logEntryEventDescribe();
+  assert.equal(event.queryable, false);
+  const reader = fakeSchemaReader({
+    objects: ['LogEntryEvent__e'],
+    describes: new Map([['LogEntryEvent__e', event]])
+  });
+  const definition = define({
+    id: 'events-as-records',
+    entry: { object: 'LogEntryEvent__e', fields: { time: 'TimestampString__c', message: 'Message__c' } }
+  });
+
+  const info = toSourceInfo(await locateSource({ origin: 'config', definition }, reader, new Set()));
+
+  assert.equal(info.state, 'unavailable');
+  assert.equal(info.state === 'unavailable' && info.reason, 'notQueryable');
+  assert.equal(
+    info.state === 'unavailable' && info.message,
+    'LogEntryEvent__e is a platform event. Map it under `event` instead of `entry`.'
+  );
+});
+
+test('a header mapping of a platform event names the mapping to change', () => {
+  const entry = { ...unlockedAdmin.get('LogEntry__c')!, name: 'Acme_Log_Entry__c' };
+
+  const result = resolveDefinition(
+    define(headerSource({ object: 'LogEntryEvent__e' })),
+    'config',
+    '',
+    new Map([
+      ['LogEntryEvent__e', logEntryEventDescribe()],
+      ['Acme_Log_Entry__c', entry]
+    ])
+  );
+
+  assert.deepEqual(stateOf(result), {
+    state: 'unavailable',
+    reason: 'notQueryable',
+    message: 'LogEntryEvent__e is a platform event. Map it under `event` instead of `transaction`.'
+  });
+});
+
+test('an unqueryable object that is not an event does not claim to be one', () => {
+  const log = { ...unlockedAdmin.get('Log__c')!, name: 'Acme_Log__c', queryable: false };
+  const entry = { ...unlockedAdmin.get('LogEntry__c')!, name: 'Acme_Log_Entry__c' };
+
+  const result = resolveDefinition(
+    define(headerSource({})),
+    'config',
+    '',
+    new Map([
+      ['Acme_Log__c', log],
+      ['Acme_Log_Entry__c', entry]
+    ])
+  );
+
+  assert.deepEqual(stateOf(result), {
+    state: 'unavailable',
+    reason: 'notQueryable',
+    message: 'Acme_Log__c cannot be read with SOQL.'
+  });
 });
 
 // ---------------------------------------------------------------------------------------------

@@ -20,6 +20,8 @@ import { CANNOT_READ_CODES } from './errors.js';
 export type ObjectDescribe = {
   name: string;
   keyPrefix: string;
+  /** False for objects SOQL cannot read, such as platform events. */
+  queryable: boolean;
   fields: readonly {
     name: string;
     label: string;
@@ -60,6 +62,25 @@ async function metadataNames(connection: Connection, soql: string): Promise<Read
   }
 }
 
+/** The subset of jsforce's describe result that `ObjectDescribe` keeps. */
+export function toObjectDescribe(described: Awaited<ReturnType<Connection['describe']>>): ObjectDescribe {
+  return {
+    name: described.name,
+    keyPrefix: described.keyPrefix ?? '',
+    queryable: described.queryable,
+    fields: described.fields.map(field => ({
+      name: field.name,
+      label: field.label,
+      type: field.type,
+      ...(field.relationshipName ? { relationshipName: field.relationshipName } : {}),
+      referenceTo: field.referenceTo ?? [],
+      sortable: field.sortable,
+      filterable: field.filterable,
+      picklistValues: (field.picklistValues ?? []).map(({ value, active }) => ({ value, active }))
+    }))
+  };
+}
+
 export function createSchemaReader(connection: Connection): SchemaReader {
   return {
     existingObjects: names =>
@@ -74,21 +95,7 @@ export function createSchemaReader(connection: Connection): SchemaReader {
       ),
     async describe(object) {
       try {
-        const described = await connection.describe(object);
-        return {
-          name: described.name,
-          keyPrefix: described.keyPrefix ?? '',
-          fields: described.fields.map(field => ({
-            name: field.name,
-            label: field.label,
-            type: field.type,
-            ...(field.relationshipName ? { relationshipName: field.relationshipName } : {}),
-            referenceTo: field.referenceTo ?? [],
-            sortable: field.sortable,
-            filterable: field.filterable,
-            picklistValues: (field.picklistValues ?? []).map(({ value, active }) => ({ value, active }))
-          }))
-        };
+        return toObjectDescribe(await connection.describe(object));
       } catch (error) {
         const code = errorCodeOf(error);
         if (code && MISSING_OBJECT_CODES.has(code)) return undefined;

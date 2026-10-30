@@ -63,7 +63,8 @@ export type CustomLogUnavailableReason =
   | 'objectNotReadable' // EntityDefinition lists the object, describe answers NOT_FOUND for this user
   | 'requiredFieldMissing' // a required role field is absent or hidden by FLS
   | 'fieldTypeMismatch' // a role, detail flag or payload points at a field of an incompatible type
-  | 'metadataQueryRefused'; // this user cannot run the EntityDefinition/FieldDefinition query; no fallback is tried
+  | 'metadataQueryRefused' // this user cannot run the EntityDefinition/FieldDefinition query; no fallback is tried
+  | 'notQueryable'; // a record mapping names an object SOQL cannot read, such as a platform event
 
 /** A mapped JSON payload: the qualified field and the team's default columns from the mapping. */
 export type CustomLogPayloadInfo = { field: string; columns: string[] };

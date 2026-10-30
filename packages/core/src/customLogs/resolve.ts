@@ -266,6 +266,14 @@ function resolveTransaction(
   };
 }
 
+/** A record mapping of an object SOQL cannot read. A platform event gets the mapping that fits it. */
+function notQueryable(described: ObjectDescribe, mapping: 'transaction' | 'entry'): ResolveFailure {
+  const detail = described.name.endsWith('__e')
+    ? `is a platform event. Map it under \`event\` instead of \`${mapping}\`.`
+    : 'cannot be read with SOQL.';
+  return { reason: 'notQueryable', message: `${described.name} ${detail}` };
+}
+
 function headOf(definition: SourceDefinition, origin: CustomLogSourceOrigin, namespace: string): CatalogHead {
   return {
     id: definition.id,
@@ -309,6 +317,13 @@ export function resolveDefinition(
       reason: 'objectNotReadable',
       message: `${missing} exists, but describe does not return it for this user.`
     });
+  }
+
+  for (const [mapping, described] of [
+    ['transaction', transactionDescribe],
+    ['entry', entryDescribe]
+  ] as const) {
+    if (described && !described.queryable) return unavailable(notQueryable(described, mapping));
   }
 
   try {
