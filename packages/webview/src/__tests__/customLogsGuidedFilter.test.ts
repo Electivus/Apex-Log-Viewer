@@ -202,6 +202,10 @@ describe('server-side conditions', () => {
       ok: false,
       error: { code: 'serverSince', at: 8 }
     });
+    expect(applyServerCondition(condition('since = 2026-10-29T10:00'), ready)).toEqual({
+      ok: false,
+      error: { code: 'serverSince', at: 8 }
+    });
     expect(applyServerCondition(condition('source = nope'), ready)).toEqual({
       ok: false,
       error: { code: 'serverSource', at: 9 }

@@ -1,5 +1,6 @@
 export * from './customLogViewerMessages.js';
 export * from './customLogsMessages.js';
+export * from './customLogsRules.js';
 export * from './customLogsTypes.js';
 export * from './debugFlagsMessages.js';
 export * from './debugFlagsTypes.js';

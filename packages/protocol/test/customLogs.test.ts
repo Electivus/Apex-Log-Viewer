@@ -85,16 +85,24 @@ test('list parser reads the server-side filter and drops anything else', () => {
     type: 'customLogsSetFilter',
     filter: {}
   });
-  assert.deepEqual(
-    parseCustomLogsFromWebviewMessage({ type: 'customLogsSetFilter', filter: { since: '2026-10-29T23:29:49.000Z' } }),
-    { type: 'customLogsSetFilter', filter: { since: '2026-10-29T23:29:49.000Z' } }
-  );
+  for (const since of ['2026-10-29T23:29:49.000Z', '2026-10-29T10:00-03:00', '2026-10-29']) {
+    assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsSetFilter', filter: { since } }), {
+      type: 'customLogsSetFilter',
+      filter: { since }
+    });
+  }
+});
+
+test('list parser reads minLevel in any case, as core does, and sends the canonical level', () => {
+  assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsSetFilter', filter: { minLevel: 'warn' } }), {
+    type: 'customLogsSetFilter',
+    filter: { minLevel: 'WARN' }
+  });
 });
 
 test('list parser rejects a malformed filter as a whole', () => {
   const rejected = [
     { minLevel: 'WARNING' },
-    { minLevel: 'warn' },
     { minLevel: 3 },
     { user: '' },
     { user: 'x'.repeat(256) },
@@ -104,6 +112,8 @@ test('list parser rejects a malformed filter as a whole', () => {
     { since: 'yesterday' },
     { since: '12' },
     { since: '2026-13-45' },
+    { since: '2026-10-29T10:00' },
+    { since: '2026-10-29T10:00:00' },
     { since: '' },
     { since: 'x'.repeat(65) }
   ].map(filter => parseCustomLogsFromWebviewMessage({ type: 'customLogsSetFilter', filter }));

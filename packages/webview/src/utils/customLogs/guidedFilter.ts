@@ -1,4 +1,5 @@
-import { CUSTOM_LOG_LEVELS, type CustomLogLevel, type CustomLogsFilterView } from '@alv/protocol/customLogsTypes';
+import { parseCustomLogLevel, parseSinceValue } from '@alv/protocol/customLogsRules';
+import type { CustomLogsFilterView } from '@alv/protocol/customLogsTypes';
 import { matchOperatorPrefix, type FilterCondition, type FilterOperator } from './filterGrammar';
 import type { DiscoveredField, PayloadFieldType, ValueCount } from './payloadRows';
 
@@ -7,9 +8,6 @@ export const SERVER_FILTER_FIELDS = ['level', 'user', 'since', 'source'] as cons
 export type ServerFilterField = (typeof SERVER_FILTER_FIELDS)[number];
 
 export const SINCE_QUICK_VALUES = ['1h', '24h', '7d'] as const;
-
-const SINCE_DURATION_PATTERN = /^[1-9][0-9]{0,4}[mhd]$/;
-const SINCE_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}(?:T[0-9:.+Z-]+)?$/;
 
 export function isServerFilterField(field: string): field is ServerFilterField {
   return (SERVER_FILTER_FIELDS as readonly string[]).includes(field);
@@ -165,9 +163,9 @@ export function applyServerCondition(
       if (!context.capabilities.levelFilter) {
         return { ok: false, error: { code: 'serverUnsupported', field: 'level', at: condition.at.field } };
       }
-      const level = CUSTOM_LOG_LEVELS.find(candidate => candidate === value.toUpperCase());
+      const level = parseCustomLogLevel(value);
       return level
-        ? { ok: true, apply: { kind: 'filter', filter: { ...context.filter, minLevel: level as CustomLogLevel } } }
+        ? { ok: true, apply: { kind: 'filter', filter: { ...context.filter, minLevel: level } } }
         : { ok: false, error: { code: 'serverLevel', at: valueAt } };
     }
     case 'user':
@@ -176,8 +174,7 @@ export function applyServerCondition(
       }
       return { ok: true, apply: { kind: 'filter', filter: { ...context.filter, user: value } } };
     case 'since':
-      return SINCE_DURATION_PATTERN.test(value) ||
-        (SINCE_INSTANT_PATTERN.test(value) && Number.isFinite(Date.parse(value)))
+      return parseSinceValue(value)
         ? { ok: true, apply: { kind: 'filter', filter: { ...context.filter, since: value } } }
         : { ok: false, error: { code: 'serverSince', at: valueAt } };
     case 'source':

@@ -212,7 +212,12 @@ describe('Custom Logs app', () => {
 
       submit('since = yesterday');
       expect(screen.getByRole('alert')).toHaveTextContent(
-        'Use a duration such as 30m, 24h or 7d, or an ISO date (col 9)'
+        'Use a duration such as 30m, 24h or 7d, or an ISO date with an offset such as 2026-10-29T12:00:00Z (col 9)'
+      );
+
+      submit('since = 2026-10-29T10:00');
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Use a duration such as 30m, 24h or 7d, or an ISO date with an offset such as 2026-10-29T12:00:00Z (col 9)'
       );
 
       expect(posts(posted, 'customLogsSetFilter')).toEqual([]);

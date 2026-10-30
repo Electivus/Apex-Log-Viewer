@@ -12,13 +12,12 @@
  */
 
 import type { OrgItem } from './types.js';
+import { parseCustomLogLevel, parseSinceValue } from './customLogsRules.js';
 import {
-  CUSTOM_LOG_LEVELS,
   parseCustomLogPayloadColumns,
   parseCustomLogRecordId,
   type CustomLogColumn,
   type CustomLogConfigIssueView,
-  type CustomLogLevel,
   type CustomLogPayloadColumnsView,
   type CustomLogPayloadField,
   type CustomLogRow,
@@ -74,8 +73,6 @@ const MAX_ORG_IDENTIFIER_LENGTH = 320;
 const MAX_USERNAME_LENGTH = 255;
 const MAX_SINCE_LENGTH = 64;
 const SOURCE_ID_PATTERN = /^[a-z][a-z0-9-]{0,39}$/;
-const SINCE_DURATION_PATTERN = /^[1-9][0-9]{0,4}[mhd]$/;
-const SINCE_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}(?:T[0-9:.+Z-]+)?$/;
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
@@ -87,21 +84,6 @@ function parseTrimmedString(value: unknown, maxLength: number): string | undefin
 
 function parseNonNegativeInteger(value: unknown): number | undefined {
   return Number.isInteger(value) && Number(value) >= 0 ? Number(value) : undefined;
-}
-
-function parseCustomLogLevel(value: unknown): CustomLogLevel | undefined {
-  return CUSTOM_LOG_LEVELS.find(level => level === value);
-}
-
-function parseSince(value: unknown): string | undefined {
-  const since = parseTrimmedString(value, MAX_SINCE_LENGTH);
-  if (!since) {
-    return undefined;
-  }
-  if (SINCE_DURATION_PATTERN.test(since)) {
-    return since;
-  }
-  return SINCE_INSTANT_PATTERN.test(since) && Number.isFinite(Date.parse(since)) ? since : undefined;
 }
 
 /** A present field must be valid and non-blank, an absent one is simply not set. Any invalid field rejects the filter. */
@@ -126,7 +108,7 @@ function parseCustomLogsFilter(value: unknown): CustomLogsFilterView | undefined
     filter.user = user;
   }
   if (raw.since !== undefined) {
-    const since = parseSince(raw.since);
+    const since = parseSinceValue(parseTrimmedString(raw.since, MAX_SINCE_LENGTH));
     if (!since) {
       return undefined;
     }
@@ -138,7 +120,7 @@ function parseCustomLogsFilter(value: unknown): CustomLogsFilterView | undefined
 /**
  * Hand-written validator in the style of `parseDebugFlagsFromWebviewMessage`: length caps,
  * record-id and source-id patterns, `minLevel` in CUSTOM_LOG_LEVELS, `since` must be a duration or
- * parse as a date, at most 50 payload columns of at most 255 characters. Returns undefined for
+ * an ISO instant with an offset (what core accepts), at most 50 payload columns of at most 255 characters. Returns undefined for
  * anything else.
  */
 export function parseCustomLogsFromWebviewMessage(raw: unknown): CustomLogsFromWebviewMessage | undefined {

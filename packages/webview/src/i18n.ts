@@ -501,7 +501,7 @@ const en: Messages = {
       expectedConditionAfterAnd: 'Expected another condition after "and"',
       serverOperator: '{field} only supports {allowed}',
       serverLevel: 'Use one of FINEST, FINER, FINE, DEBUG, INFO, WARN or ERROR',
-      serverSince: 'Use a duration such as 30m, 24h or 7d, or an ISO date',
+      serverSince: 'Use a duration such as 30m, 24h or 7d, or an ISO date with an offset such as 2026-10-29T12:00:00Z',
       serverSource: 'Unknown source. Pick one from the Source list',
       serverUnsupported: 'This source cannot filter by {field}'
     },
@@ -833,7 +833,7 @@ const ptBR: Messages = {
       expectedConditionAfterAnd: 'Esperava outra condição depois de "and"',
       serverOperator: '{field} só aceita {allowed}',
       serverLevel: 'Use FINEST, FINER, FINE, DEBUG, INFO, WARN ou ERROR',
-      serverSince: 'Use uma duração como 30m, 24h ou 7d, ou uma data ISO',
+      serverSince: 'Use uma duração como 30m, 24h ou 7d, ou uma data ISO com offset, como 2026-10-29T12:00:00Z',
       serverSource: 'Fonte desconhecida. Escolha uma na lista Fonte',
       serverUnsupported: 'Esta fonte não filtra por {field}'
     },
