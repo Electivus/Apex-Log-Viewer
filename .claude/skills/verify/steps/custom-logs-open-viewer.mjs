@@ -3,6 +3,8 @@
 //   source: the label in the Source picker (only needed when the org has several ready sources)
 //   logId / title: which listed row to open; the first row when both are omitted
 export default async function ({ h, expect, args }) {
+  // Custom Logs is experimental and off by default; a user turns it on in the workspace settings.
+  await h.setWorkspaceSetting('electivus.apexLogViewer.customLogs.enabled', true);
   await h.runCommandWhenAvailable('Electivus Apex Logs: Refresh Custom Logs');
   await h.closeQuickInput();
   const logs = await h.customLogsFrame(180_000);

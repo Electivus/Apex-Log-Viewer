@@ -20,7 +20,7 @@ V=".claude/skills/verify/scripts/verify.mjs"
 
 ## Surfaces
 
-- **Primary: the VS Code extension.** It has six webviews: the Logs, Tail and Custom Logs panels (bottom panel tabs), plus the Log Viewer, Custom Log Viewer and Debug Flags editor tabs. The Logs, Tail and Custom Logs surfaces can also open in the editor area. Drive them with steps.
+- **Primary: the VS Code extension.** It has six webviews: the Logs, Tail and Custom Logs panels (bottom panel tabs), plus the Log Viewer, Custom Log Viewer and Debug Flags editor tabs. The Logs, Tail and Custom Logs surfaces can also open in the editor area. Custom Logs is experimental and appears only after its setting is turned on (see Gotchas). Drive them with steps.
 - **Secondary: the `sf electivus` Salesforce CLI plugin** (`packages/sf-plugin`). Run it with `node $V sf -- <args>` inside the session workspace so it shares the org and the `apexlogs/` store with the extension.
 - **Not covered:** VSIX packaging (`pnpm run test:smoke:vsix`), the Agent Skills catalog (`pnpm run test:sf-plugin:package`) and telemetry ingestion (`pnpm run test:e2e:telemetry`).
 
@@ -81,7 +81,8 @@ Steps run one at a time. Playwright actions without an explicit `timeout` fail a
 | `runCommandWhenAvailable(title)` / `runCommand(title)`               | Command palette by visible title, e.g. `Electivus Apex Logs: Tail Logs`            |
 | `executeCommandId(id)`, `openView(name)`                             | Palette by command id / `View: Open View...`                                       |
 | `logsFrame()`, `tailFrame()`, `viewerFrame()`, `debugFlagsFrame()`   | Wait for that webview's content frame (default 120 s)                              |
-| `customLogsFrame()`, `customLogViewerFrame(timeoutMs?, title?)`      | Custom Logs list; transaction viewer, scoped by the title its header shows         |
+| `customLogsFrame()`, `customLogViewerFrame(timeoutMs?, title?)`      | Custom Logs list (needs the setting on); transaction viewer, scoped by its title   |
+| `setWorkspaceSetting(key, value)`                                    | Edit the session workspace's `.vscode/settings.json`; VS Code applies it live      |
 | `frameWith(selector, timeoutMs)`                                     | Any webview frame containing `selector`                                            |
 | `openDebugFlagsFromLogs()`, `openDebugFlagsFromTail()`               | Click the panel's Debug Flags button, retrying swallowed clicks; returns the frame |
 | `shot(name, frameOrLocator?)`                                        | PNG into evidence: whole window, a frame's body, or one element                    |
@@ -108,7 +109,8 @@ Canned steps in `steps/` (each one asserts the end state and returns its proof p
 - `logs-open-viewer`: search the seeded log body, then open it in the Log Viewer; asserts the cached `.log` file in `apexlogs/`.
 - `tail-live`: choose a debug level and Start, emit a new log, see it stream in, then Stop. `'{"debugLevel":"<name>"}'` selects exactly that level and fails if it does not exist.
 - `debug-flags-apply-remove`: from the Logs panel, apply a USER_DEBUG trace flag to the E2E user, read it back through Tooling, remove it, and read it back again. `'{"currentUser":true}'` targets the authenticated user instead, and that user's prior flag is restored afterwards.
-- `custom-logs-open-viewer`: open the Custom Logs list, then one record in the transaction viewer, and with `'{"openApexLog":true}'` its linked Apex log. It needs an org that has Nebula Logger or a mapped log object, so start the session with `--target-org` (see [features/custom-logs.md](features/custom-logs.md)).
+- `custom-logs-setting`: write the experimental Custom Logs setting into the workspace settings (`'{"enabled":true}'`, `false`, or `null` to remove the key and get the default) and read back the panel tab, the Command Palette entries and any open Custom Logs editor tab.
+- `custom-logs-open-viewer`: turn the Custom Logs setting on, open the Custom Logs list, then one record in the transaction viewer, and with `'{"openApexLog":true}'` its linked Apex log. It needs an org that has Nebula Logger or a mapped log object, so start the session with `--target-org` (see [features/custom-logs.md](features/custom-logs.md)).
 
 Per-feature recipes, entry points and traps are in [features/README.md](features/README.md). Check every entry point the map lists for a feature, not only the convenient one.
 
@@ -156,6 +158,8 @@ You can run one session per checkout, because state lives in `output/verify/sess
 - **Panel webviews are short** (about 260 px tall in the 1440x900 window). Rows below the fold exist but do not appear in screenshots. Before taking a shot, run `h.runCommand('View: Toggle Maximized Panel')` or `Electivus Apex Logs: Open Logs in Editor Area` / `Open Tail in Editor Area`.
 - **Several webviews coexist.** `viewerFrame()` returns the first Log Viewer. When you open a second log, scope assertions by the log id shown in the header.
 - **UI strings are English** because VS Code runs with the `C.UTF-8` locale. Text selectors such as `Search entries…` and `Start`/`Stop` would change under a pt-BR display language.
+- **Custom Logs is off by default.** It is experimental, so the panel tab, its commands and its host code exist only while `electivus.apexLogViewer.customLogs.enabled` is true. A session starts with it off. Turn it on with the `custom-logs-setting` step or `h.setWorkspaceSetting('electivus.apexLogViewer.customLogs.enabled', true)`; `h.customLogsFrame()` throws at once while the workspace setting is not on. `custom-logs-open-viewer` does it for you.
+- **The eighth panel tab hides in a "..." menu.** With the side bar or the Chat side bar open, the Custom Logs tab does not fit next to Problems, Output, Debug Console, Terminal, Ports, Logs and Tail. `custom-logs-setting` closes both side bars before it reads the tabs.
 - **A pool scratch org has no Nebula Logger.** Custom Logs needs `start --target-org <alias>` on an org that has it, or a mapping for an object the org owns. That mode does not seed, so create no data in someone else's org.
 - **`sf` must be on the session's PATH.** `start` shells out to `sf org display`, and the host inherits your PATH. When `sf` lives under another Node version than `.nvmrc` selects, append its bin directory after `nvm use`, so the repo tooling keeps the pinned Node.
 - **Pool slots are shared with CI.** Keep sessions short and stop them when done. Use `--retire` only when the org itself is damaged, not when the feature failed.

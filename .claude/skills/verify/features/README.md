@@ -33,5 +33,5 @@ This directory is the maintained source for verifying the user-facing behavior o
 | Log Viewer: open, search, filters, raw     | [log-viewer.md](./log-viewer.md)   | `logs-open-viewer`         | 2026-10-10 (open, search navigation)        |
 | Tail: live logs                            | [tail.md](./tail.md)               | `tail-live`                | 2026-10-10                                  |
 | Debug Flags: trace flags and debug levels  | [debug-flags.md](./debug-flags.md) | `debug-flags-apply-remove` | 2026-10-10                                  |
-| Custom Logs: list, viewer, JSON columns    | [custom-logs.md](./custom-logs.md) | `custom-logs-open-viewer`  | 2026-10-29                                  |
+| Custom Logs: list, viewer, JSON columns    | [custom-logs.md](./custom-logs.md) | `custom-logs-open-viewer`  | 2026-10-30                                  |
 | `sf electivus` CLI plugin                  | [sf-cli.md](./sf-cli.md)           | —                          | 2026-10-10 (log sync, log status, log read) |
