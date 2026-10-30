@@ -12,7 +12,16 @@ export const ADD_FIELD_WIDTH = 96;
 
 export type HeaderColumn =
   | { id: string; kind: 'std' | 'extra'; label: string; width: number; flex?: boolean }
-  | { id: string; kind: 'payload'; path: string; label: string; width: number; locked: boolean; type?: PayloadFieldType; rows?: number };
+  | {
+      id: string;
+      kind: 'payload';
+      path: string;
+      label: string;
+      width: number;
+      locked: boolean;
+      type?: PayloadFieldType;
+      rows?: number;
+    };
 
 export function columnTrack(column: HeaderColumn): string {
   return 'flex' in column && column.flex ? `minmax(${column.width}px, 1fr)` : `${column.width}px`;
@@ -25,7 +34,8 @@ export function columnGrid(columns: readonly HeaderColumn[]): { gridTemplate: st
   };
 }
 
-const HEADER_CELL = 'group/header flex min-w-0 items-center gap-1 border-r border-border/50 px-2 text-[11px] font-semibold tracking-wide text-muted-foreground';
+const HEADER_CELL =
+  'group/header flex min-w-0 items-center gap-1 border-r border-border/50 px-2 text-[11px] font-semibold tracking-wide text-muted-foreground';
 
 type CustomLogsColumnsHeaderProps = {
   t: CustomLogsMessages;
@@ -64,7 +74,10 @@ export function CustomLogsColumnsHeader({
 }: CustomLogsColumnsHeaderProps) {
   return (
     <div ref={headerRef} role="row" className="shrink-0 overflow-hidden border-b border-border bg-card/70">
-      <div style={{ display: 'grid', gridTemplateColumns: gridTemplate, minWidth: totalWidth }} className="h-6 items-stretch">
+      <div
+        style={{ display: 'grid', gridTemplateColumns: gridTemplate, minWidth: totalWidth }}
+        className="h-6 items-stretch"
+      >
         {columns.map(column => {
           const sorted = sort?.columnId === column.id;
           const type = column.kind === 'payload' && column.type ? t.picker[PAYLOAD_TYPE_LABEL_KEY[column.type]] : '';
@@ -73,25 +86,41 @@ export function CustomLogsColumnsHeader({
               key={column.id}
               role="columnheader"
               aria-sort={!sorted ? 'none' : sort.dir === 'asc' ? 'ascending' : 'descending'}
-              className={cn(HEADER_CELL, column.kind === 'payload' ? 'normal-case' : 'uppercase')}
+              className={HEADER_CELL}
               title={
                 column.kind === 'payload'
-                  ? fillTemplate(t.table.payloadColumn, { path: column.path, type, rows: column.rows ?? 0, total: loadedCount })
+                  ? fillTemplate(t.table.payloadColumn, {
+                      path: column.path,
+                      type,
+                      rows: column.rows ?? 0,
+                      total: loadedCount
+                    })
                   : column.label
               }
             >
               <button
                 type="button"
-                className={cn('flex min-w-0 flex-1 items-center gap-1 text-left', column.kind === 'payload' && 'font-mono')}
+                className={cn(
+                  'flex min-w-0 flex-1 items-center gap-1 text-left',
+                  column.kind === 'payload' && 'font-mono'
+                )}
                 onClick={() => onSort(column.id)}
               >
-                {column.kind === 'payload' ? <i className="font-mono text-[10px] not-italic text-amber-400">{'{}'}</i> : null}
+                {column.kind === 'payload' ? (
+                  <i className="font-mono text-[10px] not-italic text-amber-400">{'{}'}</i>
+                ) : null}
                 <span className="truncate">{column.label}</span>
                 {sorted ? (
                   sort.dir === 'asc' ? (
-                    <ArrowUp className="h-3 w-3 shrink-0 text-[color:var(--vscode-focusBorder,#3794ff)]" aria-label={t.table.sortedAscending} />
+                    <ArrowUp
+                      className="h-3 w-3 shrink-0 text-[color:var(--vscode-focusBorder,#3794ff)]"
+                      aria-label={t.table.sortedAscending}
+                    />
                   ) : (
-                    <ArrowDown className="h-3 w-3 shrink-0 text-[color:var(--vscode-focusBorder,#3794ff)]" aria-label={t.table.sortedDescending} />
+                    <ArrowDown
+                      className="h-3 w-3 shrink-0 text-[color:var(--vscode-focusBorder,#3794ff)]"
+                      aria-label={t.table.sortedDescending}
+                    />
                   )
                 ) : null}
               </button>
@@ -109,7 +138,13 @@ export function CustomLogsColumnsHeader({
           );
         })}
         <div role="columnheader" className="flex items-center px-2">
-          <PayloadFieldPicker t={t} fields={discovered} columns={activeColumns} lockedColumns={lockedColumns} onToggleColumn={onToggleColumn}>
+          <PayloadFieldPicker
+            t={t}
+            fields={discovered}
+            columns={activeColumns}
+            lockedColumns={lockedColumns}
+            onToggleColumn={onToggleColumn}
+          >
             <button
               type="button"
               title={t.table.addFieldTitle}

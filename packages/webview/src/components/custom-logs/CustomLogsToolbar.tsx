@@ -6,6 +6,9 @@ import { Button } from '../ui/button';
 import { LabeledSelect } from '../LabeledSelect';
 import { OrgSelect } from '../OrgSelect';
 
+/** The label sits beside the select, so the toolbar stays one row tall in a short panel. */
+const INLINE_SELECT = 'min-w-0 flex-row items-center gap-2';
+
 type CustomLogsToolbarProps = {
   t: CustomLogsMessages;
   orgLabel: string;
@@ -41,7 +44,7 @@ export function CustomLogsToolbar({
   onConfigure
 }: CustomLogsToolbarProps) {
   return (
-    <section className="flex shrink-0 flex-wrap items-end gap-3 border-b border-border px-3 py-1.5">
+    <section className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-3 py-1">
       <OrgSelect
         label={orgLabel}
         orgs={orgs}
@@ -49,6 +52,7 @@ export function CustomLogsToolbar({
         onChange={onSelectOrg}
         testId="custom-logs-org"
         emptyText={noOrgsText}
+        className={INLINE_SELECT}
       />
       {sources.length > 1 ? (
         <LabeledSelect
@@ -57,12 +61,23 @@ export function CustomLogsToolbar({
           onChange={onSelectSource}
           options={sources.map(source => ({ value: source.id, label: source.label }))}
           testId="custom-logs-source"
+          className={INLINE_SELECT}
           triggerClassName="min-w-[200px]"
         />
       ) : null}
       <span className="flex-1" />
-      <Button type="button" variant="secondary" className="flex items-center gap-2" disabled={loading} onClick={onRefresh}>
-        {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="h-4 w-4" aria-hidden="true" />}
+      <Button
+        type="button"
+        variant="secondary"
+        className="flex items-center gap-2"
+        disabled={loading}
+        onClick={onRefresh}
+      >
+        {loading ? (
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        ) : (
+          <RefreshCw className="h-4 w-4" aria-hidden="true" />
+        )}
         <span>{t.refresh}</span>
       </Button>
       {showOpenInEditor ? (
@@ -77,7 +92,14 @@ export function CustomLogsToolbar({
           <span>{t.openInEditor}</span>
         </Button>
       ) : null}
-      <Button type="button" variant="ghost" size="icon" title={t.configureTitle} aria-label={t.configure} onClick={onConfigure}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        title={t.configureTitle}
+        aria-label={t.configure}
+        onClick={onConfigure}
+      >
         <Settings className="h-4 w-4" aria-hidden="true" />
       </Button>
     </section>

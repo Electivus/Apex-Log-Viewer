@@ -9,7 +9,8 @@ export function OrgSelect({
   onChange,
   testId,
   disabled = false,
-  emptyText
+  emptyText,
+  className
 }: {
   label: string;
   orgs: OrgItem[];
@@ -18,6 +19,7 @@ export function OrgSelect({
   testId?: string;
   disabled?: boolean;
   emptyText?: string;
+  className?: string;
 }) {
   const options = orgs.map(o => ({
     value: o.username,
@@ -34,6 +36,7 @@ export function OrgSelect({
       disabled={disabled}
       hideIfEmpty
       emptyText={emptyText || 'No orgs detected.'}
+      className={className}
       triggerClassName="min-w-[220px]"
     />
   );

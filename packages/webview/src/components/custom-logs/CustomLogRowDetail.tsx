@@ -52,7 +52,7 @@ export function CustomLogRowDetail({
       data-testid="custom-log-row-detail"
       className={cn(
         'flex min-h-0 min-w-0 shrink-0 flex-col bg-card/60',
-        dock === 'right' ? 'w-[400px] border-l border-border' : 'h-[260px] border-t border-border'
+        dock === 'right' ? 'w-[400px] border-l border-border' : 'h-[300px] border-t border-border'
       )}
     >
       <header className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-3 text-xs">
@@ -64,7 +64,14 @@ export function CustomLogRowDetail({
         <Button type="button" variant="secondary" size="sm" onClick={() => onOpenLog(row)}>
           {t.detail.openLog}
         </Button>
-        <Button type="button" variant="ghost" size="icon" className="h-6 min-h-0 w-6" aria-label={t.detail.close} onClick={onClose}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-6 min-h-0 w-6"
+          aria-label={t.detail.close}
+          onClick={onClose}
+        >
           <X className="h-3.5 w-3.5" aria-hidden="true" />
         </Button>
       </header>
