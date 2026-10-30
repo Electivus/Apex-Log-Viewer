@@ -27,14 +27,20 @@ function stub(method: 'sources' | 'list' | 'get' | 'entry', result: unknown): Ca
 
 test.afterEach(() => mock.restoreAll());
 
-test('sources passes the org and the current directory as the project, and --refresh', async () => {
+test('sources passes the org and the current directory as the project', async () => {
   const result = { sources: [], issues: [] };
   const capture = stub('sources', result);
 
-  const output = await new CustomLogSources(['--target-org', 'acme-uat', '--refresh', '--json'], config).run();
+  const output = await new CustomLogSources(['--target-org', 'acme-uat', '--json'], config).run();
 
-  assert.deepEqual(capture.params, { targetOrg: 'acme-uat', projectDir: process.cwd(), refresh: true });
+  assert.deepEqual(capture.params, { targetOrg: 'acme-uat', projectDir: process.cwd() });
   assert.equal(output, result);
+});
+
+test('sources has no --refresh flag, because every process starts with an empty cache', async () => {
+  stub('sources', { sources: [], issues: [] });
+
+  await assert.rejects(new CustomLogSources(['--target-org', 'acme-uat', '--refresh'], config).run(), /refresh/);
 });
 
 test('list maps every flag onto the core filter, window and payload paths', async () => {
