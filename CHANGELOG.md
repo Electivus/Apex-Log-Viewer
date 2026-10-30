@@ -16,6 +16,9 @@
 
 ### Features
 
+- Custom Logs: add a Custom Logs panel next to Logs and Tail that reads the application logs a logging framework stores in Salesforce records. Nebula Logger, unlocked or managed, needs no configuration, and other objects map in `sfdx-project.json` under `plugins.electivus.customLogs`. Level, user and time filters run in Salesforce. JSON payload keys become columns and filters over the loaded rows. Each transaction opens with its entries, long fields and the linked Apex debug log. See `docs/CUSTOM_LOGS.md`.
+- CLI/Plugin: add `sf electivus custom-log sources`, `list`, `get` and `entry` to read the same records from a terminal, with `--json` results, cursor paging, `--min-level`, `--user`, `--since`, `--until` and `--payload-fields`.
+- Agent Skill: teach `apex-log-viewer-cli` the `custom-log` commands, and let `apex-debug-investigate` start from a logging framework's records and follow the linked Apex debug log into the local corpus.
 - Dev Hub: add explicit certificate rotation with private recovery copies, fresh JWT verification, ordered Actions and Dependabot Secret replacement, and resumable forward/rollback recovery across partial deliveries without changing runtime grants.
 - Agent Skill: publish the vendor-neutral source from `skills/apex-log-viewer-cli`, add runtime capability checks and standard update guidance, pin `skills@1.5.21`, and validate project installation for Claude Code, Codex, GitHub Copilot, and Devin.
 - Diagnostics: measure how long Logs, Tail, Log Viewer, and Debug Flags actions wait in the VS Code extension host before they start; slow waits (250 ms or more) appear in the Output channel, and a five-minute `host.responsiveness` telemetry summary adds extension host event-loop lag.
