@@ -11,9 +11,9 @@ import {
   entry,
   formatLocalized,
   row,
-  settle,
   type RecordedEvent
 } from '../customLogsTestSupport';
+import { settle } from '../webviewSessionTestSupport';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 

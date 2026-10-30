@@ -2,10 +2,9 @@ import assert from 'node:assert/strict';
 import proxyquire from 'proxyquire';
 
 import { WEBVIEW_SESSION_MOUNT_DELAY_MS } from '../../provider/webviewSession';
-import { createWebviewSessionForTest } from '../webviewSessionTestSupport';
+import { FakeClock, createWebviewSessionForTest, settle } from '../webviewSessionTestSupport';
 import {
   APP_LOG,
-  FakeClock,
   FakeHost,
   LOG_IDS,
   NEBULA,
@@ -15,7 +14,6 @@ import {
   formatLocalized,
   resetVscodeStub,
   row,
-  settle,
   vscodeStub,
   type RecordedEvent
 } from '../customLogsTestSupport';

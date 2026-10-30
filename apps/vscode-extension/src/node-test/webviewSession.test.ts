@@ -10,7 +10,7 @@ import {
   type WebviewSessionInbound,
   type WebviewSessionOptions
 } from '../provider/webviewSession';
-import { createWebviewSessionForTest, type WebviewSessionClock } from './webviewSessionTestSupport';
+import { FakeClock, createWebviewSessionForTest } from './webviewSessionTestSupport';
 
 interface TestOutboundMessage {
   readonly value: string;
@@ -18,12 +18,6 @@ interface TestOutboundMessage {
 
 interface TestInboundMessage {
   readonly action: string;
-}
-
-interface TestTimer {
-  readonly id: number;
-  readonly runAt: number;
-  readonly callback: () => void;
 }
 
 function deferred<T>(): { readonly promise: Promise<T>; resolve(value: T): void } {
@@ -37,50 +31,6 @@ function deferred<T>(): { readonly promise: Promise<T>; resolve(value: T): void 
       resolvePromise?.(value);
     }
   };
-}
-
-class FakeClock implements WebviewSessionClock {
-  private readonly timers = new Map<number, TestTimer>();
-  private now = 0;
-  private nextId = 1;
-
-  setTimeout(callback: () => void, delayMs: number): { dispose(): void } {
-    const timer: TestTimer = {
-      id: this.nextId++,
-      runAt: this.now + delayMs,
-      callback
-    };
-    this.timers.set(timer.id, timer);
-    return {
-      dispose: () => {
-        this.timers.delete(timer.id);
-      }
-    };
-  }
-
-  async advanceBy(delayMs: number): Promise<void> {
-    const target = this.now + delayMs;
-    while (true) {
-      const next = [...this.timers.values()]
-        .filter(timer => timer.runAt <= target)
-        .sort((left, right) => left.runAt - right.runAt || left.id - right.id)[0];
-      if (!next) {
-        break;
-      }
-      this.timers.delete(next.id);
-      this.now = next.runAt;
-      next.callback();
-      await this.flushMicrotasks();
-    }
-    this.now = target;
-    await this.flushMicrotasks();
-  }
-
-  async flushMicrotasks(): Promise<void> {
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-  }
 }
 
 class FakeHost implements WebviewSessionHost<TestOutboundMessage> {
