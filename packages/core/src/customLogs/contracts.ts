@@ -68,6 +68,11 @@ export type CustomLogUnavailableReason =
 /** A mapped JSON payload: the qualified field and the team's default columns from the mapping. */
 export type CustomLogPayloadInfo = { field: string; columns: string[] };
 
+/**
+ * One source as `sources` reports it. Every state carries every field, so a consumer reads one
+ * shape: a source that is not `ready` has no hidden fields, no unmapped levels, every capability
+ * `false` and an empty `payload`, because nothing about it was resolved.
+ */
 export type CustomLogSourceInfo = {
   id: string;
   label: string;

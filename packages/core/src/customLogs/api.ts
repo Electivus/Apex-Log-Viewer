@@ -274,7 +274,7 @@ export function createCustomLogApi(presets: readonly BuiltinPreset[] = BUILTIN_P
           const found = await run(ctx, rowPlan(source, id), signal);
           if (!found) notFound(`Log ${id}`);
           const { row } = found;
-          const scope = entriesScopeOf(source, id, row);
+          const scope = entriesScopeOf(source, id, row.transactionId);
           const binding: CursorBinding = {
             o: orgIdOf(ctx),
             s: source.id,

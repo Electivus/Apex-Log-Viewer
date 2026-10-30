@@ -12,6 +12,7 @@ import {
   decodeCursor,
   encodeCursor,
   entriesPlan,
+  entriesScopeOf,
   entryPlan,
   listPlan,
   parseRecordId,
@@ -132,15 +133,11 @@ test('a header read and a transaction-id lookup are one small query each', () =>
 });
 
 test('entries of a header page by sequence then Id, and a cursor continues after the last pair', () => {
-  const first = entriesPlan(unlocked, { kind: 'header', id: headerId }, { limit: 200, minLevel: 'INFO' });
-  const next = entriesPlan(
-    unlocked,
-    { kind: 'header', id: headerId },
-    {
-      limit: 2,
-      after: { v: 1, o: 'x', s: 'nebula', m: 'x', k: 'entries', f: 'x', t: 31, id: 'a01000000000001AAA', n: 30 }
-    }
-  );
+  const first = entriesPlan(unlocked, entriesScopeOf(unlocked, headerId), { limit: 200, minLevel: 'INFO' });
+  const next = entriesPlan(unlocked, entriesScopeOf(unlocked, headerId), {
+    limit: 2,
+    after: { v: 1, o: 'x', s: 'nebula', m: 'x', k: 'entries', f: 'x', t: 31, id: 'a01000000000001AAA', n: 30 }
+  });
 
   assert.equal(
     first.soql,
@@ -169,7 +166,7 @@ test('an entry read selects every readable detail and flag, and never a detail t
 
 test('a one-object source lists entries and filters its level by picklist spellings and its user by relationship', () => {
   const plan = listPlan(appLog, { limit: 50, filter: { minLevel: 'WARN', user: 'a@b.c' } });
-  const entries = entriesPlan(appLog, { kind: 'single', id: entryId }, { limit: 200 });
+  const entries = entriesPlan(appLog, entriesScopeOf(appLog, entryId), { limit: 200 });
 
   assert.equal(
     plan.soql,
@@ -195,14 +192,7 @@ test('a filter the source has no mapping for is refused instead of ignored', () 
     codeOf(() => transactionLookupPlan(appLog, 'tx')),
     'CUSTOM_LOG_UNSUPPORTED_FILTER'
   );
-  assert.equal(
-    codeOf(() => entriesPlan(appLog, { kind: 'transactionKey', value: 'tx' }, { limit: 5 })),
-    'CUSTOM_LOG_UNSUPPORTED_FILTER'
-  );
-  assert.equal(
-    codeOf(() => entriesPlan(appLog, { kind: 'header', id: headerId }, { limit: 5 })),
-    'CUSTOM_LOG_UNSUPPORTED_FILTER'
-  );
+  assert.deepEqual(entriesScopeOf(appLog, entryId, 'tx'), { kind: 'single', id: entryId });
 });
 
 test('a user role on a field SOQL cannot filter is no user filter', () => {
@@ -319,7 +309,7 @@ test('entries decode epoch times, levels, the system flag, present details and t
     HasRecordJson__c: false
   };
 
-  const [entry] = entriesPlan(unlocked, { kind: 'header', id: headerId }, { limit: 5 }).decode([record]).items;
+  const [entry] = entriesPlan(unlocked, entriesScopeOf(unlocked, headerId), { limit: 5 }).decode([record]).items;
 
   assert.deepEqual(entry, {
     id: 'a01000000000001AAA',
@@ -336,7 +326,7 @@ test('entries decode epoch times, levels, the system flag, present details and t
     extra: { OriginType__c: 'Apex' }
   });
 
-  const unordered = entriesPlan(appLog, { kind: 'single', id: entryId }, { limit: 5, after: undefined });
+  const unordered = entriesPlan(appLog, entriesScopeOf(appLog, entryId), { limit: 5, after: undefined });
   const positions = unordered
     .decode([
       { Id: 'a06000000000001AAA', Logged_At__c: '2026-10-30T00:29:16.000+0000', Message__c: 'a' },
@@ -355,7 +345,7 @@ test('a long message is cut for the list of entries and complete in the entry re
     TransactionEntryNumber__c: 1
   };
 
-  const [clipped] = entriesPlan(unlocked, { kind: 'header', id: headerId }, { limit: 5 }).decode([record]).items;
+  const [clipped] = entriesPlan(unlocked, entriesScopeOf(unlocked, headerId), { limit: 5 }).decode([record]).items;
   const full = entryPlan(unlocked, entryId).decode([record]);
 
   assert.equal(clipped?.message.length, 2000);
@@ -396,7 +386,7 @@ test('a long text field mapped to a column or a text role reaches a row or entry
   const [row] = listPlan(source, { limit: 5, filter: {} }).decode([
     { Id: headerId, CreatedDate: '2026-10-30T00:48:11.000+0000', Comments__c: long, OrganizationLimits__c: long }
   ]).items;
-  const [entry] = entriesPlan(source, { kind: 'header', id: headerId }, { limit: 5 }).decode([
+  const [entry] = entriesPlan(source, entriesScopeOf(source, headerId), { limit: 5 }).decode([
     { Id: entryId, Message__c: long, StackTrace__c: long, Tags__c: long, ExceptionMessage__c: long }
   ]).items;
   const single = entryPlan(source, entryId).decode([{ Id: entryId, Message__c: long, StackTrace__c: long }]);
@@ -414,7 +404,7 @@ test('a long text field mapped to a column or a text role reaches a row or entry
   assert.equal(single?.entry.message.length, long.length);
   assert.equal(single?.entry.origin?.length, 255);
   assert.equal(
-    entriesPlan(appLog, { kind: 'single', id: entryId }, { limit: 5 }).decode([{ Id: entryId, Message__c: long }])
+    entriesPlan(appLog, entriesScopeOf(appLog, entryId), { limit: 5 }).decode([{ Id: entryId, Message__c: long }])
       .items[0]?.message.length,
     CUSTOM_LOG_MESSAGE_PREVIEW_CHARS
   );
@@ -660,7 +650,7 @@ test('a position that does not fit the ordering of this source is refused', () =
   };
 
   assert.throws(
-    () => entriesPlan(unlocked, { kind: 'header', id: headerId }, { limit: 5, after: textual }),
+    () => entriesPlan(unlocked, entriesScopeOf(unlocked, headerId), { limit: 5, after: textual }),
     (error: unknown) => error instanceof AlvError && error.code === 'CUSTOM_LOG_INVALID_CURSOR'
   );
   assert.throws(
@@ -681,7 +671,7 @@ test('a numeric position reaches SOQL as plain digits', () => {
     id: 'a01000000000001AAA'
   });
   const soqlAfter = (t: number) =>
-    entriesPlan(unlocked, { kind: 'header', id: headerId }, { limit: 5, after: after(t) }).soql;
+    entriesPlan(unlocked, entriesScopeOf(unlocked, headerId), { limit: 5, after: after(t) }).soql;
 
   assert.match(
     soqlAfter(1e-7),
@@ -692,11 +682,10 @@ test('a numeric position reaches SOQL as plain digits', () => {
 });
 
 test('a null position continues after the entries that have no sequence', () => {
-  const plan = entriesPlan(
-    unlocked,
-    { kind: 'header', id: headerId },
-    { limit: 5, after: { v: 1, o: 'x', s: 'nebula', m: 'x', k: 'entries', f: 'x', t: null, id: 'a01000000000001AAA' } }
-  );
+  const plan = entriesPlan(unlocked, entriesScopeOf(unlocked, headerId), {
+    limit: 5,
+    after: { v: 1, o: 'x', s: 'nebula', m: 'x', k: 'entries', f: 'x', t: null, id: 'a01000000000001AAA' }
+  });
 
   assert.match(
     plan.soql,

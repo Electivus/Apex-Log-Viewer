@@ -34,7 +34,9 @@ import { decodePayload, selectPayloadPaths, summarizePayloadFields, toLongValue 
 import {
   CREATED_DATE,
   filterableField,
-  type LevelPredicate,
+  type EntryLevelPredicate,
+  type FieldLevelPredicate,
+  type HeaderLevelPredicate,
   type ResolvedEntryObject,
   type ResolvedField,
   type ResolvedPayload,
@@ -286,9 +288,7 @@ function unsupported(source: ResolvedSource, what: string): never {
   );
 }
 
-type OrdinalOrValues = LevelPredicate & { kind: 'ordinal' | 'values' };
-
-function levelCondition(predicate: OrdinalOrValues, table: LevelTable, min: CustomLogLevel): string {
+function levelCondition(predicate: FieldLevelPredicate, table: LevelTable, min: CustomLogLevel): string {
   if (predicate.kind === 'ordinal') return `${predicate.field.api} >= ${APEX_LEVEL_ORDINALS[min]}`;
   const spellings = table.rawAtOrAbove[min];
   return spellings.length > 0 ? `${predicate.field.api} IN (${spellings.map(quote).join(',')})` : 'Id = null';
@@ -339,10 +339,10 @@ function createdDateOf(record: Record<string, unknown>): string {
 
 function entryRow(source: ResolvedSource, record: Record<string, unknown>): CustomLogRow {
   const { entry } = source.shape;
-  const message = text(valueOf(record, entry.message));
+  const message = text(valueOf(record, entry.roles.message));
   return defined({
     id: String(record.Id),
-    time: displayTime(entry.time, record),
+    time: displayTime(entry.roles.time, record),
     title: cell(message),
     user: cell(valueOf(record, entry.roles.user)),
     level: normalizeLevel(source.levels, valueOf(record, entry.roles.level), valueOf(record, entry.roles.levelOrdinal))
@@ -368,7 +368,7 @@ function transactionRow(
   const ordinal = valueOf(record, roles.maxLevelOrdinal);
   return defined({
     id: String(record.Id),
-    time: displayTime(transaction.startTime, record),
+    time: displayTime(roles.startTime, record),
     title: cell(valueOf(record, roles.name)),
     user: cell(valueOf(record, roles.user)),
     level: ordinal === undefined ? undefined : normalizeLevel(source.levels, undefined, ordinal).level,
@@ -392,7 +392,7 @@ function rowObject(source: ResolvedSource) {
       levelPredicate: transaction.levelPredicate,
       user: filterableField(roles.user),
       select: new Select().add(
-        transaction.startTime,
+        roles.startTime,
         roles.name,
         roles.user,
         roles.transactionId,
@@ -415,8 +415,8 @@ function rowObject(source: ResolvedSource) {
     levelPredicate: entry.levelPredicate,
     user: filterableField(roles.user),
     select: new Select().add(
-      entry.time,
-      entry.message,
+      roles.time,
+      roles.message,
       roles.level,
       roles.levelOrdinal,
       roles.user,
@@ -429,12 +429,15 @@ function rowObject(source: ResolvedSource) {
   };
 }
 
-function levelWhere(source: ResolvedSource, predicate: LevelPredicate, min: CustomLogLevel): string {
+function levelWhere(
+  source: ResolvedSource,
+  predicate: EntryLevelPredicate | HeaderLevelPredicate,
+  min: CustomLogLevel
+): string {
   if (predicate.kind === 'none') return unsupported(source, 'level mapping');
   if (predicate.kind === 'semiJoin') {
-    const { shape } = source;
-    if (shape.kind !== 'transactions') return unsupported(source, 'level mapping');
-    return `Id IN (SELECT ${shape.entry.parent.api} FROM ${shape.entry.object} WHERE ${levelCondition(predicate.entry, source.levels, min)})`;
+    const { parent, entryObject, entry } = predicate;
+    return `Id IN (SELECT ${parent.api} FROM ${entryObject} WHERE ${levelCondition(entry, source.levels, min)})`;
   }
   return levelCondition(predicate, source.levels, min);
 }
@@ -531,30 +534,27 @@ export function transactionLookupPlan(source: ResolvedSource, transactionId: str
   };
 }
 
+/** Which entries `get` pages. Built by `entriesScopeOf`, so it names only fields its source can filter. */
 export type EntriesScope =
-  { kind: 'header'; id: RecordId } | { kind: 'transactionKey'; value: string } | { kind: 'single'; id: RecordId };
+  | { readonly kind: 'header'; readonly parent: ResolvedField; readonly id: RecordId }
+  | { readonly kind: 'transactionKey'; readonly field: ResolvedField; readonly value: string }
+  | { readonly kind: 'single'; readonly id: RecordId };
 
-function scopeCondition(source: ResolvedSource, scope: EntriesScope): string {
-  const { shape } = source;
-  if (scope.kind === 'single') return `Id = ${quote(scope.id)}`;
-  if (scope.kind === 'header') {
-    if (shape.kind !== 'transactions') return unsupported(source, 'header object');
-    return `${shape.entry.parent.api} = ${quote(scope.id)}`;
-  }
-  const field = filterableField(shape.entry.roles.transactionId);
-  if (!field) return unsupported(source, 'filterable transaction id mapping');
-  return `${field.api} = ${quote(scope.value)}`;
+function scopeCondition(scope: EntriesScope): string {
+  if (scope.kind === 'header') return `${scope.parent.api} = ${quote(scope.id)}`;
+  if (scope.kind === 'transactionKey') return `${scope.field.api} = ${quote(scope.value)}`;
+  return `Id = ${quote(scope.id)}`;
 }
 
 /**
  * The entries `get` pages for the row `id`: a header's own entries; for an `entries` source,
  * every entry with the row's transaction id when SOQL can filter that field, else the row alone.
  */
-export function entriesScopeOf(source: ResolvedSource, id: RecordId, row: CustomLogRow): EntriesScope {
-  if (source.shape.kind === 'transactions') return { kind: 'header', id };
-  return row.transactionId && filterableField(source.shape.entry.roles.transactionId)
-    ? { kind: 'transactionKey', value: row.transactionId }
-    : { kind: 'single', id };
+export function entriesScopeOf(source: ResolvedSource, id: RecordId, transactionId?: string): EntriesScope {
+  const { shape } = source;
+  if (shape.kind === 'transactions') return { kind: 'header', parent: shape.entry.parent, id };
+  const field = filterableField(shape.entry.roles.transactionId);
+  return transactionId && field ? { kind: 'transactionKey', field, value: transactionId } : { kind: 'single', id };
 }
 
 function sequenceValue(entry: ResolvedEntryObject, record: Record<string, unknown>): string | number | null {
@@ -580,7 +580,7 @@ function entryDto(
 ): CustomLogEntry {
   const { entry } = source.shape;
   const { roles } = entry;
-  const full = text(valueOf(record, entry.message)) ?? '';
+  const full = text(valueOf(record, roles.message)) ?? '';
   const clipped = clip && full.length > CUSTOM_LOG_MESSAGE_PREVIEW_CHARS;
   const { level, rawLevel } = normalizeLevel(
     source.levels,
@@ -591,7 +591,7 @@ function entryDto(
   return defined({
     id: String(record.Id),
     sequence: count(valueOf(record, roles.order)) ?? position,
-    time: displayTime(entry.time, record),
+    time: displayTime(roles.time, record),
     level,
     rawLevel,
     message: clipped ? full.slice(0, CUSTOM_LOG_MESSAGE_PREVIEW_CHARS) : full,
@@ -611,8 +611,8 @@ function entryDto(
 function entrySelect(entry: ResolvedEntryObject): Select {
   const { roles } = entry;
   return new Select().add(
-    entry.time,
-    entry.message,
+    roles.time,
+    roles.message,
     roles.messageTruncated,
     roles.order,
     roles.level,
@@ -647,7 +647,7 @@ export function entriesPlan(
   const { entry } = source.shape;
   const { limit, after } = params;
   const conditions = [
-    scopeCondition(source, scope),
+    scopeCondition(scope),
     ...(params.minLevel ? [levelWhere(source, entry.levelPredicate, params.minLevel)] : []),
     ...(after ? [afterEntry(entry, after)] : [])
   ];

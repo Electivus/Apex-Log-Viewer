@@ -30,18 +30,18 @@ import {
   FLAG_TYPES,
   LONG_TEXT_TYPES,
   TRANSACTION_ROLES,
+  type ByRole,
   type DescribeFieldType,
   type DetailDefinition,
   type EntryDefinition,
-  type EntryRole,
   type FieldPath,
   type ParsedCustomLogsConfig,
   type PayloadDefinition,
   type PayloadPath,
+  type RoleSpec,
   type SourceDefinition,
   type SourceId,
-  type TransactionDefinition,
-  type TransactionRole
+  type TransactionDefinition
 } from './config.js';
 import type {
   CustomLogColumn,
@@ -88,11 +88,23 @@ export function filterableField(field: ResolvedField | undefined): ResolvedField
   return field?.filterable ? field : undefined;
 }
 
-/** How a minimum-level filter becomes SOQL. Computed once; builders switch on `kind`. */
-export type LevelPredicate =
+/** A level filter on a field of the object itself. */
+export type FieldLevelPredicate =
   | { readonly kind: 'ordinal'; readonly field: ResolvedField } // field >= APEX_LEVEL_ORDINALS[min]
-  | { readonly kind: 'values'; readonly field: ResolvedField } // field IN table.rawAtOrAbove[min]
-  | { readonly kind: 'semiJoin'; readonly entry: LevelPredicate & { kind: 'ordinal' | 'values' } } // header Id IN (SELECT parent FROM entry WHERE …)
+  | { readonly kind: 'values'; readonly field: ResolvedField }; // field IN table.rawAtOrAbove[min]
+
+/** How a minimum-level filter on entries becomes SOQL. Computed once; builders switch on `kind`. */
+export type EntryLevelPredicate = FieldLevelPredicate | { readonly kind: 'none' };
+
+/** How a minimum-level filter on headers becomes SOQL: their own ordinal, or the levels of their entries. */
+export type HeaderLevelPredicate =
+  | { readonly kind: 'ordinal'; readonly field: ResolvedField }
+  | {
+      readonly kind: 'semiJoin'; // Id IN (SELECT parent FROM entryObject WHERE <entry>)
+      readonly entryObject: string;
+      readonly parent: ResolvedField;
+      readonly entry: FieldLevelPredicate;
+    }
   | { readonly kind: 'none' };
 
 /** A mapped long field. Hidden ones stay listed so `entry` can answer `hidden` instead of dropping them. */
@@ -108,38 +120,39 @@ export type ResolvedDetail = ResolvedLongField & {
 
 export type ResolvedPayload = ResolvedLongField & { readonly columns: readonly PayloadPath[] };
 
-type RoleFields<R extends string> = { readonly [K in R]?: ResolvedField };
+/** Every mapped role describe returned. Required roles are always there; a hidden optional role is absent. */
+export type ResolvedEntryRoles = ByRole<typeof ENTRY_ROLES, ResolvedField> & { readonly time: ResolvedTimeField };
+
+export type ResolvedTransactionRoles = ByRole<typeof TRANSACTION_ROLES, ResolvedField> & {
+  /** Nebula's `StartTime__c` is a nillable formula (measured), so rows fall back to CreatedDate. */
+  readonly startTime: ResolvedTimeField;
+};
 
 export type ResolvedEntryObject = {
   readonly object: string;
   /** 3-char key prefix from describe; routes `get`/`entry` ids to their source. */
   readonly keyPrefix: string;
-  /** Display time. */
-  readonly time: ResolvedTimeField;
-  /** `time` when filterable, else CREATED_DATE. Drives since/until of an `entries` list. */
+  readonly roles: ResolvedEntryRoles;
+  /** `roles.time` when filterable, else CREATED_DATE. Drives since/until of an `entries` list. */
   readonly timeFilter: ResolvedTimeField;
   /** Order inside a transaction: the first sortable of `order`, `time`, CREATED_DATE; ties by Id. */
   readonly sequence: ResolvedField;
-  readonly message: ResolvedField;
-  readonly roles: RoleFields<Exclude<EntryRole, 'time' | 'message'>>;
   readonly columns: readonly ResolvedField[];
   readonly details: readonly ResolvedDetail[];
   readonly payload?: ResolvedPayload;
-  readonly levelPredicate: LevelPredicate;
+  readonly levelPredicate: EntryLevelPredicate;
   readonly systemMessagePrefix?: string;
 };
 
 export type ResolvedTransactionObject = {
   readonly object: string;
   readonly keyPrefix: string;
-  /** Display time. Nebula's `StartTime__c` is a nillable formula (measured), so rows fall back to CreatedDate. */
-  readonly startTime: ResolvedTimeField;
-  /** `startTime` when filterable, else CREATED_DATE. */
+  readonly roles: ResolvedTransactionRoles;
+  /** `roles.startTime` when filterable, else CREATED_DATE. */
   readonly timeFilter: ResolvedTimeField;
-  readonly roles: RoleFields<Exclude<TransactionRole, 'startTime'>>;
   readonly columns: readonly ResolvedField[];
   readonly payload?: ResolvedPayload;
-  readonly levelPredicate: LevelPredicate;
+  readonly levelPredicate: HeaderLevelPredicate;
 };
 
 export type ResolvedShape =
@@ -163,8 +176,8 @@ export type ResolvedSource = {
   readonly hidden: readonly string[];
 };
 
-/** What `sources` can say about a source that is not ready: which objects it looked for, and in what shape. */
-type CatalogHead = {
+/** What `sources` says of every source, ready or not: which objects it looks for, and in what shape. */
+export type CatalogHead = {
   readonly id: SourceId;
   readonly label: string;
   readonly origin: CustomLogSourceOrigin;
@@ -173,12 +186,9 @@ type CatalogHead = {
   readonly objects: { readonly transaction?: string; readonly entry: string };
 };
 
-export type CatalogEntry =
-  | { readonly state: 'ready'; readonly source: ResolvedSource }
-  | (CatalogHead & {
-      readonly state: 'notInstalled' | 'unavailable';
-      readonly detail: Exclude<CustomLogSourceState, { state: 'ready' }>;
-    });
+export type CatalogEntry = { readonly head: CatalogHead } & (
+  { readonly state: 'ready'; readonly source: ResolvedSource } | Exclude<CustomLogSourceState, { state: 'ready' }>
+);
 
 export type SourceCatalog = {
   readonly username: string;
@@ -194,17 +204,14 @@ function readyEntries(catalog: SourceCatalog): ResolvedSource[] {
 }
 
 function describeUnavailable(entry: Exclude<CatalogEntry, { state: 'ready' }>): string {
-  const { detail } = entry;
-  if (detail.state === 'unavailable') return `${detail.reason}: ${detail.message}`;
-  return detail.state === 'notInstalled' && detail.hint === 'collision'
-    ? 'not installed (a Log__c exists that is not Nebula Logger)'
-    : 'not installed';
+  if (entry.state === 'unavailable') return `${entry.reason}: ${entry.message}`;
+  return entry.hint === 'collision' ? 'not installed (a Log__c exists that is not Nebula Logger)' : 'not installed';
 }
 
 function findEntry(catalog: SourceCatalog, sourceId: string): CatalogEntry {
-  const entry = catalog.entries.find(item => (item.state === 'ready' ? item.source.id : item.id) === sourceId);
+  const entry = catalog.entries.find(item => item.head.id === sourceId);
   if (!entry) {
-    const known = catalog.entries.map(item => (item.state === 'ready' ? item.source.id : item.id)).join(', ');
+    const known = catalog.entries.map(item => item.head.id).join(', ');
     throw new AlvError(
       'CUSTOM_LOG_SOURCE_NOT_FOUND',
       `Unknown log source "${sourceId}". Known sources: ${known || 'none'}.`
@@ -283,49 +290,49 @@ function payloadInfo(payload: ResolvedPayload | undefined): CustomLogPayloadInfo
   return payload?.state === 'readable' ? { field: payload.field.api, columns: [...payload.columns] } : undefined;
 }
 
+/** A source as `sources` reports it. One that is not ready has the ready-only fields empty, as the contract says. */
 export function toSourceInfo(entry: CatalogEntry): CustomLogSourceInfo {
+  const { head } = entry;
+  const named = {
+    id: head.id,
+    label: head.label,
+    origin: head.origin,
+    shape: head.shape,
+    ...(head.namespace ? { namespace: head.namespace } : {})
+  };
   if (entry.state !== 'ready') {
+    const { head: _head, ...state } = entry;
     return {
-      id: entry.id,
-      label: entry.label,
-      origin: entry.origin,
-      shape: entry.shape,
-      ...(entry.namespace ? { namespace: entry.namespace } : {}),
-      objects: { ...entry.objects },
+      ...named,
+      objects: { ...head.objects },
       hiddenFields: [],
       unmappedLevels: [],
       capabilities: { levelFilter: false, userFilter: false, apexLogLink: false },
       payload: {},
-      ...entry.detail
+      ...state
     };
   }
-  const { source } = entry;
-  const { shape } = source;
+  const { shape, hidden, levels } = entry.source;
   const listed = shape.kind === 'transactions' ? shape.transaction : shape.entry;
-  const payload = {
-    ...(shape.kind === 'transactions' && payloadInfo(shape.transaction.payload)
-      ? { transaction: payloadInfo(shape.transaction.payload) }
-      : {}),
-    ...(payloadInfo(shape.entry.payload) ? { entry: payloadInfo(shape.entry.payload) } : {})
-  };
+  const transactionPayload = shape.kind === 'transactions' ? payloadInfo(shape.transaction.payload) : undefined;
+  const entryPayload = payloadInfo(shape.entry.payload);
   return {
-    id: source.id,
-    label: source.label,
-    origin: source.origin,
-    shape: shape.kind,
-    ...(source.namespace ? { namespace: source.namespace } : {}),
+    ...named,
     objects: {
       ...(shape.kind === 'transactions' ? { transaction: shape.transaction.object } : {}),
       entry: shape.entry.object
     },
-    hiddenFields: [...source.hidden],
-    unmappedLevels: [...source.levels.unmapped],
+    hiddenFields: [...hidden],
+    unmappedLevels: [...levels.unmapped],
     capabilities: {
       levelFilter: listed.levelPredicate.kind !== 'none',
       userFilter: filterableField(listed.roles.user) !== undefined,
       apexLogLink: listed.roles.requestId !== undefined
     },
-    payload,
+    payload: {
+      ...(transactionPayload ? { transaction: transactionPayload } : {}),
+      ...(entryPayload ? { entry: entryPayload } : {})
+    },
     state: 'ready'
   };
 }
@@ -623,20 +630,21 @@ class ObjectResolver {
     return field;
   }
 
-  roles(
-    roles: Record<string, { required: boolean; types: readonly string[] }>,
-    fields: Record<string, FieldPath | undefined>,
-    at: string,
-    skip: readonly string[]
-  ): Record<string, ResolvedField> {
+  /** Every mapped role. A required one missing or hidden fails the source; a hidden optional one is dropped. */
+  roles<R extends Record<string, RoleSpec>>(
+    specs: R,
+    paths: ByRole<R, FieldPath>,
+    at: string
+  ): ByRole<R, ResolvedField> {
     const resolved: Record<string, ResolvedField> = {};
-    for (const [role, spec] of Object.entries(roles)) {
-      const path = fields[role];
-      if (path === undefined || skip.includes(role)) continue;
-      const field = this.optional(path, spec.types, `${at}.fields.${role}`, `${at}.fields.${role}`);
+    for (const [role, spec] of Object.entries(specs)) {
+      const path = (paths as Partial<Record<string, FieldPath>>)[role];
+      if (path === undefined) continue;
+      const what = `${at}.fields.${role}`;
+      const field = spec.required ? this.required(path, spec.types, what) : this.optional(path, spec.types, what, what);
       if (field) resolved[role] = field;
     }
-    return resolved;
+    return resolved as ByRole<R, ResolvedField>;
   }
 
   columns(paths: readonly FieldPath[], at: string): ResolvedField[] {
@@ -676,11 +684,23 @@ function timeFieldOf(field: ResolvedField): ResolvedTimeField {
   return { ...field, encoding: field.type === 'datetime' ? 'datetime' : 'epochMillis' };
 }
 
-function predicateOf(ordinal: ResolvedField | undefined, level: ResolvedField | undefined): LevelPredicate {
+function entryPredicateOf(ordinal: ResolvedField | undefined, level: ResolvedField | undefined): EntryLevelPredicate {
   const byOrdinal = filterableField(ordinal);
   if (byOrdinal) return { kind: 'ordinal', field: byOrdinal };
   const byValue = filterableField(level);
   return byValue ? { kind: 'values', field: byValue } : { kind: 'none' };
+}
+
+function headerPredicateOf(
+  ordinal: ResolvedField | undefined,
+  entry: ResolvedEntryObject & { readonly parent: ResolvedField }
+): HeaderLevelPredicate {
+  const own = filterableField(ordinal);
+  if (own) return { kind: 'ordinal', field: own };
+  const { levelPredicate } = entry;
+  return levelPredicate.kind === 'none'
+    ? { kind: 'none' }
+    : { kind: 'semiJoin', entryObject: entry.object, parent: entry.parent, entry: levelPredicate };
 }
 
 function picklistValuesOf(describe: ObjectDescribe, field: ResolvedField | undefined): string[] | undefined {
@@ -688,63 +708,38 @@ function picklistValuesOf(describe: ObjectDescribe, field: ResolvedField | undef
   return findField(describe, field.api)?.picklistValues.map(item => item.value);
 }
 
-function resolveEntry(
-  definition: EntryDefinition,
-  resolver: ObjectResolver,
-  parent: FieldPath | undefined
-): { entry: ResolvedEntryObject; parent?: ResolvedField } {
-  const fields = definition.fields as Record<string, FieldPath | undefined>;
-  const time = timeFieldOf(resolver.required(fields.time!, ENTRY_ROLES.time.types, 'entry.fields.time'));
-  const message = resolver.required(fields.message!, ENTRY_ROLES.message.types, 'entry.fields.message');
-  const parentField = parent && resolver.required(parent, ['reference'], 'entry.parent');
-  const roles = resolver.roles(ENTRY_ROLES, fields, 'entry', ['time', 'message']) as ResolvedEntryObject['roles'];
-  const order = roles.order;
+function resolveEntry(definition: EntryDefinition, resolver: ObjectResolver): ResolvedEntryObject {
+  const roles = resolver.roles(ENTRY_ROLES, definition.fields, 'entry');
+  const time = timeFieldOf(roles.time);
   return {
-    entry: {
-      object: resolver.object,
-      keyPrefix: resolver.keyPrefix,
-      time,
-      timeFilter: time.filterable ? time : CREATED_DATE,
-      sequence: [order, time, CREATED_DATE].find(field => field?.sortable) ?? CREATED_DATE,
-      message,
-      roles,
-      columns: resolver.columns(definition.columns, 'entry'),
-      details: resolver.details(definition.details),
-      ...(definition.payload ? { payload: resolver.payload(definition.payload, 'entry.payload') } : {}),
-      levelPredicate: predicateOf(roles.levelOrdinal, roles.level),
-      ...(definition.systemMessagePrefix ? { systemMessagePrefix: definition.systemMessagePrefix } : {})
-    },
-    ...(parentField ? { parent: parentField } : {})
+    object: resolver.object,
+    keyPrefix: resolver.keyPrefix,
+    roles: { ...roles, time },
+    timeFilter: time.filterable ? time : CREATED_DATE,
+    sequence: [roles.order, time, CREATED_DATE].find(field => field?.sortable) ?? CREATED_DATE,
+    columns: resolver.columns(definition.columns, 'entry'),
+    details: resolver.details(definition.details),
+    ...(definition.payload ? { payload: resolver.payload(definition.payload, 'entry.payload') } : {}),
+    levelPredicate: entryPredicateOf(roles.levelOrdinal, roles.level),
+    ...(definition.systemMessagePrefix ? { systemMessagePrefix: definition.systemMessagePrefix } : {})
   };
 }
 
 function resolveTransaction(
   definition: TransactionDefinition,
   resolver: ObjectResolver,
-  entryPredicate: LevelPredicate
+  entry: ResolvedEntryObject & { readonly parent: ResolvedField }
 ): ResolvedTransactionObject {
-  const fields = definition.fields as Record<string, FieldPath | undefined>;
-  const startTime = timeFieldOf(
-    resolver.required(fields.startTime!, TRANSACTION_ROLES.startTime.types, 'transaction.fields.startTime')
-  );
-  const roles = resolver.roles(TRANSACTION_ROLES, fields, 'transaction', [
-    'startTime'
-  ]) as ResolvedTransactionObject['roles'];
-  const own = predicateOf(roles.maxLevelOrdinal, undefined);
+  const roles = resolver.roles(TRANSACTION_ROLES, definition.fields, 'transaction');
+  const startTime = timeFieldOf(roles.startTime);
   return {
     object: resolver.object,
     keyPrefix: resolver.keyPrefix,
-    startTime,
+    roles: { ...roles, startTime },
     timeFilter: startTime.filterable ? startTime : CREATED_DATE,
-    roles,
     columns: resolver.columns(definition.columns, 'transaction'),
     ...(definition.payload ? { payload: resolver.payload(definition.payload, 'transaction.payload') } : {}),
-    levelPredicate:
-      own.kind !== 'none'
-        ? own
-        : entryPredicate.kind === 'ordinal' || entryPredicate.kind === 'values'
-          ? { kind: 'semiJoin', entry: entryPredicate }
-          : { kind: 'none' }
+    levelPredicate: headerPredicateOf(roles.maxLevelOrdinal, entry)
   };
 }
 
@@ -781,11 +776,7 @@ export function resolveDefinition(
   describes: ReadonlyMap<string, ObjectDescribe>
 ): CatalogEntry {
   const head = headOf(definition, origin, namespace);
-  const unavailable = (failure: ResolveFailure): CatalogEntry => ({
-    ...head,
-    state: 'unavailable',
-    detail: { state: 'unavailable', reason: failure.reason, message: failure.message }
-  });
+  const unavailable = (failure: ResolveFailure): CatalogEntry => ({ head, state: 'unavailable', ...failure });
   const describeOf = (name: string) => describes.get(name);
   const entryDescribe = describeOf(head.objects.entry);
   const transactionDescribe = head.objects.transaction ? describeOf(head.objects.transaction) : undefined;
@@ -800,31 +791,25 @@ export function resolveDefinition(
   try {
     const { shape } = definition;
     const entryResolver = new ObjectResolver(entryDescribe, describes, namespace);
-    const resolvedEntry = resolveEntry(
-      shape.entry,
-      entryResolver,
-      shape.kind === 'transactions' ? shape.entry.parent : undefined
-    );
+    const entry = resolveEntry(shape.entry, entryResolver);
     let resolvedShape: ResolvedShape;
     let hidden: string[];
     if (shape.kind === 'transactions') {
+      const parent = entryResolver.required(shape.entry.parent, ['reference'], 'entry.parent');
+      const withParent = { ...entry, parent };
       const transactionResolver = new ObjectResolver(transactionDescribe!, describes, namespace);
-      const transaction = resolveTransaction(
-        shape.transaction,
-        transactionResolver,
-        resolvedEntry.entry.levelPredicate
-      );
       resolvedShape = {
         kind: 'transactions',
-        transaction,
-        entry: { ...resolvedEntry.entry, parent: resolvedEntry.parent! }
+        transaction: resolveTransaction(shape.transaction, transactionResolver, withParent),
+        entry: withParent
       };
       hidden = [...transactionResolver.hidden, ...entryResolver.hidden];
     } else {
-      resolvedShape = { kind: 'entries', entry: resolvedEntry.entry };
+      resolvedShape = { kind: 'entries', entry };
       hidden = entryResolver.hidden;
     }
     return {
+      head,
       state: 'ready',
       source: {
         id: definition.id,
@@ -833,7 +818,7 @@ export function resolveDefinition(
         ...(namespace ? { namespace } : {}),
         digest: definition.digest,
         shape: resolvedShape,
-        levels: buildLevelTable(definition.levels, picklistValuesOf(entryDescribe, resolvedEntry.entry.roles.level)),
+        levels: buildLevelTable(definition.levels, picklistValuesOf(entryDescribe, entry.roles.level)),
         hidden
       }
     };
@@ -899,11 +884,6 @@ async function describeAll(
   return { describes };
 }
 
-/** `notInstalled` and `metadataQueryRefused` answers share the definition's head. */
-function absent(head: CatalogHead, detail: Exclude<CustomLogSourceState, { state: 'ready' }>): CatalogEntry {
-  return { ...head, state: detail.state, detail };
-}
-
 /**
  * Detect a built-in preset in its one namespace: qualify the definition, check object existence
  * (EntityDefinition) and the fingerprint (FieldDefinition), then describe and `resolveDefinition`.
@@ -922,16 +902,17 @@ export async function detectPreset(
 ): Promise<CatalogEntry> {
   const { definition, namespace } = preset;
   const head = headOf(definition, 'builtin', namespace);
-  const refused = absent(head, {
+  const refused: CatalogEntry = {
+    head,
     state: 'unavailable',
     reason: 'metadataQueryRefused',
     message: 'This user cannot query EntityDefinition or FieldDefinition, so the object cannot be detected.'
-  });
+  };
 
   const wanted = [head.objects.entry, ...(head.objects.transaction ? [head.objects.transaction] : [])];
   const existing = await reader.existingObjects(wanted);
   if (existing === 'refused') return refused;
-  if (!wanted.every(name => existing.has(name.toLowerCase()))) return absent(head, { state: 'notInstalled' });
+  if (!wanted.every(name => existing.has(name.toLowerCase()))) return { head, state: 'notInstalled' };
 
   const fingerprint = await reader.existingFields(
     head.objects.entry,
@@ -940,16 +921,17 @@ export async function detectPreset(
   if (fingerprint === 'refused') return refused;
   if (!preset.fingerprint.every(field => fingerprint.has(qualifyPath(field, namespace).toLowerCase()))) {
     const mapped = wanted.some(name => configuredObjects.has(name.toLowerCase()));
-    return absent(head, mapped ? { state: 'notInstalled' } : { state: 'notInstalled', hint: 'collision' });
+    return mapped ? { head, state: 'notInstalled' } : { head, state: 'notInstalled', hint: 'collision' };
   }
 
   const described = await describeAll(definition, namespace, reader);
   if ('unreadable' in described) {
-    return absent(head, {
+    return {
+      head,
       state: 'unavailable',
       reason: 'objectNotReadable',
       message: `${described.unreadable} exists, but describe does not return it for this user.`
-    });
+    };
   }
   return resolveDefinition(definition, 'builtin', namespace, described.describes);
 }
@@ -959,27 +941,25 @@ async function resolveConfigSource(definition: SourceDefinition, reader: SchemaR
   const wanted = [head.objects.entry, ...(head.objects.transaction ? [head.objects.transaction] : [])];
   const existing = await reader.existingObjects(wanted);
   if (existing === 'refused') {
-    return absent(head, {
+    return {
+      head,
       state: 'unavailable',
       reason: 'metadataQueryRefused',
       message: 'This user cannot query EntityDefinition, so the mapped objects cannot be checked.'
-    });
+    };
   }
   const missing = wanted.find(name => !existing.has(name.toLowerCase()));
   if (missing) {
-    return absent(head, {
-      state: 'unavailable',
-      reason: 'objectNotFound',
-      message: `${missing} does not exist in this org.`
-    });
+    return { head, state: 'unavailable', reason: 'objectNotFound', message: `${missing} does not exist in this org.` };
   }
   const described = await describeAll(definition, '', reader);
   if ('unreadable' in described) {
-    return absent(head, {
+    return {
+      head,
       state: 'unavailable',
       reason: 'objectNotReadable',
       message: `${described.unreadable} exists, but describe does not return it for this user.`
-    });
+    };
   }
   return resolveDefinition(definition, 'config', '', described.describes);
 }

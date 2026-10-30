@@ -31,7 +31,7 @@ import { shortHash } from './hash.js';
 // must list exactly these keys) all derive from these two tables.
 
 /** Describe `type` values a role accepts. */
-type RoleSpec = { required: boolean; types: readonly DescribeFieldType[] };
+export type RoleSpec = { required: boolean; types: readonly DescribeFieldType[] };
 
 export type DescribeFieldType =
   | 'id'
@@ -105,11 +105,14 @@ export type ObjectName = Brand<string, 'CustomLogObjectName'>;
 /** A flattened payload path (`order.lines[0].sku`), 1..255 characters. Matched exactly, never parsed. */
 export type PayloadPath = Brand<string, 'CustomLogPayloadPath'>;
 
-type RoleMap<R extends Record<string, RoleSpec>> = {
-  [K in keyof R as R[K]['required'] extends true ? K : never]: FieldPath;
+/** One `V` per role of `R`: always present for a required role, optional otherwise. */
+export type ByRole<R extends Record<string, RoleSpec>, V> = {
+  readonly [K in keyof R as R[K]['required'] extends true ? K : never]: V;
 } & {
-  [K in keyof R as R[K]['required'] extends true ? never : K]?: FieldPath;
+  readonly [K in keyof R as R[K]['required'] extends true ? never : K]?: V;
 };
+
+type RoleMap<R extends Record<string, RoleSpec>> = ByRole<R, FieldPath>;
 
 /**
  * A long field fetched only by `entry`. Written as a bare field path, or as an object that adds

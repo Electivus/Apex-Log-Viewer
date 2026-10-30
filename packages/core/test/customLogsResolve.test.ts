@@ -52,6 +52,12 @@ function define(source: Json = harnessAppLog): SourceDefinition {
   return sources[0]!;
 }
 
+/** A catalog entry's state without its head: what `sources` reports beside the names. */
+function stateOf(entry: CatalogEntry) {
+  const { head: _head, ...state } = entry;
+  return state;
+}
+
 function ready(entry: CatalogEntry): ResolvedSource {
   assert.equal(entry.state, 'ready', JSON.stringify(entry));
   return (entry as Extract<CatalogEntry, { state: 'ready' }>).source;
@@ -76,13 +82,13 @@ test('unlocked Nebula resolves against the admin describe with nothing hidden', 
   assert.equal(source.shape.entry.object, 'LogEntry__c');
   assert.equal(source.shape.entry.keyPrefix, 'a01');
   assert.equal(source.shape.entry.sequence.api, 'TransactionEntryNumber__c');
-  assert.equal(source.shape.entry.time.encoding, 'epochMillis');
+  assert.equal(source.shape.entry.roles.time.encoding, 'epochMillis');
   assert.equal(source.shape.entry.timeFilter.api, 'EpochTimestamp__c');
   assert.deepEqual(source.shape.entry.levelPredicate.kind, 'ordinal');
   assert.equal(source.shape.entry.parent.api, 'Log__c');
   assert.equal(source.shape.transaction.object, 'Log__c');
   assert.equal(source.shape.transaction.keyPrefix, 'a02');
-  assert.equal(source.shape.transaction.startTime.encoding, 'datetime');
+  assert.equal(source.shape.transaction.roles.startTime.encoding, 'datetime');
   assert.equal(source.shape.transaction.levelPredicate.kind, 'ordinal');
   assert.deepEqual(source.levels.unmapped, []);
   assert.deepEqual(
@@ -108,8 +114,8 @@ test('managed Nebula qualifies every custom name with its namespace and keeps th
 
   assert.equal(source.namespace, 'Nebula');
   assert.equal(source.shape.entry.object, 'Nebula__LogEntry__c');
-  assert.equal(source.shape.entry.message.api, 'Nebula__Message__c');
-  assert.equal(source.shape.entry.message.key, 'Message__c');
+  assert.equal(source.shape.entry.roles.message.api, 'Nebula__Message__c');
+  assert.equal(source.shape.entry.roles.message.key, 'Message__c');
   assert.equal(source.shape.entry.sequence.api, 'Nebula__TransactionEntryNumber__c');
   assert.equal(source.shape.entry.columns[0]?.key, 'OriginType__c');
   assert.equal(source.shape.entry.columns[0]?.api, 'Nebula__OriginType__c');
@@ -169,7 +175,7 @@ test('a required role that describe omits makes the source unavailable', () => {
   const result = resolveDefinition(nebula, 'builtin', '', describes);
 
   assert.equal(result.state, 'unavailable');
-  assert.deepEqual(result.state === 'unavailable' && result.detail, {
+  assert.deepEqual(stateOf(result), {
     state: 'unavailable',
     reason: 'requiredFieldMissing',
     message: 'entry.fields.message ("Message__c") is missing from LogEntry__c or hidden from this user.'
@@ -185,7 +191,7 @@ test('a field of the wrong type makes the source unavailable instead of reading 
 
   for (const definition of [wrongTime, wrongPayload]) {
     const result = resolveDefinition(definition, 'config', '', unlockedAdmin);
-    assert.equal(result.state === 'unavailable' && result.detail.reason, 'fieldTypeMismatch');
+    assert.equal(result.state === 'unavailable' && result.reason, 'fieldTypeMismatch');
   }
 });
 
@@ -195,17 +201,18 @@ test('a describe that does not return an object leaves the source unreadable', (
 
   const result = resolveDefinition(nebula, 'builtin', '', describes);
 
-  assert.equal(result.state === 'unavailable' && result.detail.reason, 'objectNotReadable');
+  assert.equal(result.state === 'unavailable' && result.reason, 'objectNotReadable');
 });
 
 test('a one-object source with a relationship path, long details and a payload resolves from real describes', () => {
-  const source = ready(resolveDefinition(define(), 'config', '', unlockedAdmin));
+  const entry = resolveDefinition(define(), 'config', '', unlockedAdmin);
+  const source = ready(entry);
 
   assert.equal(source.shape.kind, 'entries');
   assert.equal(source.shape.entry.object, 'App_Log__c');
   assert.equal(source.shape.entry.roles.user?.api, 'CreatedBy.Username');
   assert.equal(source.shape.entry.roles.user?.key, 'CreatedBy.Username');
-  assert.equal(source.shape.entry.time.encoding, 'datetime');
+  assert.equal(source.shape.entry.roles.time.encoding, 'datetime');
   assert.equal(source.shape.entry.sequence.api, 'Logged_At__c');
   assert.equal(source.shape.entry.levelPredicate.kind, 'values');
   assert.deepEqual(source.shape.entry.payload && { ...source.shape.entry.payload, field: undefined }, {
@@ -216,7 +223,7 @@ test('a one-object source with a relationship path, long details and a payload r
   });
   assert.deepEqual(source.levels.rawAtOrAbove.WARN, ['WARNING', 'ERROR']);
   assert.deepEqual(source.levels.rawAtOrAbove.DEBUG, ['DEBUG', 'INFO', 'WARNING', 'ERROR']);
-  const info = toSourceInfo({ state: 'ready', source });
+  const info = toSourceInfo(entry);
   assert.deepEqual(info.payload, { entry: { field: 'Payload__c', columns: ['orderId'] } });
   assert.deepEqual(info.capabilities, { levelFilter: true, userFilter: true, apexLogLink: true });
 });
@@ -242,7 +249,7 @@ test('the display time falls back to CreatedDate for sorting when it is not sort
 
   const source = ready(resolveDefinition(define(), 'config', '', describes));
 
-  assert.equal(source.shape.entry.time.api, 'Logged_At__c');
+  assert.equal(source.shape.entry.roles.time.api, 'Logged_At__c');
   assert.equal(source.shape.entry.timeFilter, CREATED_DATE);
   assert.equal(source.shape.entry.sequence, CREATED_DATE);
 });
@@ -340,8 +347,8 @@ test('detection tells an unrelated Log__c from Nebula through the field fingerpr
   const mapped = await detectPreset(NEBULA_PRESET, stranger, new Set(['logentry__c']));
 
   assert.equal(collision.state, 'notInstalled');
-  assert.deepEqual(collision.state !== 'ready' && collision.detail, { state: 'notInstalled', hint: 'collision' });
-  assert.deepEqual(mapped.state !== 'ready' && mapped.detail, { state: 'notInstalled' });
+  assert.deepEqual(stateOf(collision), { state: 'notInstalled', hint: 'collision' });
+  assert.deepEqual(stateOf(mapped), { state: 'notInstalled' });
   assert.deepEqual(stranger.calls.describes, []);
 });
 
@@ -363,7 +370,7 @@ test('a refused metadata query is reported, with no describe attempt', async () 
 
     const result = await detectPreset(NEBULA_PRESET, reader, new Set());
 
-    assert.equal(result.state === 'unavailable' && result.detail.reason, 'metadataQueryRefused');
+    assert.equal(result.state === 'unavailable' && result.reason, 'metadataQueryRefused');
     assert.deepEqual(reader.calls.describes, []);
   }
 });
@@ -379,7 +386,7 @@ test('an object that exists but describe does not return is unreadable for this 
 
   const result = await detectPreset(NEBULA_PRESET, reader, new Set());
 
-  assert.equal(result.state === 'unavailable' && result.detail.reason, 'objectNotReadable');
+  assert.equal(result.state === 'unavailable' && result.reason, 'objectNotReadable');
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -393,13 +400,14 @@ const unlockedNebula = resolveDefinition(nebula, 'builtin', '', unlockedAdmin);
 const managedNebula = resolveDefinition(NEBULA_MANAGED_PRESET.definition, 'builtin', 'Nebula', managedAdmin);
 const appLog = resolveDefinition(define(), 'config', '', unlockedAdmin);
 const absentManaged: CatalogEntry = {
-  state: 'notInstalled',
-  id: 'nebula-managed' as never,
-  label: 'Nebula Logger (managed)',
-  origin: 'builtin',
-  shape: 'transactions',
-  objects: { transaction: 'Nebula__Log__c', entry: 'Nebula__LogEntry__c' },
-  detail: { state: 'notInstalled' }
+  head: {
+    id: 'nebula-managed' as never,
+    label: 'Nebula Logger (managed)',
+    origin: 'builtin',
+    shape: 'transactions',
+    objects: { transaction: 'Nebula__Log__c', entry: 'Nebula__LogEntry__c' }
+  },
+  state: 'notInstalled'
 };
 
 function codeOf(run: () => unknown): string | undefined {
