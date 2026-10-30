@@ -135,8 +135,16 @@ function load() {
   });
   fake.handlers.customLogEntry = async () => entryResult();
 
-  async function open(options: { targetOrg?: string; sourceId?: string; logId?: string } = {}) {
-    await CustomLogViewerPanel.show({ targetOrg: 'dev@example.com', sourceId: 'nebula', logId: LOG_ID, ...options });
+  async function open(
+    options: { targetOrg?: string; sourceId?: string; logId?: string; payloadDefaults?: string[] } = {}
+  ) {
+    await CustomLogViewerPanel.show({
+      targetOrg: 'dev@example.com',
+      sourceId: 'nebula',
+      logId: LOG_ID,
+      payloadDefaults: ['orderId'],
+      ...options
+    });
     const { host } = panels.at(-1)!;
     await host.emit({ type: 'customLogViewerReady' });
     return host;
@@ -156,7 +164,7 @@ suite('Custom Logs viewer panel', () => {
     assert.deepEqual(fake.calls.customLogGet, [
       { targetOrg: 'dev@example.com', projectDir: '/project', source: 'nebula', logId: LOG_ID, limit: 200 }
     ]);
-    assert.deepEqual(fake.calls.customLogSources, [{ targetOrg: 'dev@example.com', projectDir: '/project' }]);
+    assert.deepEqual(fake.calls.customLogSources, [], 'the defaults come from the list that opened the log');
     assert.deepEqual(
       host.posted.map(message => message.type),
       [
@@ -179,11 +187,30 @@ suite('Custom Logs viewer panel', () => {
     assert.equal(host.title, 'Custom log: Log-000739');
   });
 
+  test('refresh reads the log again and keeps the defaults it was opened with', async () => {
+    const { fake, open } = load();
+    const host = await open({ payloadDefaults: ['http.status'] });
+
+    await host.emit({ type: 'customLogViewerRefresh' });
+
+    assert.equal(fake.calls.customLogGet.length, 2);
+    assert.deepEqual(fake.calls.customLogSources, []);
+    assert.deepEqual((host.last('customLogViewerInit') as never as Record<string, unknown>).payloadColumns, {
+      defaults: ['http.status'],
+      added: []
+    });
+  });
+
   test('a second request for the same log reveals the open panel', async () => {
     const { panels, open, CustomLogViewerPanel } = load();
     const host = await open();
 
-    await CustomLogViewerPanel.show({ targetOrg: 'dev@example.com', sourceId: 'nebula', logId: LOG_ID });
+    await CustomLogViewerPanel.show({
+      targetOrg: 'dev@example.com',
+      sourceId: 'nebula',
+      logId: LOG_ID,
+      payloadDefaults: []
+    });
 
     assert.equal(panels.length, 1);
     assert.equal(host.revealed, 1);

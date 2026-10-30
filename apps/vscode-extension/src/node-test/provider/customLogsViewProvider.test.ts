@@ -463,7 +463,20 @@ suite('Custom Logs view provider', () => {
       assert.deepEqual(viewerOpens, []);
 
       await host.emit({ type: 'customLogsOpenLog', logId: LOG_IDS.second });
-      assert.deepEqual(viewerOpens, [{ targetOrg: 'dev@example.com', sourceId: 'nebula', logId: LOG_IDS.second }]);
+      assert.deepEqual(viewerOpens, [
+        { targetOrg: 'dev@example.com', sourceId: 'nebula', logId: LOG_IDS.second, payloadDefaults: [] }
+      ]);
+    });
+
+    test("hands the viewer the entry JSON columns the source's mapping defaults", async () => {
+      const { viewerOpens, mount } = load();
+      const host = new FakeHost();
+      await mount(host);
+      await host.emit({ type: 'customLogsSelectSource', sourceId: 'app-log' });
+
+      await host.emit({ type: 'customLogsOpenLog', logId: LOG_IDS.first });
+
+      assert.deepEqual(viewerOpens.at(-1)?.payloadDefaults, ['orderId']);
     });
 
     test('opens the header payload of a listed transaction as a document, through get', async () => {

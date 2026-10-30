@@ -24,6 +24,8 @@ export interface CustomLogViewerShowOptions {
   sourceId: string;
   /** The header record (a `transactions` source) or any entry of the transaction (an `entries` source). */
   logId: string;
+  /** The entry JSON columns the source's mapping defaults, as the list that opens the log holds them. */
+  payloadDefaults: readonly string[];
 }
 
 const ENTRIES_PAGE_SIZE = 200;
@@ -69,7 +71,6 @@ export class CustomLogViewerPanel {
   private loadController: AbortController | undefined;
   private title: string;
   private apexLog: CustomLogApexLogLink = { state: 'noRequestId' };
-  private payloadDefaults: string[] = [];
   private headerPayload: HeldLongText | undefined;
   private cursor: string | null = null;
   private readonly deliveredEntryIds = new Set<string>();
@@ -170,24 +171,15 @@ export class CustomLogViewerPanel {
     const startedAt = Date.now();
     try {
       const projectDir = await findCustomLogsProjectDir();
-      const [detail, sources] = await Promise.all([
-        runtimeClient.customLogGet(
-          { ...this.scope(projectDir), logId: this.options.logId, limit: ENTRIES_PAGE_SIZE },
-          signal
-        ),
-        runtimeClient.customLogSources({ targetOrg: this.options.targetOrg, projectDir }, signal).catch(error => {
-          if (signal.aborted) throw error;
-          logWarn('CustomLogViewerPanel: could not read the source defaults ->', getErrorMessage(error));
-          return undefined;
-        })
-      ]);
+      const detail = await runtimeClient.customLogGet(
+        { ...this.scope(projectDir), logId: this.options.logId, limit: ENTRIES_PAGE_SIZE },
+        signal
+      );
       if (signal.aborted || this.disposed) {
         return;
       }
       this.apexLog = detail.apexLog;
       this.cursor = detail.nextCursor;
-      this.payloadDefaults =
-        sources?.sources.find(source => source.id === detail.source.id)?.payload.entry?.columns ?? [];
       const header = buildHeaderPayloadField(detail.logPayload, this.labels().payload);
       this.headerPayload = header?.held;
       this.title = detail.log.title ?? this.options.logId;
@@ -204,7 +196,7 @@ export class CustomLogViewerPanel {
         log: detail.log,
         ...(header ? { logPayload: header.view } : {}),
         entryColumns: detail.entryColumns,
-        payloadColumns: this.payloadColumns.read(this.options.sourceId, 'entry', this.payloadDefaults),
+        payloadColumns: this.payloadColumns.read(this.options.sourceId, 'entry', this.options.payloadDefaults),
         apexLog: detail.apexLog
       });
       this.post({
@@ -219,7 +211,8 @@ export class CustomLogViewerPanel {
       if (signal.aborted || this.disposed) {
         return;
       }
-      this.fail('log', error, 'customLogs.openLog', startedAt);
+      this.showFailure('log', error);
+      this.recordFailure('customLogs.openLog', startedAt, error);
     } finally {
       if (!signal.aborted && !this.disposed) {
         this.post({ type: 'customLogViewerLoading', scope: 'log', value: false });
@@ -257,7 +250,7 @@ export class CustomLogViewerPanel {
       });
     } catch (error) {
       if (!signal.aborted && !this.disposed) {
-        this.fail('entries', error);
+        this.showFailure('entries', error);
       }
     } finally {
       if (!signal.aborted && !this.disposed) {
@@ -289,7 +282,8 @@ export class CustomLogViewerPanel {
       safeSendEvent('customLogs.openEntry', { outcome: 'ok' }, { durationMs: Date.now() - startedAt });
     } catch (error) {
       if (!this.disposed) {
-        this.fail('entry', error, 'customLogs.openEntry', startedAt);
+        this.showFailure('entry', error);
+        this.recordFailure('customLogs.openEntry', startedAt, error);
       }
     } finally {
       this.post({ type: 'customLogViewerLoading', scope: 'entry', value: false });
@@ -330,7 +324,7 @@ export class CustomLogViewerPanel {
       );
     } catch (error) {
       if (!this.disposed) {
-        this.fail('field', error);
+        this.showFailure('field', error);
         safeSendEvent('customLogs.openField', { outcome: 'error', code: getTelemetryErrorCode(error) });
       }
     }
@@ -347,14 +341,14 @@ export class CustomLogViewerPanel {
       await this.logService.openLog(link.logId, this.options.targetOrg);
       safeSendEvent('customLogs.openApexLog', { outcome: 'linked' });
     } catch (error) {
-      this.fail('apexLog', error);
+      this.showFailure('apexLog', error);
       safeSendEvent('customLogs.openApexLog', { outcome: 'error', code: getTelemetryErrorCode(error) });
     }
   }
 
   private async setPayloadColumns(added: string[]): Promise<void> {
     await this.payloadColumns.write(this.options.sourceId, 'entry', added);
-    const value = this.payloadColumns.read(this.options.sourceId, 'entry', this.payloadDefaults);
+    const value = this.payloadColumns.read(this.options.sourceId, 'entry', this.options.payloadDefaults);
     this.post({ type: 'customLogViewerPayloadColumns', value });
     safeSendEvent('customLogs.payloadColumns', { outcome: 'ok', level: 'entry' }, { count: value.added.length });
   }
@@ -367,22 +361,18 @@ export class CustomLogViewerPanel {
     }
   }
 
-  private fail(
-    scope: ErrorScope,
-    error: unknown,
-    event?: 'customLogs.openLog' | 'customLogs.openEntry',
-    startedAt?: number
-  ): void {
+  private showFailure(scope: ErrorScope, error: unknown): void {
     const message = getErrorMessage(error);
     logWarn(`CustomLogViewerPanel: ${scope} failed ->`, message);
     this.post({ type: 'customLogViewerError', scope, message });
-    if (event) {
-      safeSendEvent(
-        event,
-        { outcome: 'error', code: getTelemetryErrorCode(error) },
-        { durationMs: Date.now() - (startedAt ?? Date.now()) }
-      );
-    }
+  }
+
+  private recordFailure(event: 'customLogs.openLog' | 'customLogs.openEntry', startedAt: number, error: unknown): void {
+    safeSendEvent(
+      event,
+      { outcome: 'error', code: getTelemetryErrorCode(error) },
+      { durationMs: Date.now() - startedAt }
+    );
   }
 
   private dispose(): void {

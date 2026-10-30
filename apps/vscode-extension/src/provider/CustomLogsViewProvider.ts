@@ -338,7 +338,12 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       logWarn('Custom Logs: ignored openLog for a record that is not listed');
       return;
     }
-    await CustomLogViewerPanel.show({ targetOrg: this.selectedOrg, sourceId: source.id, logId });
+    await CustomLogViewerPanel.show({
+      targetOrg: this.selectedOrg,
+      sourceId: source.id,
+      logId,
+      payloadDefaults: source.payload.entry?.columns ?? []
+    });
   }
 
   private async openPayload(logId: string): Promise<void> {
