@@ -475,7 +475,9 @@ test('get explains an entry id passed where a log id belongs', async t => {
   await assert.rejects(
     core.customLog.get({ targetOrg: username, projectDir: undefined, logId: 'a01000000000001AAA' }),
     (error: unknown) =>
-      error instanceof AlvError && error.code === 'CUSTOM_LOG_RECORD_NOT_FOUND' && /entry id/.test(error.message)
+      error instanceof AlvError &&
+      error.code === 'CUSTOM_LOG_RECORD_NOT_FOUND' &&
+      error.message === "a01000000000001AAA is a LogEntry__c id. Pass the Log__c id from the entry's logId field."
   );
   await assert.rejects(
     core.customLog.get({ targetOrg: username, projectDir: undefined, logId: 'not-an-id' }),
@@ -540,7 +542,10 @@ test('entry rejects a log id and a missing record with their own codes', async t
   await assert.rejects(
     core.customLog.entry({ targetOrg: username, projectDir: undefined, entryId: 'a02000000000001AAA' }),
     (error: unknown) =>
-      error instanceof AlvError && error.code === 'CUSTOM_LOG_RECORD_NOT_FOUND' && /log id/.test(error.message)
+      error instanceof AlvError &&
+      error.code === 'CUSTOM_LOG_RECORD_NOT_FOUND' &&
+      error.message ===
+        'a02000000000001AAA is a Log__c id. Pass a LogEntry__c id from the entries that custom-log get returns.'
   );
   await assert.rejects(
     core.customLog.entry({ targetOrg: username, projectDir: undefined, entryId: 'a01000000000001AAA' }),

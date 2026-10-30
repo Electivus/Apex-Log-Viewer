@@ -169,6 +169,11 @@ function notFound(what: string): never {
   throw new AlvError('CUSTOM_LOG_RECORD_NOT_FOUND', `${what} was not found, or this user cannot read it.`);
 }
 
+/** A record id of the other level was passed. The message says what it is and which id to pass instead. */
+function wrongRecordLevel(message: string): never {
+  throw new AlvError('CUSTOM_LOG_RECORD_NOT_FOUND', message);
+}
+
 function resolveWindow(filter: CustomLogFilter | undefined, now: Date): { since?: string; until?: string } {
   const since = nonBlank(filter?.since);
   const until = nonBlank(filter?.until);
@@ -261,8 +266,9 @@ export function createCustomLogApi(presets: readonly BuiltinPreset[] = BUILTIN_P
           if (logId === undefined) return requireSource(catalog, sourceId);
           const owner = requireSourceForRecord(catalog, sourceId, logId);
           if (owner.source.shape.kind === 'transactions' && owner.level === 'entry') {
-            notFound(
-              `${logId} is an entry id, not a ${owner.source.shape.transaction.object} id; the log (see "logId" in custom-log entry)`
+            wrongRecordLevel(
+              `${logId} is a ${owner.source.shape.entry.object} id. ` +
+                `Pass the ${owner.source.shape.transaction.object} id from the entry's logId field.`
             );
           }
           return owner.source;
@@ -317,7 +323,13 @@ export function createCustomLogApi(presets: readonly BuiltinPreset[] = BUILTIN_P
         config,
         catalog => {
           const owner = requireSourceForRecord(catalog, nonBlank(params.source), entryId);
-          if (owner.level !== 'entry') notFound(`${entryId} is a log id, not an entry id; the entry`);
+          const { shape } = owner.source;
+          if (owner.level !== 'entry') {
+            wrongRecordLevel(
+              `${entryId} is a ${shape.kind === 'transactions' ? shape.transaction.object : shape.entry.object} id. ` +
+                `Pass a ${shape.entry.object} id from the entries that custom-log get returns.`
+            );
+          }
           return owner.source;
         },
         async source => {
