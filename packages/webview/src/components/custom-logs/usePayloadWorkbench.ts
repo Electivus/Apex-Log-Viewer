@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type {
   CustomLogPayloadColumnsView,
   CustomLogPayloadField,
@@ -63,12 +63,10 @@ export function usePayloadWorkbench<Column extends { id: string }>({
     [payloadColumns]
   );
   const columns = useMemo(() => buildColumns(payloadColumns, discovered), [buildColumns, discovered, payloadColumns]);
-
-  useEffect(() => {
-    if (sort && !columns.some(column => column.id === sort.columnId)) {
-      setSort(undefined);
-    }
-  }, [columns, sort]);
+  // The sort is kept and saved as chosen, and applies while its column is shown: a restored webview gets its
+  // columns from the host after it mounts, so an absent column is not a reason to forget the sort.
+  const sortColumn = sort ? columns.find(column => column.id === sort.columnId) : undefined;
+  const appliedSort = sortColumn ? sort : undefined;
 
   const uiState = useMemo<PayloadUiState>(
     () => ({ payloadFilters, sort, hiddenDefaults }),
@@ -153,11 +151,9 @@ export function usePayloadWorkbench<Column extends { id: string }>({
   }, []);
 
   const sortItems = useCallback(
-    <T>(items: T[], valueOf: (item: T, column: Column) => CustomLogScalar | undefined): T[] => {
-      const sortColumn = sort ? columns.find(column => column.id === sort.columnId) : undefined;
-      return sort && sortColumn ? sortLoadedRows(items, item => valueOf(item, sortColumn), sort.dir) : items;
-    },
-    [columns, sort]
+    <T>(items: T[], valueOf: (item: T, column: Column) => CustomLogScalar | undefined): T[] =>
+      sort && sortColumn ? sortLoadedRows(items, item => valueOf(item, sortColumn), sort.dir) : items,
+    [sort, sortColumn]
   );
 
   const requestFilterPrefill = useCallback((text: string) => {
@@ -180,11 +176,11 @@ export function usePayloadWorkbench<Column extends { id: string }>({
     columns,
     payloadFilters,
     filtering: payloadFilters.length > 0,
-    payloadInUse: payloadFilters.length > 0 || payloadColumns.length > 0 || sort !== undefined,
+    payloadInUse: payloadFilters.length > 0 || payloadColumns.length > 0 || appliedSort !== undefined,
     loadedChips,
     addPayloadFilters,
     filterEqual,
-    sort,
+    sort: appliedSort,
     onSort,
     sortItems,
     toggleColumn,

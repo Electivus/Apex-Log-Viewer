@@ -1,9 +1,12 @@
-import { fireEvent, screen, within } from '@testing-library/react';
+import React from 'react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import { CustomLogsApp } from '../customLogs';
 import {
   appLog,
   chipSummary,
   columnHeader,
+  createVsCodeMock,
   filterInput,
   grid,
   headerLabels,
@@ -186,6 +189,59 @@ describe('Custom Logs JSON columns', () => {
       expect(listedTitles()[0]).toBe('Order synced');
       fireEvent.click(sortButton('Level'));
       expect(listedTitles()[0]).toBe('Order sync failed');
+    });
+
+    it('keeps a saved sort on a JSON column when the webview is restored', () => {
+      const first = mountApp({ added: ['http.status'] });
+      fireEvent.click(screen.getByRole('button', { name: 'Column menu for http.status' }));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Sort descending' }));
+      const saved = first.getSavedState();
+      first.view.unmount();
+
+      mountApp({ added: ['http.status'] }, saved);
+
+      expect(columnHeader('http.status')).toHaveAttribute('aria-sort', 'descending');
+      expect(listedTitles().slice(0, 2)).toEqual(['Order sync failed', 'Legacy status as text']);
+    });
+
+    it('keeps a saved sort on a mapped column when a new host session clears the page before the first one', () => {
+      const byCategory = [
+        makeRow(ids.ok, 'Shipped', { extra: { Category__c: 'Shipping' } }),
+        makeRow(ids.failed, 'Billed', { extra: { Category__c: 'Billing' } }),
+        makeRow(ids.retry, 'Ordered', { extra: { Category__c: 'Orders' } })
+      ];
+      const first = mountApp({ rows: byCategory });
+      fireEvent.click(sortButton('Category'));
+      expect(listedTitles()).toEqual(['Billed', 'Ordered', 'Shipped']);
+      const saved = first.getSavedState();
+      first.view.unmount();
+
+      const { vscode } = createVsCodeMock(saved);
+      const bus = new EventTarget();
+      render(<CustomLogsApp vscode={vscode} messageBus={bus} />);
+      send(bus, { type: 'customLogsInit', locale: 'en' });
+      send(bus, { type: 'customLogsLoading', value: true });
+      send(bus, {
+        type: 'customLogsOrgs',
+        data: [{ username: 'dev@acme.com', alias: 'acme-dev' }],
+        selected: 'dev@acme.com'
+      });
+      send(bus, { type: 'customLogsSources', data: [appLog], selected: 'app-log', issues: [] });
+      send(bus, { type: 'customLogsFilter', value: {} });
+      send(bus, { type: 'customLogsPayloadColumns', value: { defaults: [], added: [] } });
+      send(bus, { type: 'customLogsPage', mode: 'replace', columns: [], rows: [], payloadFields: [], hasMore: false });
+      send(bus, {
+        type: 'customLogsPage',
+        mode: 'replace',
+        columns: [{ key: 'Category__c', label: 'Category' }],
+        rows: byCategory,
+        payloadFields: [],
+        hasMore: false
+      });
+      send(bus, { type: 'customLogsLoading', value: false });
+
+      expect(columnHeader('Category')).toHaveAttribute('aria-sort', 'ascending');
+      expect(listedTitles()).toEqual(['Billed', 'Ordered', 'Shipped']);
     });
 
     it('moves the filter bar to the field when the menu asks to filter by it', () => {

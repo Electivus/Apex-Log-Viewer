@@ -138,7 +138,7 @@ function createVsCodeMock(initialState?: unknown) {
       savedState = state;
     }
   };
-  return { vscode, posted };
+  return { vscode, posted, getSavedState: () => savedState };
 }
 
 function send(bus: EventTarget, message: CustomLogViewerToWebviewMessage) {
@@ -159,8 +159,8 @@ type MountOptions = {
   locale?: string;
 };
 
-function mountViewer(options: MountOptions = {}) {
-  const mock = createVsCodeMock();
+function mountViewer(options: MountOptions = {}, initialState?: unknown) {
+  const mock = createVsCodeMock(initialState);
   const bus = new EventTarget();
   const view = render(<CustomLogViewerApp vscode={mock.vscode} messageBus={bus} />);
   send(bus, {
@@ -618,6 +618,29 @@ describe('Custom Log viewer app', () => {
       expect(posts(posted, 'customLogViewerOpenField')).toEqual([
         { type: 'customLogViewerOpenField', target: { kind: 'entry', entryId: entryIds.payload, key: 'payload' } }
       ]);
+    });
+
+    it('keeps a saved sort on a JSON column when the webview is restored', () => {
+      const byStatus = [
+        makeEntry(entryIds.start, 1, 'Synced', { payload: parsed({ 'http.status': 200 }) }),
+        makeEntry(entryIds.error, 2, 'Bad gateway', { payload: parsed({ 'http.status': 502 }) }),
+        makeEntry(entryIds.warn, 3, 'Throttled', { payload: parsed({ 'http.status': 429 }) })
+      ];
+      const options = {
+        entries: byStatus,
+        fields: [{ path: 'http.status', types: ['number' as const], rows: 3 }],
+        added: ['http.status']
+      };
+      const first = mountViewer(options);
+      fireEvent.click(screen.getByRole('button', { name: 'Column menu for http.status' }));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Sort descending' }));
+      expect(shownIds()).toEqual([entryIds.error, entryIds.warn, entryIds.start]);
+      const saved = first.getSavedState();
+      first.view.unmount();
+
+      mountViewer(options, saved);
+
+      expect(shownIds()).toEqual([entryIds.error, entryIds.warn, entryIds.start]);
     });
 
     it('lists a path that only the second page carries', () => {
