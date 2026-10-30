@@ -468,6 +468,44 @@ test('get by transaction id finds the same log, and refuses to pick when two sha
   );
 });
 
+test('get opens an entry on its own when its transaction id field cannot be filtered', async t => {
+  const record = {
+    Id: 'a06000000000001AAA',
+    CreatedDate: '2026-10-30T00:29:16.000+0000',
+    Message__c: 'm',
+    Stack_Trace__c: 'tx-long'
+  };
+  const org = await startNebulaOrg(t, {
+    describes: 'unlocked-admin',
+    objects: [...UNLOCKED, 'App_Log__c'],
+    answer: soql => (soql.includes('FROM App_Log__c WHERE Id =') ? page([record]) : undefined)
+  });
+  const { core, username } = await coreFor(t, org, 'get-unfilterable-transaction@example.com');
+  const dir = await projectDir(
+    t,
+    projectWith({
+      id: 'app-log',
+      entry: {
+        object: 'App_Log__c',
+        fields: { time: 'CreatedDate', message: 'Message__c', transactionId: 'Stack_Trace__c' }
+      }
+    })
+  );
+
+  const result = await core.customLog.get({
+    targetOrg: username,
+    projectDir: dir,
+    source: 'app-log',
+    logId: 'a06000000000001AAA'
+  });
+
+  assert.deepEqual(
+    result.entries.map(entry => entry.id),
+    ['a06000000000001AAA']
+  );
+  assert.match(org.soql('data').at(-1)!, /FROM App_Log__c WHERE Id = 'a06000000000001AAA' ORDER BY/);
+});
+
 test('get explains an entry id passed where a log id belongs', async t => {
   const org = await startNebulaOrg(t, { describes: 'unlocked-admin', objects: UNLOCKED });
   const { core, username } = await coreFor(t, org, 'get-entry-id@example.com');

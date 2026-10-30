@@ -40,6 +40,7 @@ import {
   decodeCursor,
   encodeCursor,
   entriesPlan,
+  entriesScopeOf,
   entryPlan,
   listPlan,
   parseRecordId,
@@ -47,7 +48,6 @@ import {
   transactionLookupPlan,
   type CursorBinding,
   type CursorPayload,
-  type EntriesScope,
   type QueryPlan,
   type RecordId
 } from './queries.js';
@@ -274,12 +274,7 @@ export function createCustomLogApi(presets: readonly BuiltinPreset[] = BUILTIN_P
           const found = await run(ctx, rowPlan(source, id), signal);
           if (!found) notFound(`Log ${id}`);
           const { row } = found;
-          const scope: EntriesScope =
-            source.shape.kind === 'transactions'
-              ? { kind: 'header', id }
-              : row.transactionId
-                ? { kind: 'transactionKey', value: row.transactionId }
-                : { kind: 'single', id };
+          const scope = entriesScopeOf(source, id, row);
           const binding: CursorBinding = {
             o: orgIdOf(ctx),
             s: source.id,

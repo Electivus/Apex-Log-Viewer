@@ -83,6 +83,11 @@ export const CREATED_DATE: ResolvedTimeField = {
   encoding: 'datetime'
 };
 
+/** `field` when SOQL can filter on it. A role on a field that cannot be filtered is shown, never filtered on. */
+export function filterableField(field: ResolvedField | undefined): ResolvedField | undefined {
+  return field?.filterable ? field : undefined;
+}
+
 /** How a minimum-level filter becomes SOQL. Computed once; builders switch on `kind`. */
 export type LevelPredicate =
   | { readonly kind: 'ordinal'; readonly field: ResolvedField } // field >= APEX_LEVEL_ORDINALS[min]
@@ -317,7 +322,7 @@ export function toSourceInfo(entry: CatalogEntry): CustomLogSourceInfo {
     unmappedLevels: [...source.levels.unmapped],
     capabilities: {
       levelFilter: listed.levelPredicate.kind !== 'none',
-      userFilter: listed.roles.user !== undefined,
+      userFilter: filterableField(listed.roles.user) !== undefined,
       apexLogLink: listed.roles.requestId !== undefined
     },
     payload,
@@ -671,14 +676,11 @@ function timeFieldOf(field: ResolvedField): ResolvedTimeField {
   return { ...field, encoding: field.type === 'datetime' ? 'datetime' : 'epochMillis' };
 }
 
-function usableForFilter(field: ResolvedField | undefined): field is ResolvedField {
-  return field !== undefined && field.filterable;
-}
-
 function predicateOf(ordinal: ResolvedField | undefined, level: ResolvedField | undefined): LevelPredicate {
-  if (usableForFilter(ordinal)) return { kind: 'ordinal', field: ordinal };
-  if (usableForFilter(level)) return { kind: 'values', field: level };
-  return { kind: 'none' };
+  const byOrdinal = filterableField(ordinal);
+  if (byOrdinal) return { kind: 'ordinal', field: byOrdinal };
+  const byValue = filterableField(level);
+  return byValue ? { kind: 'values', field: byValue } : { kind: 'none' };
 }
 
 function picklistValuesOf(describe: ObjectDescribe, field: ResolvedField | undefined): string[] | undefined {

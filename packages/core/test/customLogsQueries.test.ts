@@ -20,7 +20,7 @@ import {
   type CursorBinding,
   type CursorPayload
 } from '../src/customLogs/queries.ts';
-import { resolveDefinition, type CatalogEntry, type ResolvedSource } from '../src/customLogs/resolve.ts';
+import { resolveDefinition, toSourceInfo, type CatalogEntry, type ResolvedSource } from '../src/customLogs/resolve.ts';
 import { parseSinceExpression } from '../src/customLogs/since.ts';
 import { describeFixture } from './support/describeFixtures.ts';
 
@@ -203,6 +203,28 @@ test('a filter the source has no mapping for is refused instead of ignored', () 
     codeOf(() => entriesPlan(appLog, { kind: 'header', id: headerId }, { limit: 5 })),
     'CUSTOM_LOG_UNSUPPORTED_FILTER'
   );
+});
+
+test('a user role on a field SOQL cannot filter is no user filter', () => {
+  const raw = NEBULA_PRESET.raw as { transaction: Record<string, any> };
+  const definition = parseCustomLogsConfig({
+    sources: [
+      {
+        ...NEBULA_PRESET.raw,
+        id: 'nebula-comments',
+        transaction: { ...raw.transaction, fields: { ...raw.transaction.fields, user: 'Comments__c' } }
+      }
+    ]
+  }).sources[0]!;
+  const entry = resolveDefinition(definition, 'config', '', describeFixture('unlocked-admin'));
+  const source = ready(entry);
+
+  assert.equal(toSourceInfo(entry).capabilities.userFilter, false);
+  assert.throws(
+    () => listPlan(source, { limit: 5, filter: { user: 'dev@acme.com' } }),
+    (error: unknown) => error instanceof AlvError && error.code === 'CUSTOM_LOG_UNSUPPORTED_FILTER'
+  );
+  assert.match(listPlan(source, { limit: 5, filter: {} }).soql, /^SELECT .*Comments__c/);
 });
 
 test('a header without maxLevelOrdinal filters levels through a semi-join on its entries', () => {

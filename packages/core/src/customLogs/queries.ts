@@ -33,6 +33,7 @@ import { APEX_LEVEL_ORDINALS, normalizeLevel, type LevelTable } from './levels.j
 import { decodePayload, selectPayloadPaths, summarizePayloadFields, toLongValue } from './payload.js';
 import {
   CREATED_DATE,
+  filterableField,
   type LevelPredicate,
   type ResolvedEntryObject,
   type ResolvedField,
@@ -388,7 +389,7 @@ function rowObject(source: ResolvedSource) {
       object: transaction.object,
       timeFilter: transaction.timeFilter,
       levelPredicate: transaction.levelPredicate,
-      user: roles.user,
+      user: filterableField(roles.user),
       select: new Select().add(
         transaction.startTime,
         roles.name,
@@ -411,7 +412,7 @@ function rowObject(source: ResolvedSource) {
     object: entry.object,
     timeFilter: entry.timeFilter,
     levelPredicate: entry.levelPredicate,
-    user: roles.user,
+    user: filterableField(roles.user),
     select: new Select().add(
       entry.time,
       entry.message,
@@ -446,7 +447,7 @@ function levelWhere(source: ResolvedSource, predicate: LevelPredicate, min: Cust
  * Filter → WHERE, by resolved capability:
  * - minLevel → `levelPredicate` (ordinal ≥ n | IN raw spellings | `Id IN (SELECT parent …)`);
  *   `none` throws CUSTOM_LOG_UNSUPPORTED_FILTER.
- * - user → `<user> = '<escaped>'`; no user role → UNSUPPORTED_FILTER.
+ * - user → `<user> = '<escaped>'`; no filterable user role → UNSUPPORTED_FILTER.
  * - since/until → on `timeFilter` (the display time when filterable, else CreatedDate), literal per `encoding`.
  * - after → `(CreatedDate < :t OR (CreatedDate = :t AND Id < :id))`.
  */
@@ -455,7 +456,9 @@ export function listPlan(source: ResolvedSource, params: ListPlanParams): QueryP
   const { filter, after, limit } = params;
   const conditions = [
     ...(filter.minLevel ? [levelWhere(source, row.levelPredicate, filter.minLevel)] : []),
-    ...(filter.user ? [`${row.user?.api ?? unsupported(source, 'user mapping')} = ${quote(filter.user)}`] : []),
+    ...(filter.user
+      ? [`${row.user?.api ?? unsupported(source, 'filterable user mapping')} = ${quote(filter.user)}`]
+      : []),
     ...timeWindow(row.timeFilter, filter),
     ...(after ? [beforeCreated(after)] : [])
   ];
@@ -511,8 +514,8 @@ export function rowPlan(
 export function transactionLookupPlan(source: ResolvedSource, transactionId: string): QueryPlan<RecordId[]> {
   const { shape } = source;
   const owner = shape.kind === 'transactions' ? shape.transaction : shape.entry;
-  const field = owner.roles.transactionId;
-  if (!field?.filterable) return unsupported(source, 'filterable transaction id mapping');
+  const field = filterableField(owner.roles.transactionId);
+  if (!field) return unsupported(source, 'filterable transaction id mapping');
   const [object, order, limit] =
     shape.kind === 'transactions'
       ? [shape.transaction.object, 'CreatedDate DESC, Id DESC', 2]
@@ -537,9 +540,20 @@ function scopeCondition(source: ResolvedSource, scope: EntriesScope): string {
     if (shape.kind !== 'transactions') return unsupported(source, 'header object');
     return `${shape.entry.parent.api} = ${quote(scope.id)}`;
   }
-  const field = shape.entry.roles.transactionId;
-  if (!field?.filterable) return unsupported(source, 'filterable transaction id mapping');
+  const field = filterableField(shape.entry.roles.transactionId);
+  if (!field) return unsupported(source, 'filterable transaction id mapping');
   return `${field.api} = ${quote(scope.value)}`;
+}
+
+/**
+ * The entries `get` pages for the row `id`: a header's own entries; for an `entries` source,
+ * every entry with the row's transaction id when SOQL can filter that field, else the row alone.
+ */
+export function entriesScopeOf(source: ResolvedSource, id: RecordId, row: CustomLogRow): EntriesScope {
+  if (source.shape.kind === 'transactions') return { kind: 'header', id };
+  return row.transactionId && filterableField(source.shape.entry.roles.transactionId)
+    ? { kind: 'transactionKey', value: row.transactionId }
+    : { kind: 'single', id };
 }
 
 function sequenceValue(entry: ResolvedEntryObject, record: Record<string, unknown>): string | number | null {
