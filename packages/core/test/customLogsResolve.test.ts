@@ -4,21 +4,15 @@ import test from 'node:test';
 import { AlvError } from '../src/index.ts';
 import { parseCustomLogsConfig, parseSourceDefinition, type SourceDefinition } from '../src/customLogs/config.ts';
 import { NEBULA_MANAGED_PRESET, NEBULA_PRESET } from '../src/customLogs/presets.ts';
+import { defaultSourceId, requireSource, requireSourceForRecord, toSourceInfo } from '../src/customLogs/catalog.ts';
+import { locateSource, resolveDefinition } from '../src/customLogs/resolve.ts';
 import {
   CREATED_DATE,
-  createSchemaMemo,
-  defaultSourceId,
-  detectPreset,
-  memoizedSchemaReader,
-  requireSource,
-  requireSourceForRecord,
-  resolveDefinition,
-  toSourceInfo,
   type CatalogEntry,
-  type ObjectDescribe,
   type ResolvedSource,
   type SourceCatalog
-} from '../src/customLogs/resolve.ts';
+} from '../src/customLogs/resolved.ts';
+import { createSchemaMemo, memoizedSchemaReader, type ObjectDescribe } from '../src/customLogs/schema.ts';
 import type { Json } from './support/customLogsFixtures.ts';
 import { describeFixture, fakeSchemaReader } from './support/describeFixtures.ts';
 
@@ -312,8 +306,8 @@ const allNebula = ['Log__c', 'LogEntry__c'];
 test('detection finds unlocked Nebula and leaves the managed distribution not installed', async () => {
   const reader = fakeSchemaReader({ objects: allNebula, describes: unlockedAdmin });
 
-  const found = await detectPreset(NEBULA_PRESET, reader, new Set());
-  const managed = await detectPreset(NEBULA_MANAGED_PRESET, reader, new Set());
+  const found = await locateSource({ origin: 'builtin', ...NEBULA_PRESET }, reader, new Set());
+  const managed = await locateSource({ origin: 'builtin', ...NEBULA_MANAGED_PRESET }, reader, new Set());
 
   assert.equal(ready(found).id, 'nebula');
   assert.deepEqual(toSourceInfo(managed), {
@@ -343,8 +337,8 @@ test('detection tells an unrelated Log__c from Nebula through the field fingerpr
     describes: new Map<string, ObjectDescribe>([['Log__c', strangerLog]])
   });
 
-  const collision = await detectPreset(NEBULA_PRESET, stranger, new Set());
-  const mapped = await detectPreset(NEBULA_PRESET, stranger, new Set(['logentry__c']));
+  const collision = await locateSource({ origin: 'builtin', ...NEBULA_PRESET }, stranger, new Set());
+  const mapped = await locateSource({ origin: 'builtin', ...NEBULA_PRESET }, stranger, new Set(['logentry__c']));
 
   assert.equal(collision.state, 'notInstalled');
   assert.deepEqual(stateOf(collision), { state: 'notInstalled', hint: 'collision' });
@@ -359,7 +353,7 @@ test('the fingerprint reads FieldDefinition, so a field the user cannot see does
     describes: unlockedEndUser
   });
 
-  const found = ready(await detectPreset(NEBULA_PRESET, reader, new Set()));
+  const found = ready(await locateSource({ origin: 'builtin', ...NEBULA_PRESET }, reader, new Set()));
 
   assert.ok(found.hidden.includes('entry.details.StackTrace__c'));
 });
@@ -368,7 +362,7 @@ test('a refused metadata query is reported, with no describe attempt', async () 
   for (const refuse of ['objects', 'fields'] as const) {
     const reader = fakeSchemaReader({ objects: allNebula, describes: unlockedAdmin, refuse });
 
-    const result = await detectPreset(NEBULA_PRESET, reader, new Set());
+    const result = await locateSource({ origin: 'builtin', ...NEBULA_PRESET }, reader, new Set());
 
     assert.equal(result.state === 'unavailable' && result.reason, 'metadataQueryRefused');
     assert.deepEqual(reader.calls.describes, []);
@@ -384,7 +378,7 @@ test('an object that exists but describe does not return is unreadable for this 
     describes
   });
 
-  const result = await detectPreset(NEBULA_PRESET, reader, new Set());
+  const result = await locateSource({ origin: 'builtin', ...NEBULA_PRESET }, reader, new Set());
 
   assert.equal(result.state === 'unavailable' && result.reason, 'objectNotReadable');
 });

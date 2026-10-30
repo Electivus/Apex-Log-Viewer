@@ -42,7 +42,7 @@ import {
   type ResolvedPayload,
   type ResolvedSource,
   type ResolvedTimeField
-} from './resolve.js';
+} from './resolved.js';
 
 declare const brand: unique symbol;
 /** 15- or 18-char Salesforce id, validated at the facade boundary. */

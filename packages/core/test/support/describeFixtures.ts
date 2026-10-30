@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { ObjectDescribe, SchemaReader } from '../../src/customLogs/resolve.ts';
+import type { ObjectDescribe, SchemaReader } from '../../src/customLogs/schema.ts';
 
 export type DescribeFixtureName = 'unlocked-admin' | 'unlocked-enduser' | 'managed-admin' | 'managed-enduser';
 

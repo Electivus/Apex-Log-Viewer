@@ -51,16 +51,9 @@ import {
   type QueryPlan,
   type RecordId
 } from './queries.js';
-import {
-  createSourceRegistry,
-  defaultSourceId,
-  type CustomLogContext,
-  requireSource,
-  requireSourceForRecord,
-  toColumns,
-  toSourceInfo,
-  type ResolvedSource
-} from './resolve.js';
+import { defaultSourceId, requireSource, requireSourceForRecord, toColumns, toSourceInfo } from './catalog.js';
+import { createSourceRegistry, type CustomLogContext } from './registry.js';
+import type { ResolvedSource } from './resolved.js';
 import { parseSinceExpression } from './since.js';
 
 export type CustomLogApi = {

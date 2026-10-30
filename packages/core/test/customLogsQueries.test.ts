@@ -21,7 +21,9 @@ import {
   type CursorBinding,
   type CursorPayload
 } from '../src/customLogs/queries.ts';
-import { resolveDefinition, toSourceInfo, type CatalogEntry, type ResolvedSource } from '../src/customLogs/resolve.ts';
+import { toSourceInfo } from '../src/customLogs/catalog.ts';
+import { resolveDefinition } from '../src/customLogs/resolve.ts';
+import type { CatalogEntry, ResolvedSource } from '../src/customLogs/resolved.ts';
 import { parseSinceExpression } from '../src/customLogs/since.ts';
 import { describeFixture } from './support/describeFixtures.ts';
 
