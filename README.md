@@ -42,7 +42,7 @@ Search in the logs panel is optimized for locally saved log bodies, so the most 
 
 ![Real-time Apex log tail](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/apps/vscode-extension/media/docs/tail.png)
 
-<!-- TODO: add the Custom Logs panel screenshot (apps/vscode-extension/media/docs/custom-logs.png) and list it in scripts/docs-release.test.js. -->
+![Custom Logs with JSON payload columns and a loaded-row filter](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/apps/vscode-extension/media/docs/custom-logs.png)
 
 ## Requirements
 
@@ -183,6 +183,9 @@ The extension activates automatically when the workspace contains `sfdx-project.
 - `Electivus Apex Logs: Select Org` (`electivus.apexLogViewer.org.select`)
 - `Electivus Apex Logs: Tail Logs` (`electivus.apexLogViewer.tail.start`)
 - `Electivus Apex Logs: Show Extension Output` (`electivus.apexLogViewer.output.show`)
+- `Electivus Apex Logs: Refresh Custom Logs` (`electivus.apexLogViewer.customLogs.refresh`)
+- `Electivus Apex Logs: Open Custom Logs in Editor Area` (`electivus.apexLogViewer.customLogs.openEditor`)
+- `Electivus Apex Logs: Configure Custom Logs Sources` (`electivus.apexLogViewer.customLogs.configure`)
 
 ## Settings
 
