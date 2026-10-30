@@ -1,0 +1,3 @@
+[
+  {"batch":0,"data":{"schema":"SyntheticSchema0000001","payload":{"Request_Id__c":"bsn870-request","Stack_Trace__c":null,"Sequence__c":870,"Transaction_Id__c":"events-bsn870","Has_Stack_Trace__c":false,"Level__c":"INFO","CreatedById":"005000000000001AAA","Payload__c":"{\"run\":\"bsn870\",\"sequence\":870,\"http\":{\"status\":200}}","Message__c":"Synthetic INFO entry 870 of 870 (bsn870)","CreatedDate":"2026-10-30T23:03:05.166Z","Username__c":"synthetic.user@example.com","Epoch_Ms__c":1793401370934,"Logged_At__c":"2026-10-30T23:02:50.934Z"},"event":{"EventUuid":"2be426de-1a05-4603-98d1-f91e2d16013e","replayId":1626055,"EventApiName":"ALV_Test_Log__e"}}}
+]
