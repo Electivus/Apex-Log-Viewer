@@ -41,8 +41,14 @@ function FieldState({ t, field }: { t: CustomLogsMessages; field: CustomLogLongF
     case 'value':
       return (
         <span className="flex items-center gap-1.5">
-          {field.format ? <span className="rounded bg-muted px-1.5 font-mono text-[10px] uppercase text-muted-foreground">{field.format}</span> : null}
-          {field.truncated ? <span className="text-[11px] text-amber-400">{t.viewer.entry.truncatedByLogger}</span> : null}
+          {field.format ? (
+            <span className="rounded bg-muted px-1.5 font-mono text-[10px] uppercase text-muted-foreground">
+              {field.format}
+            </span>
+          ) : null}
+          {field.truncated ? (
+            <span className="text-[11px] text-amber-400">{t.viewer.entry.truncatedByLogger}</span>
+          ) : null}
         </span>
       );
     case 'hidden':
@@ -72,7 +78,9 @@ export function CustomLogEntryDetail({
   onToggleColumn,
   onFilterEqual
 }: CustomLogEntryDetailProps) {
-  const listed = (fields ?? []).filter(field => field.state !== 'unmapped' && !(field.key === 'payload' && entry.payload));
+  const listed = (fields ?? []).filter(
+    field => field.state !== 'unmapped' && !(field.key === 'payload' && entry.payload)
+  );
   const payloadField = fields?.find(field => field.key === 'payload');
   return (
     <aside
@@ -99,7 +107,14 @@ export function CustomLogEntryDetail({
           <Copy className="h-3 w-3" aria-hidden="true" />
           {t.viewer.entry.copyMessage}
         </Button>
-        <Button type="button" variant="ghost" size="icon" className="h-6 min-h-0 w-6" aria-label={t.viewer.entry.close} onClick={onClose}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-6 min-h-0 w-6"
+          aria-label={t.viewer.entry.close}
+          onClick={onClose}
+        >
           <X className="h-3.5 w-3.5" aria-hidden="true" />
         </Button>
       </header>
@@ -114,7 +129,12 @@ export function CustomLogEntryDetail({
         </div>
         {entry.previewClipped || entry.messageTruncated ? (
           <p className="text-[11px] text-muted-foreground">
-            {[entry.previewClipped ? t.viewer.entry.clipped : '', entry.messageTruncated ? t.viewer.entry.truncatedByLogger : ''].filter(Boolean).join(' · ')}
+            {[
+              entry.previewClipped ? t.viewer.entry.clipped : '',
+              entry.messageTruncated ? t.viewer.entry.truncatedByLogger : ''
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           </p>
         ) : null}
         <section aria-label={t.viewer.entry.fields} className="flex flex-col gap-1">
@@ -129,7 +149,11 @@ export function CustomLogEntryDetail({
           ) : (
             <ul className="flex flex-col">
               {listed.map(field => (
-                <li key={field.key} className="flex min-h-[26px] items-center gap-2 text-xs" data-testid={`entry-field-${field.key}`}>
+                <li
+                  key={field.key}
+                  className="flex min-h-[26px] items-center gap-2 text-xs"
+                  data-testid={`entry-field-${field.key}`}
+                >
                   <span className="min-w-0 flex-1 truncate" title={field.key}>
                     {field.label}
                   </span>

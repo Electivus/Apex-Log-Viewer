@@ -141,7 +141,10 @@ export function parseFilterExpression(source: string): FilterParseResult {
       field,
       op: matched.op,
       ...(value === undefined ? {} : { value }),
-      at: valueAt === undefined ? { field: fieldAt, operator: operatorAt } : { field: fieldAt, operator: operatorAt, value: valueAt }
+      at:
+        valueAt === undefined
+          ? { field: fieldAt, operator: operatorAt }
+          : { field: fieldAt, operator: operatorAt, value: valueAt }
     });
 
     skipSpace();

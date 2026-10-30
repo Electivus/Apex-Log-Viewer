@@ -114,7 +114,9 @@ export function acceptGuidedItem(stage: GuidedStage, index: number): { text: str
       if (!op) {
         return undefined;
       }
-      return op === 'exists' ? { text: `${stage.field} ${op}`, commit: true } : { text: `${stage.field} ${op} `, commit: false };
+      return op === 'exists'
+        ? { text: `${stage.field} ${op}`, commit: true }
+        : { text: `${stage.field} ${op} `, commit: false };
     }
     case 'value': {
       const item = stage.items[index];
@@ -147,7 +149,10 @@ export type ServerConditionContext = {
 };
 
 /** Turns a typed `level`, `user`, `since` or `source` condition into the server filter it sets, or says what is wrong. */
-export function applyServerCondition(condition: FilterCondition, context: ServerConditionContext): ServerConditionResult {
+export function applyServerCondition(
+  condition: FilterCondition,
+  context: ServerConditionContext
+): ServerConditionResult {
   const field = condition.field as ServerFilterField;
   const allowed = operatorsFor(field, undefined);
   if (!allowed.includes(condition.op)) {
@@ -171,7 +176,8 @@ export function applyServerCondition(condition: FilterCondition, context: Server
       }
       return { ok: true, apply: { kind: 'filter', filter: { ...context.filter, user: value } } };
     case 'since':
-      return SINCE_DURATION_PATTERN.test(value) || (SINCE_INSTANT_PATTERN.test(value) && Number.isFinite(Date.parse(value)))
+      return SINCE_DURATION_PATTERN.test(value) ||
+        (SINCE_INSTANT_PATTERN.test(value) && Number.isFinite(Date.parse(value)))
         ? { ok: true, apply: { kind: 'filter', filter: { ...context.filter, since: value } } }
         : { ok: false, error: { code: 'serverSince', at: valueAt } };
     case 'source':
@@ -182,7 +188,10 @@ export function applyServerCondition(condition: FilterCondition, context: Server
 }
 
 /** The filter with one server chip removed. */
-export function clearServerFilter(filter: CustomLogsFilterView, field: Exclude<ServerFilterField, 'source'>): CustomLogsFilterView {
+export function clearServerFilter(
+  filter: CustomLogsFilterView,
+  field: Exclude<ServerFilterField, 'source'>
+): CustomLogsFilterView {
   const { minLevel, user, since } = filter;
   switch (field) {
     case 'level':

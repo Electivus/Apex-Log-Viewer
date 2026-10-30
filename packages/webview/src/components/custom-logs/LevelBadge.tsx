@@ -12,7 +12,15 @@ const LEVEL_COLOR: Record<CustomLogLevel, string> = {
   FINEST: 'var(--vscode-descriptionForeground, #8b949e)'
 };
 
-export function LevelBadge({ level, rawLevel, className }: { level?: CustomLogLevel; rawLevel?: string; className?: string }) {
+export function LevelBadge({
+  level,
+  rawLevel,
+  className
+}: {
+  level?: CustomLogLevel;
+  rawLevel?: string;
+  className?: string;
+}) {
   const label = level ?? rawLevel;
   if (!label) {
     return <span className="text-muted-foreground">—</span>;
@@ -21,7 +29,10 @@ export function LevelBadge({ level, rawLevel, className }: { level?: CustomLogLe
   return (
     <span
       data-level={level ?? 'unmapped'}
-      className={cn('inline-flex items-center rounded-full border px-2 text-[10px] font-semibold leading-[15px] tracking-wide', className)}
+      className={cn(
+        'inline-flex items-center rounded-full border px-2 text-[10px] font-semibold leading-[15px] tracking-wide',
+        className
+      )}
       style={{
         color,
         borderColor: `color-mix(in srgb, ${color} 45%, transparent)`,

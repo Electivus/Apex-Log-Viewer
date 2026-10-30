@@ -35,13 +35,23 @@ type PayloadFieldPickerProps = {
 };
 
 /** The `+ Field` popover: a searchable list of every payload path seen in the loaded rows. */
-export function PayloadFieldPicker({ t, fields, columns, lockedColumns, onToggleColumn, children }: PayloadFieldPickerProps) {
+export function PayloadFieldPicker({
+  t,
+  fields,
+  columns,
+  lockedColumns,
+  onToggleColumn,
+  children
+}: PayloadFieldPickerProps) {
   const [query, setQuery] = useState('');
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return fields
       .filter(field => field.path.toLowerCase().includes(needle))
-      .sort((a, b) => Number(columns.has(b.path)) - Number(columns.has(a.path)) || b.rows - a.rows || a.path.localeCompare(b.path));
+      .sort(
+        (a, b) =>
+          Number(columns.has(b.path)) - Number(columns.has(a.path)) || b.rows - a.rows || a.path.localeCompare(b.path)
+      );
   }, [columns, fields, query]);
 
   return (
@@ -101,11 +111,16 @@ export function PayloadFieldPicker({ t, fields, columns, lockedColumns, onToggle
                       {checked ? <Check className="h-3 w-3" /> : null}
                     </span>
                     <span className="min-w-0 flex-1 truncate font-mono text-xs">{field.path}</span>
-                    <span className={cn('rounded bg-muted px-1.5 font-mono text-[10px]', PAYLOAD_TYPE_TONE[field.type])}>
+                    <span
+                      className={cn('rounded bg-muted px-1.5 font-mono text-[10px]', PAYLOAD_TYPE_TONE[field.type])}
+                    >
                       {t.picker[PAYLOAD_TYPE_LABEL_KEY[field.type]]}
                     </span>
                     <span className="h-[5px] w-9 shrink-0 overflow-hidden rounded-sm bg-muted" aria-hidden="true">
-                      <i className="block h-full bg-[color:var(--vscode-charts-blue,#4e7fb3)]" style={{ width: `${field.share}%` }} />
+                      <i
+                        className="block h-full bg-[color:var(--vscode-charts-blue,#4e7fb3)]"
+                        style={{ width: `${field.share}%` }}
+                      />
                     </span>
                     <span className="w-8 text-right text-[11px] text-muted-foreground">{field.share}%</span>
                   </button>

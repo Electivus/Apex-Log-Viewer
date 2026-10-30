@@ -14,7 +14,8 @@ type ColumnHeaderMenuProps = {
   onRemove: () => void;
 };
 
-const ITEM_CLASS = 'block w-full px-3.5 py-1 text-left text-xs hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none';
+const ITEM_CLASS =
+  'block w-full px-3.5 py-1 text-left text-xs hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none';
 
 /** The `...` menu of a JSON column header: sort, filter by the field, remove. */
 export function ColumnHeaderMenu({ t, column, locked, onSort, onFilter, onRemove }: ColumnHeaderMenuProps) {

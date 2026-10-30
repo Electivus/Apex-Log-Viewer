@@ -17,7 +17,11 @@ import type { OrgItem } from '@alv/protocol/types';
 import { getMessages } from './i18n';
 import { CustomLogRowDetail } from './components/custom-logs/CustomLogRowDetail';
 import { CustomLogsEmptyState } from './components/custom-logs/CustomLogsEmptyState';
-import { CustomLogsFilterBar, type FilterBarPrefill, type FilterChip } from './components/custom-logs/CustomLogsFilterBar';
+import {
+  CustomLogsFilterBar,
+  type FilterBarPrefill,
+  type FilterChip
+} from './components/custom-logs/CustomLogsFilterBar';
 import { CustomLogsStatusBar } from './components/custom-logs/CustomLogsStatusBar';
 import { CustomLogsTable } from './components/custom-logs/CustomLogsTable';
 import { CustomLogsToolbar } from './components/custom-logs/CustomLogsToolbar';
@@ -78,7 +82,10 @@ function buildReadyMessage(): CustomLogsFromWebviewMessage {
 function readInitialUiState(vscode: VsCodeWebviewApi<CustomLogsFromWebviewMessage>): CustomLogsUiState {
   const raw = vscode.getState<Partial<CustomLogsUiState>>() ?? {};
   const isClause = (value: unknown): value is FilterClause =>
-    typeof value === 'object' && value !== null && typeof (value as FilterClause).field === 'string' && typeof (value as FilterClause).op === 'string';
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as FilterClause).field === 'string' &&
+    typeof (value as FilterClause).op === 'string';
   const sort = raw.sort;
   return {
     payloadFilters: Array.isArray(raw.payloadFilters) ? raw.payloadFilters.filter(isClause) : [],
@@ -239,11 +246,17 @@ export function CustomLogsApp({
   const post = useCallback((message: CustomLogsFromWebviewMessage) => vscode.postMessage(message), [vscode]);
 
   const readySources = useMemo(() => sources.filter(source => source.state === 'ready'), [sources]);
-  const selectedSource = useMemo(() => sources.find(source => source.id === selectedSourceId), [sources, selectedSourceId]);
+  const selectedSource = useMemo(
+    () => sources.find(source => source.id === selectedSourceId),
+    [sources, selectedSourceId]
+  );
   const sourceReady = selectedSource?.state === 'ready';
 
   const discovered = useMemo(() => discoverPayloadFields(payloadFields, rows.length), [payloadFields, rows.length]);
-  const payloadColumns = useMemo(() => resolvePayloadColumns(columnsView, hiddenDefaults), [columnsView, hiddenDefaults]);
+  const payloadColumns = useMemo(
+    () => resolvePayloadColumns(columnsView, hiddenDefaults),
+    [columnsView, hiddenDefaults]
+  );
   const activeColumns = useMemo(() => new Set(payloadColumns.map(column => column.path)), [payloadColumns]);
   const lockedColumns = useMemo(
     () => new Set(payloadColumns.filter(column => column.origin === 'default').map(column => column.path)),
@@ -253,7 +266,13 @@ export function CustomLogsApp({
   const columns = useMemo(
     () =>
       buildTableColumns({
-        labels: { time: t.columns.time, level: t.columns.level, title: t.columns.title, user: t.columns.user, counts: t.columns.counts },
+        labels: {
+          time: t.columns.time,
+          level: t.columns.level,
+          title: t.columns.title,
+          user: t.columns.user,
+          counts: t.columns.counts
+        },
         extra: extraColumns,
         payload: payloadColumns,
         discovered,
@@ -314,7 +333,11 @@ export function CustomLogsApp({
       const clauses: FilterClause[] = [];
       for (const condition of parsed.conditions) {
         if (!isServerFilterField(condition.field)) {
-          clauses.push({ field: condition.field, op: condition.op, ...(condition.value === undefined ? {} : { value: condition.value }) });
+          clauses.push({
+            field: condition.field,
+            op: condition.op,
+            ...(condition.value === undefined ? {} : { value: condition.value })
+          });
           continue;
         }
         const applied = applyServerCondition(condition, {
@@ -340,7 +363,16 @@ export function CustomLogsApp({
       addPayloadFilters(clauses);
       return { ok: true };
     },
-    [addPayloadFilters, capabilities, post, readySources, selectedSourceId, serverFilter, setServerFilterAndPost, t.errors]
+    [
+      addPayloadFilters,
+      capabilities,
+      post,
+      readySources,
+      selectedSourceId,
+      serverFilter,
+      setServerFilterAndPost,
+      t.errors
+    ]
   );
 
   const requestFilterPrefill = useCallback((text: string) => {
@@ -421,8 +453,8 @@ export function CustomLogsApp({
         };
         return byField[field]().filter(item => matchesPrefix(item.value, prefix));
       }
-      return valueCountsToItems(topValues(visibleRows, row => payloadValues(row.payload, field), 30).values).filter(item =>
-        matchesPrefix(item.value, prefix)
+      return valueCountsToItems(topValues(visibleRows, row => payloadValues(row.payload, field), 30).values).filter(
+        item => matchesPrefix(item.value, prefix)
       );
     },
     [readySources, rows, visibleRows]
@@ -431,10 +463,14 @@ export function CustomLogsApp({
   const toggleColumn = useCallback(
     (path: string) => {
       if (columnsView.defaults.includes(path)) {
-        setHiddenDefaults(previous => (previous.includes(path) ? previous.filter(hidden => hidden !== path) : [...previous, path]));
+        setHiddenDefaults(previous =>
+          previous.includes(path) ? previous.filter(hidden => hidden !== path) : [...previous, path]
+        );
         return;
       }
-      const added = columnsView.added.includes(path) ? columnsView.added.filter(column => column !== path) : [...columnsView.added, path];
+      const added = columnsView.added.includes(path)
+        ? columnsView.added.filter(column => column !== path)
+        : [...columnsView.added, path];
       setColumnsView(previous => ({ ...previous, added }));
       post({ type: 'customLogsSetPayloadColumns', added });
     },
@@ -507,12 +543,20 @@ export function CustomLogsApp({
         onConfigure={() => post({ type: 'customLogsOpenConfig' })}
       />
       {error ? (
-        <div role="alert" className="shrink-0 border-b border-destructive/40 bg-destructive/10 px-3 py-1 text-xs text-destructive">
+        <div
+          role="alert"
+          className="shrink-0 border-b border-destructive/40 bg-destructive/10 px-3 py-1 text-xs text-destructive"
+        >
           {error}
         </div>
       ) : null}
       {sourcesReceived && !sourceReady ? (
-        <CustomLogsEmptyState t={t} sources={sources} issues={issues} onConfigure={() => post({ type: 'customLogsOpenConfig' })} />
+        <CustomLogsEmptyState
+          t={t}
+          sources={sources}
+          issues={issues}
+          onConfigure={() => post({ type: 'customLogsOpenConfig' })}
+        />
       ) : (
         <>
           <CustomLogsFilterBar
@@ -561,7 +605,9 @@ export function CustomLogsApp({
                 onOpenLog={row => post({ type: 'customLogsOpenLog', logId: row.id })}
                 onOpenPayload={row => post({ type: 'customLogsOpenPayload', logId: row.id })}
                 onToggleColumn={toggleColumn}
-                onFilterEqual={(path, value) => addPayloadFilters([{ field: path, op: '=', value: scalarToFilterValue(value) }])}
+                onFilterEqual={(path, value) =>
+                  addPayloadFilters([{ field: path, op: '=', value: scalarToFilterValue(value) }])
+                }
               />
             ) : null}
           </div>
@@ -569,7 +615,10 @@ export function CustomLogsApp({
             t={t}
             scope={
               filtering
-                ? fillTemplate(t.status.filtering, { loaded: formatCount(rows.length, locale), matches: formatCount(visibleRows.length, locale) })
+                ? fillTemplate(t.status.filtering, {
+                    loaded: formatCount(rows.length, locale),
+                    matches: formatCount(visibleRows.length, locale)
+                  })
                 : fillTemplate(t.status.rowsLoaded, { count: formatCount(rows.length, locale) })
             }
             filtering={filtering}

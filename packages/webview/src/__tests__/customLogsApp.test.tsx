@@ -27,7 +27,11 @@ jest.mock('react-window', () => {
         React.createElement(
           React.Fragment,
           { key: index },
-          rowComponent({ ...rowProps, index, style: { height: typeof rowHeight === 'function' ? rowHeight(index) : rowHeight } })
+          rowComponent({
+            ...rowProps,
+            index,
+            style: { height: typeof rowHeight === 'function' ? rowHeight(index) : rowHeight }
+          })
         )
       );
       const api = { element: null, scrollToRow: () => {} };
@@ -106,12 +110,21 @@ describe('Custom Logs app', () => {
 
       submit('level >= warn');
 
-      expect(posts(posted, 'customLogsSetFilter')).toEqual([{ type: 'customLogsSetFilter', filter: { minLevel: 'WARN' } }]);
+      expect(posts(posted, 'customLogsSetFilter')).toEqual([
+        { type: 'customLogsSetFilter', filter: { minLevel: 'WARN' } }
+      ]);
       expect(chipSummary()).toEqual([['server', 'level>=WARN']]);
       expect(listedTitles()).toHaveLength(rows.length);
 
       send(bus, { type: 'customLogsFilter', value: { minLevel: 'WARN' } });
-      send(bus, { type: 'customLogsPage', mode: 'replace', columns: [], rows: [rows[0]!, rows[1]!], payloadFields: [], hasMore: false });
+      send(bus, {
+        type: 'customLogsPage',
+        mode: 'replace',
+        columns: [],
+        rows: [rows[0]!, rows[1]!],
+        payloadFields: [],
+        hasMore: false
+      });
       expect(listedTitles()).toEqual(['Order sync failed', 'Retrying order sync']);
     });
 
@@ -134,7 +147,9 @@ describe('Custom Logs app', () => {
 
       submit('level >= WARN and since = 7d');
 
-      expect(posts(posted, 'customLogsSetFilter')).toEqual([{ type: 'customLogsSetFilter', filter: { minLevel: 'WARN', since: '7d' } }]);
+      expect(posts(posted, 'customLogsSetFilter')).toEqual([
+        { type: 'customLogsSetFilter', filter: { minLevel: 'WARN', since: '7d' } }
+      ]);
     });
 
     it('removes a server chip by posting the filter without it', () => {
@@ -143,7 +158,10 @@ describe('Custom Logs app', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Remove filter level >= WARN' }));
 
-      expect(lastPost(posted, 'customLogsSetFilter')).toEqual({ type: 'customLogsSetFilter', filter: { since: '24h' } });
+      expect(lastPost(posted, 'customLogsSetFilter')).toEqual({
+        type: 'customLogsSetFilter',
+        filter: { since: '24h' }
+      });
     });
 
     it('shows the filter the host replays after a remount', () => {
@@ -161,20 +179,26 @@ describe('Custom Logs app', () => {
       const { posted } = mountApp();
 
       submit('level >= LOUD');
-      expect(screen.getByRole('alert')).toHaveTextContent('Use one of FINEST, FINER, FINE, DEBUG, INFO, WARN or ERROR (col 10)');
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Use one of FINEST, FINER, FINE, DEBUG, INFO, WARN or ERROR (col 10)'
+      );
 
       submit('level = ERROR');
       expect(screen.getByRole('alert')).toHaveTextContent('level only supports >= (col 7)');
 
       submit('since = yesterday');
-      expect(screen.getByRole('alert')).toHaveTextContent('Use a duration such as 30m, 24h or 7d, or an ISO date (col 9)');
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Use a duration such as 30m, 24h or 7d, or an ISO date (col 9)'
+      );
 
       expect(posts(posted, 'customLogsSetFilter')).toEqual([]);
       expect(chips()).toHaveLength(0);
     });
 
     it('does not offer level or user when the source cannot filter by them', () => {
-      mountApp({ sources: [{ ...appLog, capabilities: { levelFilter: false, userFilter: false, apexLogLink: false } }] });
+      mountApp({
+        sources: [{ ...appLog, capabilities: { levelFilter: false, userFilter: false, apexLogLink: false } }]
+      });
 
       fireEvent.focus(filterInput());
       const options = screen.getAllByRole('option').map(option => option.textContent ?? '');
@@ -194,7 +218,10 @@ describe('Custom Logs app', () => {
       expect(screen.getByTestId('custom-logs-source')).toBeInTheDocument();
 
       submit('source = nebula');
-      expect(lastPost(posted, 'customLogsSelectSource')).toEqual({ type: 'customLogsSelectSource', sourceId: 'nebula' });
+      expect(lastPost(posted, 'customLogsSelectSource')).toEqual({
+        type: 'customLogsSelectSource',
+        sourceId: 'nebula'
+      });
 
       submit('source = nope');
       expect(screen.getByRole('alert')).toHaveTextContent('Unknown source');
@@ -218,7 +245,9 @@ describe('Custom Logs app', () => {
       expect(listedTitles()).toEqual(['Order sync failed', 'Legacy status as text']);
       expect(posts(posted, 'customLogsSetFilter')).toEqual([]);
       expect(screen.getByRole('status')).toHaveTextContent('Filtering 8 loaded rows · 2 match');
-      expect(screen.getByRole('status')).toHaveTextContent('1 invalid JSON · 1 plain text · 1 empty · 1 hidden: skipped by JSON filters');
+      expect(screen.getByRole('status')).toHaveTextContent(
+        '1 invalid JSON · 1 plain text · 1 empty · 1 hidden: skipped by JSON filters'
+      );
     });
 
     it('combines conditions with and, and matches any element of an array', () => {
@@ -238,7 +267,9 @@ describe('Custom Logs app', () => {
 
       submit('http.status = 200 or http.status = 500');
 
-      expect(screen.getByRole('alert')).toHaveTextContent('"or" is not supported yet: conditions combine with "and" only (col 19)');
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        '"or" is not supported yet: conditions combine with "and" only (col 19)'
+      );
       expect(chips()).toHaveLength(1);
     });
 
@@ -246,7 +277,9 @@ describe('Custom Logs app', () => {
       mountApp();
 
       submit('nofield');
-      expect(screen.getByRole('alert')).toHaveTextContent('Expected an operator after "nofield": = != > >= < <= contains exists (col 8)');
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Expected an operator after "nofield": = != > >= < <= contains exists (col 8)'
+      );
 
       submit('nofield = >= 5');
       expect(screen.getByRole('alert')).toHaveTextContent('Expected a value after the operator (col 11)');
@@ -284,7 +317,9 @@ describe('Custom Logs app', () => {
 
       submit('orderId = nothing');
 
-      expect(screen.getByText('No loaded row matches. Only 8 rows are loaded. Use Load more to widen the search.')).toBeInTheDocument();
+      expect(
+        screen.getByText('No loaded row matches. Only 8 rows are loaded. Use Load more to widen the search.')
+      ).toBeInTheDocument();
     });
 
     it('keeps the filters when the app is restored from its saved state', () => {
@@ -305,7 +340,14 @@ describe('Custom Logs app', () => {
       expect(listedTitles()).toEqual(['Order synced']);
 
       send(bus, { type: 'customLogsSources', data: [appLog, nebula], selected: 'nebula', issues: [] });
-      send(bus, { type: 'customLogsPage', mode: 'replace', columns: [], rows: [makeRow('a015g00000Q2xYzAAB', 'Log-000739')], payloadFields: [], hasMore: false });
+      send(bus, {
+        type: 'customLogsPage',
+        mode: 'replace',
+        columns: [],
+        rows: [makeRow('a015g00000Q2xYzAAB', 'Log-000739')],
+        payloadFields: [],
+        hasMore: false
+      });
 
       expect(chipSummary()).toEqual([['server', 'source=nebula']]);
       expect(listedTitles()).toEqual(['Log-000739']);
@@ -337,7 +379,16 @@ describe('Custom Logs app', () => {
       fireEvent.change(filterInput(), { target: { value: 'http.st' } });
       fireEvent.keyDown(filterInput(), { key: 'Enter' });
       expect(filterInput()).toHaveValue('http.status ');
-      expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual(['=', '!=', '>', '>=', '<', '<=', 'contains', 'exists']);
+      expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual([
+        '=',
+        '!=',
+        '>',
+        '>=',
+        '<',
+        '<=',
+        'contains',
+        'exists'
+      ]);
 
       fireEvent.keyDown(filterInput(), { key: 'ArrowDown' });
       fireEvent.keyDown(filterInput(), { key: 'ArrowDown' });
@@ -383,7 +434,10 @@ describe('Custom Logs app', () => {
       fireEvent.change(filterInput(), { target: { value: 'http.bo' } });
       fireEvent.keyDown(filterInput(), { key: 'Enter', shiftKey: true });
 
-      expect(lastPost(posted, 'customLogsSetPayloadColumns')).toEqual({ type: 'customLogsSetPayloadColumns', added: ['http.body'] });
+      expect(lastPost(posted, 'customLogsSetPayloadColumns')).toEqual({
+        type: 'customLogsSetPayloadColumns',
+        added: ['http.body']
+      });
       expect(headerLabels()).toContain('http.body');
     });
 

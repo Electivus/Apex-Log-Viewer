@@ -31,7 +31,12 @@ const ids = (entries: CustomLogEntry[]) => entries.map(item => item.id);
 const entries = [
   entry('start', { sequence: 1, origin: 'OrderSync.run', presentDetails: ['StackTrace__c'] }),
   entry('system', { sequence: 2, level: 'FINEST', system: true }),
-  entry('boom', { sequence: 3, level: 'ERROR', exceptionType: 'System.MathException', presentDetails: ['ExceptionStackTrace__c', 'StackTrace__c'] }),
+  entry('boom', {
+    sequence: 3,
+    level: 'ERROR',
+    exceptionType: 'System.MathException',
+    presentDetails: ['ExceptionStackTrace__c', 'StackTrace__c']
+  }),
   entry('slow', { sequence: 4, level: 'WARN', origin: 'HttpClient.send', user: 'dev@acme.com' }),
   entry('odd', { sequence: 5, level: undefined, rawLevel: 'NOTICE' })
 ];
@@ -48,8 +53,12 @@ describe('filtering loaded entries', () => {
   });
 
   it('keeps entries that carry any of the selected long fields', () => {
-    expect(ids(filterEntries(entries, { ...everything, details: new Set(['ExceptionStackTrace__c']) }))).toEqual(['boom']);
-    expect(ids(filterEntries(entries, { ...everything, details: new Set(['StackTrace__c', 'ExceptionStackTrace__c']) }))).toEqual(['start', 'boom']);
+    expect(ids(filterEntries(entries, { ...everything, details: new Set(['ExceptionStackTrace__c']) }))).toEqual([
+      'boom'
+    ]);
+    expect(
+      ids(filterEntries(entries, { ...everything, details: new Set(['StackTrace__c', 'ExceptionStackTrace__c']) }))
+    ).toEqual(['start', 'boom']);
   });
 
   it('searches message, origin, user, exception type and raw level without regard to case', () => {
@@ -120,7 +129,11 @@ describe('entry columns', () => {
       'payload:orderId',
       'payload:http.status'
     ]);
-    expect(columns.find(column => column.id === 'payload:orderId')).toMatchObject({ locked: true, type: 'string', rows: 3 });
+    expect(columns.find(column => column.id === 'payload:orderId')).toMatchObject({
+      locked: true,
+      type: 'string',
+      rows: 3
+    });
     expect(columns.find(column => column.id === 'payload:http.status')).toMatchObject({ locked: false });
   });
 

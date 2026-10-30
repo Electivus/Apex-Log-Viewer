@@ -66,7 +66,8 @@ export function discoverPayloadFields(
       types,
       type: fieldType(types),
       rows,
-      share: loadedRowCount > 0 ? Math.min(100, Math.max(rows > 0 ? 1 : 0, Math.round((100 * rows) / loadedRowCount))) : 0
+      share:
+        loadedRowCount > 0 ? Math.min(100, Math.max(rows > 0 ? 1 : 0, Math.round((100 * rows) / loadedRowCount))) : 0
     }))
     .sort((a, b) => b.rows - a.rows || a.path.localeCompare(b.path));
 }
@@ -295,14 +296,18 @@ const PATH_SEGMENT_PATTERN = /([^.[\]]+)|\[(\d+)\]/g;
 export function buildPayloadTree(values: Record<string, CustomLogScalar>): PayloadTreeNode[] {
   const root: PayloadTreeNode[] = [];
   for (const [rawPath, value] of Object.entries(values)) {
-    const segments = [...rawPath.matchAll(PATH_SEGMENT_PATTERN)].map(match => (match[2] !== undefined ? `[${match[2]}]` : match[1]!));
+    const segments = [...rawPath.matchAll(PATH_SEGMENT_PATTERN)].map(match =>
+      match[2] !== undefined ? `[${match[2]}]` : match[1]!
+    );
     let level = root;
     segments.forEach((segment, index) => {
       if (index === segments.length - 1) {
         level.push({ kind: 'leaf', key: segment, rawPath, path: normalizePayloadPath(rawPath), value });
         return;
       }
-      let group = level.find((node): node is Extract<PayloadTreeNode, { kind: 'group' }> => node.kind === 'group' && node.key === segment);
+      let group = level.find(
+        (node): node is Extract<PayloadTreeNode, { kind: 'group' }> => node.kind === 'group' && node.key === segment
+      );
       if (!group) {
         group = { kind: 'group', key: segment, children: [] };
         level.push(group);

@@ -1,4 +1,9 @@
-import { CUSTOM_LOG_LEVELS, type CustomLogColumn, type CustomLogRow, type CustomLogScalar } from '@alv/protocol/customLogsTypes';
+import {
+  CUSTOM_LOG_LEVELS,
+  type CustomLogColumn,
+  type CustomLogRow,
+  type CustomLogScalar
+} from '@alv/protocol/customLogsTypes';
 import { payloadValues, type DiscoveredField, type PayloadColumn, type PayloadFieldType } from './payloadRows';
 
 export type StandardColumnField = 'time' | 'level' | 'title' | 'user' | 'counts';
@@ -20,7 +25,13 @@ export type TableColumn =
 
 export type SortState = { columnId: string; dir: 'asc' | 'desc' };
 
-const STANDARD_WIDTH: Record<StandardColumnField, number> = { time: 176, level: 84, title: 280, user: 190, counts: 140 };
+const STANDARD_WIDTH: Record<StandardColumnField, number> = {
+  time: 176,
+  level: 84,
+  title: 280,
+  user: 190,
+  counts: 140
+};
 
 export type StandardColumnLabels = Record<StandardColumnField, string>;
 
@@ -35,8 +46,21 @@ export type BuildColumnsInput = {
 };
 
 /** Fixed columns first, then the source's display columns, then one column per active payload path. */
-export function buildTableColumns({ labels, extra, payload, discovered, hasUser, hasCounts }: BuildColumnsInput): TableColumn[] {
-  const standard: StandardColumnField[] = ['time', 'level', 'title', ...(hasUser ? (['user'] as const) : []), ...(hasCounts ? (['counts'] as const) : [])];
+export function buildTableColumns({
+  labels,
+  extra,
+  payload,
+  discovered,
+  hasUser,
+  hasCounts
+}: BuildColumnsInput): TableColumn[] {
+  const standard: StandardColumnField[] = [
+    'time',
+    'level',
+    'title',
+    ...(hasUser ? (['user'] as const) : []),
+    ...(hasCounts ? (['counts'] as const) : [])
+  ];
   const columns: TableColumn[] = standard.map(field => ({
     id: `std:${field}`,
     kind: 'std',

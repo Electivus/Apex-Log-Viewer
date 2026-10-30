@@ -9,9 +9,9 @@ function conditionsOf(result: FilterParseResult): Array<Pick<FilterCondition, 'f
   if (!result.ok) {
     throw new Error(`expected a valid filter, got ${JSON.stringify(result.error)}`);
   }
-  return result.conditions.map(({ field, op, value }) => (value === undefined ? { field, op } : { field, op, value })) as Array<
-    Pick<FilterCondition, 'field' | 'op' | 'value'>
-  >;
+  return result.conditions.map(({ field, op, value }) =>
+    value === undefined ? { field, op } : { field, op, value }
+  ) as Array<Pick<FilterCondition, 'field' | 'op' | 'value'>>;
 }
 
 function errorOf(source: string) {
@@ -24,12 +24,18 @@ function errorOf(source: string) {
 
 describe('filter grammar', () => {
   it('reads field, operator and value', () => {
-    expect(conditionsOf(parseFilterExpression('http.status >= 500'))).toEqual([{ field: 'http.status', op: '>=', value: '500' }]);
+    expect(conditionsOf(parseFilterExpression('http.status >= 500'))).toEqual([
+      { field: 'http.status', op: '>=', value: '500' }
+    ]);
   });
 
   it('does not need spaces around symbolic operators', () => {
-    expect(conditionsOf(parseFilterExpression('http.status>=500'))).toEqual([{ field: 'http.status', op: '>=', value: '500' }]);
-    expect(conditionsOf(parseFilterExpression('orderId!=ORD-1'))).toEqual([{ field: 'orderId', op: '!=', value: 'ORD-1' }]);
+    expect(conditionsOf(parseFilterExpression('http.status>=500'))).toEqual([
+      { field: 'http.status', op: '>=', value: '500' }
+    ]);
+    expect(conditionsOf(parseFilterExpression('orderId!=ORD-1'))).toEqual([
+      { field: 'orderId', op: '!=', value: 'ORD-1' }
+    ]);
   });
 
   it('reads every operator and prefers the longest symbol', () => {
@@ -52,7 +58,7 @@ describe('filter grammar', () => {
     expect(conditionsOf(parseFilterExpression('message = "Read timed out"'))).toEqual([
       { field: 'message', op: '=', value: 'Read timed out' }
     ]);
-    expect(conditionsOf(parseFilterExpression("message = 'say \"hi\"'"))).toEqual([
+    expect(conditionsOf(parseFilterExpression('message = \'say "hi"\''))).toEqual([
       { field: 'message', op: '=', value: 'say "hi"' }
     ]);
     expect(conditionsOf(parseFilterExpression('message = "a \\"quoted\\" word \\\\ done"'))).toEqual([
@@ -62,16 +68,22 @@ describe('filter grammar', () => {
   });
 
   it('keeps and inside a quoted value from joining conditions', () => {
-    expect(conditionsOf(parseFilterExpression('message = "a and b"'))).toEqual([{ field: 'message', op: '=', value: 'a and b' }]);
+    expect(conditionsOf(parseFilterExpression('message = "a and b"'))).toEqual([
+      { field: 'message', op: '=', value: 'a and b' }
+    ]);
   });
 
   it('reads array paths', () => {
     expect(conditionsOf(parseFilterExpression('tags[] = "vip"'))).toEqual([{ field: 'tags[]', op: '=', value: 'vip' }]);
-    expect(conditionsOf(parseFilterExpression('lines[0].sku = SKU-1'))).toEqual([{ field: 'lines[0].sku', op: '=', value: 'SKU-1' }]);
+    expect(conditionsOf(parseFilterExpression('lines[0].sku = SKU-1'))).toEqual([
+      { field: 'lines[0].sku', op: '=', value: 'SKU-1' }
+    ]);
   });
 
   it('joins conditions with and, in any case', () => {
-    expect(conditionsOf(parseFilterExpression('http.status >= 500 and customer.tier = gold AND durationMs < 100'))).toEqual([
+    expect(
+      conditionsOf(parseFilterExpression('http.status >= 500 and customer.tier = gold AND durationMs < 100'))
+    ).toEqual([
       { field: 'http.status', op: '>=', value: '500' },
       { field: 'customer.tier', op: '=', value: 'gold' },
       { field: 'durationMs', op: '<', value: '100' }

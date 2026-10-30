@@ -94,7 +94,13 @@ describe('payload discovery', () => {
 });
 
 describe('reading a row payload', () => {
-  const payload = parsed({ 'http.status': 502, 'tags[0]': 'vip', 'tags[1]': 'beta', 'items[0].sku': 'A', 'items[1].sku': 'B' });
+  const payload = parsed({
+    'http.status': 502,
+    'tags[0]': 'vip',
+    'tags[1]': 'beta',
+    'items[0].sku': 'A',
+    'items[1].sku': 'B'
+  });
 
   it('reads one path, or every array element through the bracketed path', () => {
     expect(payloadValues(payload, 'http.status')).toEqual([502]);

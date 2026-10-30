@@ -25,7 +25,15 @@ const VALUE_TONE: Record<ReturnType<typeof scalarKind>, string> = {
   null: 'italic text-muted-foreground'
 };
 
-export function PayloadTree({ t, values, columns, lockedColumns, cutValues, onToggleColumn, onFilterEqual }: PayloadTreeProps) {
+export function PayloadTree({
+  t,
+  values,
+  columns,
+  lockedColumns,
+  cutValues,
+  onToggleColumn,
+  onFilterEqual
+}: PayloadTreeProps) {
   const tree = useMemo(() => buildPayloadTree(values), [values]);
   const cut = useMemo(() => new Set(cutValues), [cutValues]);
 
@@ -52,7 +60,9 @@ export function PayloadTree({ t, values, columns, lockedColumns, cutValues, onTo
         <span className="shrink-0 text-[color:var(--vscode-symbolIcon-propertyForeground,#9cdcfe)]">{node.key}:</span>
         <span className={cn('min-w-0 flex-1 truncate', VALUE_TONE[kind])} title={formatScalar(node.value)}>
           {kind === 'string' ? JSON.stringify(node.value) : formatScalar(node.value)}
-          {cut.has(node.rawPath) ? <em className="ml-1 text-[10px] not-italic text-amber-400">({t.valueCut})</em> : null}
+          {cut.has(node.rawPath) ? (
+            <em className="ml-1 text-[10px] not-italic text-amber-400">({t.valueCut})</em>
+          ) : null}
         </span>
         <span className="flex shrink-0 gap-1 opacity-60 group-hover:opacity-100 group-focus-within:opacity-100">
           <Button

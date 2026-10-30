@@ -61,7 +61,16 @@ function stageItems(stage: GuidedStage): number {
   return stage.stage === 'field' || stage.stage === 'operator' || stage.stage === 'value' ? stage.items.length : 0;
 }
 
-export function CustomLogsFilterBar({ t, chips, fields, valuesFor, onSubmit, onAddColumn, prefill, disabled = false }: CustomLogsFilterBarProps) {
+export function CustomLogsFilterBar({
+  t,
+  chips,
+  fields,
+  valuesFor,
+  onSubmit,
+  onAddColumn,
+  prefill,
+  disabled = false
+}: CustomLogsFilterBarProps) {
   const listId = useId();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [text, setText] = useState('');
@@ -184,18 +193,25 @@ export function CustomLogsFilterBar({ t, chips, fields, valuesFor, onSubmit, onA
     }
   })();
 
-  const showPopup = open && !disabled && (itemCount > 0 || stage.stage === 'value' || stage.stage === 'commit' || error);
+  const showPopup =
+    open && !disabled && (itemCount > 0 || stage.stage === 'value' || stage.stage === 'commit' || error);
 
   return (
     <div className="relative flex min-h-[34px] shrink-0 items-center gap-1.5 border-b border-border px-3 py-1">
       <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
       <div className="flex min-w-0 max-w-[65%] shrink-0 items-center gap-1.5 overflow-hidden">
         {chips.map(chip => (
-          <FilterChipView key={chip.key} t={t} chip={chip} disabled={disabled} onEdit={editedText => {
-            setText(editedText);
-            setError(undefined);
-            inputRef.current?.focus();
-          }} />
+          <FilterChipView
+            key={chip.key}
+            t={t}
+            chip={chip}
+            disabled={disabled}
+            onEdit={editedText => {
+              setText(editedText);
+              setError(undefined);
+              inputRef.current?.focus();
+            }}
+          />
         ))}
       </div>
       <input
@@ -205,7 +221,9 @@ export function CustomLogsFilterBar({ t, chips, fields, valuesFor, onSubmit, onA
         aria-expanded={Boolean(showPopup)}
         aria-controls={listId}
         aria-autocomplete="list"
-        aria-activedescendant={showPopup && highlight >= 0 && highlight < itemCount ? `${listId}-${highlight}` : undefined}
+        aria-activedescendant={
+          showPopup && highlight >= 0 && highlight < itemCount ? `${listId}-${highlight}` : undefined
+        }
         aria-invalid={error ? true : undefined}
         spellCheck={false}
         autoComplete="off"
@@ -244,22 +262,37 @@ export function CustomLogsFilterBar({ t, chips, fields, valuesFor, onSubmit, onA
                     id={`${listId}-${index}`}
                     role="option"
                     aria-selected={index === highlight}
-                    className={cn('flex h-[22px] cursor-pointer items-center gap-2.5 px-2.5', index === highlight && 'bg-[var(--vscode-list-activeSelectionBackground,rgba(55,148,255,0.25))]')}
+                    className={cn(
+                      'flex h-[22px] cursor-pointer items-center gap-2.5 px-2.5',
+                      index === highlight && 'bg-[var(--vscode-list-activeSelectionBackground,rgba(55,148,255,0.25))]'
+                    )}
                     onClick={() => accept(index)}
                   >
                     <span className="flex-1 truncate font-mono text-xs">{item.path}</span>
                     {item.kind === 'server' ? (
-                      <span className="rounded bg-muted px-1.5 font-mono text-[10px] text-muted-foreground">{t.filter.serverBadge}</span>
+                      <span className="rounded bg-muted px-1.5 font-mono text-[10px] text-muted-foreground">
+                        {t.filter.serverBadge}
+                      </span>
                     ) : (
                       <>
-                        <span className={cn('rounded bg-muted px-1.5 font-mono text-[10px]', item.type && TYPE_TONE[item.type])}>
+                        <span
+                          className={cn(
+                            'rounded bg-muted px-1.5 font-mono text-[10px]',
+                            item.type && TYPE_TONE[item.type]
+                          )}
+                        >
                           {item.type ? t.picker[TYPE_LABEL_KEY[item.type]] : ''}
                         </span>
                         <span className="h-[5px] w-9 shrink-0 overflow-hidden rounded-sm bg-muted" aria-hidden="true">
-                          <i className="block h-full bg-[color:var(--vscode-charts-blue,#4e7fb3)]" style={{ width: `${item.share ?? 0}%` }} />
+                          <i
+                            className="block h-full bg-[color:var(--vscode-charts-blue,#4e7fb3)]"
+                            style={{ width: `${item.share ?? 0}%` }}
+                          />
                         </span>
                         <span className="w-8 text-right text-[11px] text-muted-foreground">{item.share ?? 0}%</span>
-                        {item.isColumn ? <span className="text-[11px] text-muted-foreground">{t.filter.inColumns}</span> : null}
+                        {item.isColumn ? (
+                          <span className="text-[11px] text-muted-foreground">{t.filter.inColumns}</span>
+                        ) : null}
                       </>
                     )}
                   </li>
@@ -272,36 +305,48 @@ export function CustomLogsFilterBar({ t, chips, fields, valuesFor, onSubmit, onA
                     id={`${listId}-${index}`}
                     role="option"
                     aria-selected={index === highlight}
-                    className={cn('flex h-[22px] cursor-pointer items-center px-2.5 font-mono text-xs', index === highlight && 'bg-[var(--vscode-list-activeSelectionBackground,rgba(55,148,255,0.25))]')}
+                    className={cn(
+                      'flex h-[22px] cursor-pointer items-center px-2.5 font-mono text-xs',
+                      index === highlight && 'bg-[var(--vscode-list-activeSelectionBackground,rgba(55,148,255,0.25))]'
+                    )}
                     onClick={() => accept(index)}
                   >
                     {op}
                   </li>
                 ))
               : null}
-            {stage.stage === 'value'
-              ? stage.items.length > 0
-                ? stage.items.map((item, index) => (
-                    <li
-                      key={item.value}
-                      id={`${listId}-${index}`}
-                      role="option"
-                      aria-selected={index === highlight}
-                      className={cn('flex h-[22px] cursor-pointer items-center gap-2.5 px-2.5', index === highlight && 'bg-[var(--vscode-list-activeSelectionBackground,rgba(55,148,255,0.25))]')}
-                      onClick={() => accept(index)}
-                    >
-                      <span className="flex-1 truncate font-mono text-xs text-[color:var(--vscode-debugTokenExpression-string,#ce9178)]">{item.value}</span>
-                      {item.count !== undefined ? (
-                        <span className="text-[11px] text-muted-foreground">{item.count === 1 ? t.filter.rowCountOne : fillTemplate(t.filter.rowsCount, { count: item.count })}</span>
-                      ) : null}
-                    </li>
-                  ))
-                : (
-                  <li role="presentation" className="px-2.5 py-1 text-xs text-muted-foreground">
-                    {t.filter.noSuggestions}
+            {stage.stage === 'value' ? (
+              stage.items.length > 0 ? (
+                stage.items.map((item, index) => (
+                  <li
+                    key={item.value}
+                    id={`${listId}-${index}`}
+                    role="option"
+                    aria-selected={index === highlight}
+                    className={cn(
+                      'flex h-[22px] cursor-pointer items-center gap-2.5 px-2.5',
+                      index === highlight && 'bg-[var(--vscode-list-activeSelectionBackground,rgba(55,148,255,0.25))]'
+                    )}
+                    onClick={() => accept(index)}
+                  >
+                    <span className="flex-1 truncate font-mono text-xs text-[color:var(--vscode-debugTokenExpression-string,#ce9178)]">
+                      {item.value}
+                    </span>
+                    {item.count !== undefined ? (
+                      <span className="text-[11px] text-muted-foreground">
+                        {item.count === 1
+                          ? t.filter.rowCountOne
+                          : fillTemplate(t.filter.rowsCount, { count: item.count })}
+                      </span>
+                    ) : null}
                   </li>
-                )
-              : null}
+                ))
+              ) : (
+                <li role="presentation" className="px-2.5 py-1 text-xs text-muted-foreground">
+                  {t.filter.noSuggestions}
+                </li>
+              )
+            ) : null}
           </ul>
         </div>
       ) : null}

@@ -1,7 +1,10 @@
 import React from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
-import type { CustomLogViewerFromWebviewMessage, CustomLogViewerToWebviewMessage } from '@alv/protocol/customLogViewerMessages';
+import type {
+  CustomLogViewerFromWebviewMessage,
+  CustomLogViewerToWebviewMessage
+} from '@alv/protocol/customLogViewerMessages';
 import type {
   CustomLogApexLogLink,
   CustomLogEntry,
@@ -51,7 +54,12 @@ function parsed(values: Record<string, CustomLogScalar>): CustomLogPayloadView {
   return { state: 'parsed', values, droppedPaths: 0, cutValues: [] };
 }
 
-function makeEntry(id: string, sequence: number, message: string, overrides: Partial<CustomLogEntry> = {}): CustomLogEntry {
+function makeEntry(
+  id: string,
+  sequence: number,
+  message: string,
+  overrides: Partial<CustomLogEntry> = {}
+): CustomLogEntry {
   return {
     id,
     sequence,
@@ -81,7 +89,11 @@ const log: CustomLogRow = {
 
 const entries: CustomLogEntry[] = [
   makeEntry(entryIds.start, 1, 'Starting order sync', { origin: 'OrderSync.run', presentDetails: ['StackTrace__c'] }),
-  makeEntry(entryIds.system, 2, 'Nebula Logger - Saving 2 log entries via ANONYMOUS', { level: 'FINEST', rawLevel: 'FINEST', system: true }),
+  makeEntry(entryIds.system, 2, 'Nebula Logger - Saving 2 log entries via ANONYMOUS', {
+    level: 'FINEST',
+    rawLevel: 'FINEST',
+    system: true
+  }),
   makeEntry(entryIds.error, 3, 'Divide by 0', {
     level: 'ERROR',
     rawLevel: 'ERROR',
@@ -94,7 +106,9 @@ const entries: CustomLogEntry[] = [
 ];
 
 const payloadEntries: CustomLogEntry[] = [
-  makeEntry(entryIds.payload, 1, 'Order synced', { payload: parsed({ orderId: 'ORD-1042', 'http.status': 502, 'tags[0]': 'vip' }) }),
+  makeEntry(entryIds.payload, 1, 'Order synced', {
+    payload: parsed({ orderId: 'ORD-1042', 'http.status': 502, 'tags[0]': 'vip' })
+  }),
   makeEntry(entryIds.invalid, 2, 'Broken payload', { payload: { state: 'invalid' } }),
   makeEntry(entryIds.text, 3, 'Text payload', { payload: { state: 'text' } })
 ];
@@ -105,7 +119,12 @@ const payloadFields: CustomLogPayloadField[] = [
   { path: 'tags[0]', types: ['string'], rows: 1 }
 ];
 
-const linked: CustomLogApexLogLink = { state: 'linked', logId: '07L5g00000XyZabEAE', startTime: '2026-10-29T23:29:49.000Z', logLength: 48213 };
+const linked: CustomLogApexLogLink = {
+  state: 'linked',
+  logId: '07L5g00000XyZabEAE',
+  startTime: '2026-10-29T23:29:49.000Z',
+  logLength: 48213
+};
 
 function createVsCodeMock(initialState?: unknown) {
   const posted: CustomLogViewerFromWebviewMessage[] = [];
@@ -166,10 +185,14 @@ function mountViewer(options: MountOptions = {}) {
 const grid = () => screen.getByRole('grid');
 const rowOf = (id: string) => grid().querySelector(`[data-entry-id="${id}"]`) as HTMLElement;
 const messageOf = (id: string) => rowOf(id).querySelector('.line-clamp-4')?.textContent?.replace(/\s…$/, '');
-const shownIds = () => Array.from(grid().querySelectorAll('[data-entry-id]')).map(row => row.getAttribute('data-entry-id'));
+const shownIds = () =>
+  Array.from(grid().querySelectorAll('[data-entry-id]')).map(row => row.getAttribute('data-entry-id'));
 const levelGroup = () => screen.getByRole('group', { name: 'Filter by level' });
 const detailGroup = () => screen.getByRole('group', { name: 'Filter by long field' });
-const posts = <T extends CustomLogViewerFromWebviewMessage['type']>(posted: CustomLogViewerFromWebviewMessage[], type: T) =>
+const posts = <T extends CustomLogViewerFromWebviewMessage['type']>(
+  posted: CustomLogViewerFromWebviewMessage[],
+  type: T
+) =>
   posted.filter((message): message is Extract<CustomLogViewerFromWebviewMessage, { type: T }> => message.type === type);
 
 describe('Custom Log viewer app', () => {
@@ -219,7 +242,9 @@ describe('Custom Log viewer app', () => {
     it('opens the header payload by key, and says when it is hidden', () => {
       const first = mountViewer({ logPayload: { key: 'payload', label: 'Payload', state: 'value', format: 'json' } });
       fireEvent.click(screen.getByRole('button', { name: 'Open JSON' }));
-      expect(posts(first.posted, 'customLogViewerOpenField')).toEqual([{ type: 'customLogViewerOpenField', target: { kind: 'logPayload' } }]);
+      expect(posts(first.posted, 'customLogViewerOpenField')).toEqual([
+        { type: 'customLogViewerOpenField', target: { kind: 'logPayload' } }
+      ]);
       first.view.unmount();
 
       mountViewer({ logPayload: { key: 'payload', label: 'Payload', state: 'hidden' } });
@@ -265,7 +290,11 @@ describe('Custom Log viewer app', () => {
     it('filters by level chips, with counts, combining levels', () => {
       mountViewer();
 
-      expect(within(levelGroup()).getAllByRole('button').map(chip => chip.textContent)).toEqual(['ERROR1', 'WARN1', 'INFO1', 'DEBUG1', 'FINEST1']);
+      expect(
+        within(levelGroup())
+          .getAllByRole('button')
+          .map(chip => chip.textContent)
+      ).toEqual(['ERROR1', 'WARN1', 'INFO1', 'DEBUG1', 'FINEST1']);
 
       fireEvent.click(within(levelGroup()).getByRole('button', { name: /ERROR/ }));
       expect(shownIds()).toEqual([entryIds.error]);
@@ -281,7 +310,11 @@ describe('Custom Log viewer app', () => {
     it('filters by the long fields entries carry', () => {
       mountViewer();
 
-      expect(within(detailGroup()).getAllByRole('button').map(chip => chip.textContent)).toEqual(['StackTrace2', 'ExceptionStackTrace1', 'RecordJson1']);
+      expect(
+        within(detailGroup())
+          .getAllByRole('button')
+          .map(chip => chip.textContent)
+      ).toEqual(['StackTrace2', 'ExceptionStackTrace1', 'RecordJson1']);
 
       fireEvent.click(within(detailGroup()).getByRole('button', { name: /^ExceptionStackTrace/ }));
 
@@ -305,7 +338,9 @@ describe('Custom Log viewer app', () => {
     it('says when no loaded entry matches, and when the log is empty', () => {
       const first = mountViewer({ hasMore: true });
       fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'nothing here' } });
-      expect(screen.getByText('No loaded entry matches the current filters. Use Load more entries to widen the search.')).toBeInTheDocument();
+      expect(
+        screen.getByText('No loaded entry matches the current filters. Use Load more entries to widen the search.')
+      ).toBeInTheDocument();
       first.view.unmount();
 
       mountViewer({ entries: [] });
@@ -361,7 +396,9 @@ describe('Custom Log viewer app', () => {
       const { posted, bus } = mountViewer();
 
       fireEvent.click(rowOf(entryIds.error));
-      expect(posts(posted, 'customLogViewerOpenEntry')).toEqual([{ type: 'customLogViewerOpenEntry', entryId: entryIds.error }]);
+      expect(posts(posted, 'customLogViewerOpenEntry')).toEqual([
+        { type: 'customLogViewerOpenEntry', entryId: entryIds.error }
+      ]);
       send(bus, { type: 'customLogViewerLoading', scope: 'entry', value: true });
       expect(screen.getByText('Loading fields…')).toBeInTheDocument();
 
@@ -371,14 +408,18 @@ describe('Custom Log viewer app', () => {
       const detail = screen.getByTestId('custom-log-entry-detail');
       expect(within(detail).getByTestId('entry-field-message')).toHaveTextContent('truncated by the logger');
       expect(within(detail).getByTestId('entry-field-RecordJson__c')).toHaveTextContent('json');
-      expect(within(detail).getByTestId('entry-field-HttpRequestBody__c')).toHaveTextContent('hidden by your permissions');
+      expect(within(detail).getByTestId('entry-field-HttpRequestBody__c')).toHaveTextContent(
+        'hidden by your permissions'
+      );
       expect(within(detail).getByTestId('entry-field-Tags__c')).toHaveTextContent('empty');
       expect(within(detail).queryByTestId('entry-field-RestRequestBody__c')).toBeNull();
       expect(within(detail).getByText('System.MathException')).toBeInTheDocument();
 
       fireEvent.click(rowOf(entryIds.warn));
       fireEvent.click(rowOf(entryIds.error));
-      expect(posts(posted, 'customLogViewerOpenEntry').filter(message => message.entryId === entryIds.error)).toHaveLength(1);
+      expect(
+        posts(posted, 'customLogViewerOpenEntry').filter(message => message.entryId === entryIds.error)
+      ).toHaveLength(1);
     });
 
     it('opens a long field by its key, never by its text', () => {
@@ -400,7 +441,9 @@ describe('Custom Log viewer app', () => {
       fireEvent.click(rowOf(entryIds.error));
 
       fireEvent.click(screen.getByRole('button', { name: 'Copy message' }));
-      expect(posts(posted, 'customLogViewerCopyText')).toEqual([{ type: 'customLogViewerCopyText', text: 'Divide by 0' }]);
+      expect(posts(posted, 'customLogViewerCopyText')).toEqual([
+        { type: 'customLogViewerCopyText', text: 'Divide by 0' }
+      ]);
 
       fireEvent.click(screen.getByRole('button', { name: 'Close entry' }));
       expect(screen.queryByTestId('custom-log-entry-detail')).toBeNull();
@@ -410,7 +453,9 @@ describe('Custom Log viewer app', () => {
       mountViewer();
 
       fireEvent.keyDown(grid(), { key: 'ArrowDown' });
-      expect(within(screen.getByTestId('custom-log-entry-detail')).getByText('Starting order sync')).toBeInTheDocument();
+      expect(
+        within(screen.getByTestId('custom-log-entry-detail')).getByText('Starting order sync')
+      ).toBeInTheDocument();
       fireEvent.keyDown(grid(), { key: 'ArrowDown' });
       expect(within(screen.getByTestId('custom-log-entry-detail')).getByText('Divide by 0')).toBeInTheDocument();
     });
@@ -437,16 +482,14 @@ describe('Custom Log viewer app', () => {
     it('shows the project columns first, then the added ones, and keeps invalid and plain text payloads on the list', () => {
       mountViewer({ entries: payloadEntries, fields: payloadFields, defaults: ['orderId'], added: ['http.status'] });
 
-      expect(screen.getAllByRole('columnheader').map(header => header.querySelector('button span.truncate')?.textContent).filter(Boolean)).toEqual([
-        '#',
-        'Time',
-        'Level',
-        'Message',
-        'Origin Type',
-        'orderId',
-        'http.status'
-      ]);
-      const cells = (id: string) => Array.from(rowOf(id).querySelectorAll('[role="gridcell"]')).map(cell => cell.textContent?.trim());
+      expect(
+        screen
+          .getAllByRole('columnheader')
+          .map(header => header.querySelector('button span.truncate')?.textContent)
+          .filter(Boolean)
+      ).toEqual(['#', 'Time', 'Level', 'Message', 'Origin Type', 'orderId', 'http.status']);
+      const cells = (id: string) =>
+        Array.from(rowOf(id).querySelectorAll('[role="gridcell"]')).map(cell => cell.textContent?.trim());
       expect(cells(entryIds.payload).slice(-2)).toEqual(['ORD-1042', '502']);
       expect(cells(entryIds.invalid)[5]).toContain('invalid JSON');
       expect(cells(entryIds.text)[5]).toContain('plain text');
@@ -462,9 +505,9 @@ describe('Custom Log viewer app', () => {
       fireEvent.keyDown(input, { key: 'Enter' });
 
       expect(shownIds()).toEqual([entryIds.payload]);
-      expect(screen.getAllByTestId('filter-chip').map(chip => [chip.getAttribute('data-scope'), chip.textContent])).toEqual([
-        ['loaded', 'http.status>=500']
-      ]);
+      expect(
+        screen.getAllByTestId('filter-chip').map(chip => [chip.getAttribute('data-scope'), chip.textContent])
+      ).toEqual([['loaded', 'http.status>=500']]);
       expect(screen.getByRole('status')).toHaveTextContent('1 of 3 entries shown');
       expect(screen.getByRole('status')).toHaveTextContent('1 invalid JSON · 1 plain text: skipped by JSON filters');
     });
@@ -475,9 +518,16 @@ describe('Custom Log viewer app', () => {
 
       const leaf = within(screen.getByTestId('custom-log-entry-detail')).getByTestId('payload-leaf-http.status');
       fireEvent.click(within(leaf).getByRole('button', { name: '+ Column' }));
-      fireEvent.click(within(within(screen.getByTestId('custom-log-entry-detail')).getByTestId('payload-leaf-tags[0]')).getByRole('button', { name: '= value' }));
+      fireEvent.click(
+        within(within(screen.getByTestId('custom-log-entry-detail')).getByTestId('payload-leaf-tags[0]')).getByRole(
+          'button',
+          { name: '= value' }
+        )
+      );
 
-      expect(posts(posted, 'customLogViewerSetPayloadColumns')).toEqual([{ type: 'customLogViewerSetPayloadColumns', added: ['http.status'] }]);
+      expect(posts(posted, 'customLogViewerSetPayloadColumns')).toEqual([
+        { type: 'customLogViewerSetPayloadColumns', added: ['http.status'] }
+      ]);
       expect(shownIds()).toEqual([entryIds.payload]);
     });
 

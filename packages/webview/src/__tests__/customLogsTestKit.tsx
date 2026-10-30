@@ -138,7 +138,11 @@ export function mountApp(options: BootstrapOptions = {}, initialState?: unknown)
   const bus = new EventTarget();
   const view = render(<CustomLogsApp vscode={mock.vscode} messageBus={bus} />);
   send(bus, { type: 'customLogsInit', locale: 'en', surface: options.surface });
-  send(bus, { type: 'customLogsOrgs', data: [{ username: 'dev@acme.com', alias: 'acme-dev' }], selected: 'dev@acme.com' });
+  send(bus, {
+    type: 'customLogsOrgs',
+    data: [{ username: 'dev@acme.com', alias: 'acme-dev' }],
+    selected: 'dev@acme.com'
+  });
   send(bus, {
     type: 'customLogsSources',
     data: options.sources ?? [appLog],
@@ -146,7 +150,10 @@ export function mountApp(options: BootstrapOptions = {}, initialState?: unknown)
     issues: options.issues ?? []
   });
   send(bus, { type: 'customLogsFilter', value: {} });
-  send(bus, { type: 'customLogsPayloadColumns', value: { defaults: options.defaults ?? [], added: options.added ?? [] } });
+  send(bus, {
+    type: 'customLogsPayloadColumns',
+    value: { defaults: options.defaults ?? [], added: options.added ?? [] }
+  });
   send(bus, {
     type: 'customLogsPage',
     mode: 'replace',
@@ -161,11 +168,15 @@ export function mountApp(options: BootstrapOptions = {}, initialState?: unknown)
 export const filterInput = () => screen.getByRole('combobox', { name: 'Filter logs' });
 export const grid = () => screen.getByRole('grid', { name: 'Custom logs' });
 export const listedTitles = () =>
-  Array.from(grid().querySelectorAll('[data-row-id]')).map(row => row.querySelector('[role="gridcell"]:nth-child(3)')?.textContent?.trim());
+  Array.from(grid().querySelectorAll('[data-row-id]')).map(row =>
+    row.querySelector('[role="gridcell"]:nth-child(3)')?.textContent?.trim()
+  );
 export const chips = () => screen.queryAllByTestId('filter-chip');
 export const chipSummary = () => chips().map(chip => [chip.getAttribute('data-scope'), chip.textContent]);
 export const columnHeader = (name: string) =>
-  screen.getAllByRole('columnheader').find(header => header.querySelector('button span.truncate')?.textContent === name)!;
+  screen
+    .getAllByRole('columnheader')
+    .find(header => header.querySelector('button span.truncate')?.textContent === name)!;
 export const headerLabels = () =>
   screen
     .getAllByRole('columnheader')
@@ -179,10 +190,15 @@ export function submit(text: string) {
 }
 
 export function posts<T extends CustomLogsFromWebviewMessage['type']>(posted: CustomLogsFromWebviewMessage[], type: T) {
-  return posted.filter((message): message is Extract<CustomLogsFromWebviewMessage, { type: T }> => message.type === type);
+  return posted.filter(
+    (message): message is Extract<CustomLogsFromWebviewMessage, { type: T }> => message.type === type
+  );
 }
 
-export function lastPost<T extends CustomLogsFromWebviewMessage['type']>(posted: CustomLogsFromWebviewMessage[], type: T) {
+export function lastPost<T extends CustomLogsFromWebviewMessage['type']>(
+  posted: CustomLogsFromWebviewMessage[],
+  type: T
+) {
   return posts(posted, type).at(-1);
 }
 

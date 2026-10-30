@@ -13,13 +13,20 @@ import {
   type CustomLogScalar,
   type CustomLogSourceRef
 } from '@alv/protocol/customLogsTypes';
-import type { CustomLogViewerFromWebviewMessage, CustomLogViewerToWebviewMessage } from '@alv/protocol/customLogViewerMessages';
+import type {
+  CustomLogViewerFromWebviewMessage,
+  CustomLogViewerToWebviewMessage
+} from '@alv/protocol/customLogViewerMessages';
 import { getMessages } from './i18n';
 import { CustomLogEntryDetail } from './components/custom-logs/CustomLogEntryDetail';
 import { CustomLogEntryList } from './components/custom-logs/CustomLogEntryList';
 import { CustomLogViewerHeader } from './components/custom-logs/CustomLogViewerHeader';
 import { CustomLogViewerToolbar } from './components/custom-logs/CustomLogViewerToolbar';
-import { CustomLogsFilterBar, type FilterBarPrefill, type FilterChip } from './components/custom-logs/CustomLogsFilterBar';
+import {
+  CustomLogsFilterBar,
+  type FilterBarPrefill,
+  type FilterChip
+} from './components/custom-logs/CustomLogsFilterBar';
 import { CustomLogsStatusBar } from './components/custom-logs/CustomLogsStatusBar';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import type { SortState } from './utils/customLogs/columns';
@@ -32,9 +39,20 @@ import {
   filterEntries
 } from './utils/customLogs/entries';
 import { describeParseError, type FilterSubmitResult } from './utils/customLogs/filterMessages';
-import { filterConditionsEqual, formatFilterCondition, formatFilterValue, parseFilterExpression, type FilterClause } from './utils/customLogs/filterGrammar';
+import {
+  filterConditionsEqual,
+  formatFilterCondition,
+  formatFilterValue,
+  parseFilterExpression,
+  type FilterClause
+} from './utils/customLogs/filterGrammar';
 import { fillTemplate, formatCount } from './utils/customLogs/format';
-import { guidedPayloadFields, valueCountsToItems, type GuidedField, type GuidedItem } from './utils/customLogs/guidedFilter';
+import {
+  guidedPayloadFields,
+  valueCountsToItems,
+  type GuidedField,
+  type GuidedItem
+} from './utils/customLogs/guidedFilter';
 import {
   countPayloadStates,
   discoverPayloadFields,
@@ -63,7 +81,10 @@ const NO_LEVELS: ReadonlySet<CustomLogLevel> = new Set();
 function readInitialUiState(vscode: VsCodeWebviewApi<CustomLogViewerFromWebviewMessage>): CustomLogViewerUiState {
   const raw = vscode.getState<Partial<CustomLogViewerUiState>>() ?? {};
   const isClause = (value: unknown): value is FilterClause =>
-    typeof value === 'object' && value !== null && typeof (value as FilterClause).field === 'string' && typeof (value as FilterClause).op === 'string';
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as FilterClause).field === 'string' &&
+    typeof (value as FilterClause).op === 'string';
   const sort = raw.sort;
   return {
     payloadFilters: Array.isArray(raw.payloadFilters) ? raw.payloadFilters.filter(isClause) : [],
@@ -71,7 +92,9 @@ function readInitialUiState(vscode: VsCodeWebviewApi<CustomLogViewerFromWebviewM
       sort && typeof sort.columnId === 'string' && (sort.dir === 'asc' || sort.dir === 'desc')
         ? { columnId: sort.columnId, dir: sort.dir }
         : undefined,
-    hiddenDefaults: Array.isArray(raw.hiddenDefaults) ? raw.hiddenDefaults.filter(path => typeof path === 'string') : [],
+    hiddenDefaults: Array.isArray(raw.hiddenDefaults)
+      ? raw.hiddenDefaults.filter(path => typeof path === 'string')
+      : [],
     showSystem: raw.showSystem === true
   };
 }
@@ -130,7 +153,11 @@ export function CustomLogViewerApp({
   const [payloadFields, setPayloadFields] = useState<CustomLogPayloadField[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [entryFields, setEntryFields] = useState<Record<string, CustomLogLongFieldView[]>>({});
-  const [loading, setLoading] = useState<Record<'log' | 'entries' | 'entry', boolean>>({ log: true, entries: true, entry: false });
+  const [loading, setLoading] = useState<Record<'log' | 'entries' | 'entry', boolean>>({
+    log: true,
+    entries: true,
+    entry: false
+  });
   const [errors, setErrors] = useState<Partial<Record<ViewerError, string>>>({});
   const [search, setSearch] = useState('');
   const [levels, setLevels] = useState<ReadonlySet<CustomLogLevel>>(NO_LEVELS);
@@ -207,8 +234,14 @@ export function CustomLogViewerApp({
 
   const post = useCallback((message: CustomLogViewerFromWebviewMessage) => vscode.postMessage(message), [vscode]);
 
-  const discovered = useMemo(() => discoverPayloadFields(payloadFields, entries.length), [payloadFields, entries.length]);
-  const payloadColumns = useMemo(() => resolvePayloadColumns(columnsView, hiddenDefaults), [columnsView, hiddenDefaults]);
+  const discovered = useMemo(
+    () => discoverPayloadFields(payloadFields, entries.length),
+    [payloadFields, entries.length]
+  );
+  const payloadColumns = useMemo(
+    () => resolvePayloadColumns(columnsView, hiddenDefaults),
+    [columnsView, hiddenDefaults]
+  );
   const activeColumns = useMemo(() => new Set(payloadColumns.map(column => column.path)), [payloadColumns]);
   const lockedColumns = useMemo(
     () => new Set(payloadColumns.filter(column => column.origin === 'default').map(column => column.path)),
@@ -237,10 +270,15 @@ export function CustomLogViewerApp({
   const visibleEntries = useMemo(() => {
     const filtered = filterEntries(entries, { levels, details, text: search, showSystem, payload: payloadFilters });
     const sortColumn = sort ? columns.find(column => column.id === sort.columnId) : undefined;
-    return sort && sortColumn ? sortLoadedRows(filtered, entry => entrySortValue(entry, sortColumn), sort.dir) : filtered;
+    return sort && sortColumn
+      ? sortLoadedRows(filtered, entry => entrySortValue(entry, sortColumn), sort.dir)
+      : filtered;
   }, [columns, details, entries, levels, payloadFilters, search, showSystem, sort]);
 
-  const selectedEntry = useMemo(() => visibleEntries.find(entry => entry.id === selectedId), [selectedId, visibleEntries]);
+  const selectedEntry = useMemo(
+    () => visibleEntries.find(entry => entry.id === selectedId),
+    [selectedId, visibleEntries]
+  );
   const levelCounts = useMemo(() => countLevels(entries), [entries]);
   const detailCounts = useMemo(() => countPresentDetails(entries), [entries]);
   const systemCount = useMemo(() => countSystemEntries(entries), [entries]);
@@ -267,7 +305,11 @@ export function CustomLogViewerApp({
         return describeParseError(t.errors, parsed.error);
       }
       addPayloadFilters(
-        parsed.conditions.map(condition => ({ field: condition.field, op: condition.op, ...(condition.value === undefined ? {} : { value: condition.value }) }))
+        parsed.conditions.map(condition => ({
+          field: condition.field,
+          op: condition.op,
+          ...(condition.value === undefined ? {} : { value: condition.value })
+        }))
       );
       return { ok: true };
     },
@@ -295,11 +337,14 @@ export function CustomLogViewerApp({
     [payloadFilters]
   );
 
-  const guidedFields = useMemo<GuidedField[]>(() => guidedPayloadFields(discovered, activeColumns), [activeColumns, discovered]);
+  const guidedFields = useMemo<GuidedField[]>(
+    () => guidedPayloadFields(discovered, activeColumns),
+    [activeColumns, discovered]
+  );
   const valuesFor = useCallback(
     (field: string, prefix: string): GuidedItem[] =>
-      valueCountsToItems(topValues(visibleEntries, entry => payloadValues(entry.payload, field), 30).values).filter(item =>
-        item.value.toLowerCase().includes(prefix.toLowerCase())
+      valueCountsToItems(topValues(visibleEntries, entry => payloadValues(entry.payload, field), 30).values).filter(
+        item => item.value.toLowerCase().includes(prefix.toLowerCase())
       ),
     [visibleEntries]
   );
@@ -307,10 +352,14 @@ export function CustomLogViewerApp({
   const toggleColumn = useCallback(
     (path: string) => {
       if (columnsView.defaults.includes(path)) {
-        setHiddenDefaults(previous => (previous.includes(path) ? previous.filter(hidden => hidden !== path) : [...previous, path]));
+        setHiddenDefaults(previous =>
+          previous.includes(path) ? previous.filter(hidden => hidden !== path) : [...previous, path]
+        );
         return;
       }
-      const added = columnsView.added.includes(path) ? columnsView.added.filter(column => column !== path) : [...columnsView.added, path];
+      const added = columnsView.added.includes(path)
+        ? columnsView.added.filter(column => column !== path)
+        : [...columnsView.added, path];
       setColumnsView(previous => ({ ...previous, added }));
       post({ type: 'customLogViewerSetPayloadColumns', added });
     },
@@ -391,7 +440,11 @@ export function CustomLogViewerApp({
         onCopy={text => post({ type: 'customLogViewerCopyText', text })}
       />
       {errorMessages.map(([scope, message]) => (
-        <div key={scope} role="alert" className="shrink-0 border-b border-destructive/40 bg-destructive/10 px-4 py-1 text-xs text-destructive">
+        <div
+          key={scope}
+          role="alert"
+          className="shrink-0 border-b border-destructive/40 bg-destructive/10 px-4 py-1 text-xs text-destructive"
+        >
           <b>{t.viewer.errors[scope]}:</b> {message}
         </div>
       ))}
@@ -423,7 +476,9 @@ export function CustomLogViewerApp({
       <div className={dock === 'right' ? 'flex min-h-0 flex-1 flex-row' : 'flex min-h-0 flex-1 flex-col'}>
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           {emptyMessage ? (
-            <p className="m-3 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{emptyMessage}</p>
+            <p className="m-3 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+              {emptyMessage}
+            </p>
           ) : null}
           <CustomLogEntryList
             t={t}
@@ -454,7 +509,9 @@ export function CustomLogViewerApp({
             lockedColumns={lockedColumns}
             onClose={() => setSelectedId(undefined)}
             onCopyMessage={message => post({ type: 'customLogViewerCopyText', text: message })}
-            onOpenField={key => post({ type: 'customLogViewerOpenField', target: { kind: 'entry', entryId: selectedEntry.id, key } })}
+            onOpenField={key =>
+              post({ type: 'customLogViewerOpenField', target: { kind: 'entry', entryId: selectedEntry.id, key } })
+            }
             onToggleColumn={toggleColumn}
             onFilterEqual={(path, value: CustomLogScalar) =>
               addPayloadFilters([{ field: path, op: '=', value: value === null ? 'null' : String(value) }])
@@ -466,7 +523,10 @@ export function CustomLogViewerApp({
         t={t}
         scope={
           narrowed
-            ? fillTemplate(t.viewer.status.entriesShown, { shown: formatCount(visibleEntries.length, locale), loaded: formatCount(entries.length, locale) })
+            ? fillTemplate(t.viewer.status.entriesShown, {
+                shown: formatCount(visibleEntries.length, locale),
+                loaded: formatCount(entries.length, locale)
+              })
             : fillTemplate(t.viewer.status.entriesLoaded, { count: formatCount(entries.length, locale) })
         }
         filtering={filtering}

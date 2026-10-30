@@ -3,7 +3,11 @@ import test from 'node:test';
 
 import { parseCustomLogViewerFromWebviewMessage } from '../src/customLogViewerMessages.ts';
 import { parseCustomLogsFromWebviewMessage } from '../src/customLogsMessages.ts';
-import { mergePayloadFields, parseCustomLogPayloadColumns, type CustomLogPayloadField } from '../src/customLogsTypes.ts';
+import {
+  mergePayloadFields,
+  parseCustomLogPayloadColumns,
+  type CustomLogPayloadField
+} from '../src/customLogsTypes.ts';
 
 const LOG_ID = 'a015g00000Q2xYzAAB';
 const ENTRY_ID = 'a025g00000Hk1AbAAJ';
@@ -37,10 +41,13 @@ test('mergePayloadFields leaves its inputs untouched and treats an empty page as
 });
 
 test('list parser accepts each webview message and echoes the mount sequence', () => {
-  assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsReady', mountSequence: 3, sentAt: 1_760_000_000_000 }), {
-    type: 'customLogsReady',
-    mountSequence: 3
-  });
+  assert.deepEqual(
+    parseCustomLogsFromWebviewMessage({ type: 'customLogsReady', mountSequence: 3, sentAt: 1_760_000_000_000 }),
+    {
+      type: 'customLogsReady',
+      mountSequence: 3
+    }
+  );
   assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsReady' }), { type: 'customLogsReady' });
   assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsReady', mountSequence: -1 }), {
     type: 'customLogsReady'
@@ -132,7 +139,10 @@ test('list parser rejects malformed ids, sources and orgs', () => {
 
 test('payload columns are bounded, deduplicated and free of control characters', () => {
   assert.deepEqual(
-    parseCustomLogsFromWebviewMessage({ type: 'customLogsSetPayloadColumns', added: ['http.status', 'tags[]', 'http.status'] }),
+    parseCustomLogsFromWebviewMessage({
+      type: 'customLogsSetPayloadColumns',
+      added: ['http.status', 'tags[]', 'http.status']
+    }),
     { type: 'customLogsSetPayloadColumns', added: ['http.status', 'tags[]'] }
   );
   assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsSetPayloadColumns', added: [] }), {
@@ -165,10 +175,13 @@ test('viewer parser accepts each webview message', () => {
     type: 'customLogViewerOpenEntry',
     entryId: ENTRY_ID
   });
-  assert.deepEqual(parseCustomLogViewerFromWebviewMessage({ type: 'customLogViewerSetPayloadColumns', added: ['a.b'] }), {
-    type: 'customLogViewerSetPayloadColumns',
-    added: ['a.b']
-  });
+  assert.deepEqual(
+    parseCustomLogViewerFromWebviewMessage({ type: 'customLogViewerSetPayloadColumns', added: ['a.b'] }),
+    {
+      type: 'customLogViewerSetPayloadColumns',
+      added: ['a.b']
+    }
+  );
   assert.deepEqual(parseCustomLogViewerFromWebviewMessage({ type: 'customLogViewerCopyText', text: 'Log-000739' }), {
     type: 'customLogViewerCopyText',
     text: 'Log-000739'
@@ -184,11 +197,17 @@ test('viewer parser reads open-field targets by key and never by text', () => {
     { type: 'customLogViewerOpenField', target: { kind: 'entry', entryId: ENTRY_ID, key: 'StackTrace__c' } }
   );
   assert.deepEqual(
-    parseCustomLogViewerFromWebviewMessage({ type: 'customLogViewerOpenField', target: { kind: 'entry', entryId: ENTRY_ID, key: 'message' } }),
+    parseCustomLogViewerFromWebviewMessage({
+      type: 'customLogViewerOpenField',
+      target: { kind: 'entry', entryId: ENTRY_ID, key: 'message' }
+    }),
     { type: 'customLogViewerOpenField', target: { kind: 'entry', entryId: ENTRY_ID, key: 'message' } }
   );
   assert.deepEqual(
-    parseCustomLogViewerFromWebviewMessage({ type: 'customLogViewerOpenField', target: { kind: 'logPayload', extra: 1 } }),
+    parseCustomLogViewerFromWebviewMessage({
+      type: 'customLogViewerOpenField',
+      target: { kind: 'logPayload', extra: 1 }
+    }),
     { type: 'customLogViewerOpenField', target: { kind: 'logPayload' } }
   );
 });
@@ -216,7 +235,10 @@ test('viewer parser rejects malformed targets, ids and copy text', () => {
 });
 
 test('viewer open-apex-log message carries no id even when the webview sends one', () => {
-  assert.deepEqual(parseCustomLogViewerFromWebviewMessage({ type: 'customLogViewerOpenApexLog', logId: '07L5g00000XyZabEAE' }), {
-    type: 'customLogViewerOpenApexLog'
-  });
+  assert.deepEqual(
+    parseCustomLogViewerFromWebviewMessage({ type: 'customLogViewerOpenApexLog', logId: '07L5g00000XyZabEAE' }),
+    {
+      type: 'customLogViewerOpenApexLog'
+    }
+  );
 });

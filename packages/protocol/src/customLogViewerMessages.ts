@@ -33,7 +33,10 @@ export type CustomLogViewerFromWebviewMessage =
    * Accepted only for a field the panel delivered: an entry's field from `customLogViewerEntryFields`,
    * or the header payload announced in `customLogViewerInit`. The host opens the value it holds.
    */
-  | { type: 'customLogViewerOpenField'; target: { kind: 'entry'; entryId: string; key: string } | { kind: 'logPayload' } }
+  | {
+      type: 'customLogViewerOpenField';
+      target: { kind: 'entry'; entryId: string; key: string } | { kind: 'logPayload' };
+    }
   /** No id: the panel opens the link it holds, so the webview cannot ask for an arbitrary ApexLog. */
   | { type: 'customLogViewerOpenApexLog' }
   | { type: 'customLogViewerSetPayloadColumns'; added: string[] }

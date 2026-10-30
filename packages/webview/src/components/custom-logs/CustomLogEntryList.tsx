@@ -75,7 +75,8 @@ function EntryRowView({
         className={cn(
           'cursor-pointer items-start border-b border-border/40 py-[3px] text-xs hover:bg-muted/40',
           entry.system && 'opacity-60',
-          selected && 'bg-[var(--vscode-list-activeSelectionBackground,rgba(4,57,94,0.9))] hover:bg-[var(--vscode-list-activeSelectionBackground,rgba(4,57,94,0.9))]'
+          selected &&
+            'bg-[var(--vscode-list-activeSelectionBackground,rgba(4,57,94,0.9))] hover:bg-[var(--vscode-list-activeSelectionBackground,rgba(4,57,94,0.9))]'
         )}
         onClick={() => onSelect(entry)}
       >
@@ -96,14 +97,23 @@ function EntryRowView({
                 </span>
               ) : (
                 <div className="flex flex-col gap-0.5">
-                  <span className="line-clamp-4 whitespace-pre-wrap break-words" title={entry.previewClipped ? t.viewer.entry.clipped : undefined}>
+                  <span
+                    className="line-clamp-4 whitespace-pre-wrap break-words"
+                    title={entry.previewClipped ? t.viewer.entry.clipped : undefined}
+                  >
                     {entry.message}
-                    {entry.previewClipped || entry.messageTruncated ? <span className="text-muted-foreground"> …</span> : null}
+                    {entry.previewClipped || entry.messageTruncated ? (
+                      <span className="text-muted-foreground"> …</span>
+                    ) : null}
                   </span>
                   {entry.presentDetails.length > 0 ? (
                     <span className="flex flex-wrap gap-1">
                       {entry.presentDetails.map(key => (
-                        <span key={key} title={key} className="rounded bg-muted px-1 font-mono text-[10px] text-muted-foreground">
+                        <span
+                          key={key}
+                          title={key}
+                          className="rounded bg-muted px-1 font-mono text-[10px] text-muted-foreground"
+                        >
                           {detailLabel(key)}
                         </span>
                       ))}
@@ -126,7 +136,17 @@ function EntryRowView({
   );
 }
 
-function EntryPayloadCell({ t, entry, path, marker }: { t: CustomLogsMessages; entry: CustomLogEntry; path: string; marker: boolean }) {
+function EntryPayloadCell({
+  t,
+  entry,
+  path,
+  marker
+}: {
+  t: CustomLogsMessages;
+  entry: CustomLogEntry;
+  path: string;
+  marker: boolean;
+}) {
   const values = payloadValues(entry.payload, path);
   if (values.length > 0) {
     const single = values.length === 1 ? values[0]! : undefined;
@@ -149,7 +169,10 @@ function EntryPayloadCell({ t, entry, path, marker }: { t: CustomLogsMessages; e
   const state = entry.payload?.state;
   if (marker && state && state !== 'parsed') {
     return (
-      <span className={cn('text-[11px]', state === 'empty' ? 'text-muted-foreground' : 'text-amber-400')} title={t.payload[`${state}Note`]}>
+      <span
+        className={cn('text-[11px]', state === 'empty' ? 'text-muted-foreground' : 'text-amber-400')}
+        title={t.payload[`${state}Note`]}
+      >
         {state === 'empty' ? '' : '⚠ '}
         {t.payload[state]}
       </span>

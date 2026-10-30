@@ -17,7 +17,9 @@ function describeSource(t: CustomLogsMessages, source: CustomLogSourceView): str
     case 'ready':
       return undefined;
     case 'notInstalled':
-      return fillTemplate(source.hint === 'collision' ? t.empty.collision : t.empty.notInstalled, { label: source.label });
+      return fillTemplate(source.hint === 'collision' ? t.empty.collision : t.empty.notInstalled, {
+        label: source.label
+      });
     case 'unavailable':
       return fillTemplate(t.empty.unavailable, { label: source.label, message: source.message });
   }
@@ -25,7 +27,9 @@ function describeSource(t: CustomLogsMessages, source: CustomLogSourceView): str
 
 /** Shown when no source can list rows: what each source reports, the mapping issues, and a way to fix the mapping. */
 export function CustomLogsEmptyState({ t, sources, issues, onConfigure }: CustomLogsEmptyStateProps) {
-  const reasons = sources.map(source => ({ id: source.id, text: describeSource(t, source) })).filter(reason => reason.text);
+  const reasons = sources
+    .map(source => ({ id: source.id, text: describeSource(t, source) }))
+    .filter(reason => reason.text);
   return (
     <div data-testid="custom-logs-empty" className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-4 py-4 text-sm">
       <div className="flex flex-col gap-1">
@@ -46,11 +50,16 @@ export function CustomLogsEmptyState({ t, sources, issues, onConfigure }: Custom
             {issues.map((issue, index) => (
               <li
                 key={`${issue.pointer}-${index}`}
-                className={issue.severity === 'error' ? 'flex items-start gap-1.5 text-destructive' : 'flex items-start gap-1.5 text-amber-400'}
+                className={
+                  issue.severity === 'error'
+                    ? 'flex items-start gap-1.5 text-destructive'
+                    : 'flex items-start gap-1.5 text-amber-400'
+                }
               >
                 <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
                 <span>
-                  <b>{issue.severity === 'error' ? t.empty.issueError : t.empty.issueWarning}</b> <code className="font-mono">{issue.pointer}</code>: {issue.message}
+                  <b>{issue.severity === 'error' ? t.empty.issueError : t.empty.issueWarning}</b>{' '}
+                  <code className="font-mono">{issue.pointer}</code>: {issue.message}
                 </span>
               </li>
             ))}

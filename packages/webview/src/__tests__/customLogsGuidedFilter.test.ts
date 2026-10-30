@@ -72,7 +72,9 @@ describe('guided filter input', () => {
     });
     expect(computeGuidedStage('http.method ', context)).toMatchObject({ items: ['=', '!=', 'contains', 'exists'] });
     expect(computeGuidedStage('cacheHit ', context)).toMatchObject({ items: ['=', '!=', 'exists'] });
-    expect(computeGuidedStage('durationMs ', context)).toMatchObject({ items: expect.arrayContaining(['>=', 'contains', 'exists']) });
+    expect(computeGuidedStage('durationMs ', context)).toMatchObject({
+      items: expect.arrayContaining(['>=', 'contains', 'exists'])
+    });
     expect(computeGuidedStage('level ', context)).toMatchObject({ items: ['>='] });
     expect(computeGuidedStage('user ', context)).toMatchObject({ items: ['='] });
   });
@@ -104,12 +106,19 @@ describe('guided filter input', () => {
   });
 
   it('ignores a quote the user already typed when it looks up values', () => {
-    expect(computeGuidedStage('note = "two', context)).toMatchObject({ stage: 'value', items: [{ value: 'two words' }] });
+    expect(computeGuidedStage('note = "two', context)).toMatchObject({
+      stage: 'value',
+      items: [{ value: 'two words' }]
+    });
   });
 
   it('is ready to commit as soon as exists is complete', () => {
     expect(computeGuidedStage('error.code exists', context)).toMatchObject({ stage: 'operator' });
-    expect(computeGuidedStage('error.code exists ', context)).toEqual({ stage: 'commit', field: 'error.code', op: 'exists' });
+    expect(computeGuidedStage('error.code exists ', context)).toEqual({
+      stage: 'commit',
+      field: 'error.code',
+      op: 'exists'
+    });
   });
 
   describe('accepting a suggestion', () => {
@@ -129,7 +138,10 @@ describe('guided filter input', () => {
         text: 'http.status >= 500',
         commit: true
       });
-      expect(acceptGuidedItem(computeGuidedStage('note = ', context), 0)).toEqual({ text: 'note = "two words"', commit: true });
+      expect(acceptGuidedItem(computeGuidedStage('note = ', context), 0)).toEqual({
+        text: 'note = "two words"',
+        commit: true
+      });
     });
 
     it('returns nothing for a position past the list', () => {
@@ -160,7 +172,10 @@ describe('server-side conditions', () => {
   });
 
   it('accepts a duration or an instant for since', () => {
-    expect(applyServerCondition(condition('since = 24h'), ready)).toMatchObject({ ok: true, apply: { filter: { since: '24h' } } });
+    expect(applyServerCondition(condition('since = 24h'), ready)).toMatchObject({
+      ok: true,
+      apply: { filter: { since: '24h' } }
+    });
     expect(applyServerCondition(condition('since = 2026-10-29T10:00:00Z'), ready)).toMatchObject({
       ok: true,
       apply: { filter: { since: '2026-10-29T10:00:00Z' } }
@@ -179,9 +194,18 @@ describe('server-side conditions', () => {
       ok: false,
       error: { code: 'serverOperator', field: 'level', allowed: ['>='], at: 6 }
     });
-    expect(applyServerCondition(condition('level >= LOUD'), ready)).toEqual({ ok: false, error: { code: 'serverLevel', at: 9 } });
-    expect(applyServerCondition(condition('since = yesterday'), ready)).toEqual({ ok: false, error: { code: 'serverSince', at: 8 } });
-    expect(applyServerCondition(condition('source = nope'), ready)).toEqual({ ok: false, error: { code: 'serverSource', at: 9 } });
+    expect(applyServerCondition(condition('level >= LOUD'), ready)).toEqual({
+      ok: false,
+      error: { code: 'serverLevel', at: 9 }
+    });
+    expect(applyServerCondition(condition('since = yesterday'), ready)).toEqual({
+      ok: false,
+      error: { code: 'serverSince', at: 8 }
+    });
+    expect(applyServerCondition(condition('source = nope'), ready)).toEqual({
+      ok: false,
+      error: { code: 'serverSource', at: 9 }
+    });
   });
 
   it('refuses level and user when the source cannot filter by them', () => {

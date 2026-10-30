@@ -15,7 +15,10 @@ const PARSE_MESSAGE = {
   expectedConditionAfterAnd: 'expectedConditionAfterAnd'
 } as const;
 
-export function describeParseError(t: CustomLogsMessages['errors'], error: FilterParseError): FilterSubmitResult & { ok: false } {
+export function describeParseError(
+  t: CustomLogsMessages['errors'],
+  error: FilterParseError
+): FilterSubmitResult & { ok: false } {
   return {
     ok: false,
     message: fillTemplate(t[PARSE_MESSAGE[error.code]], { token: error.token ?? '' }),
@@ -23,7 +26,10 @@ export function describeParseError(t: CustomLogsMessages['errors'], error: Filte
   };
 }
 
-export function describeServerError(t: CustomLogsMessages['errors'], error: ServerConditionError): FilterSubmitResult & { ok: false } {
+export function describeServerError(
+  t: CustomLogsMessages['errors'],
+  error: ServerConditionError
+): FilterSubmitResult & { ok: false } {
   switch (error.code) {
     case 'serverOperator':
       return {

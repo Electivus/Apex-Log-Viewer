@@ -52,12 +52,18 @@ function CountsCell({ t, row }: { t: CustomLogsMessages; row: CustomLogRow }) {
     <span className="inline-flex items-center gap-1.5">
       <span className="font-mono text-xs">{counts.entries}</span>
       {counts.errors ? (
-        <span className="rounded-full bg-[color-mix(in_srgb,var(--vscode-charts-red,#f14c4c)_20%,transparent)] px-1.5 text-[10px] leading-[15px] text-[color:var(--vscode-charts-red,#f14c4c)]" title={`${counts.errors} ${t.columns.errors}`}>
+        <span
+          className="rounded-full bg-[color-mix(in_srgb,var(--vscode-charts-red,#f14c4c)_20%,transparent)] px-1.5 text-[10px] leading-[15px] text-[color:var(--vscode-charts-red,#f14c4c)]"
+          title={`${counts.errors} ${t.columns.errors}`}
+        >
           {counts.errors}
         </span>
       ) : null}
       {counts.warnings ? (
-        <span className="rounded-full bg-[color-mix(in_srgb,var(--vscode-charts-yellow,#cca700)_20%,transparent)] px-1.5 text-[10px] leading-[15px] text-[color:var(--vscode-charts-yellow,#cca700)]" title={`${counts.warnings} ${t.columns.warnings}`}>
+        <span
+          className="rounded-full bg-[color-mix(in_srgb,var(--vscode-charts-yellow,#cca700)_20%,transparent)] px-1.5 text-[10px] leading-[15px] text-[color:var(--vscode-charts-yellow,#cca700)]"
+          title={`${counts.warnings} ${t.columns.warnings}`}
+        >
           {counts.warnings}
         </span>
       ) : null}
@@ -65,7 +71,17 @@ function CountsCell({ t, row }: { t: CustomLogsMessages; row: CustomLogRow }) {
   );
 }
 
-function PayloadCell({ t, row, column, marker }: { t: CustomLogsMessages; row: CustomLogRow; column: Extract<TableColumn, { kind: 'payload' }>; marker: boolean }) {
+function PayloadCell({
+  t,
+  row,
+  column,
+  marker
+}: {
+  t: CustomLogsMessages;
+  row: CustomLogRow;
+  column: Extract<TableColumn, { kind: 'payload' }>;
+  marker: boolean;
+}) {
   const values = payloadValues(row.payload, column.path);
   if (values.length > 0) {
     const single = values.length === 1 ? values[0]! : undefined;
@@ -88,7 +104,13 @@ function PayloadCell({ t, row, column, marker }: { t: CustomLogsMessages; row: C
   const state = row.payload?.state;
   if (marker && state && state !== 'parsed') {
     return (
-      <span className={cn('flex items-center gap-1 text-[11px]', state === 'empty' ? 'text-muted-foreground' : 'text-amber-400')} title={t.payload[`${state}Note`]}>
+      <span
+        className={cn(
+          'flex items-center gap-1 text-[11px]',
+          state === 'empty' ? 'text-muted-foreground' : 'text-amber-400'
+        )}
+        title={t.payload[`${state}Note`]}
+      >
         {state === 'empty' ? null : <TriangleAlert className="h-3 w-3 shrink-0" aria-hidden="true" />}
         {t.payload[state]}
       </span>
@@ -97,13 +119,26 @@ function PayloadCell({ t, row, column, marker }: { t: CustomLogsMessages; row: C
   return <span className="text-muted-foreground/60">—</span>;
 }
 
-function CustomLogRowView({ index, style, t, rows, columns, gridTemplate, totalWidth, selectedId, firstPayloadColumnId, onSelect, onOpen }: RowProps & { index: number; style: React.CSSProperties }) {
+function CustomLogRowView({
+  index,
+  style,
+  t,
+  rows,
+  columns,
+  gridTemplate,
+  totalWidth,
+  selectedId,
+  firstPayloadColumnId,
+  onSelect,
+  onOpen
+}: RowProps & { index: number; style: React.CSSProperties }) {
   const row = rows[index];
   if (!row) {
     return null;
   }
   const selected = row.id === selectedId;
-  const payloadWarning = row.payload && row.payload.state !== 'parsed' && row.payload.state !== 'empty' ? row.payload.state : undefined;
+  const payloadWarning =
+    row.payload && row.payload.state !== 'parsed' && row.payload.state !== 'empty' ? row.payload.state : undefined;
   return (
     <div
       role="row"
@@ -113,7 +148,8 @@ function CustomLogRowView({ index, style, t, rows, columns, gridTemplate, totalW
       style={{ ...style, display: 'grid', gridTemplateColumns: gridTemplate, minWidth: totalWidth }}
       className={cn(
         'cursor-pointer items-center border-b border-border/40 text-xs hover:bg-muted/40',
-        selected && 'bg-[var(--vscode-list-activeSelectionBackground,rgba(4,57,94,0.9))] hover:bg-[var(--vscode-list-activeSelectionBackground,rgba(4,57,94,0.9))]'
+        selected &&
+          'bg-[var(--vscode-list-activeSelectionBackground,rgba(4,57,94,0.9))] hover:bg-[var(--vscode-list-activeSelectionBackground,rgba(4,57,94,0.9))]'
       )}
       onClick={() => onSelect(row)}
       onDoubleClick={() => onOpen(row)}

@@ -28,7 +28,11 @@ jest.mock('react-window', () => {
         React.createElement(
           React.Fragment,
           { key: index },
-          rowComponent({ ...rowProps, index, style: { height: typeof rowHeight === 'function' ? rowHeight(index) : rowHeight } })
+          rowComponent({
+            ...rowProps,
+            index,
+            style: { height: typeof rowHeight === 'function' ? rowHeight(index) : rowHeight }
+          })
         )
       );
       const api = { element: null, scrollToRow: () => {} };
@@ -41,14 +45,24 @@ jest.mock('react-window', () => {
 });
 
 const sortButton = (columnName: string) => within(columnHeader(columnName)).getAllByRole('button')[0]!;
-const cellText = (id: string, columnIndex: number) => rowOf(id).querySelectorAll('[role="gridcell"]')[columnIndex]?.textContent?.trim();
+const cellText = (id: string, columnIndex: number) =>
+  rowOf(id).querySelectorAll('[role="gridcell"]')[columnIndex]?.textContent?.trim();
 
 describe('Custom Logs JSON columns', () => {
   describe('which columns show', () => {
     it('shows the columns from the project mapping first, then the ones this workspace added', () => {
       mountApp({ defaults: ['orderId'], added: ['http.status', 'tags[]'] });
 
-      expect(headerLabels()).toEqual(['Time', 'Level', 'Title', 'User', 'Category', 'orderId', 'http.status', 'tags[]']);
+      expect(headerLabels()).toEqual([
+        'Time',
+        'Level',
+        'Title',
+        'User',
+        'Category',
+        'orderId',
+        'http.status',
+        'tags[]'
+      ]);
       expect(cellText(ids.failed, 5)).toBe('ORD-1042');
       expect(cellText(ids.failed, 6)).toBe('502');
       expect(cellText(ids.failed, 7)).toBe('vip, beta');
@@ -82,10 +96,9 @@ describe('Custom Logs JSON columns', () => {
       fireEvent.click(screen.getByRole('button', { name: '+ Field' }));
       fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'http' } });
 
-      expect(screen.getAllByRole('menuitemcheckbox').map(item => item.querySelector('.truncate')?.textContent)).toEqual([
-        'http.status',
-        'http.body'
-      ]);
+      expect(screen.getAllByRole('menuitemcheckbox').map(item => item.querySelector('.truncate')?.textContent)).toEqual(
+        ['http.status', 'http.body']
+      );
       expect(screen.getByText('From payload · 2 of 5')).toBeInTheDocument();
     });
 
@@ -95,7 +108,10 @@ describe('Custom Logs JSON columns', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Column menu for orderId' }));
       fireEvent.click(screen.getByRole('menuitem', { name: 'Remove column' }));
 
-      expect(lastPost(posted, 'customLogsSetPayloadColumns')).toEqual({ type: 'customLogsSetPayloadColumns', added: ['http.status'] });
+      expect(lastPost(posted, 'customLogsSetPayloadColumns')).toEqual({
+        type: 'customLogsSetPayloadColumns',
+        added: ['http.status']
+      });
       expect(headerLabels()).not.toContain('orderId');
     });
 
@@ -131,10 +147,22 @@ describe('Custom Logs JSON columns', () => {
       const withoutValue = ['Broken json payload', 'Free text payload', 'Empty payload', 'Hidden payload'];
 
       fireEvent.click(sortButton('http.status'));
-      expect(listedTitles()).toEqual(['Order synced', 'Retrying order sync', 'Legacy status as text', 'Order sync failed', ...withoutValue]);
+      expect(listedTitles()).toEqual([
+        'Order synced',
+        'Retrying order sync',
+        'Legacy status as text',
+        'Order sync failed',
+        ...withoutValue
+      ]);
 
       fireEvent.click(sortButton('http.status'));
-      expect(listedTitles()).toEqual(['Order sync failed', 'Legacy status as text', 'Retrying order sync', 'Order synced', ...withoutValue]);
+      expect(listedTitles()).toEqual([
+        'Order sync failed',
+        'Legacy status as text',
+        'Retrying order sync',
+        'Order synced',
+        ...withoutValue
+      ]);
 
       fireEvent.click(sortButton('http.status'));
       expect(listedTitles()).toEqual(rows.map(row => row.title));
@@ -215,9 +243,13 @@ describe('Custom Logs JSON columns', () => {
       fireEvent.click(rowOf(ids.text));
       expect(within(screen.getByTestId('custom-log-row-detail')).getByText(/plain text, not JSON/)).toBeInTheDocument();
       fireEvent.click(rowOf(ids.empty));
-      expect(within(screen.getByTestId('custom-log-row-detail')).getByText('The payload is empty for this record.')).toBeInTheDocument();
+      expect(
+        within(screen.getByTestId('custom-log-row-detail')).getByText('The payload is empty for this record.')
+      ).toBeInTheDocument();
       fireEvent.click(rowOf(ids.hidden));
-      expect(within(screen.getByTestId('custom-log-row-detail')).getByText(/permissions hide the payload/)).toBeInTheDocument();
+      expect(
+        within(screen.getByTestId('custom-log-row-detail')).getByText(/permissions hide the payload/)
+      ).toBeInTheDocument();
     });
 
     it('lets the user open the full text of an invalid or plain text payload, but not an empty or hidden one', () => {
@@ -258,12 +290,18 @@ describe('Custom Logs JSON columns', () => {
 
       fireEvent.click(within(leaf('http.status')).getByRole('button', { name: '+ Column' }));
 
-      expect(lastPost(posted, 'customLogsSetPayloadColumns')).toEqual({ type: 'customLogsSetPayloadColumns', added: ['http.status'] });
+      expect(lastPost(posted, 'customLogsSetPayloadColumns')).toEqual({
+        type: 'customLogsSetPayloadColumns',
+        added: ['http.status']
+      });
       expect(within(leaf('http.status')).getByRole('button', { name: '✓ Column' })).toBeInTheDocument();
       expect(headerLabels()).toContain('http.status');
 
       fireEvent.click(within(leaf('http.status')).getByRole('button', { name: '✓ Column' }));
-      expect(lastPost(posted, 'customLogsSetPayloadColumns')).toEqual({ type: 'customLogsSetPayloadColumns', added: [] });
+      expect(lastPost(posted, 'customLogsSetPayloadColumns')).toEqual({
+        type: 'customLogsSetPayloadColumns',
+        added: []
+      });
     });
 
     it('filters on a leaf value with = value, narrowing only the loaded rows', () => {
@@ -286,7 +324,10 @@ describe('Custom Logs JSON columns', () => {
       expect(listedTitles()).toEqual(['Order sync failed', 'Retrying order sync']);
 
       fireEvent.click(within(leaf('lines[0].sku')).getByRole('button', { name: '+ Column' }));
-      expect(lastPost(posted, 'customLogsSetPayloadColumns')).toEqual({ type: 'customLogsSetPayloadColumns', added: ['lines[].sku'] });
+      expect(lastPost(posted, 'customLogsSetPayloadColumns')).toEqual({
+        type: 'customLogsSetPayloadColumns',
+        added: ['lines[].sku']
+      });
     });
 
     it('quotes a filter value that needs it', () => {
@@ -308,12 +349,16 @@ describe('Custom Logs JSON columns', () => {
     });
 
     it('says when paths or values were cut', () => {
-      const cut = makeRow('a0B5g00000Zt1Q9EAJ', 'Huge payload', { payload: parsed({ a: 'x' }, { droppedPaths: 12, cutValues: ['a'] }) });
+      const cut = makeRow('a0B5g00000Zt1Q9EAJ', 'Huge payload', {
+        payload: parsed({ a: 'x' }, { droppedPaths: 12, cutValues: ['a'] })
+      });
       mountApp({ rows: [cut] });
 
       fireEvent.click(rowOf(cut.id));
 
-      expect(within(detail()).getByText('12 more paths are not shown. Open the full payload to read them.')).toBeInTheDocument();
+      expect(
+        within(detail()).getByText('12 more paths are not shown. Open the full payload to read them.')
+      ).toBeInTheDocument();
       expect(within(leaf('a')).getByText('(cut)')).toBeInTheDocument();
     });
 
@@ -362,12 +407,25 @@ describe('Custom Logs JSON columns', () => {
       const { posted } = mountApp({
         sources: [
           { ...nebula, state: 'notInstalled' },
-          { ...appLog, state: 'unavailable', reason: 'requiredFieldMissing', message: 'Message__c is missing or hidden' }
+          {
+            ...appLog,
+            state: 'unavailable',
+            reason: 'requiredFieldMissing',
+            message: 'Message__c is missing or hidden'
+          }
         ],
         selected: 'nebula',
         issues: [
-          { severity: 'error', pointer: '/plugins/electivus/customLogs/sources/0/entry/fields/time', message: 'Missing required key' },
-          { severity: 'warning', pointer: '/plugins/electivus/customLogs/sources/0/entry/colums', message: 'Unknown key' }
+          {
+            severity: 'error',
+            pointer: '/plugins/electivus/customLogs/sources/0/entry/fields/time',
+            message: 'Missing required key'
+          },
+          {
+            severity: 'warning',
+            pointer: '/plugins/electivus/customLogs/sources/0/entry/colums',
+            message: 'Unknown key'
+          }
         ]
       });
 
@@ -405,7 +463,11 @@ describe('Custom Logs JSON columns', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Configure' }));
       fireEvent.click(screen.getByRole('button', { name: 'Open in editor' }));
 
-      expect(posted.slice(1).map(message => message.type)).toEqual(['customLogsRefresh', 'customLogsOpenConfig', 'customLogsOpenEditor']);
+      expect(posted.slice(1).map(message => message.type)).toEqual([
+        'customLogsRefresh',
+        'customLogsOpenConfig',
+        'customLogsOpenEditor'
+      ]);
     });
 
     it('hides Open in editor in the editor tab itself', () => {

@@ -1,4 +1,9 @@
-import { CUSTOM_LOG_LEVELS, type CustomLogEntry, type CustomLogLevel, type CustomLogScalar } from '@alv/protocol/customLogsTypes';
+import {
+  CUSTOM_LOG_LEVELS,
+  type CustomLogEntry,
+  type CustomLogLevel,
+  type CustomLogScalar
+} from '@alv/protocol/customLogsTypes';
 import type { FilterClause } from './filterGrammar';
 import { filterLoadedRows, payloadValues, type DiscoveredField, type PayloadColumn } from './payloadRows';
 import type { SortState } from './columns';
@@ -67,9 +72,25 @@ export function countSystemEntries(entries: readonly CustomLogEntry[]): number {
 }
 
 export type EntryColumn =
-  | { id: string; kind: 'std'; field: 'sequence' | 'time' | 'level' | 'origin' | 'message'; label: string; width: number; flex?: boolean }
+  | {
+      id: string;
+      kind: 'std';
+      field: 'sequence' | 'time' | 'level' | 'origin' | 'message';
+      label: string;
+      width: number;
+      flex?: boolean;
+    }
   | { id: string; kind: 'extra'; key: string; label: string; width: number }
-  | { id: string; kind: 'payload'; path: string; label: string; width: number; locked: boolean; type?: DiscoveredField['type']; rows?: number };
+  | {
+      id: string;
+      kind: 'payload';
+      path: string;
+      label: string;
+      width: number;
+      locked: boolean;
+      type?: DiscoveredField['type'];
+      rows?: number;
+    };
 
 export type EntryColumnLabels = Record<'sequence' | 'time' | 'level' | 'origin' | 'message', string>;
 
@@ -84,7 +105,9 @@ export function buildEntryColumns(input: {
     { id: 'std:sequence', kind: 'std', field: 'sequence', label: input.labels.sequence, width: 52 },
     { id: 'std:time', kind: 'std', field: 'time', label: input.labels.time, width: 108 },
     { id: 'std:level', kind: 'std', field: 'level', label: input.labels.level, width: 84 },
-    ...(input.hasOrigin ? [{ id: 'std:origin', kind: 'std', field: 'origin', label: input.labels.origin, width: 190 } as const] : []),
+    ...(input.hasOrigin
+      ? [{ id: 'std:origin', kind: 'std', field: 'origin', label: input.labels.origin, width: 190 } as const]
+      : []),
     { id: 'std:message', kind: 'std', field: 'message', label: input.labels.message, width: 360, flex: true }
   ];
   for (const column of input.extra) {
