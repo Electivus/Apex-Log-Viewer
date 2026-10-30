@@ -42,7 +42,7 @@ import type {
   UserSearchParams,
   UserSearchResult
 } from './contracts.js';
-import { queryData } from './dataQuery.js';
+import { queryData, toolingQuery } from './dataQuery.js';
 import { AlvError, abortError, awaitWithAbort, throwIfAborted } from './errors.js';
 import {
   ApexLogLifecycleError,
@@ -80,13 +80,6 @@ const AUTOMATED_PROCESS_USER_TYPE = 'AutomatedProcess';
 const PLATFORM_INTEGRATION_USER_TYPE = 'CloudIntegrationUser';
 
 type JsonObject = Record<string, unknown>;
-
-type QueryResult<TRecord = JsonObject> = {
-  records?: TRecord[];
-  totalSize?: number;
-  done?: boolean;
-  nextRecordsUrl?: string;
-};
 
 type SalesforceLogRecord = {
   Id?: string;
@@ -370,28 +363,6 @@ async function resolveOrgNative(
     instanceUrl: ctx.instanceUrl,
     source: resolved.source
   }));
-}
-
-export async function toolingQuery<TRecord = JsonObject>(
-  connection: Connection,
-  soql: string,
-  signal?: AbortSignal
-): Promise<QueryResult<TRecord>> {
-  throwIfAborted(signal);
-  const firstPage = (await awaitWithAbort(connection.tooling.query(soql), signal)) as QueryResult<TRecord>;
-  const records = [...(firstPage.records || [])];
-  let page = firstPage;
-  while (!page.done && page.nextRecordsUrl) {
-    throwIfAborted(signal);
-    page = (await awaitWithAbort(connection.tooling.queryMore(page.nextRecordsUrl), signal)) as QueryResult<TRecord>;
-    records.push(...(page.records || []));
-  }
-  return {
-    ...firstPage,
-    records,
-    done: page.done,
-    nextRecordsUrl: page.nextRecordsUrl
-  };
 }
 
 function apiVersion(connection: Connection): string {
