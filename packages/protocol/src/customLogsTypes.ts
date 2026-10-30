@@ -115,6 +115,7 @@ export type CustomLogLongFieldView = {
 export type CustomLogApexLogLink =
   | { state: 'linked'; logId: string; startTime?: string; logLength?: number }
   | { state: 'notFound' }
+  | { state: 'unavailable'; reason: 'noAccess' }
   | { state: 'noRequestId' };
 
 /** What the list toolbar can set. Applied server-side by core; `since` takes an ISO instant or `30m`/`24h`/`7d`. */

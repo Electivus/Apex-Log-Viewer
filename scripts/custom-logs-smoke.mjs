@@ -280,8 +280,8 @@ async function smokeNebula({ alias, source, admin }, emptyDir) {
     if (linked?.ok) observed.apexLog.add(linked.result.apexLog.state);
   } else {
     check(
-      `${label}: a user who cannot read ApexLog gets notFound, not an error`,
-      byId.result.apexLog.state === 'notFound',
+      `${label}: a user who cannot read ApexLog gets unavailable, not an error and not notFound`,
+      byId.result.apexLog.state === 'unavailable' && byId.result.apexLog.reason === 'noAccess',
       byId.result.apexLog
     );
   }
@@ -484,8 +484,8 @@ async function smoke(aliases) {
         [...observed.longValues]
       );
       check(
-        'get resolved the Apex log link as linked and as notFound',
-        observed.apexLog.has('linked') && observed.apexLog.has('notFound'),
+        'get resolved the Apex log link as linked, notFound and unavailable',
+        observed.apexLog.has('linked') && observed.apexLog.has('notFound') && observed.apexLog.has('unavailable'),
         [...observed.apexLog]
       );
     }

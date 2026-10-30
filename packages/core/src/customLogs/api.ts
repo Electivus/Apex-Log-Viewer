@@ -160,7 +160,7 @@ async function apexLogFor(
     return await run(ctx, apexLogLinkPlan(requestId), signal);
   } catch (error) {
     const code = (error as { errorCode?: unknown } | undefined)?.errorCode;
-    if (typeof code === 'string' && APEX_LOG_UNREADABLE.has(code)) return { state: 'notFound' };
+    if (typeof code === 'string' && APEX_LOG_UNREADABLE.has(code)) return { state: 'unavailable', reason: 'noAccess' };
     throw error;
   }
 }

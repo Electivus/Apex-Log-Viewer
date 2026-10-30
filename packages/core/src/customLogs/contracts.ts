@@ -296,8 +296,10 @@ export const CUSTOM_LOG_MESSAGE_PREVIEW_CHARS = 2000;
 /** Link to the Apex debug log of the same request (`ApexLog.RequestIdentifier` = mapped `requestId`). */
 export type CustomLogApexLogLink =
   | { state: 'linked'; logId: string; startTime?: string; logLength?: number }
-  /** No ApexLog this user can see for this request: no trace flag was active, Salesforce already deleted it, or the user cannot read ApexLog at all. */
+  /** The user can read ApexLog, and none matches this request: no trace flag was active, or Salesforce already deleted it. */
   | { state: 'notFound' }
+  /** The user cannot read ApexLog in this org (no object access, or the API is off), so absence says nothing about the request. */
+  | { state: 'unavailable'; reason: 'noAccess' }
   /** The source maps no `requestId`, FLS hides it, or this record has no value. */
   | { state: 'noRequestId' };
 

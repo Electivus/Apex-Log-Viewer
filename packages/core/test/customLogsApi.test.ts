@@ -404,7 +404,7 @@ test('get keeps working for a user who cannot read ApexLog and never re-resolves
 
   const result = await core.customLog.get({ targetOrg: username, projectDir: undefined, logId: 'a02000000000001AAA' });
 
-  assert.deepEqual(result.apexLog, { state: 'notFound' });
+  assert.deepEqual(result.apexLog, { state: 'unavailable', reason: 'noAccess' });
   assert.equal(org.metadataQueries('EntityDefinition').length, 1);
 });
 
