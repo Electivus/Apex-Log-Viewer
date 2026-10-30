@@ -4,10 +4,8 @@ import test from 'node:test';
 import { CUSTOM_LOG_PAYLOAD_LIMITS, customLogTextFormat, type CustomLogPayloadView } from '../src/contracts.ts';
 import { decodePayload, selectPayloadPaths, summarizePayloadFields, toLongValue } from '../src/customLogs/payload.ts';
 
-const visible = { hidden: false };
-
 function parsed(raw: string): Extract<CustomLogPayloadView, { state: 'parsed' }> {
-  const view = decodePayload(raw, visible);
+  const view = decodePayload(raw);
   assert.equal(view.state, 'parsed', raw.slice(0, 80));
   return view as Extract<CustomLogPayloadView, { state: 'parsed' }>;
 }
@@ -56,22 +54,17 @@ test('paths past the cap are counted, and strings past the cap are cut and named
 });
 
 test('text that starts like JSON but does not parse is invalid, anything else is text, blank is empty', () => {
-  assert.deepEqual(decodePayload('{"a":', visible), { state: 'invalid' });
-  assert.deepEqual(decodePayload('  [1, 2', visible), { state: 'invalid' });
-  assert.deepEqual(decodePayload('Order sync failed', visible), { state: 'text' });
-  assert.deepEqual(decodePayload('42', visible), { state: 'text' });
-  assert.deepEqual(decodePayload('"quoted"', visible), { state: 'text' });
-  assert.deepEqual(decodePayload('true', visible), { state: 'text' });
-  assert.deepEqual(decodePayload('null', visible), { state: 'text' });
-  assert.deepEqual(decodePayload('', visible), { state: 'empty' });
-  assert.deepEqual(decodePayload('  \n ', visible), { state: 'empty' });
-  assert.deepEqual(decodePayload(null, visible), { state: 'empty' });
-  assert.deepEqual(decodePayload(undefined, visible), { state: 'empty' });
-});
-
-test('a field FLS hides is hidden whatever it holds', () => {
-  assert.deepEqual(decodePayload('{"a":1}', { hidden: true }), { state: 'hidden' });
-  assert.deepEqual(decodePayload(undefined, { hidden: true }), { state: 'hidden' });
+  assert.deepEqual(decodePayload('{"a":'), { state: 'invalid' });
+  assert.deepEqual(decodePayload('  [1, 2'), { state: 'invalid' });
+  assert.deepEqual(decodePayload('Order sync failed'), { state: 'text' });
+  assert.deepEqual(decodePayload('42'), { state: 'text' });
+  assert.deepEqual(decodePayload('"quoted"'), { state: 'text' });
+  assert.deepEqual(decodePayload('true'), { state: 'text' });
+  assert.deepEqual(decodePayload('null'), { state: 'text' });
+  assert.deepEqual(decodePayload(''), { state: 'empty' });
+  assert.deepEqual(decodePayload('  \n '), { state: 'empty' });
+  assert.deepEqual(decodePayload(null), { state: 'empty' });
+  assert.deepEqual(decodePayload(undefined), { state: 'empty' });
 });
 
 test('hostile keys stay data and a very deep payload cannot overflow the stack', () => {
@@ -81,7 +74,7 @@ test('hostile keys stay data and a very deep payload cannot overflow the stack',
 
   const depth = 20_000;
   const deep = `${'{"a":'.repeat(depth)}1${'}'.repeat(depth)}`;
-  const state = decodePayload(deep, visible).state;
+  const state = decodePayload(deep).state;
   assert.ok(state === 'parsed' || state === 'invalid', state);
 });
 
@@ -130,31 +123,30 @@ test('customLogTextFormat, exported for the extension, is the rule a long value 
 
   for (const [text, format] of cases) {
     assert.equal(customLogTextFormat(text), format, text);
-    const long = toLongValue(` ${text} `, visible);
+    const long = toLongValue(` ${text} `);
     if (long.state === 'value') assert.equal(long.format, format, text);
   }
 });
 
 test('a long value says whether it is JSON and carries the framework truncation flag only when mapped', () => {
-  assert.deepEqual(toLongValue('{"Name":"Probe"}', visible), {
+  assert.deepEqual(toLongValue('{"Name":"Probe"}'), {
     state: 'value',
     value: '{"Name":"Probe"}',
     format: 'json'
   });
-  assert.deepEqual(toLongValue('[1,2]', { hidden: false, truncated: true }), {
+  assert.deepEqual(toLongValue('[1,2]', { truncated: true }), {
     state: 'value',
     value: '[1,2]',
     format: 'json',
     truncated: true
   });
-  assert.deepEqual(toLongValue('{"broken":', visible), { state: 'value', value: '{"broken":', format: 'text' });
-  assert.deepEqual(toLongValue('AnonymousBlock: line 7, column 1', { hidden: false, truncated: false }), {
+  assert.deepEqual(toLongValue('{"broken":'), { state: 'value', value: '{"broken":', format: 'text' });
+  assert.deepEqual(toLongValue('AnonymousBlock: line 7, column 1', { truncated: false }), {
     state: 'value',
     value: 'AnonymousBlock: line 7, column 1',
     format: 'text',
     truncated: false
   });
-  assert.deepEqual(toLongValue('  ', visible), { state: 'empty' });
-  assert.deepEqual(toLongValue(null, visible), { state: 'empty' });
-  assert.deepEqual(toLongValue('secret', { hidden: true }), { state: 'hidden' });
+  assert.deepEqual(toLongValue('  '), { state: 'empty' });
+  assert.deepEqual(toLongValue(null), { state: 'empty' });
 });

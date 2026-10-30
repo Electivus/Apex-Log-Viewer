@@ -53,7 +53,7 @@ function* leaves(root: object): Generator<[string, CustomLogScalar]> {
 /**
  * Decode one payload cell.
  *
- * - FLS-hidden field → `hidden`; null or blank → `empty`.
+ * - Null or blank → `empty`. A field describe hides never reaches here: `queries.ts` answers `hidden`.
  * - Trimmed text not starting with `{` or `[` → `text`. Starts with one but `JSON.parse` throws →
  *   `invalid`. A parsed scalar → `text`.
  * - Object or array → flatten depth-first in document order: keys joined with `.`, array items as
@@ -63,8 +63,7 @@ function* leaves(root: object): Generator<[string, CustomLogScalar]> {
  *
  * Keys that contain `.` or `[` make ambiguous paths. They are rare in log payloads and are not escaped.
  */
-export function decodePayload(raw: unknown, options: { hidden: boolean }): CustomLogPayloadView {
-  if (options.hidden) return { state: 'hidden' };
+export function decodePayload(raw: unknown): CustomLogPayloadView {
   if (isBlank(raw)) return { state: 'empty' };
   if (typeof raw !== 'string' || !startsLikeJson(raw)) return { state: 'text' };
   const container = parseJsonContainer(raw);
@@ -124,8 +123,7 @@ export function selectPayloadPaths(view: CustomLogPayloadView, keep: ReadonlySet
  * array, which picks the editor language when the extension opens it as a text document.
  * `truncated` is the framework flag's value, present only when the detail maps one.
  */
-export function toLongValue(raw: unknown, options: { hidden: boolean; truncated?: boolean }): CustomLogLongValue {
-  if (options.hidden) return { state: 'hidden' };
+export function toLongValue(raw: unknown, options: { truncated?: boolean } = {}): CustomLogLongValue {
   if (isBlank(raw)) return { state: 'empty' };
   const value = typeof raw === 'string' ? raw : String(raw);
   return {

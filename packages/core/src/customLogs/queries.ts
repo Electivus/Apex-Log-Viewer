@@ -1,8 +1,8 @@
 /**
  * Query plans: for each operation, the SOQL and the decoder of its records, side by side.
  *
- * A plan's SELECT list and its decoder read the same `ResolvedField.api` paths, so they cannot
- * drift apart. Everything here is pure: `ResolvedSource` + params in, `QueryPlan` out. The
+ * A plan selects every role of its object along with its columns and flags, so a decoder can read
+ * any role and a new role reaches every SELECT. Everything here is pure: `ResolvedSource` + params in, `QueryPlan` out. The
  * golden tests pin the SOQL text for unlocked Nebula, managed Nebula, an FLS-trimmed Nebula
  * and an `entries` source with a payload.
  *
@@ -39,6 +39,7 @@ import {
   type HeaderLevelPredicate,
   type ResolvedEntryObject,
   type ResolvedField,
+  type ResolvedLongField,
   type ResolvedPayload,
   type ResolvedSource,
   type ResolvedTimeField
@@ -243,13 +244,20 @@ function payloadField(payload: ResolvedPayload | undefined): ResolvedField | und
   return payload?.state === 'readable' ? payload.field : undefined;
 }
 
+/** A long field decoded from the record, or `hidden` when describe hides it from this user. */
+function readLong<T>(
+  long: ResolvedLongField,
+  record: Record<string, unknown>,
+  decode: (raw: unknown) => T
+): T | { state: 'hidden' } {
+  return long.state === 'readable' ? decode(read(record, long.field.api)) : { state: 'hidden' };
+}
+
 function payloadView(
   payload: ResolvedPayload | undefined,
   record: Record<string, unknown>
 ): CustomLogPayloadView | undefined {
-  if (!payload) return undefined;
-  const raw = payload.state === 'readable' ? read(record, payload.field.api) : undefined;
-  return decodePayload(raw, { hidden: payload.state === 'hidden' });
+  return payload && readLong(payload, record, decodePayload);
 }
 
 function extras(columns: readonly ResolvedField[], record: Record<string, unknown>): Record<string, CustomLogScalar> {
@@ -391,19 +399,7 @@ function rowObject(source: ResolvedSource) {
       timeFilter: transaction.timeFilter,
       levelPredicate: transaction.levelPredicate,
       user: filterableField(roles.user),
-      select: new Select().add(
-        roles.startTime,
-        roles.name,
-        roles.user,
-        roles.transactionId,
-        roles.requestId,
-        roles.entryCount,
-        roles.errorCount,
-        roles.warningCount,
-        roles.maxLevelOrdinal,
-        ...transaction.columns,
-        payloadField(transaction.payload)
-      ),
+      select: new Select().add(...Object.values(roles), ...transaction.columns, payloadField(transaction.payload)),
       decode: (record: Record<string, unknown>) => transactionRow(source, transaction, record)
     };
   }
@@ -414,17 +410,7 @@ function rowObject(source: ResolvedSource) {
     timeFilter: entry.timeFilter,
     levelPredicate: entry.levelPredicate,
     user: filterableField(roles.user),
-    select: new Select().add(
-      roles.time,
-      roles.message,
-      roles.level,
-      roles.levelOrdinal,
-      roles.user,
-      roles.transactionId,
-      roles.requestId,
-      ...entry.columns,
-      payloadField(entry.payload)
-    ),
+    select: new Select().add(...Object.values(roles), ...entry.columns, payloadField(entry.payload)),
     decode: (record: Record<string, unknown>) => entryRow(source, record)
   };
 }
@@ -497,13 +483,7 @@ export function rowPlan(
     decode: ([record]) =>
       record && {
         row: row.decode(record),
-        ...(payload
-          ? {
-              logPayload: toLongValue(payload.state === 'readable' ? valueOf(record, payload.field) : undefined, {
-                hidden: payload.state === 'hidden'
-              })
-            }
-          : {})
+        ...(payload ? { logPayload: readLong(payload, record, toLongValue) } : {})
       }
   };
 }
@@ -609,20 +589,8 @@ function entryDto(
 }
 
 function entrySelect(entry: ResolvedEntryObject): Select {
-  const { roles } = entry;
   return new Select().add(
-    roles.time,
-    roles.message,
-    roles.messageTruncated,
-    roles.order,
-    roles.level,
-    roles.levelOrdinal,
-    roles.origin,
-    roles.user,
-    roles.transactionId,
-    roles.requestId,
-    roles.exceptionType,
-    roles.recordId,
+    ...Object.values(entry.roles),
     entry.sequence,
     ...entry.columns,
     ...entry.details.map(detail => detail.presence),
@@ -702,20 +670,12 @@ export function entryPlan(
       const details = entry.details.map((detail): CustomLogDetail => {
         const label = detail.state === 'readable' ? detail.field.label : detail.label;
         const flag = valueOf(record, detail.truncated);
-        return {
-          key: detail.key,
-          label,
-          ...toLongValue(detail.state === 'readable' ? valueOf(record, detail.field) : undefined, {
-            hidden: detail.state === 'hidden',
-            ...(typeof flag === 'boolean' ? { truncated: flag } : {})
-          })
-        };
+        const truncated = typeof flag === 'boolean' ? { truncated: flag } : {};
+        return { key: detail.key, label, ...readLong(detail, record, raw => toLongValue(raw, truncated)) };
       });
-      const rawPayload: CustomLogLongValue = !entry.payload
-        ? { state: 'unmapped' }
-        : toLongValue(entry.payload.state === 'readable' ? valueOf(record, entry.payload.field) : undefined, {
-            hidden: entry.payload.state === 'hidden'
-          });
+      const rawPayload: CustomLogLongValue = entry.payload
+        ? readLong(entry.payload, record, toLongValue)
+        : { state: 'unmapped' };
       return defined({
         entry: entryDto(source, record, 1, false),
         details,

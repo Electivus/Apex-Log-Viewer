@@ -69,6 +69,16 @@ const appLog = ready(
 const headerId = parseRecordId('a02000000000001AAA', 'id');
 const entryId = parseRecordId('a01000000000001AAA', 'id');
 
+/** The SELECT list compared as a set of fields; the rest of the statement exactly. */
+function assertSoql(actual: string, expected: string): void {
+  const parts = (soql: string) => {
+    const match = /^SELECT (.+?) FROM (.+)$/s.exec(soql);
+    assert.ok(match, soql);
+    return { fields: match[1]!.split(', ').sort(), rest: match[2] };
+  };
+  assert.deepEqual(parts(actual), parts(expected));
+}
+
 const ROW_SELECT_UNLOCKED =
   'Id, CreatedDate, StartTime__c, Name, LoggedByUsername__c, TransactionId__c, RequestId__c, TotalLogEntries__c, TotalERRORLogEntries__c, TotalWARNLogEntries__c, MaxLogEntryLoggingLevelOrdinal__c, SystemMode__c, TransactionScenarioName__c, Status__c';
 const ENTRY_SELECT_UNLOCKED =
@@ -77,7 +87,7 @@ const ENTRY_SELECT_UNLOCKED =
 test('unlocked Nebula: a plain page asks for one row more than the limit, newest first', () => {
   const plan = listPlan(unlocked, { limit: 50, filter: {} });
 
-  assert.equal(plan.soql, `SELECT ${ROW_SELECT_UNLOCKED} FROM Log__c ORDER BY CreatedDate DESC, Id DESC LIMIT 51`);
+  assertSoql(plan.soql, `SELECT ${ROW_SELECT_UNLOCKED} FROM Log__c ORDER BY CreatedDate DESC, Id DESC LIMIT 51`);
   assert.equal(plan.maxRecords, 51);
   assert.equal(plan.api, 'data');
 });
@@ -103,7 +113,7 @@ test('every filter becomes a WHERE clause on the field the source resolved for i
     }
   });
 
-  assert.equal(
+  assertSoql(
     plan.soql,
     `SELECT ${ROW_SELECT_UNLOCKED} FROM Log__c WHERE MaxLogEntryLoggingLevelOrdinal__c >= 8 AND LoggedByUsername__c = 'o\\'brien@acme.com' AND StartTime__c >= 2026-10-29T00:00:00.000Z AND StartTime__c < 2026-10-30T00:00:00.000Z AND (CreatedDate < 2026-10-29T23:29:49.000Z OR (CreatedDate = 2026-10-29T23:29:49.000Z AND Id < 'a02000000000001AAA')) ORDER BY CreatedDate DESC, Id DESC LIMIT 2`
   );
@@ -112,18 +122,18 @@ test('every filter becomes a WHERE clause on the field the source resolved for i
 test('managed Nebula: custom names carry the namespace and standard names do not', () => {
   const plan = listPlan(managed, { limit: 50, filter: { minLevel: 'WARN' } });
 
-  assert.equal(
+  assertSoql(
     plan.soql,
     'SELECT Id, CreatedDate, Nebula__StartTime__c, Name, Nebula__LoggedByUsername__c, Nebula__TransactionId__c, Nebula__RequestId__c, Nebula__TotalLogEntries__c, Nebula__TotalERRORLogEntries__c, Nebula__TotalWARNLogEntries__c, Nebula__MaxLogEntryLoggingLevelOrdinal__c, Nebula__SystemMode__c, Nebula__TransactionScenarioName__c, Nebula__Status__c FROM Nebula__Log__c WHERE Nebula__MaxLogEntryLoggingLevelOrdinal__c >= 7 ORDER BY CreatedDate DESC, Id DESC LIMIT 51'
   );
 });
 
 test('a header read and a transaction-id lookup are one small query each', () => {
-  assert.equal(
+  assertSoql(
     rowPlan(unlocked, headerId).soql,
     `SELECT ${ROW_SELECT_UNLOCKED} FROM Log__c WHERE Id = 'a02000000000001AAA' LIMIT 1`
   );
-  assert.equal(
+  assertSoql(
     transactionLookupPlan(unlocked, "c10c'1fd8").soql,
     "SELECT Id FROM Log__c WHERE TransactionId__c = 'c10c\\'1fd8' ORDER BY CreatedDate DESC, Id DESC LIMIT 2"
   );
@@ -141,11 +151,11 @@ test('entries of a header page by sequence then Id, and a cursor continues after
     after: { v: 1, o: 'x', s: 'nebula', m: 'x', k: 'entries', f: 'x', t: 31, id: 'a01000000000001AAA', n: 30 }
   });
 
-  assert.equal(
+  assertSoql(
     first.soql,
     `SELECT ${ENTRY_SELECT_UNLOCKED} FROM LogEntry__c WHERE Log__c = 'a02000000000001AAA' AND LoggingLevelOrdinal__c >= 6 ORDER BY TransactionEntryNumber__c ASC NULLS FIRST, Id ASC LIMIT 201`
   );
-  assert.equal(
+  assertSoql(
     next.soql,
     `SELECT ${ENTRY_SELECT_UNLOCKED} FROM LogEntry__c WHERE Log__c = 'a02000000000001AAA' AND (TransactionEntryNumber__c > 31 OR (TransactionEntryNumber__c = 31 AND Id > 'a01000000000001AAA')) ORDER BY TransactionEntryNumber__c ASC NULLS FIRST, Id ASC LIMIT 3`
   );
@@ -155,11 +165,11 @@ test('an entry read selects every readable detail and flag, and never a detail t
   const admin = entryPlan(unlocked, entryId).soql;
   const enduser = entryPlan(managedEndUser, entryId).soql;
 
-  assert.equal(
+  assertSoql(
     admin,
     `SELECT ${ENTRY_SELECT_UNLOCKED}, Log__c, ExceptionMessage__c, ExceptionStackTrace__c, StackTrace__c, RecordJson__c, RecordJsonTruncated__c, HttpRequestEndpointAddress__c, HttpRequestBody__c, HttpRequestBodyTruncated__c, HttpResponseBody__c, HttpResponseBodyTruncated__c, RestRequestBody__c, RestRequestBodyTruncated__c, RestResponseBody__c, RestResponseBodyTruncated__c, DatabaseResultJson__c, Tags__c FROM LogEntry__c WHERE Id = 'a01000000000001AAA' LIMIT 1`
   );
-  assert.equal(
+  assertSoql(
     enduser,
     "SELECT Id, CreatedDate, Nebula__EpochTimestamp__c, Nebula__Message__c, Nebula__MessageTruncated__c, Nebula__TransactionEntryNumber__c, Nebula__LoggingLevel__c, Nebula__LoggingLevelOrdinal__c, Nebula__OriginLocation__c, Nebula__RecordId__c, Nebula__OriginType__c, Nebula__HasExceptionStackTrace__c, Nebula__HasStackTrace__c, Nebula__HasRecordJson__c, Nebula__HasHttpRequestBody__c, Nebula__HasHttpResponseBody__c, Nebula__HasRestRequestBody__c, Nebula__HasRestResponseBody__c, Nebula__HasDatabaseResultJson__c, Nebula__Log__c, Nebula__ExceptionMessage__c, Nebula__RecordJson__c, Nebula__RecordJsonTruncated__c FROM Nebula__LogEntry__c WHERE Id = 'a01000000000001AAA' LIMIT 1"
   );
@@ -170,7 +180,7 @@ test('a one-object source lists entries and filters its level by picklist spelli
   const plan = listPlan(appLog, { limit: 50, filter: { minLevel: 'WARN', user: 'a@b.c' } });
   const entries = entriesPlan(appLog, entriesScopeOf(appLog, entryId), { limit: 200 });
 
-  assert.equal(
+  assertSoql(
     plan.soql,
     "SELECT Id, CreatedDate, Logged_At__c, Message__c, Level__c, CreatedBy.Username, Request_Id__c, Payload__c FROM App_Log__c WHERE Level__c IN ('WARNING','ERROR') AND CreatedBy.Username = 'a@b.c' ORDER BY CreatedDate DESC, Id DESC LIMIT 51"
   );
@@ -546,7 +556,7 @@ test('the Apex log link is one Tooling query on the request identifier', () => {
   const plan = apexLogLinkPlan("SLB:ab'c");
 
   assert.equal(plan.api, 'tooling');
-  assert.equal(
+  assertSoql(
     plan.soql,
     "SELECT Id, StartTime, LogLength FROM ApexLog WHERE RequestIdentifier = 'SLB:ab\\'c' ORDER BY StartTime ASC LIMIT 1"
   );
