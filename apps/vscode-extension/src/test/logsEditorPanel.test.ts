@@ -84,7 +84,7 @@ suite('LogsEditorPanel', () => {
     };
 
     const { LogsEditorPanel } = proxyquireStrict('../panel/LogsEditorPanel', {
-      vscode: vscodeStub,
+      vscode: { ...vscodeStub, '@global': true },
       '../provider/SfLogsViewProvider': { SfLogsViewProvider: FakeLogsProvider },
       '../host/utils/localize': {
         localize: (_key: string, defaultValue: string) => defaultValue
@@ -144,7 +144,7 @@ suite('LogsEditorPanel', () => {
     };
 
     const { LogsEditorPanel } = proxyquireStrict('../panel/LogsEditorPanel', {
-      vscode: vscodeStub,
+      vscode: { ...vscodeStub, '@global': true },
       '../provider/SfLogsViewProvider': { SfLogsViewProvider: FakeLogsProvider },
       '../host/utils/localize': {
         localize: (_key: string, defaultValue: string) => defaultValue
@@ -198,7 +198,7 @@ suite('LogsEditorPanel', () => {
     };
 
     const { LogsEditorPanel } = proxyquireStrict('../panel/LogsEditorPanel', {
-      vscode: vscodeStub,
+      vscode: { ...vscodeStub, '@global': true },
       '../provider/SfLogsViewProvider': { SfLogsViewProvider: FakeLogsProvider },
       '../host/utils/localize': {
         localize: (_key: string, defaultValue: string) => defaultValue

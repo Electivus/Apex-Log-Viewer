@@ -13,7 +13,7 @@ This directory is the maintained source for verifying the user-facing behavior o
 ## Driving conventions
 
 - Drive through palette titles (`Electivus Apex Logs: …`), webview buttons and the keyboard. Do not use internal commands or webview `postMessage`.
-- Locate webviews with `h.logsFrame()`, `h.tailFrame()`, `h.viewerFrame()` and `h.debugFlagsFrame()`. Inside a frame, prefer `data-testid`, `data-log-id` and ARIA roles over text and position.
+- Locate webviews with `h.logsFrame()`, `h.tailFrame()`, `h.viewerFrame()`, `h.debugFlagsFrame()`, `h.customLogsFrame()` and `h.customLogViewerFrame()`. Inside a frame, prefer `data-testid`, `data-log-id` and ARIA roles over text and position.
 - Use `h.seedLog()` or `h.seedErrorLog()` to make data, and search for the returned `marker`. The org also contains logs from earlier runs.
 - Put mutations of org state (trace flags, debug levels, deleted logs) back the way they were before the step returns.
 
@@ -33,4 +33,5 @@ This directory is the maintained source for verifying the user-facing behavior o
 | Log Viewer: open, search, filters, raw     | [log-viewer.md](./log-viewer.md)   | `logs-open-viewer`         | 2026-10-10 (open, search navigation)        |
 | Tail: live logs                            | [tail.md](./tail.md)               | `tail-live`                | 2026-10-10                                  |
 | Debug Flags: trace flags and debug levels  | [debug-flags.md](./debug-flags.md) | `debug-flags-apply-remove` | 2026-10-10                                  |
+| Custom Logs: list, viewer, JSON columns    | [custom-logs.md](./custom-logs.md) | `custom-logs-open-viewer`  | 2026-10-30                                  |
 | `sf electivus` CLI plugin                  | [sf-cli.md](./sf-cli.md)           | —                          | 2026-10-10 (log sync, log status, log read) |

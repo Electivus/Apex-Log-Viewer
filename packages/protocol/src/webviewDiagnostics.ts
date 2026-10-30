@@ -1,4 +1,4 @@
-export type WebviewSurface = 'logs' | 'tail';
+export type WebviewSurface = 'logs' | 'tail' | 'customLogs';
 export type WebviewHostKind = 'panel' | 'editor';
 
 export interface WebviewLifecycleEvent {

@@ -1,3 +1,7 @@
+import { customLogsEn, customLogsPtBR, type CustomLogsMessages } from './i18n/customLogs';
+
+export type { CustomLogsMessages };
+
 export type Messages = {
   refresh: string;
   loading: string;
@@ -21,7 +25,7 @@ export type Messages = {
   orgLabel: string;
   defaultOrg: string;
   searchPlaceholder?: string;
-  noOrgsDetected?: string;
+  noOrgsDetected: string;
   tail?: {
     start: string;
     stop: string;
@@ -128,6 +132,7 @@ export type Messages = {
     managerDeleteCancel?: string;
     managerValidation?: string;
   };
+  customLogs: CustomLogsMessages;
 };
 
 const en: Messages = {
@@ -259,7 +264,8 @@ const en: Messages = {
     managerDeleteConfirmAction: 'Delete',
     managerDeleteCancel: 'Cancel',
     managerValidation: 'DeveloperName and MasterLabel are required to save a DebugLevel.'
-  }
+  },
+  customLogs: customLogsEn
 };
 
 const ptBR: Messages = {
@@ -391,7 +397,8 @@ const ptBR: Messages = {
     managerDeleteConfirmAction: 'Excluir',
     managerDeleteCancel: 'Cancelar',
     managerValidation: 'DeveloperName e MasterLabel são obrigatórios para salvar um DebugLevel.'
-  }
+  },
+  customLogs: customLogsPtBR
 };
 
 export function getMessages(locale?: string): Messages {

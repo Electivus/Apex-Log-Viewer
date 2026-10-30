@@ -82,7 +82,7 @@ suite('TailEditorPanel', () => {
     };
 
     const { TailEditorPanel } = proxyquireStrict('../panel/TailEditorPanel', {
-      vscode: vscodeStub,
+      vscode: { ...vscodeStub, '@global': true },
       '../provider/SfLogTailViewProvider': { SfLogTailViewProvider: FakeTailProvider },
       '../host/utils/localize': {
         localize: (_key: string, defaultValue: string) => defaultValue
@@ -142,7 +142,7 @@ suite('TailEditorPanel', () => {
     };
 
     const { TailEditorPanel } = proxyquireStrict('../panel/TailEditorPanel', {
-      vscode: vscodeStub,
+      vscode: { ...vscodeStub, '@global': true },
       '../provider/SfLogTailViewProvider': { SfLogTailViewProvider: FakeTailProvider },
       '../host/utils/localize': {
         localize: (_key: string, defaultValue: string) => defaultValue
@@ -196,7 +196,7 @@ suite('TailEditorPanel', () => {
     };
 
     const { TailEditorPanel } = proxyquireStrict('../panel/TailEditorPanel', {
-      vscode: vscodeStub,
+      vscode: { ...vscodeStub, '@global': true },
       '../provider/SfLogTailViewProvider': { SfLogTailViewProvider: FakeTailProvider },
       '../host/utils/localize': {
         localize: (_key: string, defaultValue: string) => defaultValue

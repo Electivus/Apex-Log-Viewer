@@ -24,7 +24,9 @@ const BUILD_ARTIFACTS = [
   'apps/vscode-extension/media/main.js',
   'apps/vscode-extension/media/tail.js',
   'apps/vscode-extension/media/logViewer.js',
-  'apps/vscode-extension/media/debugFlags.js'
+  'apps/vscode-extension/media/debugFlags.js',
+  'apps/vscode-extension/media/customLogs.js',
+  'apps/vscode-extension/media/customLogViewer.js'
 ];
 
 function fail(message) {

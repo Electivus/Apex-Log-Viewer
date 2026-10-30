@@ -34,7 +34,8 @@ test('README screenshot assets point at the published extension media paths', ()
     'apps/vscode-extension/media/docs/hero.png',
     'apps/vscode-extension/media/docs/log-viewer.png',
     'apps/vscode-extension/media/docs/debug-flags.png',
-    'apps/vscode-extension/media/docs/tail.png'
+    'apps/vscode-extension/media/docs/tail.png',
+    'apps/vscode-extension/media/docs/custom-logs.png'
   ];
 
   for (const assetPath of assetPaths) {

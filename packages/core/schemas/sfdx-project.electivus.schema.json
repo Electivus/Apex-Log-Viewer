@@ -1,0 +1,314 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://electivus.com/schemas/sfdx-project.electivus.schema.json",
+  "title": "Electivus Apex Log Viewer settings in sfdx-project.json",
+  "description": "Describes only plugins.electivus. VS Code applies it alongside Salesforce's own sfdx-project.json schema, so it constrains nothing else in the file.",
+  "type": "object",
+  "properties": {
+    "plugins": {
+      "type": "object",
+      "properties": {
+        "electivus": {
+          "type": "object",
+          "properties": {
+            "customLogs": {
+              "type": "object",
+              "description": "Application log sources for the Custom Logs panel and sf electivus custom-log. Nebula Logger needs no entry.",
+              "properties": {
+                "sources": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/source"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "fieldPath": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)?$",
+      "maxLength": 255
+    },
+    "objectName": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+      "maxLength": 255
+    },
+    "level": {
+      "enum": ["FINEST", "FINER", "FINE", "DEBUG", "INFO", "WARN", "ERROR"]
+    },
+    "fieldList": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/fieldPath"
+      }
+    },
+    "detail": {
+      "description": "A long field read on demand, as a field name or as an object that adds the logging framework's checkbox flags.",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/fieldPath"
+        },
+        {
+          "type": "object",
+          "description": "Keys other than these are ignored, and the extension reports them as warnings.",
+          "required": ["field"],
+          "properties": {
+            "field": {
+              "$ref": "#/definitions/fieldPath"
+            },
+            "presence": {
+              "$ref": "#/definitions/fieldPath",
+              "description": "Checkbox that is true when the field has content, for example HasStackTrace__c."
+            },
+            "truncated": {
+              "$ref": "#/definitions/fieldPath",
+              "description": "Checkbox that is true when the logging framework cut the value, for example RecordJsonTruncated__c."
+            }
+          }
+        }
+      ]
+    },
+    "payload": {
+      "description": "A long text field holding JSON whose keys can become columns. A field name, or an object with the team's default columns.",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/fieldPath"
+        },
+        {
+          "type": "object",
+          "description": "Keys other than these are ignored, and the extension reports them as warnings.",
+          "required": ["field"],
+          "properties": {
+            "field": {
+              "$ref": "#/definitions/fieldPath"
+            },
+            "columns": {
+              "type": "array",
+              "description": "JSON paths shown as columns by default, with dots for nesting and [n] for array items, for example http.status or lines[0].sku.",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              }
+            }
+          }
+        }
+      ]
+    },
+    "source": {
+      "type": "object",
+      "description": "Keys other than these are ignored, and the extension reports them as warnings.",
+      "required": ["id", "entry"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable source id used by --source. Reusing a built-in id (nebula, nebula-managed) replaces that built-in in this project.",
+          "pattern": "^[a-z][a-z0-9-]{0,39}$"
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "transaction": {
+          "type": "object",
+          "description": "Keys other than these are ignored, and the extension reports them as warnings.",
+          "required": ["object", "fields"],
+          "properties": {
+            "object": {
+              "$ref": "#/definitions/objectName"
+            },
+            "fields": {
+              "type": "object",
+              "description": "Keys other than these are ignored, and the extension reports them as warnings.",
+              "required": ["startTime"],
+              "properties": {
+                "startTime": {
+                  "$ref": "#/definitions/fieldPath"
+                },
+                "name": {
+                  "$ref": "#/definitions/fieldPath"
+                },
+                "user": {
+                  "$ref": "#/definitions/fieldPath"
+                },
+                "transactionId": {
+                  "$ref": "#/definitions/fieldPath"
+                },
+                "requestId": {
+                  "$ref": "#/definitions/fieldPath"
+                },
+                "entryCount": {
+                  "$ref": "#/definitions/fieldPath"
+                },
+                "errorCount": {
+                  "$ref": "#/definitions/fieldPath"
+                },
+                "warningCount": {
+                  "$ref": "#/definitions/fieldPath"
+                },
+                "maxLevelOrdinal": {
+                  "$ref": "#/definitions/fieldPath"
+                }
+              }
+            },
+            "columns": {
+              "$ref": "#/definitions/fieldList"
+            },
+            "payload": {
+              "$ref": "#/definitions/payload"
+            }
+          }
+        },
+        "entry": {
+          "type": "object",
+          "description": "Keys other than these are ignored, and the extension reports them as warnings.",
+          "required": ["object", "fields"],
+          "properties": {
+            "object": {
+              "$ref": "#/definitions/objectName"
+            },
+            "parent": {
+              "$ref": "#/definitions/fieldPath"
+            },
+            "fields": {
+              "type": "object",
+              "description": "Keys other than these are ignored, and the extension reports them as warnings.",
+              "required": ["time", "message"],
+              "properties": {
+                "time": {
+                  "$ref": "#/definitions/fieldPath"
+                },
+                "message": {
+                  "$ref": "#/definitions/fieldPath"
+                },
+                "messageTruncated": {
+                  "$ref": "#/definitions/fieldPath"
+                },
+                "order": {
+                  "$ref": "#/definitions/fieldPath"
+                },
+                "level": {
+                  "$ref": "#/definitions/fieldPath"
+                },
+                "levelOrdinal": {
+                  "$ref": "#/definitions/fieldPath"
+                },
+                "origin": {
+                  "$ref": "#/definitions/fieldPath"
+                },
+                "user": {
+                  "$ref": "#/definitions/fieldPath"
+                },
+                "transactionId": {
+                  "$ref": "#/definitions/fieldPath"
+                },
+                "requestId": {
+                  "$ref": "#/definitions/fieldPath"
+                },
+                "exceptionType": {
+                  "$ref": "#/definitions/fieldPath"
+                },
+                "recordId": {
+                  "$ref": "#/definitions/fieldPath"
+                }
+              }
+            },
+            "columns": {
+              "$ref": "#/definitions/fieldList"
+            },
+            "details": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/detail"
+              }
+            },
+            "payload": {
+              "$ref": "#/definitions/payload"
+            },
+            "systemMessagePrefix": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        },
+        "levels": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/level"
+          }
+        }
+      },
+      "if": {
+        "required": ["transaction"]
+      },
+      "then": {
+        "properties": {
+          "entry": {
+            "type": "object",
+            "required": ["parent"]
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "entry": {
+            "type": "object",
+            "not": {
+              "type": "object",
+              "required": ["parent"]
+            }
+          }
+        }
+      },
+      "defaultSnippets": [
+        {
+          "label": "Custom log source (one object)",
+          "body": {
+            "id": "${1:app-log}",
+            "label": "${2:App Log}",
+            "entry": {
+              "object": "${3:App_Log__c}",
+              "fields": {
+                "time": "${4:CreatedDate}",
+                "message": "${5:Message__c}",
+                "level": "${6:Level__c}"
+              },
+              "details": [],
+              "payload": {
+                "field": "${7:Payload__c}",
+                "columns": []
+              }
+            }
+          }
+        },
+        {
+          "label": "Custom log source (header + entries)",
+          "body": {
+            "id": "${1:acme}",
+            "transaction": {
+              "object": "${2:Acme_Log__c}",
+              "fields": {
+                "startTime": "${3:CreatedDate}"
+              }
+            },
+            "entry": {
+              "object": "${4:Acme_Log_Entry__c}",
+              "parent": "${5:Acme_Log__c}",
+              "fields": {
+                "time": "${6:CreatedDate}",
+                "message": "${7:Message__c}"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

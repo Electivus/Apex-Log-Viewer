@@ -19,6 +19,10 @@ async function commandFiles(directory: string, prefix = 'electivus'): Promise<st
 
 test('plugin exposes class-per-command singular taxonomy', async () => {
   assert.deepEqual(await commandFiles(commandsRoot), [
+    'electivus:custom-log:entry',
+    'electivus:custom-log:get',
+    'electivus:custom-log:list',
+    'electivus:custom-log:sources',
     'electivus:debug-level:create',
     'electivus:debug-level:delete',
     'electivus:debug-level:get',

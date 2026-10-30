@@ -4,7 +4,7 @@
  * one VS Code window running the extension under development, and serves step modules over a Unix
  * socket so an agent can drive the UI in small increments. Do not run it directly.
  */
-import { cp, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -152,6 +152,37 @@ async function frameWith(selector: string, timeoutMs = 120_000): Promise<Frame> 
   });
 }
 
+const CUSTOM_LOGS_SETTING = 'electivus.apexLogViewer.customLogs.enabled';
+
+function workspaceSettingsFile(): string {
+  if (!workspace) {
+    throw new Error('The session has no workspace.');
+  }
+  return path.join(workspace.workspacePath, '.vscode', 'settings.json');
+}
+
+/** Edits the session workspace's `.vscode/settings.json`, the file a user edits by hand; VS Code applies it live. */
+async function setWorkspaceSetting(key: string, value: unknown): Promise<void> {
+  const file = workspaceSettingsFile();
+  const settings = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
+  if (value === undefined) {
+    delete settings[key];
+  } else {
+    settings[key] = value;
+  }
+  await writeFile(file, JSON.stringify(settings, null, 2), 'utf8');
+}
+
+/** Custom Logs is experimental and off by default; fail at once instead of waiting for a panel that cannot appear. */
+async function assertCustomLogsEnabled(): Promise<void> {
+  const settings = JSON.parse(await readFile(workspaceSettingsFile(), 'utf8')) as Record<string, unknown>;
+  if (settings[CUSTOM_LOGS_SETTING] !== true) {
+    throw new Error(
+      `Custom Logs is off in this workspace. Call h.setWorkspaceSetting('${CUSTOM_LOGS_SETTING}', true) first, or run the custom-logs-setting step.`
+    );
+  }
+}
+
 function orgAlias(): string {
   if (!scratch) {
     throw new Error('The session has no org.');
@@ -177,6 +208,19 @@ function createHelpers() {
     tailFrame: (timeoutMs?: number) => frameWith('[data-testid="tail-open-debug-flags"]', timeoutMs),
     viewerFrame: (timeoutMs?: number) => frameWith('text=Apex Log Viewer', timeoutMs),
     debugFlagsFrame: (timeoutMs?: number) => frameWith('[data-testid="debug-flags-user-search"]', timeoutMs),
+    setWorkspaceSetting,
+    customLogsFrame: async (timeoutMs?: number) => {
+      await assertCustomLogsEnabled();
+      return await frameWith('[data-testid="custom-logs-root"]', timeoutMs);
+    },
+    // One viewer panel per log; pass the title the header shows (for example "Log-000280") to pick one of several.
+    customLogViewerFrame: (timeoutMs?: number, title?: string) =>
+      frameWith(
+        title
+          ? `[data-testid="custom-log-viewer-title"]:has-text(${JSON.stringify(title)})`
+          : '[data-testid="custom-log-viewer-root"]',
+        timeoutMs
+      ),
     // Clicks into a webview can be swallowed while it takes focus; these retry with keyboard and DOM clicks.
     openDebugFlagsFromLogs: () => openDebugFlagsFromLogs(requirePage()),
     openDebugFlagsFromTail: () => openDebugFlagsFromTail(requirePage()),
@@ -433,7 +477,9 @@ async function buildFingerprint(): Promise<Record<string, string>> {
     'apps/vscode-extension/media/main.js',
     'apps/vscode-extension/media/tail.js',
     'apps/vscode-extension/media/logViewer.js',
-    'apps/vscode-extension/media/debugFlags.js'
+    'apps/vscode-extension/media/debugFlags.js',
+    'apps/vscode-extension/media/customLogs.js',
+    'apps/vscode-extension/media/customLogViewer.js'
   ];
   const result: Record<string, string> = {};
   for (const file of files) {

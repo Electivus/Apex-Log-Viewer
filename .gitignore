@@ -7,6 +7,7 @@ media/webview.css
 media/webview-dev.css
 apps/vscode-extension/dist/
 apps/vscode-extension/bin/
+apps/vscode-extension/schemas/
 apps/vscode-extension/README.md
 apps/vscode-extension/CHANGELOG.md
 apps/vscode-extension/LICENSE

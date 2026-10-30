@@ -9,7 +9,13 @@ import {
   type PurgeApexLogsResult,
   type ReadApexLogResult
 } from '@alv/core';
+import type * as core from '@alv/core/contracts';
 import type {
+  CustomLogEntryParams,
+  CustomLogEntryResult,
+  CustomLogGetParams,
+  CustomLogListParams,
+  CustomLogSourcesParams,
   DebugLevelDeleteParams,
   DebugLevelGetParams,
   DebugLevelListParams,
@@ -50,6 +56,7 @@ import type {
   UserSearchParams,
   UserSearchResult
 } from '@alv/core/contracts';
+import type * as ui from '@alv/protocol/customLogsTypes';
 import type { ApexLogRow } from '@alv/protocol/types';
 
 import { safeSendEvent } from '../shared/telemetry';
@@ -97,7 +104,58 @@ const TELEMETRY_METHOD_NAMES: Record<string, string> = {
   'debugLevel.update': 'debug_level_update',
   'debugLevel.delete': 'debug_level_delete',
   'tooling.query': 'tooling_query',
-  'tooling.get': 'tooling_get'
+  'tooling.get': 'tooling_get',
+  'customLog.sources': 'custom_log_sources',
+  'customLog.list': 'custom_log_list',
+  'customLog.get': 'custom_log_get',
+  'customLog.entry': 'custom_log_entry'
+};
+
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+type Holds<T extends true> = T;
+type AssignsTo<Ui, Core extends Ui> = [Ui, Core];
+
+/**
+ * Compile-time proof that the core DTOs assign to their protocol mirrors, which is what lets the
+ * client return core results as UI types without mapping code. A field core drops or retypes
+ * fails the build here instead of at a webview.
+ */
+export type CustomLogDtoProof = [
+  Holds<Same<typeof core.CUSTOM_LOG_LEVELS, typeof ui.CUSTOM_LOG_LEVELS>>,
+  AssignsTo<ui.CustomLogSourceView, core.CustomLogSourceInfo>,
+  AssignsTo<ui.CustomLogConfigIssueView, core.CustomLogConfigIssue>,
+  AssignsTo<ui.CustomLogColumn, core.CustomLogColumn>,
+  AssignsTo<ui.CustomLogRow, core.CustomLogRow>,
+  AssignsTo<ui.CustomLogEntry, core.CustomLogEntry>,
+  AssignsTo<ui.CustomLogPayloadField, core.CustomLogPayloadField>,
+  AssignsTo<ui.CustomLogSourceRef, core.CustomLogSourceRef>,
+  AssignsTo<ui.CustomLogApexLogLink, core.CustomLogApexLogLink>
+];
+
+export type CustomLogSourcesView = {
+  defaultSourceId?: string;
+  sources: ui.CustomLogSourceView[];
+  issues: ui.CustomLogConfigIssueView[];
+};
+
+export type CustomLogListView = {
+  source: ui.CustomLogSourceRef;
+  columns: ui.CustomLogColumn[];
+  rows: ui.CustomLogRow[];
+  payloadFields: ui.CustomLogPayloadField[];
+  nextCursor: string | null;
+};
+
+/** `logPayload` is host-only: the panel keeps its text to open as a document, and the webview gets its state. */
+export type CustomLogGetView = {
+  source: ui.CustomLogSourceRef;
+  log: ui.CustomLogRow;
+  logPayload?: core.CustomLogLongValue;
+  entryColumns: ui.CustomLogColumn[];
+  entries: ui.CustomLogEntry[];
+  payloadFields: ui.CustomLogPayloadField[];
+  nextCursor: string | null;
+  apexLog: ui.CustomLogApexLogLink;
 };
 
 function createAbortError(): Error {
@@ -361,6 +419,23 @@ export class CoreClient {
 
   public toolingRequestGet(params: ToolingRequestGetParams, signal?: AbortSignal): Promise<unknown> {
     return this.call(signal, () => this.core.tooling.get(params, { signal }));
+  }
+
+  public customLogSources(params: CustomLogSourcesParams, signal?: AbortSignal): Promise<CustomLogSourcesView> {
+    return this.call(signal, () => this.core.customLog.sources(params, { signal }));
+  }
+
+  public customLogList(params: CustomLogListParams, signal?: AbortSignal): Promise<CustomLogListView> {
+    return this.call(signal, () => this.core.customLog.list(params, { signal }));
+  }
+
+  public customLogGet(params: CustomLogGetParams, signal?: AbortSignal): Promise<CustomLogGetView> {
+    return this.call(signal, () => this.core.customLog.get(params, { signal }));
+  }
+
+  /** Host-only: the panel keeps the long values to open as documents and posts `CustomLogLongFieldView`s. */
+  public customLogEntry(params: CustomLogEntryParams, signal?: AbortSignal): Promise<CustomLogEntryResult> {
+    return this.call(signal, () => this.core.customLog.entry(params, { signal }));
   }
 
   public dispose(): void {

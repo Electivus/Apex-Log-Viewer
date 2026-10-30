@@ -55,6 +55,7 @@ function createExtensionHarness(options: {
   const logsTailCalls: number[] = [];
   const logsRefreshCalls: number[] = [];
   const webviewProviderRegistrations: Array<{ viewId: string; options?: any }> = [];
+  const customLogsRegistrations: Array<{ logsSelectedOrg: () => string | undefined }> = [];
   const clipboardWrites: string[] = [];
 
   const vscodeStub = {
@@ -194,6 +195,15 @@ function createExtensionHarness(options: {
     './provider/SfLogsViewProvider': { SfLogsViewProvider: FakeLogsViewProvider },
     './provider/SfLogTailViewProvider': { SfLogTailViewProvider: FakeTailViewProvider },
     './provider/ApexLogCodeLensProvider': { ApexLogCodeLensProvider: FakeCodeLensProvider },
+    './host/customLogsFeature': {
+      registerCustomLogsFeature: (_context: unknown, logsSelectedOrg: () => string | undefined) => {
+        customLogsRegistrations.push({ logsSelectedOrg });
+        return {
+          getWebviewDiagnosticStates: () => [{ surface: 'customLogs', hasHost: false, visible: false, ready: false }],
+          dispose: () => undefined
+        };
+      }
+    },
     './panel/LogViewerPanel': {
       LogViewerPanel: {
         initialize: () => undefined,
@@ -318,6 +328,7 @@ function createExtensionHarness(options: {
     logsTailCalls,
     logsRefreshCalls,
     webviewProviderRegistrations,
+    customLogsRegistrations,
     clipboardWrites
   };
 }
@@ -366,6 +377,17 @@ suite('extension activation gating', () => {
       harness.commands.has('electivus.apexLogViewer.log.openViewer'),
       'open log viewer command should stay registered'
     );
+    assert.equal(
+      harness.customLogsRegistrations.length,
+      1,
+      'activation hands Custom Logs to its setting-gated feature'
+    );
+    for (const command of ['refresh', 'openEditor', 'configure']) {
+      assert.ok(
+        !harness.commands.has(`electivus.apexLogViewer.customLogs.${command}`),
+        `activation itself must not register the experimental custom logs ${command} command`
+      );
+    }
 
     const activationEvent = harness.events.find(event => event.name === 'extension.activate');
     assert.equal(activationEvent?.props?.hasSalesforceProject, 'false');
@@ -454,6 +476,19 @@ suite('extension activation gating', () => {
         { viewId: 'electivus.apexLogViewer.logsView', retainContextWhenHidden: true },
         { viewId: 'electivus.apexLogViewer.tailView', retainContextWhenHidden: true }
       ]
+    );
+  });
+
+  test('lets the Custom Logs feature follow the org of the Logs panel and report its webviews in diagnostics', async () => {
+    const harness = createExtensionHarness({ initialLogsSelectedOrg: 'worker@example.com' });
+
+    await harness.extension.activate(createContext());
+    await harness.commands.get('electivus.apexLogViewer.diagnostics.copy')!();
+
+    assert.equal(harness.customLogsRegistrations[0]?.logsSelectedOrg(), 'worker@example.com');
+    assert.ok(
+      harness.clipboardWrites[0]?.includes('"customLogs"'),
+      'the diagnostics package lists the Custom Logs view'
     );
   });
 

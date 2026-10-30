@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
+import type { CustomLogViewerFromWebviewMessage } from '../../shared/customLogViewerMessages';
+import type { CustomLogsFromWebviewMessage } from '../../shared/customLogsMessages';
 import type { DebugFlagsFromWebviewMessage } from '../../shared/debugFlagsMessages';
 import type { LogViewerFromWebviewMessage } from '../../shared/logViewerMessages';
 import { parseMessageSentAt, type WebviewToExtensionMessage } from '../../shared/messages';
@@ -8,7 +10,7 @@ import { logInfo, logTrace } from './logger';
 
 type LoopDelayHistogram = ReturnType<typeof monitorEventLoopDelay>;
 
-export type ResponsivenessSurface = 'logs' | 'tail' | 'logViewer' | 'debugFlags';
+export type ResponsivenessSurface = 'logs' | 'tail' | 'logViewer' | 'debugFlags' | 'customLogs' | 'customLogViewer';
 
 export type HostResponsivenessMeasurements = {
   windowMs: number;
@@ -42,11 +44,17 @@ const SURFACE_LABELS: Record<ResponsivenessSurface, string> = {
   logs: 'Logs',
   tail: 'Tail',
   logViewer: 'LogViewer',
-  debugFlags: 'DebugFlags'
+  debugFlags: 'DebugFlags',
+  customLogs: 'CustomLogs',
+  customLogViewer: 'CustomLogViewer'
 };
 
 type InboundMessageType =
-  WebviewToExtensionMessage['type'] | LogViewerFromWebviewMessage['type'] | DebugFlagsFromWebviewMessage['type'];
+  | WebviewToExtensionMessage['type']
+  | LogViewerFromWebviewMessage['type']
+  | DebugFlagsFromWebviewMessage['type']
+  | CustomLogsFromWebviewMessage['type']
+  | CustomLogViewerFromWebviewMessage['type'];
 
 const INBOUND_MESSAGE_TYPES: ReadonlySet<string> = new Set(
   Object.keys({
@@ -77,7 +85,27 @@ const INBOUND_MESSAGE_TYPES: ReadonlySet<string> = new Set(
     debugFlagsManagerSave: true,
     debugFlagsManagerDelete: true,
     debugFlagsRemove: true,
-    debugFlagsClearLogs: true
+    debugFlagsClearLogs: true,
+    customLogsReady: true,
+    customLogsSelectOrg: true,
+    customLogsSelectSource: true,
+    customLogsSetFilter: true,
+    customLogsRefresh: true,
+    customLogsLoadMore: true,
+    customLogsOpenLog: true,
+    customLogsOpenPayload: true,
+    customLogsSetPayloadColumns: true,
+    customLogsOpenConfig: true,
+    customLogsOpenEditor: true,
+    customLogViewerReady: true,
+    customLogViewerRefresh: true,
+    customLogViewerLoadMoreEntries: true,
+    customLogViewerOpenEntry: true,
+    customLogViewerOpenField: true,
+    customLogViewerCopyField: true,
+    customLogViewerOpenApexLog: true,
+    customLogViewerSetPayloadColumns: true,
+    customLogViewerCopyText: true
   } satisfies Record<InboundMessageType, true>)
 );
 
