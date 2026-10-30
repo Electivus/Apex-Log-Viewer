@@ -48,7 +48,7 @@ sf electivus custom-log entry --entry-id <id> --target-org my-org --json
 sf electivus custom-log list --source app-log --payload-fields orderId,http.status --json
 ```
 
-`list` and `get` take `--source` when more than one source is ready, and fail with `CUSTOM_LOG_SOURCE_REQUIRED` rather than guess. `nextCursor` is opaque; pass it back as `--cursor` with the same flags. A JSON payload field mapped on a source comes back as flat dot paths under `payload.values`; `--payload-fields` keeps only the paths you name, and `payloadFields` still lists every path on the page. `get` also returns the Apex debug log of the same request as `apexLog` (`linked`, `notFound` or `noRequestId`); open it with `sf electivus log read --log-id <id>`.
+`list` and `get` take `--source` when more than one source is ready, and fail with `CUSTOM_LOG_SOURCE_REQUIRED` rather than guess. `nextCursor` is opaque; pass it back as `--cursor` with the same flags. A JSON payload field mapped on a source comes back as flat dot paths under `payload.values`; `--payload-fields` keeps only the paths you name, and `payloadFields` still lists every path on the page. `get` also returns the Apex debug log of the same request as `apexLog` (`linked`, `notFound`, `unavailable` with `reason: noAccess` when this user cannot read debug logs, or `noRequestId`); open it with `sf electivus log read --log-id <id>`.
 
 ## Local investigation metadata
 
