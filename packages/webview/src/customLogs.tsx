@@ -191,11 +191,15 @@ export function CustomLogsApp({
   }, [scopeKey, workbench.reset]);
 
   // A switch the user makes moves the workbench to the new source at once, so the JSON filters typed with it
-  // are added after the reset and survive the host's confirmation.
+  // are added after the reset and survive the host's confirmation. The server filter typed with it travels in
+  // the same message, so the host queries the new source once, with that filter.
   const selectSource = useCallback(
-    (sourceId: string) => {
+    (sourceId: string, filter?: CustomLogsFilterView) => {
       dispatch({ type: 'customLogsSources', data: sources, selected: sourceId, issues });
-      post({ type: 'customLogsSelectSource', sourceId });
+      if (filter) {
+        dispatch({ type: 'customLogsFilter', value: filter });
+      }
+      post({ type: 'customLogsSelectSource', sourceId, ...(filter ? { filter } : {}) });
       workbenchScope.current = scopeKeyOf(selectedOrg, sourceId);
       workbench.reset();
       setSelectedId(undefined);
@@ -228,10 +232,14 @@ export function CustomLogsApp({
       if (!parsed.ok) {
         return describeParseError(t.errors, parsed.error);
       }
+      // A `source` clause decides which source the other clauses are checked against, so it goes first.
+      const conditions = [...parsed.conditions].sort(
+        (a, b) => Number(b.field === 'source') - Number(a.field === 'source')
+      );
+      let destination = selectedSource;
       let workingFilter = serverFilter;
-      let nextSource: string | undefined;
       const clauses: FilterClause[] = [];
-      for (const condition of parsed.conditions) {
+      for (const condition of conditions) {
         if (!isServerFilterField(condition.field)) {
           clauses.push({
             field: condition.field,
@@ -242,7 +250,7 @@ export function CustomLogsApp({
         }
         const applied = applyServerCondition(condition, {
           filter: workingFilter,
-          capabilities,
+          capabilities: destination?.capabilities ?? NO_CAPABILITIES,
           sourceIds: readySources.map(source => source.id)
         });
         if (!applied.ok) {
@@ -251,23 +259,23 @@ export function CustomLogsApp({
         if (applied.apply.kind === 'filter') {
           workingFilter = applied.apply.filter;
         } else {
-          nextSource = applied.apply.sourceId;
+          const sourceId = applied.apply.sourceId;
+          destination = readySources.find(source => source.id === sourceId);
         }
       }
-      if (!sameFilter(workingFilter, serverFilter)) {
+      if (destination && destination.id !== selectedSourceId) {
+        selectSource(destination.id, workingFilter);
+      } else if (!sameFilter(workingFilter, serverFilter)) {
         setServerFilterAndPost(workingFilter);
-      }
-      if (nextSource !== undefined && nextSource !== selectedSourceId) {
-        selectSource(nextSource);
       }
       workbench.addPayloadFilters(clauses);
       return { ok: true };
     },
     [
       workbench.addPayloadFilters,
-      capabilities,
       readySources,
       selectSource,
+      selectedSource,
       selectedSourceId,
       serverFilter,
       setServerFilterAndPost,

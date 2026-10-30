@@ -29,7 +29,11 @@ export type CustomLogsFromWebviewMessage =
   /** Must echo the `alv-mount-sequence` meta value, or the session rejects it after a remount. */
   | { type: 'customLogsReady'; mountSequence?: number }
   | { type: 'customLogsSelectOrg'; target: string }
-  | { type: 'customLogsSelectSource'; sourceId: string }
+  /**
+   * `filter`, when present, is the complete server-side filter typed together with the switch: the provider
+   * applies it to the new source in the same query, so the old source is not reloaded with it first.
+   */
+  | { type: 'customLogsSelectSource'; sourceId: string; filter?: CustomLogsFilterView }
   /** The complete server-side filter. Core applies it to the query and the provider restarts paging. */
   | { type: 'customLogsSetFilter'; filter: CustomLogsFilterView }
   | { type: 'customLogsRefresh' }
@@ -143,10 +147,16 @@ export function parseCustomLogsFromWebviewMessage(raw: unknown): CustomLogsFromW
       const target = parseTrimmedString(message.target, MAX_ORG_IDENTIFIER_LENGTH);
       return target ? { type: 'customLogsSelectOrg', target } : undefined;
     }
-    case 'customLogsSelectSource':
-      return typeof message.sourceId === 'string' && SOURCE_ID_PATTERN.test(message.sourceId)
-        ? { type: 'customLogsSelectSource', sourceId: message.sourceId }
-        : undefined;
+    case 'customLogsSelectSource': {
+      if (typeof message.sourceId !== 'string' || !SOURCE_ID_PATTERN.test(message.sourceId)) {
+        return undefined;
+      }
+      if (message.filter === undefined) {
+        return { type: 'customLogsSelectSource', sourceId: message.sourceId };
+      }
+      const filter = parseCustomLogsFilter(message.filter);
+      return filter ? { type: 'customLogsSelectSource', sourceId: message.sourceId, filter } : undefined;
+    }
     case 'customLogsSetFilter': {
       const filter = parseCustomLogsFilter(message.filter);
       return filter ? { type: 'customLogsSetFilter', filter } : undefined;

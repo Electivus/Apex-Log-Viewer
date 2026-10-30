@@ -1,4 +1,5 @@
 import { fireEvent, screen } from '@testing-library/react';
+import type { CustomLogSourceView } from '@alv/protocol/customLogsTypes';
 
 import {
   appLog,
@@ -45,6 +46,13 @@ jest.mock('react-window', () => {
 });
 
 afterEach(removeMountSequenceMeta);
+
+const auditLog: CustomLogSourceView = {
+  ...appLog,
+  id: 'audit-log',
+  label: 'Audit Log',
+  capabilities: { levelFilter: false, userFilter: false, apexLogLink: false }
+};
 
 describe('Custom Logs app', () => {
   describe('startup', () => {
@@ -257,11 +265,85 @@ describe('Custom Logs app', () => {
       submit('source = nebula');
       expect(lastPost(posted, 'customLogsSelectSource')).toEqual({
         type: 'customLogsSelectSource',
-        sourceId: 'nebula'
+        sourceId: 'nebula',
+        filter: {}
       });
 
       submit('source = nope');
       expect(screen.getByRole('alert')).toHaveTextContent('Unknown source');
+    });
+
+    it.each(['source = app-log and level >= ERROR', 'level >= ERROR and source = app-log'])(
+      'checks the server filters of "%s" against the source it switches to',
+      text => {
+        const { posted } = mountApp({ sources: [auditLog, appLog], selected: 'audit-log' });
+        const before = posted.length;
+
+        submit(text);
+
+        expect(screen.queryByRole('alert')).toBeNull();
+        expect(posted.slice(before)).toEqual([
+          { type: 'customLogsSelectSource', sourceId: 'app-log', filter: { minLevel: 'ERROR' } }
+        ]);
+        expect(chipSummary()).toEqual([
+          ['server', 'source=app-log'],
+          ['server', 'level>=ERROR']
+        ]);
+      }
+    );
+
+    it('reports a source that is unknown or not ready at its own clause, and posts nothing', () => {
+      const { posted } = mountApp({
+        sources: [auditLog, appLog, { ...nebula, state: 'notInstalled' }],
+        selected: 'audit-log'
+      });
+      const before = posted.length;
+
+      submit('level >= ERROR and source = nope');
+      expect(screen.getByRole('alert')).toHaveTextContent('Unknown source. Pick one from the Source list (col 29)');
+
+      submit('source = nebula and level >= ERROR');
+      expect(screen.getByRole('alert')).toHaveTextContent('Unknown source. Pick one from the Source list (col 10)');
+
+      expect(posted.slice(before)).toEqual([]);
+      expect(chipSummary()).toEqual([['server', 'source=audit-log']]);
+    });
+
+    it('queries the new source once with the level typed with it, then narrows the rows by the JSON filter', () => {
+      const { bus, posted } = mountApp({ sources: [auditLog, appLog], selected: 'audit-log' });
+      const before = posted.length;
+      const switched = [
+        ['server', 'source=app-log'],
+        ['server', 'level>=ERROR'],
+        ['loaded', 'http.status>=500']
+      ];
+
+      submit('source = app-log and level >= ERROR and http.status >= 500');
+      expect(chipSummary()).toEqual(switched);
+
+      send(bus, { type: 'customLogsLoading', value: true });
+      send(bus, { type: 'customLogsPage', mode: 'replace', columns: [], rows: [], payloadFields: [], hasMore: false });
+      send(bus, { type: 'customLogsSources', data: [auditLog, appLog], selected: 'app-log', issues: [] });
+      send(bus, { type: 'customLogsFilter', value: { minLevel: 'ERROR' } });
+      send(bus, { type: 'customLogsPayloadColumns', value: { defaults: ['orderId'], added: [] } });
+      send(bus, {
+        type: 'customLogsPage',
+        mode: 'replace',
+        columns: [],
+        rows: [
+          rows[0]!,
+          makeRow(ids.retry, 'Order rejected', { level: 'ERROR', payload: parsed({ 'http.status': 400 }) })
+        ],
+        payloadFields: [],
+        hasMore: false
+      });
+      send(bus, { type: 'customLogsLoading', value: false });
+
+      expect(posted.slice(before)).toEqual([
+        { type: 'customLogsSelectSource', sourceId: 'app-log', filter: { minLevel: 'ERROR' } }
+      ]);
+      expect(chipSummary()).toEqual(switched);
+      expect(listedTitles()).toEqual(['Order sync failed']);
     });
 
     it('hides the source picker when only one source is ready', () => {
@@ -401,7 +483,8 @@ describe('Custom Logs app', () => {
       submit('source = app-log and http.status >= 500');
       expect(lastPost(posted, 'customLogsSelectSource')).toEqual({
         type: 'customLogsSelectSource',
-        sourceId: 'app-log'
+        sourceId: 'app-log',
+        filter: {}
       });
       send(bus, { type: 'customLogsLoading', value: true });
       send(bus, { type: 'customLogsPage', mode: 'replace', columns: [], rows: [], payloadFields: [], hasMore: false });

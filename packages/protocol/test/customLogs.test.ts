@@ -123,6 +123,31 @@ test('list parser rejects a malformed filter as a whole', () => {
   assert.equal(parseCustomLogsFromWebviewMessage({ type: 'customLogsSetFilter', filter: [] }), undefined);
 });
 
+test('list parser reads the filter typed with a source switch by the same rules, and rejects the switch when it is malformed', () => {
+  assert.deepEqual(
+    parseCustomLogsFromWebviewMessage({
+      type: 'customLogsSelectSource',
+      sourceId: 'app-log',
+      filter: { minLevel: 'error', user: ' dev@acme.com ', ignored: true }
+    }),
+    { type: 'customLogsSelectSource', sourceId: 'app-log', filter: { minLevel: 'ERROR', user: 'dev@acme.com' } }
+  );
+  assert.deepEqual(
+    parseCustomLogsFromWebviewMessage({ type: 'customLogsSelectSource', sourceId: 'app-log', filter: {} }),
+    {
+      type: 'customLogsSelectSource',
+      sourceId: 'app-log',
+      filter: {}
+    }
+  );
+  for (const filter of [{ minLevel: 'LOUD' }, { since: 'yesterday' }, [], null, 'level >= ERROR']) {
+    assert.equal(
+      parseCustomLogsFromWebviewMessage({ type: 'customLogsSelectSource', sourceId: 'app-log', filter }),
+      undefined
+    );
+  }
+});
+
 test('list parser rejects malformed ids, sources and orgs', () => {
   const rejected = [
     { type: 'customLogsOpenLog', logId: 'short' },
