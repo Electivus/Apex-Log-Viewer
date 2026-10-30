@@ -108,6 +108,12 @@ export type ResolvedTransactionObject = {
   readonly levelPredicate: HeaderLevelPredicate;
 };
 
+/** What the decoders (`decode.ts`) read from an entry object: the parts that do not describe a query. */
+export type DecodableEntryObject = Pick<
+  ResolvedEntryObject,
+  'roles' | 'columns' | 'details' | 'payload' | 'systemMessagePrefix'
+>;
+
 export type ResolvedShape =
   | { readonly kind: 'entries'; readonly entry: ResolvedEntryObject }
   | {
@@ -115,6 +121,38 @@ export type ResolvedShape =
       readonly transaction: ResolvedTransactionObject;
       readonly entry: ResolvedEntryObject & { readonly parent: ResolvedField };
     };
+
+/**
+ * Ends every switch over a shape kind, so a kind added to `ResolvedShape` fails `check-types` at
+ * each site. `customLogsShape.test.ts` refuses the two-way comparisons that would bypass it.
+ */
+export function assertNever(value: never, what: string): never {
+  throw new Error(`Unhandled ${what}: ${JSON.stringify(value)}`);
+}
+
+/** The object a list row shows: the header of a `transactions` source, else the entry object. */
+export function listedObject(shape: ResolvedShape): ResolvedTransactionObject | ResolvedEntryObject {
+  switch (shape.kind) {
+    case 'transactions':
+      return shape.transaction;
+    case 'entries':
+      return shape.entry;
+    default:
+      return assertNever(shape, 'source shape');
+  }
+}
+
+/** The header object of a `transactions` source; an `entries` source has none. */
+export function headerObject(shape: ResolvedShape): ResolvedTransactionObject | undefined {
+  switch (shape.kind) {
+    case 'transactions':
+      return shape.transaction;
+    case 'entries':
+      return undefined;
+    default:
+      return assertNever(shape, 'source shape');
+  }
+}
 
 export type ResolvedSource = {
   readonly id: SourceId;

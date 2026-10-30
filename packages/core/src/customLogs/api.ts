@@ -56,7 +56,7 @@ import {
 } from './queries.js';
 import { defaultSourceId, requireSource, requireSourceForRecord, toColumns, toSourceInfo } from './catalog.js';
 import { createSourceRegistry, type CustomLogContext } from './registry.js';
-import type { ResolvedSource } from './resolved.js';
+import { headerObject, listedObject, type ResolvedSource } from './resolved.js';
 import { parseSinceExpression } from './since.js';
 
 export type CustomLogApi = {
@@ -224,10 +224,9 @@ export function createCustomLogApi(presets: readonly BuiltinPreset[] = BUILTIN_P
             }),
             signal
           );
-          const listed = source.shape.kind === 'transactions' ? source.shape.transaction : source.shape.entry;
           return {
             source: sourceRef(source),
-            columns: toColumns(listed.columns),
+            columns: toColumns(listedObject(source.shape).columns),
             rows: page.items,
             payloadFields: page.payloadFields,
             nextCursor: cursor.next(page.next, resolved)
@@ -249,10 +248,11 @@ export function createCustomLogApi(presets: readonly BuiltinPreset[] = BUILTIN_P
         catalog => {
           if (logId === undefined) return requireSource(catalog, sourceId);
           const owner = requireSourceForRecord(catalog, sourceId, logId);
-          if (owner.source.shape.kind === 'transactions' && owner.level === 'entry') {
+          const header = headerObject(owner.source.shape);
+          if (header && owner.level === 'entry') {
             wrongRecordLevel(
               `${logId} is a ${owner.source.shape.entry.object} id. ` +
-                `Pass the ${owner.source.shape.transaction.object} id from the entry's logId field.`
+                `Pass the ${header.object} id from the entry's logId field.`
             );
           }
           return owner.source;
@@ -301,7 +301,7 @@ export function createCustomLogApi(presets: readonly BuiltinPreset[] = BUILTIN_P
           const { shape } = owner.source;
           if (owner.level !== 'entry') {
             wrongRecordLevel(
-              `${entryId} is a ${shape.kind === 'transactions' ? shape.transaction.object : shape.entry.object} id. ` +
+              `${entryId} is a ${listedObject(shape).object} id. ` +
                 `Pass a ${shape.entry.object} id from the entries that custom-log get returns.`
             );
           }

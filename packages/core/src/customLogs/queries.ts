@@ -15,33 +15,46 @@
 
 import { escapeSoqlLiteral, isSalesforceId, normalizeSoqlDateTimeLiteral, soqlNumberLiteral } from '../soql.js';
 import { SOURCE_ID_PATTERN } from './config.js';
-import {
-  CUSTOM_LOG_CELL_CHARS,
-  CUSTOM_LOG_MESSAGE_PREVIEW_CHARS,
-  type CustomLogApexLogLink,
-  type CustomLogDetail,
-  type CustomLogEntry,
-  type CustomLogFilter,
-  type CustomLogLevel,
-  type CustomLogLongValue,
-  type CustomLogPayloadField,
-  type CustomLogPayloadView,
-  type CustomLogRow,
-  type CustomLogScalar
+import type {
+  CustomLogApexLogLink,
+  CustomLogDetail,
+  CustomLogEntry,
+  CustomLogFilter,
+  CustomLogLevel,
+  CustomLogLongValue,
+  CustomLogPayloadField,
+  CustomLogPayloadView,
+  CustomLogRow
 } from './contracts.js';
+import {
+  count,
+  defined,
+  detailsOf,
+  entryDto,
+  entryRow,
+  longValueOf,
+  rawPayloadOf,
+  read,
+  text,
+  transactionRow,
+  type RowIdentity
+} from './decode.js';
 import { customLogError } from './errors.js';
-import { APEX_LEVEL_ORDINALS, normalizeLevel, type LevelTable } from './levels.js';
-import { decodePayload, selectPayloadPaths, summarizePayloadFields, toLongValue } from './payload.js';
+import { APEX_LEVEL_ORDINALS, type LevelTable } from './levels.js';
+import { selectPayloadPaths, summarizePayloadFields } from './payload.js';
 import {
   CREATED_DATE,
+  assertNever,
   filterableField,
+  headerObject,
+  listedObject,
   type EntryLevelPredicate,
   type FieldLevelPredicate,
   type HeaderLevelPredicate,
   type ResolvedEntryObject,
   type ResolvedField,
-  type ResolvedLongField,
   type ResolvedPayload,
+  type ResolvedShape,
   type ResolvedSource,
   type ResolvedTimeField
 } from './resolved.js';
@@ -189,39 +202,6 @@ function soql(text: string): Soql {
   return text as Soql;
 }
 
-function read(record: Record<string, unknown>, api: string): unknown {
-  let value: unknown = record;
-  for (const part of api.split('.')) {
-    if (typeof value !== 'object' || value === null) return undefined;
-    value = (value as Record<string, unknown>)[part];
-  }
-  return value;
-}
-
-const text = (value: unknown): string | undefined => (typeof value === 'string' && value !== '' ? value : undefined);
-/** A string bound for a row or entry cell. Long text stays whole only in `entry` and the long values. */
-const cell = (value: unknown): string | undefined => text(value)?.slice(0, CUSTOM_LOG_CELL_CHARS);
-const count = (value: unknown): number | undefined =>
-  typeof value === 'number' && Number.isFinite(value) ? value : undefined;
-const scalar = (value: unknown): CustomLogScalar =>
-  typeof value === 'string'
-    ? value.slice(0, CUSTOM_LOG_CELL_CHARS)
-    : typeof value === 'number' || typeof value === 'boolean'
-      ? value
-      : null;
-
-/** The display time as ISO: the mapped field, or the record's CreatedDate when it is empty. */
-function displayTime(field: ResolvedTimeField, record: Record<string, unknown>): string {
-  const value = read(record, field.api);
-  const mapped =
-    field.encoding === 'epochMillis'
-      ? typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 8.64e15
-        ? new Date(value).toISOString()
-        : undefined
-      : normalizeSoqlDateTimeLiteral(value);
-  return mapped ?? createdDateOf(record);
-}
-
 class Select {
   private readonly paths = new Set<string>(['Id', 'CreatedDate']);
 
@@ -235,37 +215,8 @@ class Select {
   }
 }
 
-/** Drops `undefined` members, so a DTO carries only the keys it has. */
-function defined<T extends object>(value: T): T {
-  return Object.fromEntries(Object.entries(value).filter(([, member]) => member !== undefined)) as T;
-}
-
 function payloadField(payload: ResolvedPayload | undefined): ResolvedField | undefined {
   return payload?.state === 'readable' ? payload.field : undefined;
-}
-
-/** A long field decoded from the record, or `hidden` when describe hides it from this user. */
-function readLong<T>(
-  long: ResolvedLongField,
-  record: Record<string, unknown>,
-  decode: (raw: unknown) => T
-): T | { state: 'hidden' } {
-  return long.state === 'readable' ? decode(read(record, long.field.api)) : { state: 'hidden' };
-}
-
-function payloadView(
-  payload: ResolvedPayload | undefined,
-  record: Record<string, unknown>
-): CustomLogPayloadView | undefined {
-  return payload && readLong(payload, record, decodePayload);
-}
-
-function extras(columns: readonly ResolvedField[], record: Record<string, unknown>): Record<string, CustomLogScalar> {
-  return Object.fromEntries(columns.map(column => [column.key, scalar(read(record, column.api))]));
-}
-
-function valueOf(record: Record<string, unknown>, field: ResolvedField | undefined): unknown {
-  return field ? read(record, field.api) : undefined;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -345,74 +296,42 @@ function createdDateOf(record: Record<string, unknown>): string {
   return normalizeSoqlDateTimeLiteral(record.CreatedDate) ?? new Date(0).toISOString();
 }
 
-function entryRow(source: ResolvedSource, record: Record<string, unknown>): CustomLogRow {
-  const { entry } = source.shape;
-  const message = text(valueOf(record, entry.roles.message));
-  return defined({
-    id: String(record.Id),
-    time: displayTime(entry.roles.time, record),
-    title: cell(message),
-    user: cell(valueOf(record, entry.roles.user)),
-    level: normalizeLevel(source.levels, valueOf(record, entry.roles.level), valueOf(record, entry.roles.levelOrdinal))
-      .level,
-    transactionId: cell(valueOf(record, entry.roles.transactionId)),
-    requestId: cell(valueOf(record, entry.roles.requestId)),
-    extra: extras(entry.columns, record),
-    payload: payloadView(entry.payload, record)
-  });
-}
-
-function transactionRow(
-  source: ResolvedSource,
-  transaction: Extract<ResolvedSource['shape'], { kind: 'transactions' }>['transaction'],
-  record: Record<string, unknown>
-): CustomLogRow {
-  const { roles } = transaction;
-  const counts = defined({
-    entries: count(valueOf(record, roles.entryCount)),
-    errors: count(valueOf(record, roles.errorCount)),
-    warnings: count(valueOf(record, roles.warningCount))
-  });
-  const ordinal = valueOf(record, roles.maxLevelOrdinal);
-  return defined({
-    id: String(record.Id),
-    time: displayTime(roles.startTime, record),
-    title: cell(valueOf(record, roles.name)),
-    user: cell(valueOf(record, roles.user)),
-    level: ordinal === undefined ? undefined : normalizeLevel(source.levels, undefined, ordinal).level,
-    counts: Object.keys(counts).length > 0 ? counts : undefined,
-    transactionId: cell(valueOf(record, roles.transactionId)),
-    requestId: cell(valueOf(record, roles.requestId)),
-    extra: extras(transaction.columns, record),
-    payload: payloadView(transaction.payload, record)
-  });
+/** A SOQL record's identity: its `Id` and `CreatedDate`, which every SELECT here asks for. */
+function recordIdentity(record: Record<string, unknown>): RowIdentity {
+  return { id: String(record.Id), createdDate: createdDateOf(record) };
 }
 
 /** What a list row (or `get`'s header row) reads: the header object, or the entry object of an `entries` source. */
 function rowObject(source: ResolvedSource) {
-  const { shape } = source;
-  if (shape.kind === 'transactions') {
-    const { transaction } = shape;
-    const { roles } = transaction;
-    return {
-      object: transaction.object,
-      timeFilter: transaction.timeFilter,
-      levelPredicate: transaction.levelPredicate,
-      user: filterableField(roles.user),
-      select: new Select().add(...Object.values(roles), ...transaction.columns, payloadField(transaction.payload)),
-      decode: (record: Record<string, unknown>) => transactionRow(source, transaction, record)
-    };
+  const { shape, levels } = source;
+  switch (shape.kind) {
+    case 'transactions': {
+      const { transaction } = shape;
+      const { roles } = transaction;
+      return {
+        object: transaction.object,
+        timeFilter: transaction.timeFilter,
+        levelPredicate: transaction.levelPredicate,
+        user: filterableField(roles.user),
+        select: new Select().add(...Object.values(roles), ...transaction.columns, payloadField(transaction.payload)),
+        decode: (record: Record<string, unknown>) => transactionRow(transaction, levels, record, recordIdentity(record))
+      };
+    }
+    case 'entries': {
+      const { entry } = shape;
+      const { roles } = entry;
+      return {
+        object: entry.object,
+        timeFilter: entry.timeFilter,
+        levelPredicate: entry.levelPredicate,
+        user: filterableField(roles.user),
+        select: new Select().add(...Object.values(roles), ...entry.columns, payloadField(entry.payload)),
+        decode: (record: Record<string, unknown>) => entryRow(entry, levels, record, recordIdentity(record))
+      };
+    }
+    default:
+      return assertNever(shape, 'source shape');
   }
-  const { entry } = shape;
-  const { roles } = entry;
-  return {
-    object: entry.object,
-    timeFilter: entry.timeFilter,
-    levelPredicate: entry.levelPredicate,
-    user: filterableField(roles.user),
-    select: new Select().add(...Object.values(roles), ...entry.columns, payloadField(entry.payload)),
-    decode: (record: Record<string, unknown>) => entryRow(source, record)
-  };
 }
 
 function levelWhere(
@@ -475,7 +394,7 @@ export function rowPlan(
   id: RecordId
 ): QueryPlan<{ row: CustomLogRow; logPayload?: CustomLogLongValue } | undefined> {
   const row = rowObject(source);
-  const payload = source.shape.kind === 'transactions' ? source.shape.transaction.payload : undefined;
+  const payload = headerObject(source.shape)?.payload;
   return {
     soql: soql(`SELECT ${row.select} FROM ${row.object} WHERE Id = ${quote(id)} LIMIT 1`),
     api: 'data',
@@ -483,9 +402,21 @@ export function rowPlan(
     decode: ([record]) =>
       record && {
         row: row.decode(record),
-        ...(payload ? { logPayload: readLong(payload, record, toLongValue) } : {})
+        ...(payload ? { logPayload: longValueOf(payload, record) } : {})
       }
   };
+}
+
+/** Where a transaction id is looked up: headers, newest first (two, to detect ambiguity), or the first entry by sequence. */
+function lookupTarget(shape: ResolvedShape): [object: string, order: string, limit: number] {
+  switch (shape.kind) {
+    case 'transactions':
+      return [shape.transaction.object, 'CreatedDate DESC, Id DESC', 2];
+    case 'entries':
+      return [shape.entry.object, `${shape.entry.sequence.api} ASC NULLS FIRST, Id ASC`, 1];
+    default:
+      return assertNever(shape, 'source shape');
+  }
 }
 
 /**
@@ -497,13 +428,9 @@ export function rowPlan(
  */
 export function transactionLookupPlan(source: ResolvedSource, transactionId: string): QueryPlan<RecordId[]> {
   const { shape } = source;
-  const owner = shape.kind === 'transactions' ? shape.transaction : shape.entry;
-  const field = filterableField(owner.roles.transactionId);
+  const field = filterableField(listedObject(shape).roles.transactionId);
   if (!field) return unsupported(source, 'filterable transaction id mapping');
-  const [object, order, limit] =
-    shape.kind === 'transactions'
-      ? [shape.transaction.object, 'CreatedDate DESC, Id DESC', 2]
-      : [shape.entry.object, `${shape.entry.sequence.api} ASC NULLS FIRST, Id ASC`, 1];
+  const [object, order, limit] = lookupTarget(shape);
   return {
     soql: soql(
       `SELECT Id FROM ${object} WHERE ${field.api} = ${quote(transactionId)} ORDER BY ${order} LIMIT ${limit}`
@@ -532,9 +459,28 @@ function scopeCondition(scope: EntriesScope): string {
  */
 export function entriesScopeOf(source: ResolvedSource, id: RecordId, transactionId?: string): EntriesScope {
   const { shape } = source;
-  if (shape.kind === 'transactions') return { kind: 'header', parent: shape.entry.parent, id };
-  const field = filterableField(shape.entry.roles.transactionId);
-  return transactionId && field ? { kind: 'transactionKey', field, value: transactionId } : { kind: 'single', id };
+  switch (shape.kind) {
+    case 'transactions':
+      return { kind: 'header', parent: shape.entry.parent, id };
+    case 'entries': {
+      const field = filterableField(shape.entry.roles.transactionId);
+      return transactionId && field ? { kind: 'transactionKey', field, value: transactionId } : { kind: 'single', id };
+    }
+    default:
+      return assertNever(shape, 'source shape');
+  }
+}
+
+/** The entry's link to its header: only a `transactions` source has one. */
+function parentField(shape: ResolvedShape): ResolvedField | undefined {
+  switch (shape.kind) {
+    case 'transactions':
+      return shape.entry.parent;
+    case 'entries':
+      return undefined;
+    default:
+      return assertNever(shape, 'source shape');
+  }
 }
 
 function sequenceValue(entry: ResolvedEntryObject, record: Record<string, unknown>): string | number | null {
@@ -550,42 +496,6 @@ function afterEntry(entry: ResolvedEntryObject, after: CursorPayload): string {
   if (after.t === null) return `(${field} != null OR (${field} = null AND Id > ${quote(after.id)}))`;
   const literal = literalFor(entry.sequence, after.t);
   return `(${field} > ${literal} OR (${field} = ${literal} AND Id > ${quote(after.id)}))`;
-}
-
-function entryDto(
-  source: ResolvedSource,
-  record: Record<string, unknown>,
-  position: number,
-  clip: boolean
-): CustomLogEntry {
-  const { entry } = source.shape;
-  const { roles } = entry;
-  const full = text(valueOf(record, roles.message)) ?? '';
-  const clipped = clip && full.length > CUSTOM_LOG_MESSAGE_PREVIEW_CHARS;
-  const { level, rawLevel } = normalizeLevel(
-    source.levels,
-    valueOf(record, roles.level),
-    valueOf(record, roles.levelOrdinal)
-  );
-  const truncated = valueOf(record, roles.messageTruncated);
-  return defined({
-    id: String(record.Id),
-    sequence: count(valueOf(record, roles.order)) ?? position,
-    time: displayTime(roles.time, record),
-    level,
-    rawLevel,
-    message: clipped ? full.slice(0, CUSTOM_LOG_MESSAGE_PREVIEW_CHARS) : full,
-    previewClipped: clipped,
-    messageTruncated: typeof truncated === 'boolean' ? truncated : undefined,
-    origin: cell(valueOf(record, roles.origin)),
-    user: cell(valueOf(record, roles.user)),
-    exceptionType: cell(valueOf(record, roles.exceptionType)),
-    recordId: cell(valueOf(record, roles.recordId)),
-    system: entry.systemMessagePrefix !== undefined && full.startsWith(entry.systemMessagePrefix),
-    presentDetails: entry.details.filter(detail => valueOf(record, detail.presence) === true).map(detail => detail.key),
-    extra: extras(entry.columns, record),
-    payload: payloadView(entry.payload, record)
-  });
 }
 
 function entrySelect(entry: ResolvedEntryObject): Select {
@@ -631,7 +541,7 @@ export function entriesPlan(
         limit,
         after?.n ?? 0,
         params.keep,
-        (record, position) => entryDto(source, record, position, true),
+        (record, position) => entryDto(entry, source.levels, record, recordIdentity(record), position, true),
         record => sequenceValue(entry, record)
       )
   };
@@ -656,7 +566,7 @@ export function entryPlan(
 > {
   const { shape } = source;
   const { entry } = shape;
-  const parent = shape.kind === 'transactions' ? shape.entry.parent : undefined;
+  const parent = parentField(shape);
   const select = entrySelect(entry).add(
     parent,
     ...entry.details.flatMap(detail => [detail.state === 'readable' ? detail.field : undefined, detail.truncated])
@@ -667,21 +577,13 @@ export function entryPlan(
     maxRecords: 1,
     decode: ([record]) => {
       if (!record) return undefined;
-      const details = entry.details.map((detail): CustomLogDetail => {
-        const label = detail.state === 'readable' ? detail.field.label : detail.label;
-        const flag = valueOf(record, detail.truncated);
-        const truncated = typeof flag === 'boolean' ? { truncated: flag } : {};
-        return { key: detail.key, label, ...readLong(detail, record, raw => toLongValue(raw, truncated)) };
-      });
-      const rawPayload: CustomLogLongValue = entry.payload
-        ? readLong(entry.payload, record, toLongValue)
-        : { state: 'unmapped' };
-      return defined({
-        entry: entryDto(source, record, 1, false),
-        details,
-        rawPayload,
-        logId: parent ? (text(valueOf(record, parent)) ?? '') : String(record.Id)
-      });
+      const identity = recordIdentity(record);
+      return {
+        entry: entryDto(entry, source.levels, record, identity, 1, false),
+        details: detailsOf(entry, record),
+        rawPayload: rawPayloadOf(entry, record),
+        logId: parent ? (text(read(record, parent.api)) ?? '') : identity.id
+      };
     }
   };
 }

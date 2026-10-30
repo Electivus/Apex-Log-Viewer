@@ -48,8 +48,14 @@ export const CUSTOM_LOGS_COMMANDS = {
   openEditor: 'electivus.apexLogViewer.customLogs.openEditor'
 } as const;
 
+/** The level whose payload columns the list shows; a new shape fails `satisfies` here. */
+const PAYLOAD_LEVEL = {
+  transactions: 'transaction',
+  entries: 'entry'
+} as const satisfies Record<CustomLogSourceView['shape'], CustomLogPayloadLevel>;
+
 function levelOf(source: CustomLogSourceView): CustomLogPayloadLevel {
-  return source.shape === 'transactions' ? 'transaction' : 'entry';
+  return PAYLOAD_LEVEL[source.shape];
 }
 
 /**

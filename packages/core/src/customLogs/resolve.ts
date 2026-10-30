@@ -25,6 +25,7 @@ import { buildLevelTable } from './levels.js';
 import { qualifyPath, type BuiltinPreset } from './presets.js';
 import {
   CREATED_DATE,
+  assertNever,
   filterableField,
   type CatalogEntry,
   type CatalogHead,
@@ -47,10 +48,17 @@ export function definitionObjects(
   namespace: string
 ): { transaction?: string; entry: string } {
   const { shape } = definition;
-  return {
-    ...(shape.kind === 'transactions' ? { transaction: qualifyPath(shape.transaction.object, namespace) } : {}),
-    entry: qualifyPath(shape.entry.object, namespace)
-  };
+  switch (shape.kind) {
+    case 'transactions':
+      return {
+        transaction: qualifyPath(shape.transaction.object, namespace),
+        entry: qualifyPath(shape.entry.object, namespace)
+      };
+    case 'entries':
+      return { entry: qualifyPath(shape.entry.object, namespace) };
+    default:
+      return assertNever(shape, 'source shape');
+  }
 }
 
 /** The objects of `definitionObjects` as a list: the header first, then the entry. */
@@ -309,19 +317,25 @@ export function resolveDefinition(
     const entry = resolveEntry(shape.entry, entryResolver);
     let resolvedShape: ResolvedShape;
     let hidden: string[];
-    if (shape.kind === 'transactions') {
-      const parent = entryResolver.required(shape.entry.parent, ['reference'], 'entry.parent');
-      const withParent = { ...entry, parent };
-      const transactionResolver = new ObjectResolver(transactionDescribe!, describes, namespace);
-      resolvedShape = {
-        kind: 'transactions',
-        transaction: resolveTransaction(shape.transaction, transactionResolver, withParent),
-        entry: withParent
-      };
-      hidden = [...transactionResolver.hidden, ...entryResolver.hidden];
-    } else {
-      resolvedShape = { kind: 'entries', entry };
-      hidden = entryResolver.hidden;
+    switch (shape.kind) {
+      case 'transactions': {
+        const parent = entryResolver.required(shape.entry.parent, ['reference'], 'entry.parent');
+        const withParent = { ...entry, parent };
+        const transactionResolver = new ObjectResolver(transactionDescribe!, describes, namespace);
+        resolvedShape = {
+          kind: 'transactions',
+          transaction: resolveTransaction(shape.transaction, transactionResolver, withParent),
+          entry: withParent
+        };
+        hidden = [...transactionResolver.hidden, ...entryResolver.hidden];
+        break;
+      }
+      case 'entries':
+        resolvedShape = { kind: 'entries', entry };
+        hidden = entryResolver.hidden;
+        break;
+      default:
+        return assertNever(shape, 'source shape');
     }
     return {
       head,
@@ -375,12 +389,18 @@ async function describeAll(
     ),
     ...(shape.entry.payload ? [shape.entry.payload.field] : [])
   ]);
-  if (shape.kind === 'transactions') {
-    addPaths(objects.transaction!, [
-      ...roleFields(shape.transaction.fields),
-      ...shape.transaction.columns,
-      ...(shape.transaction.payload ? [shape.transaction.payload.field] : [])
-    ]);
+  switch (shape.kind) {
+    case 'transactions':
+      addPaths(objects.transaction!, [
+        ...roleFields(shape.transaction.fields),
+        ...shape.transaction.columns,
+        ...(shape.transaction.payload ? [shape.transaction.payload.field] : [])
+      ]);
+      break;
+    case 'entries':
+      break;
+    default:
+      assertNever(shape, 'source shape');
   }
   const targets = new Set<string>();
   for (const [describe, path] of paths) {

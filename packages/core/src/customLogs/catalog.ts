@@ -3,7 +3,10 @@
 import type { CustomLogColumn, CustomLogPayloadInfo, CustomLogSourceInfo } from './contracts.js';
 import { customLogError } from './errors.js';
 import {
+  assertNever,
   filterableField,
+  headerObject,
+  listedObject,
   type CatalogEntry,
   type ResolvedField,
   type ResolvedPayload,
@@ -65,8 +68,16 @@ function prefixOf(recordId: string): string {
 }
 
 function levelOwning(source: ResolvedSource, prefix: string): 'transaction' | 'entry' | undefined {
-  if (source.shape.kind === 'transactions' && source.shape.transaction.keyPrefix === prefix) return 'transaction';
-  return source.shape.entry.keyPrefix === prefix ? 'entry' : undefined;
+  const { shape } = source;
+  switch (shape.kind) {
+    case 'transactions':
+      if (shape.transaction.keyPrefix === prefix) return 'transaction';
+      return shape.entry.keyPrefix === prefix ? 'entry' : undefined;
+    case 'entries':
+      return shape.entry.keyPrefix === prefix ? 'entry' : undefined;
+    default:
+      return assertNever(shape, 'source shape');
+  }
 }
 
 /**
@@ -125,13 +136,14 @@ export function toSourceInfo(entry: CatalogEntry): CustomLogSourceInfo {
     };
   }
   const { shape, hidden, levels } = entry.source;
-  const listed = shape.kind === 'transactions' ? shape.transaction : shape.entry;
-  const transactionPayload = shape.kind === 'transactions' ? payloadInfo(shape.transaction.payload) : undefined;
+  const listed = listedObject(shape);
+  const header = headerObject(shape);
+  const transactionPayload = payloadInfo(header?.payload);
   const entryPayload = payloadInfo(shape.entry.payload);
   return {
     ...named,
     objects: {
-      ...(shape.kind === 'transactions' ? { transaction: shape.transaction.object } : {}),
+      ...(header ? { transaction: header.object } : {}),
       entry: shape.entry.object
     },
     hiddenFields: [...hidden],
