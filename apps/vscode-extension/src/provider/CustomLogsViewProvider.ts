@@ -12,7 +12,7 @@ import { CustomLogViewerPanel } from '../panel/CustomLogViewerPanel';
 import { runtimeClient } from '../runtime/runtimeClient';
 import { safeSendEvent } from '../shared/telemetry';
 import { getTelemetryErrorCode } from '../shared/telemetryErrorCodes';
-import { recordWebviewEvent, type WebviewProviderDiagnosticState } from '../shared/webviewDiagnostics';
+import type { WebviewProviderDiagnosticState } from '../shared/webviewDiagnostics';
 import {
   parseCustomLogsFromWebviewMessage,
   type CustomLogsFromWebviewMessage,
@@ -32,13 +32,8 @@ import type {
   CustomLogsFilterView
 } from '../shared/customLogsTypes';
 import { createWebviewPanelHost, createWebviewViewHost, type BoundWebviewHost } from './webviewHost';
-import {
-  createWebviewSession,
-  type WebviewSession,
-  type WebviewSessionDetachReason,
-  type WebviewSessionDiagnostic,
-  type WebviewSessionInbound
-} from './webviewSession';
+import { createWebviewSession, type WebviewSession, type WebviewSessionDetachReason } from './webviewSession';
+import { createWebviewSurface } from './webviewSurface';
 import {
   createPayloadColumnsStore,
   type CustomLogPayloadLevel,
@@ -96,7 +91,14 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
   private readonly session: WebviewSession<CustomLogsToWebviewMessage, BoundWebviewHost>;
   private readonly payloadColumnsStore: PayloadColumnsStore;
   private readonly orgManager: OrgManager;
-  private sessionDiagnostic: WebviewSessionDiagnostic | undefined;
+  private readonly webviewSurface = createWebviewSurface({
+    surface: 'customLogs',
+    label: 'Custom Logs',
+    title: () => localize('customLogs.view.name', 'Electivus Custom Logs'),
+    readyType: 'customLogsReady',
+    parseInbound: parseCustomLogsFromWebviewMessage,
+    log: { info: logInfo, warn: logWarn }
+  });
   private disposed = false;
   private surface: 'view' | 'editor' = 'view';
   private requestController: AbortController | undefined;
@@ -119,18 +121,18 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       },
       getReplaySnapshot: () => this.getReplaySnapshot(),
       onInboundReceived: message => recordInboundMessage('customLogs', message),
-      validateInbound: message => this.validateInbound(message),
+      validateInbound: message => this.webviewSurface.validateInbound(message),
       onDetach: reason => this.handleSessionDetach(reason),
       onMessage: message => this.handleMessage(message),
       onReady: () => this.bootstrapWebview(),
-      onDiagnostic: diagnostic => this.handleSessionDiagnostic(diagnostic)
+      onDiagnostic: diagnostic => this.webviewSurface.handleSessionDiagnostic(diagnostic)
     });
     this.disposables.push(onSfdxProjectFileChanged(() => void this.onProjectConfigChanged()));
   }
 
   resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
     let host: BoundWebviewHost;
-    host = createWebviewViewHost(webviewView, () => this.showPlaceholder(host));
+    host = createWebviewViewHost(webviewView, () => this.webviewSurface.showPlaceholder(host, this.session.ready));
     this.bindHost(host);
   }
 
@@ -196,19 +198,11 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
   }
 
   public getWebviewDiagnosticState(): WebviewProviderDiagnosticState {
-    const diagnostic = this.sessionDiagnostic;
-    return {
-      surface: 'customLogs',
+    return this.webviewSurface.diagnosticState({
+      session: this.session,
       hasHost: !!this.view,
       hostKind: this.surface === 'editor' ? 'editor' : 'panel',
-      visible: diagnostic?.visible,
-      ready: this.session.ready,
       disposed: this.disposed,
-      contentMounted: diagnostic?.contentMounted ?? false,
-      mountSequence: diagnostic?.generation ?? 0,
-      mountTimerActive: diagnostic?.mountTimerActive ?? false,
-      readyTimerActive: diagnostic?.readyTimerActive ?? false,
-      needsReplayOnVisible: diagnostic?.needsReplay ?? true,
       snapshots: {
         loading: this.state.loading,
         hasOrgsSnapshot: this.state.orgs !== undefined,
@@ -218,13 +212,9 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
         hasPageSnapshot: this.state.page !== undefined,
         rowCount: this.rows.length,
         hasMore: this.state.page?.hasMore ?? false,
-        hasError: this.state.error !== undefined,
-        sessionEvent: diagnostic?.event,
-        sessionGeneration: diagnostic?.generation,
-        sessionRetryAttempt: diagnostic?.attempt,
-        sessionDeliveryClassification: diagnostic?.classification
+        hasError: this.state.error !== undefined
       }
-    };
+    });
   }
 
   public dispose(): void {
@@ -655,63 +645,6 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     );
   }
 
-  private getPlaceholderHtml(): string {
-    const title = localize('customLogs.view.name', 'Electivus Custom Logs')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-    return `<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>${title}</title>
-  </head>
-  <body></body>
-</html>`;
-  }
-
-  private showPlaceholder(host: BoundWebviewHost): void {
-    host.webview.html = this.getPlaceholderHtml();
-    recordWebviewEvent({
-      surface: 'customLogs',
-      event: 'placeholder',
-      visible: host.visible,
-      ready: this.session.ready,
-      contentMounted: false
-    });
-  }
-
-  private validateInbound(message: unknown): WebviewSessionInbound<CustomLogsFromWebviewMessage> | undefined {
-    const parsed = parseCustomLogsFromWebviewMessage(message);
-    if (!parsed) {
-      logWarn('Custom Logs: ignored invalid webview message');
-      return undefined;
-    }
-    return parsed.type === 'customLogsReady'
-      ? { kind: 'ready', ...(parsed.mountSequence !== undefined ? { generation: parsed.mountSequence } : {}) }
-      : { kind: 'message', message: parsed };
-  }
-
-  private handleSessionDiagnostic(diagnostic: WebviewSessionDiagnostic): void {
-    this.sessionDiagnostic = diagnostic;
-    if (diagnostic.event === 'ready') {
-      logInfo('Custom Logs webview ready.');
-    }
-    recordWebviewEvent({
-      surface: 'customLogs',
-      event: diagnostic.event,
-      mountSequence: diagnostic.generation,
-      visible: diagnostic.visible,
-      ready: diagnostic.ready,
-      contentMounted: diagnostic.contentMounted,
-      details: {
-        ...(diagnostic.classification ? { classification: diagnostic.classification } : {}),
-        ...(diagnostic.attempt !== undefined ? { attempt: diagnostic.attempt } : {}),
-        ...(diagnostic.callback ? { callback: diagnostic.callback } : {})
-      }
-    });
-  }
-
   private handleSessionDetach(reason: WebviewSessionDetachReason): void {
     this.view = undefined;
     if ((reason === 'hostDisposed' || reason === 'explicit') && this.requestController) {
@@ -727,13 +660,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     if (this.disposed) {
       return;
     }
-    host.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
-    };
-    this.showPlaceholder(host);
-    this.session.bind(host);
+    this.webviewSurface.bindHost(host, this.session, [vscode.Uri.joinPath(this.context.extensionUri, 'media')]);
     this.view = host;
-    logInfo('Custom Logs webview resolved.');
   }
 }

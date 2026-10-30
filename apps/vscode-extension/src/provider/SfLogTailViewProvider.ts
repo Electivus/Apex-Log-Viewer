@@ -27,22 +27,28 @@ import { LogViewerPanel } from '../panel/LogViewerPanel';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 import { runtimeClient } from '../runtime/runtimeClient';
 import { createWebviewPanelHost, createWebviewViewHost, type BoundWebviewHost } from './webviewHost';
-import { recordWebviewEvent, type WebviewProviderDiagnosticState } from '../shared/webviewDiagnostics';
+import type { WebviewProviderDiagnosticState } from '../shared/webviewDiagnostics';
 import {
   createWebviewSession,
   type WebviewDeliveryClassification,
   type WebviewSession,
-  type WebviewSessionDiagnostic,
-  type WebviewSessionDetachReason,
-  type WebviewSessionInbound
+  type WebviewSessionDetachReason
 } from './webviewSession';
+import { createWebviewSurface } from './webviewSurface';
 
 export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   public static readonly viewType = 'electivus.apexLogViewer.tailView';
   private view?: { webview: vscode.Webview };
   private readonly disposables: vscode.Disposable[] = [];
   private readonly session: WebviewSession<ExtensionToWebviewMessage, BoundWebviewHost>;
-  private sessionDiagnostic: WebviewSessionDiagnostic | undefined;
+  private readonly webviewSurface = createWebviewSurface({
+    surface: 'tail',
+    label: 'Tail',
+    title: () => localize('salesforce.tail.view.name', 'Electivus Apex Logs Tail'),
+    readyType: 'ready',
+    parseInbound: parseWebviewToExtensionMessage,
+    log: { info: logInfo, warn: logWarn }
+  });
   private disposed = false;
   private selectedOrg: string | undefined;
   private tailService = new TailService(m => this.post(m, 'replayable'));
@@ -71,7 +77,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       },
       getReplaySnapshot: () => this.getReplaySnapshot(),
       onInboundReceived: message => recordInboundMessage('tail', message),
-      validateInbound: message => this.validateInbound(message),
+      validateInbound: message => this.webviewSurface.validateInbound(message),
       onDetach: reason => this.handleSessionDetach(reason),
       onMessage: message => this.handleMessage(message),
       onReady: () => this.bootstrapWebview(),
@@ -81,7 +87,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
           this.errorClearNeedsReplay = false;
         }
       },
-      onDiagnostic: diagnostic => this.handleSessionDiagnostic(diagnostic)
+      onDiagnostic: diagnostic => this.webviewSurface.handleSessionDiagnostic(diagnostic)
     });
 
     // React to tail buffer size changes live
@@ -117,7 +123,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
 
   resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
     let host: BoundWebviewHost;
-    host = createWebviewViewHost(webviewView, () => this.showPlaceholder(host));
+    host = createWebviewViewHost(webviewView, () => this.webviewSurface.showPlaceholder(host, this.session.ready));
     this.bindHost(host);
   }
 
@@ -198,18 +204,10 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
   }
 
   public getWebviewDiagnosticState(): WebviewProviderDiagnosticState {
-    const diagnostic = this.sessionDiagnostic;
-    return {
-      surface: 'tail',
+    return this.webviewSurface.diagnosticState({
+      session: this.session,
       hasHost: !!this.view,
-      visible: diagnostic?.visible,
-      ready: this.session.ready,
       disposed: this.disposed,
-      contentMounted: diagnostic?.contentMounted ?? false,
-      mountSequence: diagnostic?.generation ?? 0,
-      mountTimerActive: diagnostic?.mountTimerActive ?? false,
-      readyTimerActive: diagnostic?.readyTimerActive ?? false,
-      needsReplayOnVisible: diagnostic?.needsReplay ?? true,
       snapshots: {
         loading: this.loadingState,
         hasOrgsSnapshot: this.hasOrgsSnapshot,
@@ -221,13 +219,9 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         bufferedLineCount: this.tailService.getBufferedLines().length,
         tailResetNeedsReplay: this.tailResetNeedsReplay,
         hasError: this.errorMessage !== undefined,
-        errorClearNeedsReplay: this.errorClearNeedsReplay,
-        sessionEvent: diagnostic?.event,
-        sessionGeneration: diagnostic?.generation,
-        sessionRetryAttempt: diagnostic?.attempt,
-        sessionDeliveryClassification: diagnostic?.classification
+        errorClearNeedsReplay: this.errorClearNeedsReplay
       }
-    };
+    });
   }
 
   public dispose(): void {
@@ -252,38 +246,6 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     );
   }
 
-  private getPlaceholderHtml(): string {
-    const title = this.escapeHtml(localize('salesforce.tail.view.name', 'Electivus Apex Logs Tail'));
-    return `<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>${title}</title>
-  </head>
-  <body></body>
-</html>`;
-  }
-
-  private escapeHtml(value: string): string {
-    return value
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
-  private showPlaceholder(host: BoundWebviewHost): void {
-    host.webview.html = this.getPlaceholderHtml();
-    recordWebviewEvent({
-      surface: 'tail',
-      event: 'placeholder',
-      visible: host.visible,
-      ready: this.session.ready,
-      contentMounted: false
-    });
-  }
-
   private async bootstrapWebview(): Promise<void> {
     const needsBootstrap =
       !this.hasOrgsSnapshot ||
@@ -294,7 +256,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       await this.refreshViewState();
       return;
     }
-    if ((this.sessionDiagnostic?.generation ?? 0) > 1) {
+    if ((this.webviewSurface.lastDiagnostic?.generation ?? 0) > 1) {
       void this.refreshViewState({ showLoading: false });
     }
   }
@@ -622,40 +584,6 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     return normalized.includes('abort') || normalized.includes('canceled') || normalized.includes('cancelled');
   }
 
-  private validateInbound(message: unknown): WebviewSessionInbound<WebviewToExtensionMessage> | undefined {
-    const parsed = parseWebviewToExtensionMessage(message);
-    if (!parsed) {
-      logWarn('Tail: ignored invalid webview message');
-      return undefined;
-    }
-    return parsed.type === 'ready'
-      ? {
-          kind: 'ready',
-          ...(parsed.mountSequence !== undefined ? { generation: parsed.mountSequence } : {})
-        }
-      : { kind: 'message', message: parsed };
-  }
-
-  private handleSessionDiagnostic(diagnostic: WebviewSessionDiagnostic): void {
-    this.sessionDiagnostic = diagnostic;
-    if (diagnostic.event === 'ready') {
-      logInfo('Tail webview ready.');
-    }
-    recordWebviewEvent({
-      surface: 'tail',
-      event: diagnostic.event,
-      mountSequence: diagnostic.generation,
-      visible: diagnostic.visible,
-      ready: diagnostic.ready,
-      contentMounted: diagnostic.contentMounted,
-      details: {
-        ...(diagnostic.classification ? { classification: diagnostic.classification } : {}),
-        ...(diagnostic.attempt !== undefined ? { attempt: diagnostic.attempt } : {}),
-        ...(diagnostic.callback ? { callback: diagnostic.callback } : {})
-      }
-    });
-  }
-
   private handleSessionDetach(reason: WebviewSessionDetachReason): void {
     this.view = undefined;
     if (reason === 'hostDisposed' || reason === 'explicit') {
@@ -670,13 +598,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     if (this.disposed) {
       return;
     }
-    host.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
-    };
-    this.showPlaceholder(host);
-    this.session.bind(host);
+    this.webviewSurface.bindHost(host, this.session, [vscode.Uri.joinPath(this.context.extensionUri, 'media')]);
     this.view = host;
-    logInfo('Tail webview resolved.');
   }
 }
