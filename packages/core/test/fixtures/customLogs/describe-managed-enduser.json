@@ -1,0 +1,2683 @@
+{
+  "Nebula__Log__c": {
+    "name": "Nebula__Log__c",
+    "keyPrefix": "a02",
+    "fields": [
+      {
+        "name": "Id",
+        "label": "Record ID",
+        "type": "id",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "OwnerId",
+        "label": "Owner ID",
+        "type": "reference",
+        "relationshipName": "Owner",
+        "referenceTo": ["Group", "User"],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "IsDeleted",
+        "label": "Deleted",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Name",
+        "label": "Log Number",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "CreatedDate",
+        "label": "Created Date",
+        "type": "datetime",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "CreatedById",
+        "label": "Created By ID",
+        "type": "reference",
+        "relationshipName": "CreatedBy",
+        "referenceTo": ["User"],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "LastModifiedDate",
+        "label": "Last Modified Date",
+        "type": "datetime",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "LastModifiedById",
+        "label": "Last Modified By ID",
+        "type": "reference",
+        "relationshipName": "LastModifiedBy",
+        "referenceTo": ["User"],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "SystemModstamp",
+        "label": "System Modstamp",
+        "type": "datetime",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "LastActivityDate",
+        "label": "Last Activity Date",
+        "type": "date",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "LastViewedDate",
+        "label": "Last Viewed Date",
+        "type": "datetime",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "LastReferencedDate",
+        "label": "Last Referenced Date",
+        "type": "datetime",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ApiReleaseNumber__c",
+        "label": "DEPRECATED: API Release Number",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ApiReleaseVersion__c",
+        "label": "DEPRECATED: API Release Version",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ApiVersion__c",
+        "label": "DEPRECATED: API Version",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "v66.0", "active": true },
+          { "value": "v65.0", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__AsyncContextChildJobId__c",
+        "label": "Async Context Child Job ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__AsyncContextParentJobId__c",
+        "label": "Async Context Parent Job ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__AsyncContextTriggerId__c",
+        "label": "Async Context Trigger ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__AsyncContextType__c",
+        "label": "Async Context Type",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Database.BatchableContext", "active": true },
+          { "value": "System.FinalizerContext", "active": true },
+          { "value": "System.QueueableContext", "active": true },
+          { "value": "System.SchedulableContext", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__ClosedBy__c",
+        "label": "Closed By",
+        "type": "reference",
+        "relationshipName": "Nebula__ClosedBy__r",
+        "referenceTo": ["User"],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ClosedDate__c",
+        "label": "Closed Date",
+        "type": "datetime",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__Comments__c",
+        "label": "Comments",
+        "type": "textarea",
+        "referenceTo": [],
+        "sortable": false,
+        "filterable": false,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasComments__c",
+        "label": "Has Comments",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasLoggedByFederationIdentifier__c",
+        "label": "Has User Federation Identifier",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasOrganizationLimits__c",
+        "label": "Has Organization Limits",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ImpersonatedBy__c",
+        "label": "Impersonated By",
+        "type": "reference",
+        "relationshipName": "Nebula__ImpersonatedBy__r",
+        "referenceTo": ["User"],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__IsClosed__c",
+        "label": "Is Closed",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__IsResolved__c",
+        "label": "Is Resolved",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__Issue__c",
+        "label": "Issue",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Code Issue", "active": true },
+          { "value": "Config Issue", "active": true },
+          { "value": "Data Issue", "active": true },
+          { "value": "Integration Issue", "active": true },
+          { "value": "No Issue", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__Locale__c",
+        "label": "Locale",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LogPurgeAction__c",
+        "label": "Log Purge Action",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [{ "value": "Delete", "active": true }]
+      },
+      {
+        "name": "Nebula__LogRetentionDate__c",
+        "label": "Log Retention Date",
+        "type": "date",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LoggedByFederationIdentifier__c",
+        "label": "User Federation Identifier",
+        "type": "textarea",
+        "referenceTo": [],
+        "sortable": false,
+        "filterable": false,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LoggedByUsername__c",
+        "label": "Username",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LoggedBy__c",
+        "label": "Logged By",
+        "type": "reference",
+        "relationshipName": "Nebula__LoggedBy__r",
+        "referenceTo": ["User"],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LoggerVersionNumber__c",
+        "label": "Logger Version Number",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LoginApplication__c",
+        "label": "Login Application",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LoginBrowser__c",
+        "label": "Login Browser",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LoginDomain__c",
+        "label": "DEPRECATED: Login Domain",
+        "type": "url",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LoginHistoryId__c",
+        "label": "Login History ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LoginPlatform__c",
+        "label": "Login Platform",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LoginType__c",
+        "label": "Login Type",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Application", "active": true },
+          { "value": "Remote Access 2.0", "active": true },
+          { "value": "SAML Idp Initiated SSO", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__LogoutUrl__c",
+        "label": "Logout URL",
+        "type": "url",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__NetworkId__c",
+        "label": "Site Network ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__NetworkLoginUrl__c",
+        "label": "Site Login URL",
+        "type": "url",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__NetworkLogoutUrl__c",
+        "label": "Site Logout URL",
+        "type": "url",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__NetworkName__c",
+        "label": "Site Name",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__NetworkSelfRegistrationUrl__c",
+        "label": "Site Self Registration URL",
+        "type": "url",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__NetworkUrlPathPrefix__c",
+        "label": "Site URL Path Prefix",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__OrganizationApiVersion__c",
+        "label": "Organization API Version",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "v66.0", "active": true },
+          { "value": "v65.0", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__OrganizationDomainUrl__c",
+        "label": "Organization Domain URL",
+        "type": "url",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__OrganizationEnvironmentType__c",
+        "label": "Environment Type",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Production", "active": true },
+          { "value": "Sandbox", "active": true },
+          { "value": "Scratch Org", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__OrganizationId__c",
+        "label": "Organization ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__OrganizationInstanceName__c",
+        "label": "Instance Name",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__OrganizationInstanceReleaseCycle__c",
+        "label": "DEPRECATED: Instance Release Cycle",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Preview Instance", "active": true },
+          { "value": "Non-Preview Instance", "active": true },
+          { "value": "Unknown", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__OrganizationLimits__c",
+        "label": "Organization Limits",
+        "type": "textarea",
+        "referenceTo": [],
+        "sortable": false,
+        "filterable": false,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__OrganizationLocation__c",
+        "label": "Organization Location",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "APAC", "active": true },
+          { "value": "EMEA", "active": true },
+          { "value": "NA", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__OrganizationName__c",
+        "label": "Organization Name",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__OrganizationNamespacePrefix__c",
+        "label": "Organization Namespace Prefix",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__OrganizationReleaseNumber__c",
+        "label": "Organization Release Number",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__OrganizationReleaseVersion__c",
+        "label": "Organization Release Version",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__OrganizationType__c",
+        "label": "Organization Type",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Team Edition", "active": true },
+          { "value": "Professional Edition", "active": true },
+          { "value": "Enterprise Edition", "active": true },
+          { "value": "Developer Edition", "active": true },
+          { "value": "Personal Edition", "active": true },
+          { "value": "Unlimited Edition", "active": true },
+          { "value": "Contact Manager Edition", "active": true },
+          { "value": "Base Edition", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__ParentLogTransactionId__c",
+        "label": "Parent Log Transaction ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ParentLog__c",
+        "label": "Parent Log",
+        "type": "reference",
+        "relationshipName": "Nebula__ParentLog__r",
+        "referenceTo": ["Nebula__Log__c"],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ParentSessionId__c",
+        "label": "Parent Session ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__Priority__c",
+        "label": "Priority",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "High", "active": true },
+          { "value": "Medium", "active": true },
+          { "value": "Low", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__ProfileId__c",
+        "label": "Profile ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ProfileName__c",
+        "label": "Profile Name",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__RequestId__c",
+        "label": "Request ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__Scenario__c",
+        "label": "DEPRECATED: Scenario",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__SessionId__c",
+        "label": "Session ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__SessionSecurityLevel__c",
+        "label": "Session Security Level",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "LOW", "active": true },
+          { "value": "STANDARD", "active": true },
+          { "value": "HIGH_ASSURANCE", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__SessionType__c",
+        "label": "Session Type",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Aura", "active": true },
+          { "value": "Oauth2", "active": true },
+          { "value": "UI", "active": true },
+          { "value": "Visualforce", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__SourceIp__c",
+        "label": "Source IP",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__Status__c",
+        "label": "Status",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "New", "active": true },
+          { "value": "Ignored", "active": true },
+          { "value": "On Hold", "active": true },
+          { "value": "In Progress", "active": true },
+          { "value": "Done", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__SystemMode__c",
+        "label": "System Mode",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "ANONYMOUS", "active": true },
+          { "value": "AURA", "active": true },
+          { "value": "BATCH_ACS", "active": true },
+          { "value": "BATCH_APEX", "active": true },
+          { "value": "BATCH_CHUNK_PARALLEL", "active": true },
+          { "value": "BATCH_CHUNK_SERIAL", "active": true },
+          { "value": "BULK_API", "active": true },
+          { "value": "COMMERCE_INTEGRATION", "active": true },
+          { "value": "DISCOVERABLE_LOGIN", "active": true },
+          { "value": "FUNCTION_CALLBACK", "active": true },
+          { "value": "FUTURE", "active": true },
+          { "value": "INBOUND_EMAIL_SERVIC", "active": true },
+          { "value": "INVOCABLE_ACTION", "active": true },
+          { "value": "IOT", "active": true },
+          { "value": "QUEUEABLE", "active": true },
+          { "value": "QUICK_ACTION", "active": true },
+          { "value": "REMOTE_ACTION", "active": true },
+          { "value": "REST", "active": true },
+          { "value": "RUNTEST_ASYNC", "active": true },
+          { "value": "RUNTEST_DEPLOY", "active": true },
+          { "value": "RUNTEST_SYNC", "active": true },
+          { "value": "SCHEDULED", "active": true },
+          { "value": "SOAP", "active": true },
+          { "value": "SYNCHRONOUS", "active": true },
+          { "value": "TRANSACTION_FINALIZE", "active": true },
+          { "value": "VF", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__ThemeDisplayed__c",
+        "label": "Theme Displayed",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Theme1", "active": true },
+          { "value": "Theme2", "active": true },
+          { "value": "Theme3", "active": true },
+          { "value": "Theme4d", "active": true },
+          { "value": "Theme4t", "active": true },
+          { "value": "Theme4u", "active": true },
+          { "value": "PortalDefault", "active": true },
+          { "value": "Webstore", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__TimeZoneId__c",
+        "label": "Time Zone ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__TimeZoneName__c",
+        "label": "Time Zone Name",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__TransactionId__c",
+        "label": "Transaction ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__TransactionScenarioName__c",
+        "label": "Transaction Scenario Name",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__TransactionScenario__c",
+        "label": "Transaction Scenario",
+        "type": "reference",
+        "relationshipName": "Nebula__TransactionScenario__r",
+        "referenceTo": ["Nebula__LoggerScenario__c"],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__UserLicenseDefinitionKey__c",
+        "label": "User License Definition Key",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "AUL", "active": true },
+          { "value": "AUL_LIGHT", "active": true },
+          { "value": "AUL1", "active": true },
+          { "value": "FDC_ONE", "active": true },
+          { "value": "FDC_SUB", "active": true },
+          { "value": "Overage_Platform_Portal_User", "active": true },
+          { "value": "PID_CHATTER", "active": true },
+          { "value": "PID_CONTENT", "active": true },
+          { "value": "PID_Customer_Community", "active": true },
+          { "value": "PID_Customer_Community_Login", "active": true },
+          { "value": "PID_Customer_Portal_Basic", "active": true },
+          { "value": "PID_Customer_Portal_Standard", "active": true },
+          { "value": "PID_FDC_FREE", "active": true },
+          { "value": "PID_IDEAS", "active": true },
+          { "value": "PID_Ideas_Only_Portal", "active": true },
+          { "value": "PID_Ideas_Only_Site", "active": true },
+          { "value": "PID_KNOWLEDGE", "active": true },
+          { "value": "PID_Limited_Customer_Portal_Basic", "active": true },
+          { "value": "PID_Limited_Customer_Portal_Standard", "active": true },
+          { "value": "PID_Overage_Customer_Portal_Basic", "active": true },
+          { "value": "PID_Overage_High", "active": true },
+          { "value": "PID_Partner_Community", "active": true },
+          { "value": "PID_Partner_Community_Login", "active": true },
+          { "value": "PID_STRATEGIC_PRM", "active": true },
+          { "value": "Platform_Portal_User", "active": true },
+          { "value": "POWER_PRM", "active": true },
+          { "value": "POWER_SSP", "active": true },
+          { "value": "SFDC", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__UserLicenseId__c",
+        "label": "User License ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__UserLicenseName__c",
+        "label": "User License Name",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Analytics Cloud Integration User", "active": true },
+          { "value": "Authenticated Website", "active": true },
+          { "value": "Chatter External", "active": true },
+          { "value": "Chatter Free", "active": true },
+          { "value": "Cloud Integration User", "active": true },
+          { "value": "Customer Community", "active": true },
+          { "value": "Customer Community Login", "active": true },
+          { "value": "Customer Community Plus", "active": true },
+          { "value": "Customer Community Plus Login", "active": true },
+          { "value": "Customer Portal Manager Custom", "active": true },
+          { "value": "Customer Portal Manager Standard", "active": true },
+          { "value": "External Identity", "active": true },
+          { "value": "Force.com - App Subscription", "active": true },
+          { "value": "Force.com - Free", "active": true },
+          { "value": "Gold Partner", "active": true },
+          { "value": "High Volume Customer Portal", "active": true },
+          { "value": "Identity", "active": true },
+          { "value": "Partner App Subscription", "active": true },
+          { "value": "Partner Community", "active": true },
+          { "value": "Partner Community Login", "active": true },
+          { "value": "Salesforce", "active": true },
+          { "value": "Salesforce Platform", "active": true },
+          { "value": "Silver Partner", "active": true },
+          { "value": "Work.com Only", "active": true },
+          { "value": "XOrg Proxy User", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__UserLoggingLevelOrdinal__c",
+        "label": "User Logging Level Ordinal",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__UserLoggingLevel__c",
+        "label": "User Logging Level",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "ERROR", "active": true },
+          { "value": "WARN", "active": true },
+          { "value": "INFO", "active": true },
+          { "value": "DEBUG", "active": true },
+          { "value": "FINE", "active": true },
+          { "value": "FINER", "active": true },
+          { "value": "FINEST", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__UserRoleId__c",
+        "label": "User Role ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__UserRoleName__c",
+        "label": "User Role Name",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__UserType__c",
+        "label": "User Type",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Standard", "active": true },
+          { "value": "PowerPartner", "active": true },
+          { "value": "CSPLitePortal", "active": true },
+          { "value": "CustomerSuccess", "active": true },
+          { "value": "PowerCustomerSuccess", "active": true },
+          { "value": "CsnOnly", "active": true },
+          { "value": "AutomatedProcess", "active": true },
+          { "value": "Guest", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__EndTime__c",
+        "label": "End Time",
+        "type": "datetime",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__MaxLogEntryLoggingLevelOrdinal__c",
+        "label": "Max Log Entry Logging Level Ordinal",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__StartTime__c",
+        "label": "Start Time",
+        "type": "datetime",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__TotalDEBUGLogEntries__c",
+        "label": "Total DEBUG Entries",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__TotalERRORLogEntries__c",
+        "label": "Total ERROR Entries",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__TotalFINELogEntries__c",
+        "label": "Total FINE Entries",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__TotalFINERLogEntries__c",
+        "label": "Total FINER Entries",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__TotalFINESTLogEntries__c",
+        "label": "Total FINEST Entries",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__TotalINFOLogEntries__c",
+        "label": "Total INFO Entries",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__TotalLimitsCpuTimeUsed__c",
+        "label": "Total CPU",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__TotalWARNLogEntries__c",
+        "label": "Total WARN Entries",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ImpersonatedByUsernameLink__c",
+        "label": "Impersonated By Username",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LogEntriesSummary__c",
+        "label": "Summary",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LoggedByUsernameLink__c",
+        "label": "Username",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LoggedByUsernameText__c",
+        "label": "Username",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ParentLogLink__c",
+        "label": "Parent Log",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ProfileLink__c",
+        "label": "Profile",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__SystemModeSummary__c",
+        "label": "System Mode",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__TotalLogEntries__c",
+        "label": "Total Entries",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__TransactionScenarioLink__c",
+        "label": "Transaction Scenario",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__TransactionScenarioText__c",
+        "label": "Transaction Scenario",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__UserRoleLink__c",
+        "label": "User Role",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__WasLoggedByCurrentUser__c",
+        "label": "Logged By Current User",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      }
+    ]
+  },
+  "Nebula__LogEntry__c": {
+    "name": "Nebula__LogEntry__c",
+    "keyPrefix": "a01",
+    "fields": [
+      {
+        "name": "Id",
+        "label": "Record ID",
+        "type": "id",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "IsDeleted",
+        "label": "Deleted",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Name",
+        "label": "Entry ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "CreatedDate",
+        "label": "Created Date",
+        "type": "datetime",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "CreatedById",
+        "label": "Created By ID",
+        "type": "reference",
+        "relationshipName": "CreatedBy",
+        "referenceTo": ["User"],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "LastModifiedDate",
+        "label": "Last Modified Date",
+        "type": "datetime",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "LastModifiedById",
+        "label": "Last Modified By ID",
+        "type": "reference",
+        "relationshipName": "LastModifiedBy",
+        "referenceTo": ["User"],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "SystemModstamp",
+        "label": "System Modstamp",
+        "type": "datetime",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "LastActivityDate",
+        "label": "Last Activity Date",
+        "type": "date",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "LastViewedDate",
+        "label": "Last Viewed Date",
+        "type": "datetime",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "LastReferencedDate",
+        "label": "Last Referenced Date",
+        "type": "datetime",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__Log__c",
+        "label": "Log",
+        "type": "reference",
+        "relationshipName": "Nebula__Log__r",
+        "referenceTo": ["Nebula__Log__c"],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ComponentApiName__c",
+        "label": "Component Name",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ComponentFunctionName__c",
+        "label": "Component Function",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ComponentType__c",
+        "label": "Component Type",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Aura", "active": true },
+          { "value": "LWC", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__DatabaseResultCollectionSize__c",
+        "label": "Database Result Collection Size",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__DatabaseResultCollectionType__c",
+        "label": "Database Result Collection Type",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Single", "active": true },
+          { "value": "List", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__DatabaseResultType__c",
+        "label": "Database Result Type",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Approval.LockResult", "active": true },
+          { "value": "Approval.ProcessResult", "active": true },
+          { "value": "Approval.UnlockResult", "active": true },
+          { "value": "Database.DeleteResult", "active": true },
+          { "value": "Database.EmptyRecycleBinResult", "active": true },
+          { "value": "Database.LeadConvertResult", "active": true },
+          { "value": "Database.MergeResult", "active": true },
+          { "value": "Database.SaveResult", "active": true },
+          { "value": "Database.UpsertResult", "active": true },
+          { "value": "Database.UpsertResult.Insert", "active": true },
+          { "value": "Database.UpsertResult.Update", "active": true },
+          { "value": "Database.UndeleteResult", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__EntrySaveReason__c",
+        "label": "Entry Save Reason",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Logging Level Met", "active": true },
+          { "value": "Save Overridden", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__EntryScenarioName__c",
+        "label": "Entry Scenario Name",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__EntryScenario__c",
+        "label": "Entry Scenario",
+        "type": "reference",
+        "relationshipName": "Nebula__EntryScenario__r",
+        "referenceTo": ["Nebula__LoggerScenario__c"],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__EpochTimestamp__c",
+        "label": "Epoch Timestamp",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__EventUuid__c",
+        "label": "Event UUID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ExceptionLocation__c",
+        "label": "Exception Location",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ExceptionMessage__c",
+        "label": "Exception Message",
+        "type": "textarea",
+        "referenceTo": [],
+        "sortable": false,
+        "filterable": false,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ExceptionSourceApiName__c",
+        "label": "Exception Source API Name",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ExceptionSourceMetadataType__c",
+        "label": "Exception Source Metadata Type",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "AnonymousBlock", "active": true },
+          { "value": "ApexClass", "active": true },
+          { "value": "ApexTrigger", "active": true },
+          { "value": "AuraDefinitionBundle", "active": true },
+          { "value": "Flow", "active": true },
+          { "value": "LightningComponentBundle", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__FlowActiveVersionId__c",
+        "label": "Flow Active Version ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__FlowDescription__c",
+        "label": "Flow Description",
+        "type": "textarea",
+        "referenceTo": [],
+        "sortable": false,
+        "filterable": false,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__FlowDurableId__c",
+        "label": "Flow Durable ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__FlowLabel__c",
+        "label": "Flow Label",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__FlowLastModifiedByName__c",
+        "label": "Flow Last Modified By",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__FlowLastModifiedDate__c",
+        "label": "Flow Last Modified Date",
+        "type": "datetime",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__FlowProcessType__c",
+        "label": "Flow Process Type",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Appointments", "active": true },
+          { "value": "AutoLaunchedFlow", "active": true },
+          { "value": "CheckoutFlow", "active": true },
+          { "value": "ContactRequestFlow", "active": true },
+          { "value": "CustomerLifecycle", "active": true },
+          { "value": "CustomEvent", "active": true },
+          { "value": "FieldServiceMobile", "active": true },
+          { "value": "FieldServiceWeb", "active": true },
+          { "value": "Flow", "active": true },
+          { "value": "FSCLending", "active": true },
+          { "value": "InvocableProcess", "active": true },
+          { "value": "RoutingFlow", "active": true },
+          { "value": "Survey", "active": true },
+          { "value": "SurveyEnrich", "active": true },
+          { "value": "Workflow", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__FlowTriggerType__c",
+        "label": "Flow Trigger Type",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "PlatformEvent", "active": true },
+          { "value": "RecordAfterSave", "active": true },
+          { "value": "RecordBeforeSave", "active": true },
+          { "value": "Scheduled", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__FlowVersionApiVersionRuntime__c",
+        "label": "Flow API Version Runtime",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "v66.0", "active": true },
+          { "value": "v65.0", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__FlowVersionNumber__c",
+        "label": "Flow Version Number",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__FlowVersionRunInMode__c",
+        "label": "Flow Run-In Mode",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "DefaultMode", "active": true },
+          { "value": "SystemModeWithSharing", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__HasDatabaseResultJson__c",
+        "label": "Has Database Result JSON",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasExceptionStackTrace__c",
+        "label": "Has Exception Stack Trace",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasHttpRequestBody__c",
+        "label": "Has HTTP Request Body",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasHttpRequestHeaderKeys__c",
+        "label": "Has HTTP Request Header Keys",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasHttpRequestHeaders__c",
+        "label": "Has HTTP Request Headers",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasHttpResponseBody__c",
+        "label": "Has HTTP Response Body",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasHttpResponseHeaderKeys__c",
+        "label": "Has HTTP Response Header Keys",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasHttpResponseHeaders__c",
+        "label": "Has HTTP Response Headers",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasInlineTags__c",
+        "label": "Has Inline Tags",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasRecordJson__c",
+        "label": "Has Related Record JSON",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasRestRequestBody__c",
+        "label": "Has REST Request Body",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasRestRequestHeaderKeys__c",
+        "label": "Has REST Request Header Keys",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasRestRequestHeaders__c",
+        "label": "Has REST Request Headers",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasRestResponseBody__c",
+        "label": "Has REST Response Body",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasRestResponseHeaderKeys__c",
+        "label": "Has REST Response Header Keys",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasRestResponseHeaders__c",
+        "label": "Has REST Response Headers",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasStackTrace__c",
+        "label": "Has Stack Trace",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsAggregateQueriesMax__c",
+        "label": "Aggregate Queries Max",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsAggregateQueriesUsed__c",
+        "label": "Aggregate Queries Used",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsApexCursorFetchCallsMax__c",
+        "label": "Apex Cursor Fetch Calls Max",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsApexCursorFetchCallsUsed__c",
+        "label": "Apex Cursor Fetch Calls Used",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsApexCursorRowsMax__c",
+        "label": "Apex Cursor Rows Max",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsApexCursorRowsUsed__c",
+        "label": "Apex Cursor Rows Used",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsAsyncCallsMax__c",
+        "label": "Async Calls Max",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsAsyncCallsUsed__c",
+        "label": "Async Calls Used",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsCalloutsMax__c",
+        "label": "Callouts Max",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsCalloutsUsed__c",
+        "label": "Callouts Used",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsCpuTimeMax__c",
+        "label": "CPU Time Max",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsCpuTimeUsed__c",
+        "label": "CPU Time Used",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsDmlRowsMax__c",
+        "label": "DML Rows Max",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsDmlRowsUsed__c",
+        "label": "DML Rows Used",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsDmlStatementsMax__c",
+        "label": "DML Statements Max",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsDmlStatementsUsed__c",
+        "label": "DML Statements Used",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsEmailInvocationsMax__c",
+        "label": "Email Invocations Max",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsEmailInvocationsUsed__c",
+        "label": "Email Invocations Used",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsFutureCallsMax__c",
+        "label": "Future Calls Max",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsFutureCallsUsed__c",
+        "label": "Future Calls Used",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsHeapSizeMax__c",
+        "label": "Heap Size Max",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsHeapSizeUsed__c",
+        "label": "Heap Size Used",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsMobilePushApexCallsMax__c",
+        "label": "Mobile Push Apex Calls Max",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsMobilePushApexCallsUsed__c",
+        "label": "Mobile Push Apex Calls Used",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsPublishImmediateDmlStatementsMax__c",
+        "label": "Publish Immediate Statements DML Max",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsPublishImmediateDmlStatementsUsed__c",
+        "label": "Publish Immediate Statements DML Used",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsQueueableJobsMax__c",
+        "label": "Queueable Jobs Max",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsQueueableJobsUsed__c",
+        "label": "Queueable Jobs Used",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsSoqlQueriesMax__c",
+        "label": "SOQL Queries Max",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsSoqlQueriesUsed__c",
+        "label": "SOQL Queries Used",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsSoqlQueryLocatorRowsMax__c",
+        "label": "SOQL Query Locator Rows Max",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsSoqlQueryLocatorRowsUsed__c",
+        "label": "SOQL Query Locator Rows Used",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsSoqlQueryRowsMax__c",
+        "label": "SOQL Query Rows Max",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsSoqlQueryRowsUsed__c",
+        "label": "SOQL Query Rows Used",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsSoslSearchesMax__c",
+        "label": "SOSL Searches Max",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsSoslSearchesUsed__c",
+        "label": "SOSL Searches Used",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LoggingLevelOrdinal__c",
+        "label": "Logging Level Ordinal",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LoggingLevel__c",
+        "label": "Logging Level",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "ERROR", "active": true },
+          { "value": "WARN", "active": true },
+          { "value": "INFO", "active": true },
+          { "value": "DEBUG", "active": true },
+          { "value": "FINE", "active": true },
+          { "value": "FINER", "active": true },
+          { "value": "FINEST", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__MessageMasked__c",
+        "label": "Message Masked",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__MessageTruncated__c",
+        "label": "Message Truncated",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__Message__c",
+        "label": "Message",
+        "type": "textarea",
+        "referenceTo": [],
+        "sortable": false,
+        "filterable": false,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__OriginLocation__c",
+        "label": "Origin Location",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__OriginSourceApiName__c",
+        "label": "Origin Source API Name",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__OriginSourceMetadataType__c",
+        "label": "Origin Source Metadata Type",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "AnonymousBlock", "active": true },
+          { "value": "ApexClass", "active": true },
+          { "value": "ApexTrigger", "active": true },
+          { "value": "AuraDefinitionBundle", "active": true },
+          { "value": "Flow", "active": true },
+          { "value": "LightningComponentBundle", "active": true },
+          { "value": "OmniIntegrationProcedure", "active": true },
+          { "value": "OmniScript", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__OriginType__c",
+        "label": "Origin Type",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Apex", "active": true },
+          { "value": "Component", "active": true },
+          { "value": "Flow", "active": true },
+          { "value": "OmniStudio", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__RecordCollectionSize__c",
+        "label": "Related Record Collection Size",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__RecordCollectionType__c",
+        "label": "Related Record Collection Type",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Single", "active": true },
+          { "value": "List", "active": true },
+          { "value": "Map", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__RecordId__c",
+        "label": "Related Record ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__RecordJsonMasked__c",
+        "label": "Record JSON Masked",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__RecordJsonTruncated__c",
+        "label": "Record JSON Truncated",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__RecordJson__c",
+        "label": "Related Record JSON",
+        "type": "textarea",
+        "referenceTo": [],
+        "sortable": false,
+        "filterable": false,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__RecordName__c",
+        "label": "Related Record Name",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__RecordSObjectClassification__c",
+        "label": "Related Record Object Classification",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Change Event Object", "active": true },
+          { "value": "Chatter Feed Object", "active": true },
+          { "value": "Custom Metadata Type Object", "active": true },
+          { "value": "Custom Object", "active": true },
+          { "value": "Custom Setting Object", "active": true },
+          { "value": "Field History Tracking Object", "active": true },
+          { "value": "Platform Event Object", "active": true },
+          { "value": "Record Share Object", "active": true },
+          { "value": "Standard Object", "active": true },
+          { "value": "Unknown", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__RecordSObjectTypeNamespace__c",
+        "label": "Related Record Object Namespace",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__RecordSObjectType__c",
+        "label": "Related Record Object",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Account", "active": true },
+          { "value": "Case", "active": true },
+          { "value": "Lead", "active": true },
+          { "value": "Unknown", "active": true },
+          { "value": "User", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__Timestamp__c",
+        "label": "Timestamp",
+        "type": "datetime",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__TransactionEntryNumber__c",
+        "label": "Entry #",
+        "type": "double",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__TriggerIsExecuting__c",
+        "label": "Trigger Is Executing",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__TriggerOperationType__c",
+        "label": "Trigger Operation Type",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "AFTER_DELETE", "active": true },
+          { "value": "AFTER_INSERT", "active": true },
+          { "value": "AFTER_UNDELETE", "active": true },
+          { "value": "AFTER_UPDATE", "active": true },
+          { "value": "BEFORE_DELETE", "active": true },
+          { "value": "BEFORE_INSERT", "active": true },
+          { "value": "BEFORE_UPDATE", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__TriggerSObjectType__c",
+        "label": "Trigger Object",
+        "type": "picklist",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": [
+          { "value": "Account", "active": true },
+          { "value": "Case", "active": true },
+          { "value": "Lead", "active": true },
+          { "value": "User", "active": true }
+        ]
+      },
+      {
+        "name": "Nebula__UniqueId__c",
+        "label": "Unique ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__EntryScenarioLink__c",
+        "label": "Entry Scenario",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__EntryScenarioText__c",
+        "label": "Entry Scenario",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasDatabaseResult__c",
+        "label": "Has Database Result",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasException__c",
+        "label": "Has Exception",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__HasRecordId__c",
+        "label": "Has Related Record ID",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ImpersonatedByUsernameLink__c",
+        "label": "Impersonated By Username",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsAggregateQueries__c",
+        "label": "Aggregate Queries",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsApexCursorFetchCalls__c",
+        "label": "Apex Cursor Fetch Calls",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsApexCursorRows__c",
+        "label": "Apex Cursor Rows",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsAsyncCalls__c",
+        "label": "Async Calls",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsCallouts__c",
+        "label": "Callouts",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsCpuTime__c",
+        "label": "CPU Time",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsDmlRows__c",
+        "label": "DML Rows",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsDmlStatements__c",
+        "label": "DML Statements",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsEmailInvocations__c",
+        "label": "Email Invocations",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsFutureCalls__c",
+        "label": "Future Calls",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsHeapSize__c",
+        "label": "Heap Size",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsMobilePushApexCalls__c",
+        "label": "Mobile Push Apex Calls",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsPublishImmediateDmlStatements__c",
+        "label": "Publish Immediate DML Statements",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsQueueableJobs__c",
+        "label": "Queueable Jobs",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsSoqlQueries__c",
+        "label": "SOQL Queries",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsSoqlQueryLocatorRows__c",
+        "label": "SOQL Query Locator Rows",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsSoqlQueryRows__c",
+        "label": "SOQL Query Rows",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LimitsSoslSearches__c",
+        "label": "SOSL Searches",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LogTransactionId__c",
+        "label": "Log Transaction ID",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LoggedByUsernameLink__c",
+        "label": "Username",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LoggedByUsernameText__c",
+        "label": "Username",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__LoggingLevelWithImage__c",
+        "label": "DEPRECATED: Level",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__Origin__c",
+        "label": "Origin",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ParentLogLink__c",
+        "label": "Parent Log",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__ProfileLink__c",
+        "label": "Profile",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__RecordDetailedLink__c",
+        "label": "Related Record",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__RecordLink__c",
+        "label": "Related Record",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__Trigger__c",
+        "label": "Trigger Operation",
+        "type": "string",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      },
+      {
+        "name": "Nebula__WasLoggedByCurrentUser__c",
+        "label": "Logged By Current User",
+        "type": "boolean",
+        "referenceTo": [],
+        "sortable": true,
+        "filterable": true,
+        "picklistValues": []
+      }
+    ]
+  }
+}
