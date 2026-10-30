@@ -177,6 +177,15 @@ function createHelpers() {
     tailFrame: (timeoutMs?: number) => frameWith('[data-testid="tail-open-debug-flags"]', timeoutMs),
     viewerFrame: (timeoutMs?: number) => frameWith('text=Apex Log Viewer', timeoutMs),
     debugFlagsFrame: (timeoutMs?: number) => frameWith('[data-testid="debug-flags-user-search"]', timeoutMs),
+    customLogsFrame: (timeoutMs?: number) => frameWith('[data-testid="custom-logs-root"]', timeoutMs),
+    // One viewer panel per log; pass the title the header shows (for example "Log-000280") to pick one of several.
+    customLogViewerFrame: (timeoutMs?: number, title?: string) =>
+      frameWith(
+        title
+          ? `[data-testid="custom-log-viewer-title"]:has-text(${JSON.stringify(title)})`
+          : '[data-testid="custom-log-viewer-root"]',
+        timeoutMs
+      ),
     // Clicks into a webview can be swallowed while it takes focus; these retry with keyboard and DOM clicks.
     openDebugFlagsFromLogs: () => openDebugFlagsFromLogs(requirePage()),
     openDebugFlagsFromTail: () => openDebugFlagsFromTail(requirePage()),
@@ -433,7 +442,9 @@ async function buildFingerprint(): Promise<Record<string, string>> {
     'apps/vscode-extension/media/main.js',
     'apps/vscode-extension/media/tail.js',
     'apps/vscode-extension/media/logViewer.js',
-    'apps/vscode-extension/media/debugFlags.js'
+    'apps/vscode-extension/media/debugFlags.js',
+    'apps/vscode-extension/media/customLogs.js',
+    'apps/vscode-extension/media/customLogViewer.js'
   ];
   const result: Record<string, string> = {};
   for (const file of files) {

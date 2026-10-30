@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Drive the Electivus Apex Log Viewer the way a user does and capture proof. It opens the VS Code extension's Logs panel, Log Viewer, Tail and Debug Flags webviews in a real VS Code window, and runs the `sf electivus` CLI plugin, both against a real Salesforce scratch org leased from the Dev Hub pool. Use it to show that an extension, webview, core or CLI change works in the running product rather than only in unit tests, or to reproduce a reported UI bug.
+description: Drive the Electivus Apex Log Viewer the way a user does and capture proof. It opens the VS Code extension's Logs panel, Log Viewer, Tail, Debug Flags and Custom Logs webviews in a real VS Code window, and runs the `sf electivus` CLI plugin, both against a real Salesforce scratch org leased from the Dev Hub pool. Use it to show that an extension, webview, core or CLI change works in the running product rather than only in unit tests, or to reproduce a reported UI bug.
 metadata:
   # Repo-only tooling: keeps `npx skills add electivus/apex-log-viewer` from publishing it with the skills/ catalog.
   internal: true
@@ -20,7 +20,7 @@ V=".claude/skills/verify/scripts/verify.mjs"
 
 ## Surfaces
 
-- **Primary: the VS Code extension.** It has four webviews: the Logs panel and the Tail panel (bottom panel tabs), plus the Log Viewer and Debug Flags editor tabs. The Logs and Tail surfaces can also open in the editor area. Drive them with steps.
+- **Primary: the VS Code extension.** It has six webviews: the Logs, Tail and Custom Logs panels (bottom panel tabs), plus the Log Viewer, Custom Log Viewer and Debug Flags editor tabs. The Logs, Tail and Custom Logs surfaces can also open in the editor area. Drive them with steps.
 - **Secondary: the `sf electivus` Salesforce CLI plugin** (`packages/sf-plugin`). Run it with `node $V sf -- <args>` inside the session workspace so it shares the org and the `apexlogs/` store with the extension.
 - **Not covered:** VSIX packaging (`pnpm run test:smoke:vsix`), the Agent Skills catalog (`pnpm run test:sf-plugin:package`) and telemetry ingestion (`pnpm run test:e2e:telemetry`).
 
@@ -81,6 +81,7 @@ Steps run one at a time. Playwright actions without an explicit `timeout` fail a
 | `runCommandWhenAvailable(title)` / `runCommand(title)`               | Command palette by visible title, e.g. `Electivus Apex Logs: Tail Logs`            |
 | `executeCommandId(id)`, `openView(name)`                             | Palette by command id / `View: Open View...`                                       |
 | `logsFrame()`, `tailFrame()`, `viewerFrame()`, `debugFlagsFrame()`   | Wait for that webview's content frame (default 120 s)                              |
+| `customLogsFrame()`, `customLogViewerFrame(timeoutMs?, title?)`      | Custom Logs list; transaction viewer, scoped by the title its header shows         |
 | `frameWith(selector, timeoutMs)`                                     | Any webview frame containing `selector`                                            |
 | `openDebugFlagsFromLogs()`, `openDebugFlagsFromTail()`               | Click the panel's Debug Flags button, retrying swallowed clicks; returns the frame |
 | `shot(name, frameOrLocator?)`                                        | PNG into evidence: whole window, a frame's body, or one element                    |
@@ -98,6 +99,7 @@ Stable handles (prefer these over text and position), grouped by webview:
 - **Log Viewer:** `input[placeholder="Search entries…"]`, `button[aria-label="Next match"]` / `"Previous match"`, the counter `getByText(/^\d+\/\d+$/)`, search hits as plain `mark` (not `.match-highlight`).
 - **Tail:** `tail-open-debug-flags`, `tail-debug-level`.
 - **Debug Flags:** `debug-flags-user-search`, `debug-flags-user-row-<userId>`, `debug-flags-ttl`, `debug-flags-apply`, `debug-flags-remove`, `debug-flags-notice`, `debug-level-manager*`.
+- **Custom Logs:** `custom-logs-root`, `custom-logs-org`, `custom-logs-source`, `custom-logs-empty`, rows `[data-row-id="<recordId>"]`, `filter-chip`, `custom-log-row-detail`. **Custom Log Viewer:** `custom-log-viewer-root`, `custom-log-viewer-title`, `custom-log-apex-hint`, entries `[data-entry-id="<id>"]`, `custom-log-entry-detail`, `entry-field-<key>`, `payload-leaf-<path>`.
 
 The full list is in `packages/webview/src` (`grep -rho 'data-testid="[^"]*"'`).
 
@@ -106,6 +108,7 @@ Canned steps in `steps/` (each one asserts the end state and returns its proof p
 - `logs-open-viewer`: search the seeded log body, then open it in the Log Viewer; asserts the cached `.log` file in `apexlogs/`.
 - `tail-live`: choose a debug level and Start, emit a new log, see it stream in, then Stop. `'{"debugLevel":"<name>"}'` selects exactly that level and fails if it does not exist.
 - `debug-flags-apply-remove`: from the Logs panel, apply a USER_DEBUG trace flag to the E2E user, read it back through Tooling, remove it, and read it back again. `'{"currentUser":true}'` targets the authenticated user instead, and that user's prior flag is restored afterwards.
+- `custom-logs-open-viewer`: open the Custom Logs list, then one record in the transaction viewer, and with `'{"openApexLog":true}'` its linked Apex log. It needs an org that has Nebula Logger or a mapped log object, so start the session with `--target-org` (see [features/custom-logs.md](features/custom-logs.md)).
 
 Per-feature recipes, entry points and traps are in [features/README.md](features/README.md). Check every entry point the map lists for a feature, not only the convenient one.
 
@@ -153,5 +156,7 @@ You can run one session per checkout, because state lives in `output/verify/sess
 - **Panel webviews are short** (about 260 px tall in the 1440x900 window). Rows below the fold exist but do not appear in screenshots. Before taking a shot, run `h.runCommand('View: Toggle Maximized Panel')` or `Electivus Apex Logs: Open Logs in Editor Area` / `Open Tail in Editor Area`.
 - **Several webviews coexist.** `viewerFrame()` returns the first Log Viewer. When you open a second log, scope assertions by the log id shown in the header.
 - **UI strings are English** because VS Code runs with the `C.UTF-8` locale. Text selectors such as `Search entries…` and `Start`/`Stop` would change under a pt-BR display language.
+- **A pool scratch org has no Nebula Logger.** Custom Logs needs `start --target-org <alias>` on an org that has it, or a mapping for an object the org owns. That mode does not seed, so create no data in someone else's org.
+- **`sf` must be on the session's PATH.** `start` shells out to `sf org display`, and the host inherits your PATH. When `sf` lives under another Node version than `.nvmrc` selects, append its bin directory after `nvm use`, so the repo tooling keeps the pinned Node.
 - **Pool slots are shared with CI.** Keep sessions short and stop them when done. Use `--retire` only when the org itself is damaged, not when the feature failed.
 - **Machines that rely on the private `~/.config/electivus/apex-log-viewer/e2e.sh` bootstrap** (`docs/E2E_ARCH_WSL.md`) are not wired up here. Export `SF_DEVHUB_ALIAS` or the JWT variables in the shell instead.
