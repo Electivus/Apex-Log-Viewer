@@ -660,6 +660,10 @@
             "debug_level_delete",
             "tooling_query",
             "tooling_get",
+            "custom_log_sources",
+            "custom_log_list",
+            "custom_log_get",
+            "custom_log_entry",
             "other"
           ]
         },

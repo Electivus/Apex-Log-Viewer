@@ -39,6 +39,12 @@ function fakeCore(overrides: Partial<ApexLogViewerCore> = {}): ApexLogViewerCore
       delete: async () => ({}) as never
     },
     tooling: { query: async () => ({ records: [] }), get: async () => ({}) },
+    customLog: {
+      sources: async () => ({ sources: [], issues: [] }),
+      list: async () => ({}) as never,
+      get: async () => ({}) as never,
+      entry: async () => ({}) as never
+    },
     dispose: () => undefined,
     ...overrides
   } as ApexLogViewerCore;
@@ -81,11 +87,55 @@ suite('shared core client', () => {
     assert.equal(calls, 1);
   });
 
+  test('forwards each Custom Logs call to core with its params and the abort signal', async () => {
+    const seen: Array<{ method: string; params: unknown; signal: AbortSignal | undefined }> = [];
+    const record =
+      (method: string, result: unknown) =>
+      async (params: unknown, options?: { signal?: AbortSignal }): Promise<never> => {
+        seen.push({ method, params, signal: options?.signal });
+        return result as never;
+      };
+    const core = fakeCore();
+    core.customLog.sources = record('sources', { sources: [], issues: [] });
+    core.customLog.list = record('list', { rows: [] });
+    core.customLog.get = record('get', { entries: [] });
+    core.customLog.entry = record('entry', { details: [] });
+    const client = new CoreClient({ core, workspaceRoot: () => '/workspace' });
+    const controller = new AbortController();
+
+    await client.customLogSources({ targetOrg: 'demo', projectDir: '/project' }, controller.signal);
+    await client.customLogList({ targetOrg: 'demo', projectDir: undefined, source: 'nebula' }, controller.signal);
+    await client.customLogGet(
+      { targetOrg: 'demo', projectDir: '/project', logId: 'a02000000000001AAA' },
+      controller.signal
+    );
+    await client.customLogEntry(
+      { targetOrg: 'demo', projectDir: '/project', entryId: 'a01000000000001AAA' },
+      controller.signal
+    );
+
+    assert.deepEqual(
+      seen.map(call => [call.method, call.signal === controller.signal]),
+      [
+        ['sources', true],
+        ['list', true],
+        ['get', true],
+        ['entry', true]
+      ]
+    );
+    assert.deepEqual(seen[0]?.params, { targetOrg: 'demo', projectDir: '/project' });
+    assert.deepEqual(seen[1]?.params, { targetOrg: 'demo', projectDir: undefined, source: 'nebula' });
+  });
+
   test('maps core cancellation to the standard AbortError shape', async () => {
     const controller = new AbortController();
     controller.abort();
     const client = new CoreClient({ core: fakeCore() });
 
     await assert.rejects(client.logsList({}, controller.signal), error => (error as Error).name === 'AbortError');
+    await assert.rejects(
+      client.customLogSources({ projectDir: undefined }, controller.signal),
+      error => (error as Error).name === 'AbortError'
+    );
   });
 });
