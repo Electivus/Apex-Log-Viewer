@@ -575,8 +575,8 @@ suite('Custom Logs view provider', () => {
       assert.equal(fake.calls.customLogSources.length, 2);
       assert.equal(
         fake.calls.customLogSources[1]?.refresh,
-        true,
-        'a mapping edit re-detects, as the Refresh button does'
+        false,
+        'core keys its detection memo by the mapping, so a save must not drop what it already learned'
       );
       assert.equal(fake.calls.customLogList.length, 2);
       const sources = host.last('customLogsSources') as never as { issues: unknown[]; data: Array<{ label: string }> };
@@ -597,7 +597,7 @@ suite('Custom Logs view provider', () => {
 
       await mount(new FakeHost(), 2);
       assert.equal(fake.calls.customLogSources.length, 2);
-      assert.equal(fake.calls.customLogSources[1]?.refresh, true);
+      assert.equal(fake.calls.customLogSources[1]?.refresh, false);
     });
 
     test('the refresh button drops the cached detection', async () => {
