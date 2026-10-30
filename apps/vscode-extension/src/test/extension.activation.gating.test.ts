@@ -187,13 +187,53 @@ function createExtensionHarness(options: {
     public dispose(): void {}
   }
 
+  class FakeCustomLogsViewProvider {
+    public static viewType = 'electivus.apexLogViewer.customLogsView';
+
+    constructor(_context: any) {}
+
+    public hasResolvedView(): boolean {
+      return false;
+    }
+
+    public getSelectedOrg(): string | undefined {
+      return undefined;
+    }
+
+    public getWebviewDiagnosticState() {
+      return {
+        surface: 'customLogs',
+        hasHost: false,
+        visible: false,
+        ready: false
+      };
+    }
+
+    public async syncSelectedOrg(): Promise<void> {}
+
+    public async refresh(): Promise<void> {}
+
+    public dispose(): void {}
+  }
+
   class FakeCodeLensProvider {}
 
   const extension = proxyquireStrict('../extension', {
     vscode: vscodeStub,
     './provider/SfLogsViewProvider': { SfLogsViewProvider: FakeLogsViewProvider },
     './provider/SfLogTailViewProvider': { SfLogTailViewProvider: FakeTailViewProvider },
+    './provider/CustomLogsViewProvider': { CustomLogsViewProvider: FakeCustomLogsViewProvider },
     './provider/ApexLogCodeLensProvider': { ApexLogCodeLensProvider: FakeCodeLensProvider },
+    './panel/CustomLogsEditorPanel': {
+      CustomLogsEditorPanel: {
+        initialize: () => undefined,
+        getDiagnosticState: () => undefined,
+        show: async () => undefined
+      }
+    },
+    './panel/CustomLogViewerPanel': { CustomLogViewerPanel: { initialize: () => undefined } },
+    './host/utils/customLogDocuments': { registerCustomLogDocuments: () => undefined },
+    './host/utils/customLogsConfig': { openCustomLogsConfig: async () => undefined },
     './panel/LogViewerPanel': {
       LogViewerPanel: {
         initialize: () => undefined,
@@ -366,6 +406,12 @@ suite('extension activation gating', () => {
       harness.commands.has('electivus.apexLogViewer.log.openViewer'),
       'open log viewer command should stay registered'
     );
+    for (const command of ['refresh', 'openEditor', 'configure']) {
+      assert.ok(
+        harness.commands.has(`electivus.apexLogViewer.customLogs.${command}`),
+        `custom logs ${command} command should stay registered`
+      );
+    }
 
     const activationEvent = harness.events.find(event => event.name === 'extension.activate');
     assert.equal(activationEvent?.props?.hasSalesforceProject, 'false');
@@ -452,7 +498,8 @@ suite('extension activation gating', () => {
       })),
       [
         { viewId: 'electivus.apexLogViewer.logsView', retainContextWhenHidden: true },
-        { viewId: 'electivus.apexLogViewer.tailView', retainContextWhenHidden: true }
+        { viewId: 'electivus.apexLogViewer.tailView', retainContextWhenHidden: true },
+        { viewId: 'electivus.apexLogViewer.customLogsView', retainContextWhenHidden: true }
       ]
     );
   });
