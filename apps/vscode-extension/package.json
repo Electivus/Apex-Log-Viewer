@@ -289,12 +289,14 @@
       {
         "command": "electivus.apexLogViewer.customLogs.refresh",
         "title": "%command.customLogs.refresh.title%",
-        "category": "Electivus Apex Logs"
+        "category": "Electivus Apex Logs",
+        "icon": "$(refresh)"
       },
       {
         "command": "electivus.apexLogViewer.customLogs.openEditor",
         "title": "%command.customLogs.openEditor.title%",
-        "category": "Electivus Apex Logs"
+        "category": "Electivus Apex Logs",
+        "icon": "$(open-preview)"
       },
       {
         "command": "electivus.apexLogViewer.customLogs.configure",
