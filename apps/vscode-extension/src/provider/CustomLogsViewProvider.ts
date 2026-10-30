@@ -192,7 +192,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     await this.reload({ clearPage: false, refreshSources: true });
   }
 
-  /** `sfdx-project.json` changed: re-resolve the sources against the new mapping and reload the page. */
+  /** `sfdx-project.json` changed: re-detect the sources against the new mapping and reload the page. */
   public async onProjectConfigChanged(): Promise<void> {
     if (this.disposed) {
       return;
@@ -201,7 +201,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       this.projectConfigPending = true;
       return;
     }
-    await this.reload({ clearPage: false, refreshSources: false });
+    await this.reload({ clearPage: false, refreshSources: true });
   }
 
   public getWebviewDiagnosticState(): WebviewProviderDiagnosticState {
@@ -601,7 +601,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     if (this.hasOrgsSnapshot && this.hasSourcesSnapshot && !this.bootstrapNeedsRefresh && !this.projectConfigPending) {
       return;
     }
-    await this.reload({ clearPage: false, refreshSources: false });
+    await this.reload({ clearPage: false, refreshSources: this.projectConfigPending });
   }
 
   private getReplaySnapshot(): readonly CustomLogsToWebviewMessage[] {

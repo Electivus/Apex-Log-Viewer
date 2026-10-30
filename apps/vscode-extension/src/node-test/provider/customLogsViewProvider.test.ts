@@ -390,7 +390,11 @@ suite('Custom Logs view provider', () => {
       projectWatchers[0]!();
       await settle();
 
-      assert.equal(host.last('customLogsSources')?.selected, 'nebula', 'the config source sorts first, but the user did not ask for it');
+      assert.equal(
+        host.last('customLogsSources')?.selected,
+        'nebula',
+        'the config source sorts first, but the user did not ask for it'
+      );
       assert.equal(fake.calls.customLogList.at(-1)?.source, 'nebula');
       const pages = host.ofType('customLogsPage') as never as Array<{ rows: unknown[] }>;
       assert.equal(pages.length, 1, 'the rows stay until the new page arrives');
@@ -571,8 +575,8 @@ suite('Custom Logs view provider', () => {
       assert.equal(fake.calls.customLogSources.length, 2);
       assert.equal(
         fake.calls.customLogSources[1]?.refresh,
-        false,
-        'a mapping edit does not need to drop the org cache'
+        true,
+        'a mapping edit re-detects, as the Refresh button does'
       );
       assert.equal(fake.calls.customLogList.length, 2);
       const sources = host.last('customLogsSources') as never as { issues: unknown[]; data: Array<{ label: string }> };
@@ -593,6 +597,7 @@ suite('Custom Logs view provider', () => {
 
       await mount(new FakeHost(), 2);
       assert.equal(fake.calls.customLogSources.length, 2);
+      assert.equal(fake.calls.customLogSources[1]?.refresh, true);
     });
 
     test('the refresh button drops the cached detection', async () => {
