@@ -1,6 +1,14 @@
 import { parseCustomLogLevel, parseSinceValue } from '@alv/protocol/customLogsRules';
 import type { CustomLogsFilterView } from '@alv/protocol/customLogsTypes';
-import { FILTER_OPERATORS, matchOperatorPrefix, type FilterCondition, type FilterOperator } from './filterGrammar';
+import {
+  FILTER_OPERATORS,
+  formatFilterCondition,
+  formatFilterField,
+  matchOperatorPrefix,
+  readFilterField,
+  type FilterCondition,
+  type FilterOperator
+} from './filterGrammar';
 import {
   payloadValues,
   topValues,
@@ -74,10 +82,12 @@ export function operatorsFor(field: string, type: PayloadFieldType | undefined):
  */
 export function computeGuidedStage(text: string, context: GuidedContext): GuidedStage {
   const trimmed = text.replace(/^\s+/, '');
-  const split = /^(\S*)(?:(\s+)([\s\S]*))?$/.exec(trimmed);
-  const field = split?.[1] ?? '';
-  const hasSpace = split?.[2] !== undefined;
-  const rest = split?.[3] ?? '';
+  const quoted = /^["']/.test(trimmed) ? readFilterField(trimmed) : undefined;
+  const fieldEnd = quoted?.end ?? /^\S*/.exec(trimmed)![0].length;
+  const field = quoted?.text ?? trimmed.slice(0, fieldEnd);
+  const after = trimmed.slice(fieldEnd);
+  const hasSpace = quoted?.closed !== false && /^\s/.test(after);
+  const rest = after.replace(/^\s+/, '');
 
   if (!hasSpace) {
     const needle = field.toLowerCase();
@@ -111,7 +121,7 @@ export function acceptGuidedItem(stage: GuidedStage, index: number): { text: str
   switch (stage.stage) {
     case 'field': {
       const item = stage.items[index];
-      return item ? { text: `${item.path} `, commit: false } : undefined;
+      return item ? { text: `${formatFilterField(item.path)} `, commit: false } : undefined;
     }
     case 'operator': {
       const op = stage.items[index];
@@ -119,20 +129,18 @@ export function acceptGuidedItem(stage: GuidedStage, index: number): { text: str
         return undefined;
       }
       return op === 'exists'
-        ? { text: `${stage.field} ${op}`, commit: true }
-        : { text: `${stage.field} ${op} `, commit: false };
+        ? { text: formatFilterCondition({ field: stage.field, op }), commit: true }
+        : { text: `${formatFilterField(stage.field)} ${op} `, commit: false };
     }
     case 'value': {
       const item = stage.items[index];
-      return item ? { text: `${stage.field} ${stage.op} ${quoteIfNeeded(item.value)}`, commit: true } : undefined;
+      return item
+        ? { text: formatFilterCondition({ field: stage.field, op: stage.op, value: item.value }), commit: true }
+        : undefined;
     }
     case 'commit':
-      return { text: `${stage.field} ${stage.op}`, commit: true };
+      return { text: formatFilterCondition({ field: stage.field, op: stage.op }), commit: true };
   }
-}
-
-function quoteIfNeeded(value: string): string {
-  return /^[^\s"'<>=!][^\s"']*$/.test(value) ? value : `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
 export type ServerConditionError =

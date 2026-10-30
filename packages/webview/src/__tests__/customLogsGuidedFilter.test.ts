@@ -147,6 +147,36 @@ describe('guided filter input', () => {
     it('returns nothing for a position past the list', () => {
       expect(acceptGuidedItem(computeGuidedStage('http.status >= ', context), 9)).toBeUndefined();
     });
+
+    it('quotes a field that needs it, and reads the quoted field back at every stage', () => {
+      const spaced: GuidedContext = {
+        ...context,
+        fields: [...fields, { path: 'Account Name', kind: 'payload', type: 'string', share: 10 }]
+      };
+
+      expect(acceptGuidedItem(computeGuidedStage('Account', spaced), 0)).toEqual({
+        text: '"Account Name" ',
+        commit: false
+      });
+      expect(computeGuidedStage('"Account Na', spaced)).toMatchObject({
+        stage: 'field',
+        query: 'Account Na',
+        items: [{ path: 'Account Name' }]
+      });
+      expect(computeGuidedStage('"Account Name" ', spaced)).toEqual({
+        stage: 'operator',
+        field: 'Account Name',
+        items: ['=', '!=', 'contains', 'exists']
+      });
+      expect(acceptGuidedItem(computeGuidedStage('"Account Name" ', spaced), 3)).toEqual({
+        text: '"Account Name" exists',
+        commit: true
+      });
+      expect(acceptGuidedItem(computeGuidedStage('"Account Name" = ', spaced), 0)).toEqual({
+        text: '"Account Name" = "two words"',
+        commit: true
+      });
+    });
   });
 });
 

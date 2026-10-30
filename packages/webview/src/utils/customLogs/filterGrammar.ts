@@ -34,7 +34,8 @@ export type FilterParseError = {
 
 export type FilterParseResult = { ok: true; conditions: FilterCondition[] } | { ok: false; error: FilterParseError };
 
-const FIELD_PATTERN = /^[A-Za-z_$][\w$.[\]-]*/;
+// A bare field runs until a space, a quote or the first character of an operator; any other payload path is quoted.
+const BARE_FIELD_PATTERN = /^[^\s"'<>=!]+/;
 const BARE_VALUE_PATTERN = /^[^\s"']+/;
 // Longest operators first, so `>=` never reads as `>` followed by `=`.
 const OPERATORS_BY_LENGTH = [...FILTER_OPERATORS].sort((a, b) => b.length - a.length);
@@ -65,9 +66,36 @@ export function matchOperatorPrefix(rest: string): { op: FilterOperator; complet
   return undefined;
 }
 
+/** A token read from the start of some text: its unescaped text, where it ends, and whether its quote closed. */
+export type FilterToken = { text: string; end: number; closed: boolean };
+
+/** The single- or double-quoted string at the start of `text`. An unclosed one runs to the end of `text`. */
+function readQuoted(text: string): FilterToken {
+  const quote = text[0];
+  let j = 1;
+  let read = '';
+  while (j < text.length && text[j] !== quote) {
+    if (text[j] === '\\' && j + 1 < text.length) {
+      j++;
+    }
+    read += text[j];
+    j++;
+  }
+  return j < text.length ? { text: read, end: j + 1, closed: true } : { text: read, end: j, closed: false };
+}
+
+/** The field at the start of `text`: a bare path, or a quoted one. */
+export function readFilterField(text: string): FilterToken | undefined {
+  if (text[0] === '"' || text[0] === "'") {
+    return readQuoted(text);
+  }
+  const bare = BARE_FIELD_PATTERN.exec(text)?.[0];
+  return bare ? { text: bare, end: bare.length, closed: true } : undefined;
+}
+
 /**
- * Parses `field op value [and field op value ...]`. Values are bare words or single/double quoted
- * strings with backslash escapes. Only `and` joins conditions. Blank input is an empty, valid filter.
+ * Parses `field op value [and field op value ...]`. Fields and values are bare words or single/double
+ * quoted strings with backslash escapes. Only `and` joins conditions. Blank input is an empty, valid filter.
  */
 export function parseFilterExpression(source: string): FilterParseResult {
   let i = 0;
@@ -90,13 +118,16 @@ export function parseFilterExpression(source: string): FilterParseResult {
 
   for (;;) {
     skipSpace();
-    const fieldMatch = FIELD_PATTERN.exec(source.slice(i));
-    if (!fieldMatch) {
+    const fieldRead = readFilterField(source.slice(i));
+    if (fieldRead && !fieldRead.closed) {
+      return fail('unterminatedString', i);
+    }
+    if (!fieldRead?.text) {
       return fail('expectedField', i, wordAt(i) || undefined);
     }
-    const field = fieldMatch[0];
+    const field = fieldRead.text;
     const fieldAt = i;
-    i += field.length;
+    i += fieldRead.end;
     skipSpace();
 
     const operatorAt = i;
@@ -113,20 +144,12 @@ export function parseFilterExpression(source: string): FilterParseResult {
       valueAt = i;
       const quote = source[i];
       if (quote === '"' || quote === "'") {
-        let j = i + 1;
-        let text = '';
-        while (j < source.length && source[j] !== quote) {
-          if (source[j] === '\\' && j + 1 < source.length) {
-            j++;
-          }
-          text += source[j];
-          j++;
-        }
-        if (j >= source.length) {
+        const quoted = readQuoted(source.slice(i));
+        if (!quoted.closed) {
           return fail('unterminatedString', i);
         }
-        value = text;
-        i = j + 1;
+        value = quoted.text;
+        i += quoted.end;
       } else {
         const bare = BARE_VALUE_PATTERN.exec(source.slice(i));
         if (!bare || /^[<>=!]/.test(bare[0])) {
@@ -167,20 +190,28 @@ export function parseFilterExpression(source: string): FilterParseResult {
   }
 }
 
+const BARE_SAFE_FIELD = /^[^\s"'<>=!]+$/;
 const BARE_SAFE_VALUE = /^[^\s"'<>=!][^\s"']*$/;
+
+function quoteText(text: string): string {
+  return `"${text.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+/** The text that parses back to `field`: bare when that is unambiguous, else quoted. */
+export function formatFilterField(field: string): string {
+  return BARE_SAFE_FIELD.test(field) ? field : quoteText(field);
+}
 
 /** The text that parses back to `value`: bare when that is unambiguous, else quoted. */
 export function formatFilterValue(value: string): string {
-  if (BARE_SAFE_VALUE.test(value) && !/^and$|^or$/i.test(value)) {
-    return value;
-  }
-  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  return BARE_SAFE_VALUE.test(value) && !/^and$|^or$/i.test(value) ? value : quoteText(value);
 }
 
 export function formatFilterCondition(condition: FilterClause): string {
+  const field = formatFilterField(condition.field);
   return condition.value === undefined
-    ? `${condition.field} ${condition.op}`
-    : `${condition.field} ${condition.op} ${formatFilterValue(condition.value)}`;
+    ? `${field} ${condition.op}`
+    : `${field} ${condition.op} ${formatFilterValue(condition.value)}`;
 }
 
 export function filterConditionsEqual(a: FilterClause, b: FilterClause): boolean {

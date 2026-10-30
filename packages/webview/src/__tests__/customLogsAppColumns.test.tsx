@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import { parseCustomLogsFromWebviewMessage } from '@alv/protocol/customLogsMessages';
 import { CustomLogsApp } from '../customLogs';
 import {
   appLog,
@@ -253,6 +254,20 @@ describe('Custom Logs JSON columns', () => {
       expect(filterInput()).toHaveValue('http.status ');
       expect(screen.getAllByRole('option').map(option => option.textContent)).toContain('>=');
     });
+
+    it('quotes a field with spaces when the menu asks to filter by it', () => {
+      mountApp({
+        rows: [makeRow(ids.ok, 'Acme order', { payload: parsed({ 'Account Name': 'Acme' }) })],
+        fields: [{ path: 'Account Name', types: ['string'], rows: 1 }],
+        added: ['Account Name']
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Column menu for Account Name' }));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Filter by this field…' }));
+
+      expect(filterInput()).toHaveValue('"Account Name" ');
+      expect(screen.getAllByRole('option').map(option => option.textContent)).toContain('contains');
+    });
   });
 
   describe('payloads that are not JSON objects', () => {
@@ -384,6 +399,31 @@ describe('Custom Logs JSON columns', () => {
         type: 'customLogsSetPayloadColumns',
         added: ['lines[].sku']
       });
+    });
+
+    it('adds a column and a filter from a root-array leaf, and the filter edits back into text that commits', () => {
+      const batch = makeRow(ids.failed, 'Batch failed', { payload: parsed({ '[0].status': 200, '[1].status': 500 }) });
+      const single = makeRow(ids.ok, 'Batch ok', { payload: parsed({ '[0].status': 200 }) });
+      const { posted } = mountApp({
+        rows: [batch, single],
+        fields: [{ path: '[0].status', types: ['number'], rows: 2 }]
+      });
+      fireEvent.click(rowOf(ids.failed));
+
+      fireEvent.click(within(leaf('[0].status')).getByRole('button', { name: '+ Column' }));
+      const columnsPost = lastPost(posted, 'customLogsSetPayloadColumns');
+      expect(columnsPost).toEqual({ type: 'customLogsSetPayloadColumns', added: ['[].status'] });
+      expect(parseCustomLogsFromWebviewMessage(columnsPost)).toEqual(columnsPost);
+      expect(cellText(ids.failed, 5)).toBe('200, 500');
+
+      fireEvent.click(within(leaf('[1].status')).getByRole('button', { name: '= value' }));
+      expect(chipSummary()).toEqual([['loaded', '[].status=500']]);
+      expect(listedTitles()).toEqual(['Batch failed']);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Edit filter [].status = 500' }));
+      fireEvent.keyDown(filterInput(), { key: 'Enter' });
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(chipSummary()).toEqual([['loaded', '[].status=500']]);
     });
 
     it('quotes a filter value that needs it', () => {

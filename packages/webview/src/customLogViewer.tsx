@@ -347,7 +347,7 @@ export function CustomLogViewerApp({
             onSelect={onSelectEntry}
             onToggleColumn={workbench.toggleColumn}
             onRemoveColumn={workbench.removeColumn}
-            onFilterBy={path => workbench.requestFilterPrefill(`${path} `)}
+            onFilterBy={workbench.prefillFilterField}
             virtualListComponent={virtualListComponent}
           />
           <LoadingOverlay show={loading.entries && entries.length === 0} label={t.viewer.loading} />

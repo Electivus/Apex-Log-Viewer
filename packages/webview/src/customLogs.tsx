@@ -433,7 +433,7 @@ export function CustomLogsApp({
                 onOpen={row => post({ type: 'customLogsOpenLog', logId: row.id })}
                 onToggleColumn={workbench.toggleColumn}
                 onRemoveColumn={workbench.removeColumn}
-                onFilterBy={path => workbench.requestFilterPrefill(`${path} `)}
+                onFilterBy={workbench.prefillFilterField}
                 virtualListComponent={virtualListComponent}
               />
               <LoadingOverlay show={loading && rows.length === 0} label={t.loading} />

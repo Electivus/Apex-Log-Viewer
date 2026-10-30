@@ -8,6 +8,7 @@ import type { SortState } from '../../utils/customLogs/columns';
 import {
   filterConditionsEqual,
   formatFilterCondition,
+  formatFilterField,
   formatFilterValue,
   type FilterClause
 } from '../../utils/customLogs/filterGrammar';
@@ -156,9 +157,10 @@ export function usePayloadWorkbench<Column extends { id: string }>({
     [sort, sortColumn]
   );
 
-  const requestFilterPrefill = useCallback((text: string) => {
+  /** Moves the filter bar to `path`, written as the grammar reads it back, ready for an operator. */
+  const prefillFilterField = useCallback((path: string) => {
     prefillNonce.current += 1;
-    setPrefill({ text, nonce: prefillNonce.current });
+    setPrefill({ text: `${formatFilterField(path)} `, nonce: prefillNonce.current });
   }, []);
 
   /** A different org or source: its rows have nothing to do with these filters, sort or hidden columns. */
@@ -186,7 +188,7 @@ export function usePayloadWorkbench<Column extends { id: string }>({
     toggleColumn,
     removeColumn,
     prefill,
-    requestFilterPrefill,
+    prefillFilterField,
     uiState,
     reset
   };

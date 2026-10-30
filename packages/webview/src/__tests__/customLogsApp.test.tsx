@@ -441,6 +441,61 @@ describe('Custom Logs app', () => {
       ).toBeInTheDocument();
     });
 
+    it('filters on a path of a root-array payload, as the field picker completes it', () => {
+      const batchFailed = makeRow(ids.failed, 'Batch failed', {
+        payload: parsed({ '[0].status': 200, '[1].status': 500 })
+      });
+      const batchOk = makeRow(ids.ok, 'Batch ok', { payload: parsed({ '[0].status': 200 }) });
+      mountApp({
+        rows: [batchFailed, batchOk],
+        fields: [
+          { path: '[0].status', types: ['number'], rows: 2 },
+          { path: '[1].status', types: ['number'], rows: 1 }
+        ]
+      });
+
+      fireEvent.change(filterInput(), { target: { value: '[].st' } });
+      fireEvent.keyDown(filterInput(), { key: 'Enter' });
+      expect(filterInput()).toHaveValue('[].status ');
+      submit('[].status >= 500');
+
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(chipSummary()).toEqual([['loaded', '[].status>=500']]);
+      expect(listedTitles()).toEqual(['Batch failed']);
+
+      submit('[0].status = 200');
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(listedTitles()).toEqual(['Batch failed']);
+    });
+
+    it('filters on a key with spaces, quoting the path it writes', () => {
+      const acme = makeRow(ids.failed, 'Acme order', {
+        payload: parsed({ 'Account Name': 'Acme', 'pedido.situação': 'ok' })
+      });
+      const globex = makeRow(ids.ok, 'Globex order', { payload: parsed({ 'Account Name': 'Globex' }) });
+      mountApp({
+        rows: [acme, globex],
+        fields: [
+          { path: 'Account Name', types: ['string'], rows: 2 },
+          { path: 'pedido.situação', types: ['string'], rows: 1 }
+        ]
+      });
+
+      fireEvent.change(filterInput(), { target: { value: 'Account' } });
+      fireEvent.keyDown(filterInput(), { key: 'Enter' });
+      expect(filterInput()).toHaveValue('"Account Name" ');
+      submit('"Account Name" = Acme and pedido.situação exists');
+
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(listedTitles()).toEqual(['Acme order']);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Edit filter "Account Name" = Acme' }));
+      expect(filterInput()).toHaveValue('"Account Name" = Acme');
+      fireEvent.keyDown(filterInput(), { key: 'Enter' });
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(listedTitles()).toEqual(['Acme order']);
+    });
+
     it('keeps the filters when the app is restored from its saved state', () => {
       const first = mountApp();
       submit('orderId = ORD-1043');

@@ -435,7 +435,7 @@ A row without a mapped payload has no `payload` key. JSON columns and payload fi
 Core flattens a parsed payload into paths, in document order:
 
 - Object keys join with `.`: `{"http": {"status": 502}}` becomes `http.status`.
-- Array items get an index: `{"lines": [{"sku": "A1"}]}` becomes `lines[0].sku`.
+- Array items get an index: `{"lines": [{"sku": "A1"}]}` becomes `lines[0].sku`, and a payload that is an array starts with one: `[{"status": 500}]` becomes `[0].status`.
 - Only scalar leaves become paths: strings, numbers, booleans, and `null`. Empty objects and empty arrays add no path.
 - Core does not escape a key that contains `.` or `[`, so such a key can give a path that reads two ways.
 
@@ -458,6 +458,8 @@ SOQL cannot filter or sort long text fields, so core never filters on a payload 
 
 - Chips for `level`, `user`, `since`, and `source` show **Salesforce**. They change the query and reload the list. `level` takes `>=`, and the others take `=`.
 - Chips for payload paths narrow the loaded rows. Number paths take `=`, `!=`, `>`, `>=`, `<`, `<=`, and `exists`. String paths take `=`, `!=`, `contains`, and `exists`. Boolean paths take `=`, `!=`, and `exists`.
+
+The panel groups array indexes as `[]`, so `[].status >= 500` matches a row when any item has a status of at least 500, and `[0].status` reads the first item only. Quote a path that contains a space, a quote, or one of `<`, `>`, `=` and `!`, as in `"Account Name" = Acme`. The suggestions of the filter input and the **Filter by this field** item of a column menu write the quotes for you.
 
 Conditions combine with `and` only. The status bar reads "Filtering N loaded rows · M match". Use **Load more** to bring more rows into the filter.
 

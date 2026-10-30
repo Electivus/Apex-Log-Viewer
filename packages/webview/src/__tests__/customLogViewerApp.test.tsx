@@ -584,6 +584,19 @@ describe('Custom Log viewer app', () => {
       expect(screen.getByRole('status')).toHaveTextContent('1 invalid JSON · 1 plain text: skipped by JSON filters');
     });
 
+    it('filters the loaded entries on a path of a root-array payload', () => {
+      const failed = makeEntry(entryIds.payload, 1, 'Batch failed', { payload: parsed({ '[0].status': 500 }) });
+      const ok = makeEntry(entryIds.debug, 2, 'Batch ok', { payload: parsed({ '[0].status': 200 }) });
+      mountViewer({ entries: [failed, ok], fields: [{ path: '[0].status', types: ['number'], rows: 2 }] });
+
+      const input = screen.getByRole('combobox', { name: 'Filter logs' });
+      fireEvent.change(input, { target: { value: '[].status >= 500' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(shownIds()).toEqual([entryIds.payload]);
+    });
+
     it('adds a payload leaf as a column and posts the added paths', () => {
       const { posted } = mountViewer({ entries: payloadEntries, fields: payloadFields });
       fireEvent.click(rowOf(entryIds.payload));

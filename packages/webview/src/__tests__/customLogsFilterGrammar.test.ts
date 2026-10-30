@@ -80,6 +80,26 @@ describe('filter grammar', () => {
     ]);
   });
 
+  it('reads the paths of a root array, grouped or by index', () => {
+    expect(conditionsOf(parseFilterExpression('[].status >= 500 and [0][1].x exists'))).toEqual([
+      { field: '[].status', op: '>=', value: '500' },
+      { field: '[0][1].x', op: 'exists' }
+    ]);
+    expect(conditionsOf(parseFilterExpression('[]>=1'))).toEqual([{ field: '[]', op: '>=', value: '1' }]);
+  });
+
+  it('reads keys that are not identifiers, and quoted fields with spaces or operator characters', () => {
+    expect(conditionsOf(parseFilterExpression('pedido.situação = ok and 200.ok = true and @type exists'))).toEqual([
+      { field: 'pedido.situação', op: '=', value: 'ok' },
+      { field: '200.ok', op: '=', value: 'true' },
+      { field: '@type', op: 'exists' }
+    ]);
+    expect(conditionsOf(parseFilterExpression('"Account Name" = Acme and \'a>=b\' exists'))).toEqual([
+      { field: 'Account Name', op: '=', value: 'Acme' },
+      { field: 'a>=b', op: 'exists' }
+    ]);
+  });
+
   it('joins conditions with and, in any case', () => {
     expect(
       conditionsOf(parseFilterExpression('http.status >= 500 and customer.tier = gold AND durationMs < 100'))
@@ -131,6 +151,11 @@ describe('filter grammar', () => {
     it('points at the quote of an unterminated string', () => {
       expect(errorOf('a = "oops')).toEqual({ code: 'unterminatedString', position: 4 });
       expect(errorOf("a = 1 and b = 'oops")).toEqual({ code: 'unterminatedString', position: 14 });
+      expect(errorOf('a = 1 and "Account Name = x')).toEqual({ code: 'unterminatedString', position: 10 });
+    });
+
+    it('does not take an empty quoted field', () => {
+      expect(errorOf('"" = 5')).toEqual({ code: 'expectedField', position: 0, token: '""' });
     });
 
     it('asks for a condition after a trailing and', () => {
@@ -154,7 +179,10 @@ describe('filter grammar', () => {
       'empty = ""',
       'cmp = ">="',
       'error.code exists',
-      'tags[] = vip'
+      'tags[] = vip',
+      '[].status >= 500',
+      '"Account Name" contains acme',
+      '"say \\"hi\\".x" exists'
     ];
 
     it.each(roundTrips)('writes %s so that it parses back to the same condition', source => {
@@ -167,6 +195,12 @@ describe('filter grammar', () => {
       expect(formatFilterCondition({ field: 'a', op: '=', value: '500' })).toBe('a = 500');
       expect(formatFilterCondition({ field: 'a', op: '=', value: 'two words' })).toBe('a = "two words"');
       expect(formatFilterCondition({ field: 'a', op: 'exists' })).toBe('a exists');
+    });
+
+    it('leaves plain fields bare and quotes the ones that need it', () => {
+      expect(formatFilterCondition({ field: '[].status', op: '>=', value: '500' })).toBe('[].status >= 500');
+      expect(formatFilterCondition({ field: 'Account Name', op: 'exists' })).toBe('"Account Name" exists');
+      expect(formatFilterCondition({ field: 'a=b', op: 'exists' })).toBe('"a=b" exists');
     });
   });
 });
