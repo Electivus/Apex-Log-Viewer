@@ -98,7 +98,6 @@ const MAX_CURSOR_CHARS = 2048;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
 const HEX_DIGEST = /^[0-9a-f]{12}$/;
 const SOURCE_ID = /^[a-z][a-z0-9-]{0,39}$/;
-const ORG_ID = /^[a-zA-Z0-9]{15,18}$/;
 
 export function encodeCursor(payload: CursorPayload): string {
   return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
@@ -130,8 +129,7 @@ export function decodeCursor(token: string, expected: CursorBinding): CursorPayl
     typeof cursor === 'object' &&
     cursor !== null &&
     cursor.v === 1 &&
-    typeof cursor.o === 'string' &&
-    ORG_ID.test(cursor.o) &&
+    isSalesforceId(cursor.o) &&
     typeof cursor.s === 'string' &&
     SOURCE_ID.test(cursor.s) &&
     typeof cursor.m === 'string' &&
@@ -145,7 +143,6 @@ export function decodeCursor(token: string, expected: CursorBinding): CursorPayl
         (window.since === undefined || isoInstant(window.since)) &&
         (window.until === undefined || isoInstant(window.until)))) &&
     (cursor.t === null || (typeof cursor.t === 'number' && Number.isFinite(cursor.t)) || isoInstant(cursor.t)) &&
-    typeof cursor.id === 'string' &&
     isSalesforceId(cursor.id) &&
     (cursor.n === undefined || (Number.isInteger(cursor.n) && cursor.n >= 0));
   if (!wellFormed) return invalidCursor('malformed');

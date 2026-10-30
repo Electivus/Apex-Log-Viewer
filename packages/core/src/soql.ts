@@ -1,6 +1,7 @@
 import { AlvError } from './errors.js';
 
-const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
+/** A record or org id: 15 case-sensitive characters, or 18 with the case-safe suffix. */
+const SALESFORCE_ID_REGEX = /^(?:[a-zA-Z0-9]{15}|[a-zA-Z0-9]{18})$/;
 
 // SOQL string literals understand these escapes; any other C0 control character has no spelling.
 const SOQL_ESCAPES: Readonly<Record<string, string>> = {

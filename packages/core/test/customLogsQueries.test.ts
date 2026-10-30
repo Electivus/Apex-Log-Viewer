@@ -590,6 +590,17 @@ function rejects(token: string, expected: CursorBinding, pattern: RegExp) {
   );
 }
 
+test('a record id is 15 or 18 characters, nothing in between', () => {
+  for (const id of ['a02000000000001', 'a02000000000001AAA']) assert.equal(parseRecordId(id, 'logId'), id);
+  for (const id of ['a020000000000012', 'a0200000000000123', 'a02000000000001AAAA', "a02000000000001'"]) {
+    assert.throws(
+      () => parseRecordId(id, 'logId'),
+      (error: unknown) => error instanceof AlvError && error.code === 'INVALID_ARGUMENT',
+      id
+    );
+  }
+});
+
 test('a cursor round-trips with its window and position', () => {
   const full: CursorPayload = { ...cursor, w: { since: '2026-10-29T00:00:00.000Z' }, n: 50 };
   const entries: CursorPayload = { ...cursor, k: 'entries', t: 31 };
@@ -626,6 +637,8 @@ test('a malformed cursor is rejected before any value can reach SOQL', () => {
   rejects(forged({ w: { since: 'x' } }), binding, /malformed/);
   rejects(forged({ n: -1 }), binding, /malformed/);
   rejects(forged({ o: 'x y' }), binding, /malformed/);
+  rejects(forged({ o: '00D0000000000012' }), binding, /malformed/);
+  rejects(forged({ id: 'a0200000000000123' }), binding, /malformed/);
 });
 
 test('a position that does not fit the ordering of this source is refused', () => {

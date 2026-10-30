@@ -37,6 +37,9 @@ test('isSalesforceId accepts 15 and 18 character ids only', () => {
   assert.equal(isSalesforceId('005000000000001'), true);
   assert.equal(isSalesforceId('005000000000001AAA'), true);
   assert.equal(isSalesforceId('00500000000000'), false);
+  assert.equal(isSalesforceId('0050000000000012'), false);
+  assert.equal(isSalesforceId('00500000000000123'), false);
+  assert.equal(isSalesforceId('005000000000001AAAA'), false);
   assert.equal(isSalesforceId("005000000000001'OR'"), false);
   assert.equal(isSalesforceId(undefined), false);
 });
