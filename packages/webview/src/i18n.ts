@@ -135,11 +135,15 @@ export type CustomLogsMessages = {
     refresh: string;
     loadMore: string;
     entriesCount: string;
+    entriesCountOne: string;
     errorsCount: string;
+    errorsCountOne: string;
     warningsCount: string;
+    warningsCountOne: string;
     openApexLog: string;
     apexLinked: string;
     apexNotFound: string;
+    apexUnavailable: string;
     apexNoRequestId: string;
     headerPayload: string;
     search: string;
@@ -542,8 +546,10 @@ const en: Messages = {
       text: 'plain text',
       empty: 'empty',
       hidden: 'hidden',
-      invalidNote: 'The payload is not valid JSON. JSON columns and filters skip this row. Open the full payload to read it.',
-      textNote: 'The payload is plain text, not JSON. JSON columns and filters skip this row. Open the full payload to read it.',
+      invalidNote:
+        'The payload is not valid JSON. JSON columns and filters skip this row. Open the full payload to read it.',
+      textNote:
+        'The payload is plain text, not JSON. JSON columns and filters skip this row. Open the full payload to read it.',
       emptyNote: 'The payload is empty for this record.',
       hiddenNote: 'Your permissions hide the payload field for this record.',
       openFull: 'Open full payload',
@@ -590,11 +596,15 @@ const en: Messages = {
       refresh: 'Refresh',
       loadMore: 'Load more entries',
       entriesCount: '{count} entries',
+      entriesCountOne: '1 entry',
       errorsCount: '{count} errors',
+      errorsCountOne: '1 error',
       warningsCount: '{count} warnings',
+      warningsCountOne: '1 warning',
       openApexLog: 'Open Apex log',
       apexLinked: 'Open the Apex debug log of the same request',
       apexNotFound: 'No Apex debug log for this request: no trace flag was active, or Salesforce already deleted it.',
+      apexUnavailable: 'You cannot read debug logs in this org.',
       apexNoRequestId: 'This log has no request id, so it cannot be linked to an Apex debug log.',
       headerPayload: 'Header payload',
       search: 'Search entries…',
@@ -814,7 +824,8 @@ const ptBR: Messages = {
       expectedValue: 'Esperava um valor depois do operador',
       unterminatedString: 'Este texto entre aspas não foi fechado',
       unsupportedOr: '"or" ainda não é suportado: as condições se combinam só com "and"',
-      expectedAnd: 'Trecho inesperado "{token}": junte as condições com "and" e coloque entre aspas os valores com espaços',
+      expectedAnd:
+        'Trecho inesperado "{token}": junte as condições com "and" e coloque entre aspas os valores com espaços',
       expectedConditionAfterAnd: 'Esperava outra condição depois de "and"',
       serverOperator: '{field} só aceita {allowed}',
       serverLevel: 'Use FINEST, FINER, FINE, DEBUG, INFO, WARN ou ERROR',
@@ -865,8 +876,10 @@ const ptBR: Messages = {
       text: 'texto simples',
       empty: 'vazio',
       hidden: 'oculto',
-      invalidNote: 'O payload não é um JSON válido. As colunas e os filtros JSON ignoram esta linha. Abra o payload completo para lê-lo.',
-      textNote: 'O payload é texto simples, não JSON. As colunas e os filtros JSON ignoram esta linha. Abra o payload completo para lê-lo.',
+      invalidNote:
+        'O payload não é um JSON válido. As colunas e os filtros JSON ignoram esta linha. Abra o payload completo para lê-lo.',
+      textNote:
+        'O payload é texto simples, não JSON. As colunas e os filtros JSON ignoram esta linha. Abra o payload completo para lê-lo.',
       emptyNote: 'O payload está vazio neste registro.',
       hiddenNote: 'Suas permissões ocultam o campo de payload neste registro.',
       openFull: 'Abrir payload completo',
@@ -913,11 +926,16 @@ const ptBR: Messages = {
       refresh: 'Atualizar',
       loadMore: 'Carregar mais entradas',
       entriesCount: '{count} entradas',
+      entriesCountOne: '1 entrada',
       errorsCount: '{count} erros',
+      errorsCountOne: '1 erro',
       warningsCount: '{count} avisos',
+      warningsCountOne: '1 aviso',
       openApexLog: 'Abrir log do Apex',
       apexLinked: 'Abrir o log de debug do Apex da mesma requisição',
-      apexNotFound: 'Não há log de debug do Apex para esta requisição: nenhuma trace flag estava ativa ou o Salesforce já o excluiu.',
+      apexNotFound:
+        'Não há log de debug do Apex para esta requisição: nenhuma trace flag estava ativa ou o Salesforce já o excluiu.',
+      apexUnavailable: 'Você não tem permissão para ler logs de debug nesta org.',
       apexNoRequestId: 'Este log não tem id de requisição, então não dá para ligá-lo a um log de debug do Apex.',
       headerPayload: 'Payload do cabeçalho',
       search: 'Buscar entradas…',

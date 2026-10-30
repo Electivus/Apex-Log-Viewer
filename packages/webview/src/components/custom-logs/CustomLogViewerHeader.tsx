@@ -57,6 +57,16 @@ function Id({
   );
 }
 
+function countLabel(count: number, one: string, many: string): string {
+  return count === 1 ? one : fillTemplate(many, { count });
+}
+
+const APEX_LOG_HINTS: Record<Exclude<CustomLogApexLogLink['state'], 'linked'>, (t: CustomLogsMessages) => string> = {
+  notFound: t => t.viewer.apexNotFound,
+  unavailable: t => t.viewer.apexUnavailable,
+  noRequestId: t => t.viewer.apexNoRequestId
+};
+
 export function CustomLogViewerHeader({
   t,
   source,
@@ -87,16 +97,16 @@ export function CustomLogViewerHeader({
       {counts ? (
         <span className="flex items-center gap-2 text-xs text-muted-foreground">
           {counts.entries !== undefined ? (
-            <span>{fillTemplate(t.viewer.entriesCount, { count: counts.entries })}</span>
+            <span>{countLabel(counts.entries, t.viewer.entriesCountOne, t.viewer.entriesCount)}</span>
           ) : null}
           {counts.errors ? (
             <span className="text-[color:var(--vscode-charts-red,#f14c4c)]">
-              {fillTemplate(t.viewer.errorsCount, { count: counts.errors })}
+              {countLabel(counts.errors, t.viewer.errorsCountOne, t.viewer.errorsCount)}
             </span>
           ) : null}
           {counts.warnings ? (
             <span className="text-[color:var(--vscode-charts-yellow,#cca700)]">
-              {fillTemplate(t.viewer.warningsCount, { count: counts.warnings })}
+              {countLabel(counts.warnings, t.viewer.warningsCountOne, t.viewer.warningsCount)}
             </span>
           ) : null}
         </span>
@@ -132,7 +142,7 @@ export function CustomLogViewerHeader({
             data-testid="custom-log-apex-hint"
           >
             <Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            {apexLog.state === 'notFound' ? t.viewer.apexNotFound : t.viewer.apexNoRequestId}
+            {APEX_LOG_HINTS[apexLog.state](t)}
           </span>
         ) : null}
         <Button

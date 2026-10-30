@@ -148,6 +148,7 @@ function send(bus: EventTarget, message: CustomLogViewerToWebviewMessage) {
 }
 
 type MountOptions = {
+  log?: CustomLogRow;
   entries?: CustomLogEntry[];
   fields?: CustomLogPayloadField[];
   apexLog?: CustomLogApexLogLink;
@@ -166,7 +167,7 @@ function mountViewer(options: MountOptions = {}) {
     type: 'customLogViewerInit',
     locale: options.locale ?? 'en',
     source: { id: 'nebula-managed', label: 'Nebula Logger (managed)', shape: 'transactions' },
-    log,
+    log: options.log ?? log,
     logPayload: options.logPayload,
     entryColumns: [{ key: 'OriginType__c', label: 'Origin Type' }],
     payloadColumns: { defaults: options.defaults ?? [], added: options.added ?? [] },
@@ -206,8 +207,10 @@ describe('Custom Log viewer app', () => {
       expect(header).toHaveTextContent('Nebula Logger (managed)');
       expect(header).toHaveTextContent('dev@acme.com');
       expect(header).toHaveTextContent('33 entries');
-      expect(header).toHaveTextContent('1 errors');
-      expect(header).toHaveTextContent('1 warnings');
+      expect(header).toHaveTextContent('1 error');
+      expect(header).not.toHaveTextContent('1 errors');
+      expect(header).toHaveTextContent('1 warning');
+      expect(header).not.toHaveTextContent('1 warnings');
       expect(header).toHaveTextContent('ae12d024-5b1c-4f0e-9d5e-1b8c0d1f2a77');
     });
 
@@ -227,6 +230,23 @@ describe('Custom Log viewer app', () => {
 
       mountViewer({ apexLog: { state: 'noRequestId' } });
       expect(screen.getByTestId('custom-log-apex-hint')).toHaveTextContent('no request id');
+    });
+
+    it('tells a user who cannot read debug logs apart from a request that has none', () => {
+      mountViewer({ apexLog: { state: 'unavailable', reason: 'noAccess' } });
+
+      expect(screen.queryByRole('button', { name: 'Open Apex log' })).toBeNull();
+      expect(screen.getByTestId('custom-log-apex-hint')).toHaveTextContent('You cannot read debug logs in this org.');
+      expect(screen.getByTestId('custom-log-apex-hint')).not.toHaveTextContent('trace flag');
+    });
+
+    it('pluralizes the header counts', () => {
+      mountViewer({ log: { ...log, counts: { entries: 1, errors: 2, warnings: 1 } } });
+
+      const header = screen.getByRole('banner');
+      expect(header).toHaveTextContent('1 entry');
+      expect(header).toHaveTextContent('2 errors');
+      expect(header).toHaveTextContent('1 warning');
     });
 
     it('copies the transaction id through the host', () => {
@@ -264,6 +284,8 @@ describe('Custom Log viewer app', () => {
 
       expect(screen.getByRole('button', { name: 'Abrir log do Apex' })).toBeInTheDocument();
       expect(screen.getByRole('searchbox', { name: 'Buscar entradas…' })).toBeInTheDocument();
+      expect(screen.getByRole('banner')).toHaveTextContent('1 erro');
+      expect(screen.getByRole('banner')).not.toHaveTextContent('1 erros');
     });
   });
 
