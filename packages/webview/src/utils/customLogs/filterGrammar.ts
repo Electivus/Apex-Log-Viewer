@@ -1,4 +1,4 @@
-export const FILTER_OPERATORS = ['=', '!=', '>=', '<=', '>', '<', 'contains', 'exists'] as const;
+export const FILTER_OPERATORS = ['=', '!=', '>', '>=', '<', '<=', 'contains', 'exists'] as const;
 export type FilterOperator = (typeof FILTER_OPERATORS)[number];
 
 /** Character offsets into the parsed text, so a caller can point at the token it dislikes. */

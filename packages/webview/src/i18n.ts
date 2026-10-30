@@ -25,7 +25,7 @@ export type Messages = {
   orgLabel: string;
   defaultOrg: string;
   searchPlaceholder?: string;
-  noOrgsDetected?: string;
+  noOrgsDetected: string;
   tail?: {
     start: string;
     stop: string;

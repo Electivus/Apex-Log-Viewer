@@ -55,12 +55,17 @@ import { detailDock, readPayloadUiState, useElementHeight } from './utils/custom
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
 
+const NO_CAPABILITIES = { levelFilter: false, userFilter: false, apexLogLink: false };
 const NO_ORGS: OrgItem[] = [];
 const NO_SOURCES: CustomLogSourceView[] = [];
 const NO_ISSUES: CustomLogConfigIssueView[] = [];
 const NO_COLUMNS: CustomLogColumn[] = [];
 const NO_ROWS: CustomLogRow[] = [];
 const NO_FIELDS: CustomLogPayloadField[] = [];
+
+function sameFilter(a: CustomLogsFilterView, b: CustomLogsFilterView): boolean {
+  return a.minLevel === b.minLevel && a.user === b.user && a.since === b.since;
+}
 
 function buildReadyMessage(): CustomLogsFromWebviewMessage {
   const content = document.querySelector('meta[name="alv-mount-sequence"]')?.getAttribute('content');
@@ -189,7 +194,7 @@ export function CustomLogsApp({
   const selectedRow = useMemo(() => visibleRows.find(row => row.id === selectedId), [selectedId, visibleRows]);
   const payloadStates = useMemo(() => countPayloadStates(rows), [rows]);
 
-  const capabilities = selectedSource?.capabilities ?? { levelFilter: false, userFilter: false, apexLogLink: false };
+  const capabilities = selectedSource?.capabilities ?? NO_CAPABILITIES;
   const dock = detailDock(rootHeight);
 
   const setServerFilterAndPost = useCallback(
@@ -232,7 +237,7 @@ export function CustomLogsApp({
           nextSource = applied.apply.sourceId;
         }
       }
-      if (JSON.stringify(workingFilter) !== JSON.stringify(serverFilter)) {
+      if (!sameFilter(workingFilter, serverFilter)) {
         setServerFilterAndPost(workingFilter);
       }
       if (nextSource !== undefined && nextSource !== selectedSourceId) {
@@ -347,7 +352,7 @@ export function CustomLogsApp({
       <CustomLogsToolbar
         t={t}
         orgLabel={messages.orgLabel}
-        noOrgsText={messages.noOrgsDetected ?? 'No orgs detected. Run "sf org list".'}
+        noOrgsText={messages.noOrgsDetected}
         orgs={orgs}
         selectedOrg={selectedOrg}
         onSelectOrg={onSelectOrg}

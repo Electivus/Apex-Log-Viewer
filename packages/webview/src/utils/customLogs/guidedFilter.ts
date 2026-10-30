@@ -1,6 +1,6 @@
 import { parseCustomLogLevel, parseSinceValue } from '@alv/protocol/customLogsRules';
 import type { CustomLogsFilterView } from '@alv/protocol/customLogsTypes';
-import { matchOperatorPrefix, type FilterCondition, type FilterOperator } from './filterGrammar';
+import { FILTER_OPERATORS, matchOperatorPrefix, type FilterCondition, type FilterOperator } from './filterGrammar';
 import {
   payloadValues,
   topValues,
@@ -44,7 +44,6 @@ export type GuidedContext = {
   valuesFor: (field: string, prefix: string) => readonly GuidedItem[];
 };
 
-const ALL_OPERATORS: readonly FilterOperator[] = ['=', '!=', '>', '>=', '<', '<=', 'contains', 'exists'];
 const MAX_FIELD_ITEMS = 8;
 const MAX_VALUE_ITEMS = 8;
 
@@ -65,7 +64,7 @@ export function operatorsFor(field: string, type: PayloadFieldType | undefined):
     case 'string':
       return ['=', '!=', 'contains', 'exists'];
     default:
-      return [...ALL_OPERATORS];
+      return [...FILTER_OPERATORS];
   }
 }
 
@@ -191,20 +190,15 @@ export function applyServerCondition(
   }
 }
 
+const FILTER_KEY = { level: 'minLevel', user: 'user', since: 'since' } as const;
+
 /** The filter with one server chip removed. */
 export function clearServerFilter(
   filter: CustomLogsFilterView,
   field: Exclude<ServerFilterField, 'source'>
 ): CustomLogsFilterView {
-  const { minLevel, user, since } = filter;
-  switch (field) {
-    case 'level':
-      return { ...(user ? { user } : {}), ...(since ? { since } : {}) };
-    case 'user':
-      return { ...(minLevel ? { minLevel } : {}), ...(since ? { since } : {}) };
-    case 'since':
-      return { ...(minLevel ? { minLevel } : {}), ...(user ? { user } : {}) };
-  }
+  const { [FILTER_KEY[field]]: _removed, ...rest } = filter;
+  return rest;
 }
 
 export type ServerChip = { field: Exclude<ServerFilterField, 'source'>; op: FilterOperator; value: string };
