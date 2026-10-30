@@ -462,6 +462,38 @@ describe('Custom Log viewer app', () => {
       ).toHaveLength(1);
     });
 
+    it("asks for the selected entry's long fields again when a refresh replaces the entries", () => {
+      const { posted, bus } = mountViewer();
+      fireEvent.click(rowOf(entryIds.error));
+      send(bus, { type: 'customLogViewerEntryFields', entryId: entryIds.error, fields });
+
+      send(bus, { type: 'customLogViewerEntries', mode: 'replace', entries, payloadFields: [], hasMore: false });
+
+      expect(
+        posts(posted, 'customLogViewerOpenEntry').filter(message => message.entryId === entryIds.error)
+      ).toHaveLength(2);
+      const detail = screen.getByTestId('custom-log-entry-detail');
+      expect(within(detail).queryByTestId('entry-field-message')).toBeNull();
+      send(bus, { type: 'customLogViewerEntryFields', entryId: entryIds.error, fields });
+      expect(within(detail).getByTestId('entry-field-message')).toBeInTheDocument();
+    });
+
+    it('asks for nothing after a refresh when the selected entry is no longer listed', () => {
+      const { posted, bus } = mountViewer();
+      fireEvent.click(rowOf(entryIds.error));
+
+      send(bus, {
+        type: 'customLogViewerEntries',
+        mode: 'replace',
+        entries: entries.filter(entry => entry.id !== entryIds.error),
+        payloadFields: [],
+        hasMore: false
+      });
+
+      expect(posts(posted, 'customLogViewerOpenEntry')).toHaveLength(1);
+      expect(screen.queryByTestId('custom-log-entry-detail')).toBeNull();
+    });
+
     it('opens a long field by its key, never by its text', () => {
       const { posted, bus } = mountViewer();
       fireEvent.click(rowOf(entryIds.error));

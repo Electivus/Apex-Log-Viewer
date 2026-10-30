@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   mergePayloadFields,
@@ -99,6 +99,8 @@ export function CustomLogViewerApp({
   const [details, setDetails] = useState<ReadonlySet<string>>(new Set());
   const [showSystem, setShowSystem] = useState(initialUiState.showSystem);
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
+  const selectedIdRef = useRef<string | undefined>(undefined);
+  selectedIdRef.current = selectedId;
   const [rootRef, rootHeight] = useElementHeight<HTMLDivElement>();
 
   const t = getMessages(locale).customLogs;
@@ -130,6 +132,11 @@ export function CustomLogViewerApp({
             setEntries(msg.entries || []);
             setPayloadFields(msg.payloadFields || []);
             setEntryFields({});
+            // A refresh drops every entry's field list, so the selected entry asks for its own again.
+            const selected = selectedIdRef.current;
+            if (selected && (msg.entries || []).some(entry => entry.id === selected)) {
+              vscode.postMessage({ type: 'customLogViewerOpenEntry', entryId: selected });
+            }
           } else {
             setEntries(previous => [...previous, ...(msg.entries || [])]);
             setPayloadFields(previous => mergePayloadFields(previous, msg.payloadFields || []));
