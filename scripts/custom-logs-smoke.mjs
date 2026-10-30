@@ -12,6 +12,7 @@
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +24,9 @@ const SF_BIN = process.env.ALV_SF_BIN_PATH || 'sf';
 const FIXTURE_DIR = path.join(REPO_ROOT, 'packages/core/test/fixtures/customLogs');
 
 const CLI = path.join(REPO_ROOT, 'packages/sf-plugin/bin/run.js');
+const { CUSTOM_LOG_CELL_CHARS } = createRequire(import.meta.url)(
+  path.join(REPO_ROOT, 'packages/core/lib/contracts.js')
+);
 
 /** `source` is the built-in source id the org must detect; `admin` reads every field, an end user is a LoggerEndUser. */
 const HARNESS = [
@@ -448,6 +452,83 @@ async function smokeAppLog({ alias }, projectDir) {
   await writeProject(projectDir, APP_LOG_PROJECT);
 }
 
+/**
+ * An `entries` source over LogEntry__c whose mapping uses long text where a cell or a filter would
+ * read it: Message__c as a column, a textarea of the parent as the user, Message__c as the
+ * transaction id. Neither textarea can be filtered in SOQL.
+ */
+const CELLS_PROJECT = {
+  ...APP_LOG_PROJECT,
+  plugins: {
+    electivus: {
+      customLogs: {
+        sources: [
+          {
+            id: 'entry-cells',
+            label: 'Entry cells',
+            entry: {
+              object: 'LogEntry__c',
+              fields: {
+                time: 'Timestamp__c',
+                message: 'Message__c',
+                user: 'Log__r.LoggedByFederationIdentifier__c',
+                transactionId: 'Message__c'
+              },
+              columns: ['Message__c']
+            }
+          }
+        ]
+      }
+    }
+  }
+};
+
+async function smokeLongTextRoles({ alias }, projectDir) {
+  const where = { org: alias, cwd: projectDir };
+  const label = `${alias} long text roles`;
+
+  const sources = await cli('sources', [], where);
+  const cells = sources.ok && sources.result.sources.find(item => item.id === 'entry-cells');
+  check(
+    `${label}: a user role on a field SOQL cannot filter is no user filter`,
+    cells?.state === 'ready' && cells.capabilities.userFilter === false,
+    cells
+  );
+  const byUser = await cli('list', ['--source', 'entry-cells', '--user', 'someone'], where);
+  check(
+    `${label}: --user on that source is refused before any query`,
+    !byUser.ok && byUser.code === 'CUSTOM_LOG_UNSUPPORTED_FILTER',
+    byUser
+  );
+
+  const all = await cli('list', ['--source', 'entry-cells', '--limit', '200'], where);
+  const cellsOf = row => [row.title ?? '', row.transactionId ?? '', String(row.extra.Message__c ?? '')];
+  check(
+    `${label}: every title, transaction id and column cell is at most ${CUSTOM_LOG_CELL_CHARS} characters`,
+    all.ok &&
+      all.result.rows.length > 0 &&
+      all.result.rows.every(row => cellsOf(row).every(cell => cell.length <= CUSTOM_LOG_CELL_CHARS)),
+    all.ok ? Math.max(...all.result.rows.flatMap(row => cellsOf(row).map(cell => cell.length))) : all
+  );
+  if (!all.ok) return;
+  const cut = all.result.rows.find(row => String(row.extra.Message__c ?? '').length === CUSTOM_LOG_CELL_CHARS);
+  const whole = cut && (await cli('entry', ['--source', 'entry-cells', '--entry-id', cut.id], where));
+  check(
+    `${label}: a message longer than a cell is cut in the column and whole in entry`,
+    whole?.ok &&
+      whole.result.entry.message.length > CUSTOM_LOG_CELL_CHARS &&
+      whole.result.entry.message.startsWith(cut.extra.Message__c),
+    whole?.ok ? whole.result.entry.message.length : (whole ?? 'no message reaches the cell cap')
+  );
+  if (!cut) return;
+  const get = await cli('get', ['--source', 'entry-cells', '--log-id', cut.id], where);
+  check(
+    `${label}: get opens an entry on its own when its transaction id field cannot be filtered`,
+    get.ok && get.result.entries.length === 1 && get.result.entries[0].id === cut.id,
+    get.ok ? get.result.entries.map(entry => entry.id) : get
+  );
+}
+
 async function smokeEndUserWithProject({ alias, source }, projectDir) {
   const sources = await cli('sources', [], { org: alias, cwd: projectDir });
   const appLog = sources.ok && sources.result.sources.find(item => item.id === 'app-log');
@@ -469,13 +550,19 @@ async function smoke(aliases) {
 
   const emptyDir = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-custom-logs-smoke-empty-'));
   const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-custom-logs-smoke-project-'));
+  const cellsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-custom-logs-smoke-cells-'));
   await writeProject(projectDir, APP_LOG_PROJECT);
+  await writeProject(cellsDir, CELLS_PROJECT);
   try {
     for (const entry of known) {
       console.log(`\n# ${entry.alias}`);
       await smokeNebula(entry, emptyDir);
-      if (entry.appLog) await smokeAppLog(entry, projectDir);
-      else await smokeEndUserWithProject(entry, projectDir);
+      if (entry.appLog) {
+        await smokeAppLog(entry, projectDir);
+        await smokeLongTextRoles(entry, cellsDir);
+      } else {
+        await smokeEndUserWithProject(entry, projectDir);
+      }
     }
     if (known.length === HARNESS.length) {
       console.log('\n# across the orgs');
@@ -493,6 +580,7 @@ async function smoke(aliases) {
   } finally {
     await fs.rm(emptyDir, { recursive: true, force: true });
     await fs.rm(projectDir, { recursive: true, force: true });
+    await fs.rm(cellsDir, { recursive: true, force: true });
   }
   const failed = results.filter(result => !result.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
