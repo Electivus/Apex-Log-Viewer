@@ -1,15 +1,17 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
-import { List, type ListImperativeAPI } from 'react-window';
+import React, { useMemo } from 'react';
+import { List } from 'react-window';
 import { TriangleAlert } from 'lucide-react';
 import type { CustomLogRow } from '@alv/protocol/customLogsTypes';
 import type { CustomLogsMessages } from '../../i18n';
 import { cn } from '../../lib/utils';
 import type { SortState, TableColumn } from '../../utils/customLogs/columns';
-import { formatLogTime, formatScalar, scalarKind } from '../../utils/customLogs/format';
-import { payloadValues, type DiscoveredField } from '../../utils/customLogs/payloadRows';
+import { formatLogTime } from '../../utils/customLogs/format';
+import type { DiscoveredField } from '../../utils/customLogs/payloadRows';
 import { CustomLogsColumnsHeader, columnGrid } from './CustomLogsColumnsHeader';
 import { ExtraCell } from './ExtraCell';
 import { LevelBadge } from './LevelBadge';
+import { PayloadCell } from './PayloadCell';
+import { useGridList } from './useGridList';
 
 const ROW_HEIGHT = 24;
 
@@ -70,54 +72,6 @@ function CountsCell({ t, row }: { t: CustomLogsMessages; row: CustomLogRow }) {
       ) : null}
     </span>
   );
-}
-
-function PayloadCell({
-  t,
-  row,
-  column,
-  marker
-}: {
-  t: CustomLogsMessages;
-  row: CustomLogRow;
-  column: Extract<TableColumn, { kind: 'payload' }>;
-  marker: boolean;
-}) {
-  const values = payloadValues(row.payload, column.path);
-  if (values.length > 0) {
-    const single = values.length === 1 ? values[0]! : undefined;
-    const kind = single === undefined ? 'string' : scalarKind(single);
-    const text = values.map(formatScalar).join(', ');
-    return (
-      <span
-        title={text}
-        className={cn(
-          'block truncate font-mono text-xs',
-          kind === 'number' && 'text-right text-[color:var(--vscode-debugTokenExpression-number,#b5cea8)]',
-          kind === 'boolean' && 'text-[color:var(--vscode-debugTokenExpression-boolean,#569cd6)]',
-          kind === 'null' && 'italic text-muted-foreground'
-        )}
-      >
-        {text}
-      </span>
-    );
-  }
-  const state = row.payload?.state;
-  if (marker && state && state !== 'parsed') {
-    return (
-      <span
-        className={cn(
-          'flex items-center gap-1 text-[11px]',
-          state === 'empty' ? 'text-muted-foreground' : 'text-amber-400'
-        )}
-        title={t.payload[`${state}Note`]}
-      >
-        {state === 'empty' ? null : <TriangleAlert className="h-3 w-3 shrink-0" aria-hidden="true" />}
-        {t.payload[state]}
-      </span>
-    );
-  }
-  return <span className="text-muted-foreground/60">—</span>;
 }
 
 function CustomLogRowView({
@@ -181,7 +135,7 @@ function CustomLogRowView({
           ) : column.kind === 'extra' ? (
             <ExtraCell value={row.extra[column.key]} />
           ) : (
-            <PayloadCell t={t} row={row} column={column} marker={column.id === firstPayloadColumnId} />
+            <PayloadCell t={t} payload={row.payload} path={column.path} marker={column.id === firstPayloadColumnId} />
           )}
         </div>
       ))}
@@ -208,40 +162,10 @@ export function CustomLogsTable({
   virtualListComponent
 }: CustomLogsTableProps) {
   const VirtualList = virtualListComponent ?? List;
-  const listRef = useRef<ListImperativeAPI | null>(null);
-  const headerRef = useRef<HTMLDivElement | null>(null);
+  const { listRef, headerRef, onKeyDown } = useGridList(rows, selectedId, onSelect, onOpen);
 
   const { gridTemplate, totalWidth } = useMemo(() => columnGrid(columns), [columns]);
   const firstPayloadColumnId = useMemo(() => columns.find(column => column.kind === 'payload')?.id, [columns]);
-
-  useEffect(() => {
-    const element = listRef.current?.element;
-    if (!element) {
-      return;
-    }
-    const syncHeader = () => {
-      if (headerRef.current) {
-        headerRef.current.scrollLeft = element.scrollLeft;
-      }
-    };
-    element.addEventListener('scroll', syncHeader, { passive: true });
-    return () => element.removeEventListener('scroll', syncHeader);
-  }, []);
-
-  const selectedIndex = rows.findIndex(row => row.id === selectedId);
-
-  const moveSelection = useCallback(
-    (delta: 1 | -1) => {
-      const from = selectedIndex >= 0 ? selectedIndex : delta > 0 ? -1 : rows.length;
-      const index = Math.min(rows.length - 1, Math.max(0, from + delta));
-      const next = rows[index];
-      if (next) {
-        onSelect(next);
-        listRef.current?.scrollToRow({ index, align: 'smart', behavior: 'auto' });
-      }
-    },
-    [onSelect, rows, selectedIndex]
-  );
 
   const rowProps = useMemo<RowProps>(
     () => ({ t, rows, columns, gridTemplate, totalWidth, selectedId, firstPayloadColumnId, onSelect, onOpen }),
@@ -255,22 +179,7 @@ export function CustomLogsTable({
       aria-rowcount={rows.length}
       tabIndex={0}
       className="flex min-h-0 min-w-0 flex-1 flex-col focus-visible:outline-none"
-      onKeyDown={event => {
-        if (event.target !== event.currentTarget) {
-          return;
-        }
-        const selected = rows[selectedIndex];
-        if (event.key === 'ArrowDown') {
-          event.preventDefault();
-          moveSelection(1);
-        } else if (event.key === 'ArrowUp') {
-          event.preventDefault();
-          moveSelection(-1);
-        } else if (event.key === 'Enter' && selected) {
-          event.preventDefault();
-          onOpen(selected);
-        }
-      }}
+      onKeyDown={onKeyDown}
     >
       <CustomLogsColumnsHeader
         headerRef={headerRef}

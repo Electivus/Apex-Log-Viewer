@@ -1,15 +1,17 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { List, type ListImperativeAPI } from 'react-window';
+import { List } from 'react-window';
 import type { CustomLogEntry } from '@alv/protocol/customLogsTypes';
 import type { CustomLogsMessages } from '../../i18n';
 import { cn } from '../../lib/utils';
 import type { SortState } from '../../utils/customLogs/columns';
 import type { EntryColumn } from '../../utils/customLogs/entries';
-import { formatClock, formatScalar, scalarKind } from '../../utils/customLogs/format';
-import { payloadValues, type DiscoveredField } from '../../utils/customLogs/payloadRows';
+import { formatClock } from '../../utils/customLogs/format';
+import type { DiscoveredField } from '../../utils/customLogs/payloadRows';
 import { CustomLogsColumnsHeader, columnGrid } from './CustomLogsColumnsHeader';
 import { ExtraCell } from './ExtraCell';
 import { LevelBadge } from './LevelBadge';
+import { PayloadCell } from './PayloadCell';
+import { useGridList } from './useGridList';
 
 const DEFAULT_ROW_HEIGHT = 26;
 
@@ -125,7 +127,12 @@ function EntryRowView({
             ) : column.kind === 'extra' ? (
               <ExtraCell value={entry.extra[column.key]} />
             ) : (
-              <EntryPayloadCell t={t} entry={entry} path={column.path} marker={column.id === firstPayloadColumnId} />
+              <PayloadCell
+                t={t}
+                payload={entry.payload}
+                path={column.path}
+                marker={column.id === firstPayloadColumnId}
+              />
             )}
           </div>
         ))}
@@ -133,51 +140,6 @@ function EntryRowView({
       </div>
     </div>
   );
-}
-
-function EntryPayloadCell({
-  t,
-  entry,
-  path,
-  marker
-}: {
-  t: CustomLogsMessages;
-  entry: CustomLogEntry;
-  path: string;
-  marker: boolean;
-}) {
-  const values = payloadValues(entry.payload, path);
-  if (values.length > 0) {
-    const single = values.length === 1 ? values[0]! : undefined;
-    const kind = single === undefined ? 'string' : scalarKind(single);
-    const text = values.map(formatScalar).join(', ');
-    return (
-      <span
-        title={text}
-        className={cn(
-          'block truncate font-mono text-xs',
-          kind === 'number' && 'text-right text-[color:var(--vscode-debugTokenExpression-number,#b5cea8)]',
-          kind === 'boolean' && 'text-[color:var(--vscode-debugTokenExpression-boolean,#569cd6)]',
-          kind === 'null' && 'italic text-muted-foreground'
-        )}
-      >
-        {text}
-      </span>
-    );
-  }
-  const state = entry.payload?.state;
-  if (marker && state && state !== 'parsed') {
-    return (
-      <span
-        className={cn('text-[11px]', state === 'empty' ? 'text-muted-foreground' : 'text-amber-400')}
-        title={t.payload[`${state}Note`]}
-      >
-        {state === 'empty' ? '' : '⚠ '}
-        {t.payload[state]}
-      </span>
-    );
-  }
-  return <span className="text-muted-foreground/60">—</span>;
 }
 
 type CustomLogEntryListProps = {
@@ -215,8 +177,7 @@ export function CustomLogEntryList({
   virtualListComponent
 }: CustomLogEntryListProps) {
   const VirtualList = virtualListComponent ?? List;
-  const listRef = useRef<ListImperativeAPI | null>(null);
-  const headerRef = useRef<HTMLDivElement | null>(null);
+  const { listRef, headerRef, onKeyDown } = useGridList(entries, selectedId, onSelect);
   const rowHeightsRef = useRef<Record<number, number>>({});
   const rafRef = useRef<number | null>(null);
   const [, forceRender] = useState(0);
@@ -242,31 +203,6 @@ export function CustomLogEntryList({
     rowHeightsRef.current = {};
   }, [entries, columns]);
 
-  useEffect(() => {
-    const element = listRef.current?.element;
-    if (!element) {
-      return;
-    }
-    const syncHeader = () => {
-      if (headerRef.current) {
-        headerRef.current.scrollLeft = element.scrollLeft;
-      }
-    };
-    element.addEventListener('scroll', syncHeader, { passive: true });
-    return () => element.removeEventListener('scroll', syncHeader);
-  }, []);
-
-  const selectedIndex = entries.findIndex(entry => entry.id === selectedId);
-  const moveSelection = (delta: 1 | -1) => {
-    const from = selectedIndex >= 0 ? selectedIndex : delta > 0 ? -1 : entries.length;
-    const index = Math.min(entries.length - 1, Math.max(0, from + delta));
-    const next = entries[index];
-    if (next) {
-      onSelect(next);
-      listRef.current?.scrollToRow({ index, align: 'smart', behavior: 'auto' });
-    }
-  };
-
   const rowProps = useMemo<EntryRowProps>(
     () => ({ t, entries, columns, gridTemplate, totalWidth, selectedId, firstPayloadColumnId, onSelect, setRowHeight }),
     [t, entries, columns, gridTemplate, totalWidth, selectedId, firstPayloadColumnId, onSelect, setRowHeight]
@@ -279,18 +215,7 @@ export function CustomLogEntryList({
       aria-rowcount={entries.length}
       tabIndex={0}
       className="flex min-h-0 min-w-0 flex-1 flex-col focus-visible:outline-none"
-      onKeyDown={event => {
-        if (event.target !== event.currentTarget) {
-          return;
-        }
-        if (event.key === 'ArrowDown') {
-          event.preventDefault();
-          moveSelection(1);
-        } else if (event.key === 'ArrowUp') {
-          event.preventDefault();
-          moveSelection(-1);
-        }
-      }}
+      onKeyDown={onKeyDown}
     >
       <CustomLogsColumnsHeader
         headerRef={headerRef}

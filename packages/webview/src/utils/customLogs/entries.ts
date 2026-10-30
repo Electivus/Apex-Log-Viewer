@@ -5,8 +5,8 @@ import {
   type CustomLogScalar
 } from '@alv/protocol/customLogsTypes';
 import type { FilterClause } from './filterGrammar';
-import { filterLoadedRows, payloadValues, type DiscoveredField, type PayloadColumn } from './payloadRows';
-import type { SortState } from './columns';
+import { filterLoadedRows, type DiscoveredField, type PayloadColumn } from './payloadRows';
+import { appendDataColumns, dataColumnSortValue, type DataColumn, type SortState } from './columns';
 
 export type EntryFilters = {
   /** Show only these levels. Empty shows every level. */
@@ -71,26 +71,7 @@ export function countSystemEntries(entries: readonly CustomLogEntry[]): number {
   return entries.reduce((total, entry) => total + (entry.system ? 1 : 0), 0);
 }
 
-export type EntryColumn =
-  | {
-      id: string;
-      kind: 'std';
-      field: 'sequence' | 'time' | 'level' | 'origin' | 'message';
-      label: string;
-      width: number;
-      flex?: boolean;
-    }
-  | { id: string; kind: 'extra'; key: string; label: string; width: number }
-  | {
-      id: string;
-      kind: 'payload';
-      path: string;
-      label: string;
-      width: number;
-      locked: boolean;
-      type?: DiscoveredField['type'];
-      rows?: number;
-    };
+export type EntryColumn = DataColumn<'sequence' | 'time' | 'level' | 'origin' | 'message'>;
 
 export type EntryColumnLabels = Record<'sequence' | 'time' | 'level' | 'origin' | 'message', string>;
 
@@ -110,46 +91,29 @@ export function buildEntryColumns(input: {
       : []),
     { id: 'std:message', kind: 'std', field: 'message', label: input.labels.message, width: 360, flex: true }
   ];
-  for (const column of input.extra) {
-    columns.push({ id: `extra:${column.key}`, kind: 'extra', key: column.key, label: column.label, width: 140 });
-  }
-  const byPath = new Map(input.discovered.map(field => [field.path, field]));
-  for (const column of input.payload) {
-    const field = byPath.get(column.path);
-    columns.push({
-      id: `payload:${column.path}`,
-      kind: 'payload',
-      path: column.path,
-      label: column.path,
-      width: 150,
-      locked: column.origin === 'default',
-      ...(field ? { type: field.type, rows: field.rows } : {})
-    });
-  }
-  return columns;
+  return appendDataColumns(columns, {
+    extra: input.extra,
+    extraWidth: 140,
+    payload: input.payload,
+    discovered: input.discovered
+  });
 }
 
 export function entrySortValue(entry: CustomLogEntry, column: EntryColumn): CustomLogScalar | undefined {
-  switch (column.kind) {
-    case 'std':
-      switch (column.field) {
-        case 'sequence':
-          return entry.sequence;
-        case 'time':
-          return entry.time;
-        case 'level':
-          return entry.level === undefined ? undefined : CUSTOM_LOG_LEVELS.indexOf(entry.level);
-        case 'origin':
-          return entry.origin;
-        case 'message':
-          return entry.message;
-      }
-      return undefined;
-    case 'extra':
-      return entry.extra[column.key];
-    case 'payload':
-      return payloadValues(entry.payload, column.path)[0];
-  }
+  return dataColumnSortValue(column, entry, field => {
+    switch (field) {
+      case 'sequence':
+        return entry.sequence;
+      case 'time':
+        return entry.time;
+      case 'level':
+        return entry.level === undefined ? undefined : CUSTOM_LOG_LEVELS.indexOf(entry.level);
+      case 'origin':
+        return entry.origin;
+      case 'message':
+        return entry.message;
+    }
+  });
 }
 
 export type { SortState };

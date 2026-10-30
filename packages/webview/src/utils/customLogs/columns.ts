@@ -4,12 +4,17 @@ import {
   type CustomLogRow,
   type CustomLogScalar
 } from '@alv/protocol/customLogsTypes';
-import { payloadValues, type DiscoveredField, type PayloadColumn, type PayloadFieldType } from './payloadRows';
+import {
+  payloadValues,
+  type DiscoveredField,
+  type PayloadColumn,
+  type PayloadFieldType,
+  type PayloadRow
+} from './payloadRows';
 
-export type StandardColumnField = 'time' | 'level' | 'title' | 'user' | 'counts';
-
-export type TableColumn =
-  | { id: string; kind: 'std'; field: StandardColumnField; label: string; width: number; flex?: boolean }
+/** A grid column of the list or of the entry viewer: only the standard fields differ between them. */
+export type DataColumn<Field extends string> =
+  | { id: string; kind: 'std'; field: Field; label: string; width: number; flex?: boolean }
   | { id: string; kind: 'extra'; key: string; label: string; width: number }
   | {
       id: string;
@@ -22,6 +27,10 @@ export type TableColumn =
       type?: PayloadFieldType;
       rows?: number;
     };
+
+export type StandardColumnField = 'time' | 'level' | 'title' | 'user' | 'counts';
+
+export type TableColumn = DataColumn<StandardColumnField>;
 
 export type SortState = { columnId: string; dir: 'asc' | 'desc' };
 
@@ -69,11 +78,32 @@ export function buildTableColumns({
     width: STANDARD_WIDTH[field],
     ...(field === 'title' ? { flex: true } : {})
   }));
-  for (const column of extra) {
-    columns.push({ id: `extra:${column.key}`, kind: 'extra', key: column.key, label: column.label, width: 150 });
+  return appendDataColumns(columns, { extra, extraWidth: 150, payload, discovered });
+}
+
+type ColumnItem = PayloadRow & { extra: Readonly<Record<string, CustomLogScalar>> };
+
+/** The source's display columns, then one column per active payload path, after the standard ones. */
+export function appendDataColumns<Field extends string>(
+  columns: DataColumn<Field>[],
+  input: {
+    extra: readonly CustomLogColumn[];
+    extraWidth: number;
+    payload: readonly PayloadColumn[];
+    discovered: readonly DiscoveredField[];
   }
-  const byPath = new Map(discovered.map(field => [field.path, field]));
-  for (const column of payload) {
+): DataColumn<Field>[] {
+  for (const column of input.extra) {
+    columns.push({
+      id: `extra:${column.key}`,
+      kind: 'extra',
+      key: column.key,
+      label: column.label,
+      width: input.extraWidth
+    });
+  }
+  const byPath = new Map(input.discovered.map(field => [field.path, field]));
+  for (const column of input.payload) {
     const field = byPath.get(column.path);
     columns.push({
       id: `payload:${column.path}`,
@@ -88,26 +118,35 @@ export function buildTableColumns({
   return columns;
 }
 
-/** The value a column sorts by. */
-export function columnSortValue(row: CustomLogRow, column: TableColumn): CustomLogScalar | undefined {
+/** The value a column sorts by; `standard` reads the fields only the caller's list has. */
+export function dataColumnSortValue<Field extends string>(
+  column: DataColumn<Field>,
+  item: ColumnItem,
+  standard: (field: Field) => CustomLogScalar | undefined
+): CustomLogScalar | undefined {
   switch (column.kind) {
     case 'std':
-      switch (column.field) {
-        case 'time':
-          return row.time;
-        case 'level':
-          return row.level === undefined ? undefined : CUSTOM_LOG_LEVELS.indexOf(row.level);
-        case 'title':
-          return row.title;
-        case 'user':
-          return row.user;
-        case 'counts':
-          return row.counts?.entries;
-      }
-      return undefined;
+      return standard(column.field);
     case 'extra':
-      return row.extra[column.key];
+      return item.extra[column.key];
     case 'payload':
-      return payloadValues(row.payload, column.path)[0];
+      return payloadValues(item.payload, column.path)[0];
   }
+}
+
+export function columnSortValue(row: CustomLogRow, column: TableColumn): CustomLogScalar | undefined {
+  return dataColumnSortValue(column, row, field => {
+    switch (field) {
+      case 'time':
+        return row.time;
+      case 'level':
+        return row.level === undefined ? undefined : CUSTOM_LOG_LEVELS.indexOf(row.level);
+      case 'title':
+        return row.title;
+      case 'user':
+        return row.user;
+      case 'counts':
+        return row.counts?.entries;
+    }
+  });
 }

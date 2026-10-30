@@ -6,6 +6,7 @@ import { cn } from '../../lib/utils';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
+import { LEVEL_COLOR } from './LevelBadge';
 
 type CustomLogViewerToolbarProps = {
   t: CustomLogsMessages;
@@ -20,16 +21,6 @@ type CustomLogViewerToolbarProps = {
   systemCount: number;
   showSystem: boolean;
   onShowSystemChange: (value: boolean) => void;
-};
-
-const LEVEL_COLOR: Record<CustomLogLevel, string> = {
-  ERROR: 'var(--vscode-charts-red, #f14c4c)',
-  WARN: 'var(--vscode-charts-yellow, #cca700)',
-  INFO: 'var(--vscode-charts-blue, #3794ff)',
-  DEBUG: 'var(--vscode-charts-purple, #b180d7)',
-  FINE: 'var(--vscode-descriptionForeground, #8b949e)',
-  FINER: 'var(--vscode-descriptionForeground, #8b949e)',
-  FINEST: 'var(--vscode-descriptionForeground, #8b949e)'
 };
 
 function ToggleChip({

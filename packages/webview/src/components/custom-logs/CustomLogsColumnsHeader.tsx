@@ -2,7 +2,7 @@ import React from 'react';
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import type { CustomLogsMessages } from '../../i18n';
 import { cn } from '../../lib/utils';
-import type { SortState } from '../../utils/customLogs/columns';
+import type { DataColumn, SortState } from '../../utils/customLogs/columns';
 import { fillTemplate } from '../../utils/customLogs/format';
 import type { DiscoveredField, PayloadFieldType } from '../../utils/customLogs/payloadRows';
 import { ColumnHeaderMenu } from './ColumnHeaderMenu';
@@ -10,18 +10,7 @@ import { PAYLOAD_TYPE_LABEL_KEY, PayloadFieldPicker } from './PayloadFieldPicker
 
 export const ADD_FIELD_WIDTH = 96;
 
-export type HeaderColumn =
-  | { id: string; kind: 'std' | 'extra'; label: string; width: number; flex?: boolean }
-  | {
-      id: string;
-      kind: 'payload';
-      path: string;
-      label: string;
-      width: number;
-      locked: boolean;
-      type?: PayloadFieldType;
-      rows?: number;
-    };
+export type HeaderColumn = DataColumn<string>;
 
 export function columnTrack(column: HeaderColumn): string {
   return 'flex' in column && column.flex ? `minmax(${column.width}px, 1fr)` : `${column.width}px`;

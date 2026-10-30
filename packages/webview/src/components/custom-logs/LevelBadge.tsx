@@ -2,7 +2,7 @@ import React from 'react';
 import type { CustomLogLevel } from '@alv/protocol/customLogsTypes';
 import { cn } from '../../lib/utils';
 
-const LEVEL_COLOR: Record<CustomLogLevel, string> = {
+export const LEVEL_COLOR: Record<CustomLogLevel, string> = {
   ERROR: 'var(--vscode-charts-red, #f14c4c)',
   WARN: 'var(--vscode-charts-yellow, #cca700)',
   INFO: 'var(--vscode-charts-blue, #3794ff)',
