@@ -1,5 +1,5 @@
 import { CUSTOM_LOG_LEVELS, type CustomLogLevel, type CustomLogsFilterView } from '@alv/protocol/customLogsTypes';
-import { FILTER_OPERATORS, matchOperatorPrefix, type FilterCondition, type FilterOperator } from './filterGrammar';
+import { matchOperatorPrefix, type FilterCondition, type FilterOperator } from './filterGrammar';
 import type { DiscoveredField, PayloadFieldType, ValueCount } from './payloadRows';
 
 /** Fields that change the SOQL and reload from Salesforce, as opposed to payload paths that only narrow loaded rows. */
@@ -39,6 +39,7 @@ export type GuidedContext = {
   valuesFor: (field: string, prefix: string) => readonly GuidedItem[];
 };
 
+const ALL_OPERATORS: readonly FilterOperator[] = ['=', '!=', '>', '>=', '<', '<=', 'contains', 'exists'];
 const MAX_FIELD_ITEMS = 8;
 const MAX_VALUE_ITEMS = 8;
 
@@ -59,7 +60,7 @@ export function operatorsFor(field: string, type: PayloadFieldType | undefined):
     case 'string':
       return ['=', '!=', 'contains', 'exists'];
     default:
-      return [...FILTER_OPERATORS];
+      return [...ALL_OPERATORS];
   }
 }
 

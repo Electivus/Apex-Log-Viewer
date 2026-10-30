@@ -12,6 +12,9 @@ export type FilterCondition = {
   at: FilterConditionPositions;
 };
 
+/** A condition without its source positions: what a chip stores and what a row is tested against. */
+export type FilterClause = Pick<FilterCondition, 'field' | 'op' | 'value'>;
+
 export type FilterParseErrorCode =
   | 'expectedField'
   | 'expectedOperator'
@@ -171,15 +174,12 @@ export function formatFilterValue(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-export function formatFilterCondition(condition: Pick<FilterCondition, 'field' | 'op' | 'value'>): string {
+export function formatFilterCondition(condition: FilterClause): string {
   return condition.value === undefined
     ? `${condition.field} ${condition.op}`
     : `${condition.field} ${condition.op} ${formatFilterValue(condition.value)}`;
 }
 
-export function filterConditionsEqual(
-  a: Pick<FilterCondition, 'field' | 'op' | 'value'>,
-  b: Pick<FilterCondition, 'field' | 'op' | 'value'>
-): boolean {
+export function filterConditionsEqual(a: FilterClause, b: FilterClause): boolean {
   return a.field === b.field && a.op === b.op && a.value === b.value;
 }

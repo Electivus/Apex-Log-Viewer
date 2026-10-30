@@ -5,7 +5,7 @@ import type {
   CustomLogPayloadView,
   CustomLogScalar
 } from '@alv/protocol/customLogsTypes';
-import type { FilterCondition } from './filterGrammar';
+import type { FilterClause } from './filterGrammar';
 
 /** Anything the list or the detail viewer shows per row: only the payload matters here. */
 export type PayloadRow = { payload?: CustomLogPayloadView };
@@ -158,7 +158,7 @@ function orderedAgainst(value: CustomLogScalar, text: string, op: '>' | '>=' | '
  * Whether a row's payload satisfies one condition. A row whose payload did not parse (invalid,
  * plain text, empty or hidden) never matches, so a JSON filter skips it instead of guessing.
  */
-export function payloadMatches(payload: CustomLogPayloadView | undefined, condition: FilterCondition): boolean {
+export function payloadMatches(payload: CustomLogPayloadView | undefined, condition: FilterClause): boolean {
   if (payload?.state !== 'parsed') {
     return false;
   }
@@ -181,7 +181,7 @@ export function payloadMatches(payload: CustomLogPayloadView | undefined, condit
   }
 }
 
-export function filterLoadedRows<T extends PayloadRow>(rows: readonly T[], conditions: readonly FilterCondition[]): T[] {
+export function filterLoadedRows<T extends PayloadRow>(rows: readonly T[], conditions: readonly FilterClause[]): T[] {
   if (conditions.length === 0) {
     return [...rows];
   }
