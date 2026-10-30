@@ -10,6 +10,7 @@ HOST_GENERATED_PATHS=(
   "apps/vscode-extension/dist"
   "apps/vscode-extension/media"
   "apps/vscode-extension/out"
+  "apps/vscode-extension/schemas"
   "apps/vscode-extension/README.md"
   "apps/vscode-extension/CHANGELOG.md"
   "apps/vscode-extension/LICENSE"
