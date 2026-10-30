@@ -13,3 +13,8 @@ export const coreLevels =
   loadCoreModule<typeof import('../../../../packages/core/lib/customLogs/levels')>('customLogs/levels.js');
 export const coreContracts =
   loadCoreModule<typeof import('../../../../packages/core/lib/customLogs/contracts')>('customLogs/contracts.js');
+export const corePayload =
+  loadCoreModule<typeof import('../../../../packages/core/lib/customLogs/payload')>('customLogs/payload.js');
+export const coreConfig =
+  loadCoreModule<typeof import('../../../../packages/core/lib/customLogs/config')>('customLogs/config.js');
+export const coreSoql = loadCoreModule<typeof import('../../../../packages/core/lib/soql')>('soql.js');

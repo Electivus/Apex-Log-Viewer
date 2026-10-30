@@ -46,9 +46,17 @@ export type CustomLogPayloadView =
 export type CustomLogPayloadType = 'string' | 'number' | 'boolean' | 'null';
 export type CustomLogPayloadField = { path: string; types: CustomLogPayloadType[]; rows: number };
 
+/** The order every list of payload types uses, so the order never depends on which page or function ran last. */
+export const PAYLOAD_TYPE_ORDER: readonly CustomLogPayloadType[] = ['string', 'number', 'boolean', 'null'];
+
+export function orderPayloadTypes(types: Iterable<CustomLogPayloadType>): CustomLogPayloadType[] {
+  const present = new Set(types);
+  return PAYLOAD_TYPE_ORDER.filter(type => present.has(type));
+}
+
 /**
- * Merge page summaries: union of types, sum of rows, first-seen order. The one merge both the list
- * provider (for its replay snapshot) and the webviews (on `append`) run.
+ * Merge page summaries: union of types in `PAYLOAD_TYPE_ORDER`, sum of rows, paths in first-seen order. The
+ * one merge both the list provider (for its replay snapshot) and the webviews (on `append`) run.
  */
 export function mergePayloadFields(
   loaded: readonly CustomLogPayloadField[],
@@ -58,14 +66,10 @@ export function mergePayloadFields(
   for (const field of [...loaded, ...page]) {
     const known = merged.get(field.path);
     if (!known) {
-      merged.set(field.path, { path: field.path, types: [...field.types], rows: field.rows });
+      merged.set(field.path, { path: field.path, types: orderPayloadTypes(field.types), rows: field.rows });
       continue;
     }
-    for (const type of field.types) {
-      if (!known.types.includes(type)) {
-        known.types.push(type);
-      }
-    }
+    known.types = orderPayloadTypes([...known.types, ...field.types]);
     known.rows += field.rows;
   }
   return [...merged.values()];

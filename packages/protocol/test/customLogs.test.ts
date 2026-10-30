@@ -12,7 +12,7 @@ import {
 const LOG_ID = 'a015g00000Q2xYzAAB';
 const ENTRY_ID = 'a025g00000Hk1AbAAJ';
 
-test('mergePayloadFields unions types, sums rows and keeps first-seen order', () => {
+test('mergePayloadFields unions types in core order, sums rows and keeps first-seen path order', () => {
   const loaded: CustomLogPayloadField[] = [
     { path: 'http.status', types: ['number'], rows: 3 },
     { path: 'orderId', types: ['string'], rows: 2 }
@@ -23,7 +23,7 @@ test('mergePayloadFields unions types, sums rows and keeps first-seen order', ()
   ];
 
   assert.deepEqual(mergePayloadFields(loaded, page), [
-    { path: 'http.status', types: ['number', 'string'], rows: 4 },
+    { path: 'http.status', types: ['string', 'number'], rows: 4 },
     { path: 'orderId', types: ['string'], rows: 2 },
     { path: 'region', types: ['string'], rows: 4 }
   ]);

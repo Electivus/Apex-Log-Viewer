@@ -121,7 +121,7 @@ type AssignsTo<Ui, Core extends Ui> = [Ui, Core];
  * fails the build here instead of at a webview.
  */
 export type CustomLogDtoProof = [
-  Holds<Same<core.CustomLogLevel, ui.CustomLogLevel>>,
+  Holds<Same<typeof core.CUSTOM_LOG_LEVELS, typeof ui.CUSTOM_LOG_LEVELS>>,
   AssignsTo<ui.CustomLogSourceView, core.CustomLogSourceInfo>,
   AssignsTo<ui.CustomLogConfigIssueView, core.CustomLogConfigIssue>,
   AssignsTo<ui.CustomLogColumn, core.CustomLogColumn>,

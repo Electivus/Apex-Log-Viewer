@@ -1,9 +1,10 @@
-import type {
-  CustomLogPayloadColumnsView,
-  CustomLogPayloadField,
-  CustomLogPayloadType,
-  CustomLogPayloadView,
-  CustomLogScalar
+import {
+  orderPayloadTypes,
+  type CustomLogPayloadColumnsView,
+  type CustomLogPayloadField,
+  type CustomLogPayloadType,
+  type CustomLogPayloadView,
+  type CustomLogScalar
 } from '@alv/protocol/customLogsTypes';
 import type { FilterClause } from './filterGrammar';
 
@@ -50,14 +51,10 @@ export function discoverPayloadFields(
     const path = normalizePayloadPath(field.path);
     const known = grouped.get(path);
     if (!known) {
-      grouped.set(path, { types: [...field.types], rows: field.rows });
+      grouped.set(path, { types: orderPayloadTypes(field.types), rows: field.rows });
       continue;
     }
-    for (const type of field.types) {
-      if (!known.types.includes(type)) {
-        known.types.push(type);
-      }
-    }
+    known.types = orderPayloadTypes([...known.types, ...field.types]);
     known.rows = Math.max(known.rows, field.rows);
   }
   return [...grouped.entries()]
