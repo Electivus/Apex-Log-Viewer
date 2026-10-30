@@ -5,8 +5,20 @@ import test from 'node:test';
 
 import Ajv from 'ajv';
 
-import { parseCustomLogsConfig } from '../src/customLogs/config.ts';
-import { ENTRY_ROLES, TRANSACTION_ROLES } from '../src/customLogs/config.ts';
+import {
+  CONFIG_KEYS,
+  DETAIL_KEYS,
+  ENTRY_KEYS,
+  ENTRY_ROLES,
+  FIELD_PATH_PATTERN,
+  OBJECT_NAME_PATTERN,
+  PAYLOAD_KEYS,
+  SOURCE_ID_PATTERN,
+  SOURCE_KEYS,
+  TRANSACTION_KEYS,
+  TRANSACTION_ROLES,
+  parseCustomLogsConfig
+} from '../src/customLogs/config.ts';
 import {
   CUSTOM_LOG_CONFIG_ISSUE_SEVERITY,
   CUSTOM_LOG_LEVELS,
@@ -152,6 +164,24 @@ test('every issue code has a fixture or a stated reason the schema cannot see it
   const covered = new Set<CustomLogConfigIssueCode>([...fixtures.map(([code]) => code), 'notAnObject', ...parserOnly]);
   assert.deepEqual([...covered].sort(), Object.keys(CUSTOM_LOG_CONFIG_ISSUE_SEVERITY).sort());
   assert.equal(CUSTOM_LOG_CONFIG_ISSUE_SEVERITY.unknownKey, 'warning');
+});
+
+test('the parser knows exactly the keys and name patterns the schema declares', () => {
+  const { definitions } = schema;
+  const keys = (definition: any) => Object.keys(definition.properties).sort();
+  const objectForm = (definition: any) => definition.oneOf.find((member: any) => member.type === 'object');
+
+  assert.deepEqual(keys((schema as any).properties.plugins.properties.electivus.properties.customLogs), [
+    ...CONFIG_KEYS
+  ]);
+  assert.deepEqual(keys(definitions.source), [...SOURCE_KEYS].sort());
+  assert.deepEqual(keys(definitions.source.properties.transaction), [...TRANSACTION_KEYS].sort());
+  assert.deepEqual(keys(definitions.source.properties.entry), [...ENTRY_KEYS].sort());
+  assert.deepEqual(keys(objectForm(definitions.detail)), [...DETAIL_KEYS].sort());
+  assert.deepEqual(keys(objectForm(definitions.payload)), [...PAYLOAD_KEYS].sort());
+  assert.equal(definitions.source.properties.id.pattern, SOURCE_ID_PATTERN.source);
+  assert.equal(definitions.fieldPath.pattern, FIELD_PATH_PATTERN.source);
+  assert.equal(definitions.objectName.pattern, OBJECT_NAME_PATTERN.source);
 });
 
 test('the schema lists exactly the roles of the roles tables and the canonical levels', () => {

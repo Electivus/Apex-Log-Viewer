@@ -174,16 +174,24 @@ export type ParsedCustomLogsConfig = {
 
 export const CONFIG_POINTER = '/plugins/electivus/customLogs';
 
-const CONFIG_KEYS = ['sources'] as const;
-const SOURCE_KEYS = ['id', 'label', 'transaction', 'entry', 'levels'] as const;
-const TRANSACTION_KEYS = ['object', 'fields', 'columns', 'payload'] as const;
-const ENTRY_KEYS = ['object', 'parent', 'fields', 'columns', 'details', 'payload', 'systemMessagePrefix'] as const;
-const DETAIL_KEYS = ['field', 'presence', 'truncated'] as const;
-const PAYLOAD_KEYS = ['field', 'columns'] as const;
+export const CONFIG_KEYS = ['sources'] as const;
+export const SOURCE_KEYS = ['id', 'label', 'transaction', 'entry', 'levels'] as const;
+export const TRANSACTION_KEYS = ['object', 'fields', 'columns', 'payload'] as const;
+export const ENTRY_KEYS = [
+  'object',
+  'parent',
+  'fields',
+  'columns',
+  'details',
+  'payload',
+  'systemMessagePrefix'
+] as const;
+export const DETAIL_KEYS = ['field', 'presence', 'truncated'] as const;
+export const PAYLOAD_KEYS = ['field', 'columns'] as const;
 
 export const SOURCE_ID_PATTERN = /^[a-z][a-z0-9-]{0,39}$/;
-const FIELD_PATH_PATTERN = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)?$/;
-const OBJECT_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
+export const FIELD_PATH_PATTERN = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)?$/;
+export const OBJECT_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
 const MAX_NAME_LENGTH = 255;
 const MAX_LABEL_LENGTH = 80;
 
