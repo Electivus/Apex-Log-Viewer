@@ -619,7 +619,9 @@ export function CustomLogsApp({
                     loaded: formatCount(rows.length, locale),
                     matches: formatCount(visibleRows.length, locale)
                   })
-                : fillTemplate(t.status.rowsLoaded, { count: formatCount(rows.length, locale) })
+                : rows.length === 1
+                  ? t.status.rowsLoadedOne
+                  : fillTemplate(t.status.rowsLoaded, { count: formatCount(rows.length, locale) })
             }
             filtering={filtering}
             payloadInUse={payloadInUse}

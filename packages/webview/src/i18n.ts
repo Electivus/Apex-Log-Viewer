@@ -111,6 +111,7 @@ export type CustomLogsMessages = {
   };
   status: {
     rowsLoaded: string;
+    rowsLoadedOne: string;
     filtering: string;
     hint: string;
     skipped: string;
@@ -159,6 +160,7 @@ export type CustomLogsMessages = {
     };
     status: {
       entriesLoaded: string;
+      entriesLoadedOne: string;
       entriesShown: string;
     };
     noEntries: string;
@@ -572,6 +574,7 @@ const en: Messages = {
     },
     status: {
       rowsLoaded: '{count} rows loaded',
+      rowsLoadedOne: '1 row loaded',
       filtering: 'Filtering {loaded} loaded rows · {matches} match',
       hint: 'JSON columns, filters and sorts only see rows already loaded (SOQL cannot filter long text).',
       skipped: 'skipped by JSON filters',
@@ -620,6 +623,7 @@ const en: Messages = {
       },
       status: {
         entriesLoaded: '{count} entries loaded',
+        entriesLoadedOne: '1 entry loaded',
         entriesShown: '{shown} of {loaded} entries shown'
       },
       noEntries: 'This log has no entries.',
@@ -902,6 +906,7 @@ const ptBR: Messages = {
     },
     status: {
       rowsLoaded: '{count} linhas carregadas',
+      rowsLoadedOne: '1 linha carregada',
       filtering: 'Filtrando {loaded} linhas carregadas · {matches} correspondem',
       hint: 'Colunas, filtros e ordenações JSON só enxergam as linhas já carregadas (o SOQL não filtra texto longo).',
       skipped: 'ignoradas pelos filtros JSON',
@@ -951,6 +956,7 @@ const ptBR: Messages = {
       },
       status: {
         entriesLoaded: '{count} entradas carregadas',
+        entriesLoadedOne: '1 entrada carregada',
         entriesShown: '{shown} de {loaded} entradas exibidas'
       },
       noEntries: 'Este log não tem entradas.',

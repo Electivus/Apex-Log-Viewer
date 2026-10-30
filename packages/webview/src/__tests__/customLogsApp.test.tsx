@@ -70,6 +70,30 @@ describe('Custom Logs app', () => {
       expect(headerLabels()).toEqual(['Time', 'Level', 'Title', 'User', 'Category']);
     });
 
+    it('counts the loaded rows in the singular and the plural', () => {
+      const { bus } = mountApp();
+      const loaded = (count: number) =>
+        send(bus, {
+          type: 'customLogsPage',
+          mode: 'replace',
+          columns: [],
+          rows: rows.slice(0, count),
+          payloadFields: [],
+          hasMore: false
+        });
+
+      loaded(1);
+      expect(screen.getByRole('status')).toHaveTextContent('1 row loaded');
+      expect(screen.getByRole('status')).not.toHaveTextContent('1 rows loaded');
+
+      loaded(2);
+      expect(screen.getByRole('status')).toHaveTextContent('2 rows loaded');
+
+      send(bus, { type: 'customLogsInit', locale: 'pt-BR' });
+      loaded(1);
+      expect(screen.getByRole('status')).toHaveTextContent('1 linha carregada');
+    });
+
     it('speaks Portuguese when the host says so', () => {
       const { bus } = mountApp();
       send(bus, { type: 'customLogsInit', locale: 'pt-BR' });

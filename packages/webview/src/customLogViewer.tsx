@@ -527,7 +527,9 @@ export function CustomLogViewerApp({
                 shown: formatCount(visibleEntries.length, locale),
                 loaded: formatCount(entries.length, locale)
               })
-            : fillTemplate(t.viewer.status.entriesLoaded, { count: formatCount(entries.length, locale) })
+            : entries.length === 1
+              ? t.viewer.status.entriesLoadedOne
+              : fillTemplate(t.viewer.status.entriesLoaded, { count: formatCount(entries.length, locale) })
         }
         filtering={filtering}
         payloadInUse={filtering || payloadColumns.length > 0 || sort !== undefined}

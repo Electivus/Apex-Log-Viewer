@@ -303,6 +303,13 @@ describe('Custom Log viewer app', () => {
       expect(screen.getByRole('status')).toHaveTextContent('5 entries loaded');
     });
 
+    it('counts a single loaded entry in the singular', () => {
+      mountViewer({ entries: entries.slice(0, 1) });
+
+      expect(screen.getByRole('status')).toHaveTextContent('1 entry loaded');
+      expect(screen.getByRole('status')).not.toHaveTextContent('1 entries loaded');
+    });
+
     it('shows how many of the loaded entries pass the filters', () => {
       mountViewer();
 
