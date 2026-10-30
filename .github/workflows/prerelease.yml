@@ -302,12 +302,17 @@ jobs:
           set -euo pipefail
           TITLE="$TAG"
           BODY="Pre-release build.\n\nCommit: $GITHUB_SHA\nRun: $GITHUB_RUN_NUMBER"
+          TAG_SHA=$(git ls-remote --tags origin "refs/tags/${TAG}" "refs/tags/${TAG}^{}" | tail -n 1 | cut -f1)
+          if [ -n "$TAG_SHA" ] && [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::Tag $TAG already points at $TAG_SHA, but this build is $GITHUB_SHA"
+            exit 1
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Updating existing pre-release $TAG"
             gh release edit "$TAG" --title "$TITLE" --notes "$BODY" --prerelease
           else
             echo "Creating pre-release $TAG"
-            gh release create "$TAG" --title "$TITLE" --notes "$BODY" --prerelease
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "$TITLE" --notes "$BODY" --prerelease
           fi
 
       - name: Upload VSIX to GitHub release
@@ -521,6 +526,11 @@ jobs:
         run: |
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
+            TAG_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/commits/refs/tags/${TAG}" --jq .sha)
+            if [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+              echo "Pre-release $TAG belongs to commit $TAG_SHA, not $GITHUB_SHA; leaving it in place"
+              exit 0
+            fi
             echo "Deleting pre-release $TAG due to assembly failure"
             gh release delete "$TAG" --yes --cleanup-tag
           else
