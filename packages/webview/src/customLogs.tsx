@@ -1,8 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   CUSTOM_LOG_LEVELS,
-  mergePayloadFields,
   type CustomLogColumn,
   type CustomLogConfigIssueView,
   type CustomLogPayloadColumnsView,
@@ -13,6 +12,7 @@ import {
   type CustomLogsFilterView
 } from '@alv/protocol/customLogsTypes';
 import type { CustomLogsFromWebviewMessage, CustomLogsToWebviewMessage } from '@alv/protocol/customLogsMessages';
+import { initialCustomLogsView, reduceCustomLogsView } from '@alv/protocol/customLogsState';
 import type { OrgItem } from '@alv/protocol/types';
 import { getMessages } from './i18n';
 import { CustomLogRowDetail } from './components/custom-logs/CustomLogRowDetail';
@@ -69,7 +69,12 @@ type CustomLogsUiState = {
   hiddenDefaults: string[];
 };
 
-const EMPTY_COLUMNS: CustomLogPayloadColumnsView = { defaults: [], added: [] };
+const NO_ORGS: OrgItem[] = [];
+const NO_SOURCES: CustomLogSourceView[] = [];
+const NO_ISSUES: CustomLogConfigIssueView[] = [];
+const NO_COLUMNS: CustomLogColumn[] = [];
+const NO_ROWS: CustomLogRow[] = [];
+const NO_FIELDS: CustomLogPayloadField[] = [];
 
 function buildReadyMessage(): CustomLogsFromWebviewMessage {
   const content = document.querySelector('meta[name="alv-mount-sequence"]')?.getAttribute('content');
@@ -140,22 +145,19 @@ export function CustomLogsApp({
   virtualListComponent
 }: CustomLogsAppProps = {}) {
   const [initialUiState] = useState<CustomLogsUiState>(() => readInitialUiState(vscode));
-  const [locale, setLocale] = useState('en');
-  const [surface, setSurface] = useState<'view' | 'editor'>('view');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | undefined>(undefined);
-  const [orgs, setOrgs] = useState<OrgItem[]>([]);
-  const [selectedOrg, setSelectedOrg] = useState<string | undefined>(undefined);
-  const [sources, setSources] = useState<CustomLogSourceView[]>([]);
-  const [sourcesReceived, setSourcesReceived] = useState(false);
-  const [selectedSourceId, setSelectedSourceId] = useState<string | undefined>(undefined);
-  const [issues, setIssues] = useState<CustomLogConfigIssueView[]>([]);
-  const [serverFilter, setServerFilter] = useState<CustomLogsFilterView>({});
-  const [columnsView, setColumnsView] = useState<CustomLogPayloadColumnsView>(EMPTY_COLUMNS);
-  const [extraColumns, setExtraColumns] = useState<CustomLogColumn[]>([]);
-  const [rows, setRows] = useState<CustomLogRow[]>([]);
-  const [payloadFields, setPayloadFields] = useState<CustomLogPayloadField[]>([]);
-  const [hasMore, setHasMore] = useState(false);
+  const [view, dispatch] = useReducer(reduceCustomLogsView, initialCustomLogsView);
+  const { surface, loading, error, filter: serverFilter, payloadColumns: columnsView } = view;
+  const locale = view.locale ?? 'en';
+  const orgs = view.orgs?.data ?? NO_ORGS;
+  const selectedOrg = view.orgs?.selected;
+  const sources = view.sources?.data ?? NO_SOURCES;
+  const sourcesReceived = view.sources !== undefined;
+  const selectedSourceId = view.sources?.selected;
+  const issues = view.sources?.issues ?? NO_ISSUES;
+  const extraColumns = view.page?.columns ?? NO_COLUMNS;
+  const rows = view.page?.rows ?? NO_ROWS;
+  const payloadFields = view.page?.payloadFields ?? NO_FIELDS;
+  const hasMore = view.page?.hasMore ?? false;
   const [payloadFilters, setPayloadFilters] = useState<FilterClause[]>(initialUiState.payloadFilters);
   const [sort, setSort] = useState<SortState | undefined>(initialUiState.sort);
   const [hiddenDefaults, setHiddenDefaults] = useState<string[]>(initialUiState.hiddenDefaults);
@@ -177,45 +179,7 @@ export function CustomLogsApp({
       if (!msg || typeof msg !== 'object') {
         return;
       }
-      switch (msg.type) {
-        case 'customLogsInit':
-          setLocale(msg.locale);
-          setSurface(msg.surface ?? 'view');
-          break;
-        case 'customLogsOrgs':
-          setOrgs(msg.data || []);
-          setSelectedOrg(msg.selected);
-          break;
-        case 'customLogsSources':
-          setSources(msg.data || []);
-          setSelectedSourceId(msg.selected);
-          setIssues(msg.issues || []);
-          setSourcesReceived(true);
-          break;
-        case 'customLogsFilter':
-          setServerFilter(msg.value ?? {});
-          break;
-        case 'customLogsPayloadColumns':
-          setColumnsView(msg.value ?? EMPTY_COLUMNS);
-          break;
-        case 'customLogsLoading':
-          setLoading(!!msg.value);
-          break;
-        case 'customLogsPage':
-          setExtraColumns(msg.columns || []);
-          if (msg.mode === 'replace') {
-            setRows(msg.rows || []);
-            setPayloadFields(msg.payloadFields || []);
-          } else {
-            setRows(previous => [...previous, ...(msg.rows || [])]);
-            setPayloadFields(previous => mergePayloadFields(previous, msg.payloadFields || []));
-          }
-          setHasMore(!!msg.hasMore);
-          break;
-        case 'customLogsError':
-          setError(msg.message);
-          break;
-      }
+      dispatch(msg);
     };
     messageBus.addEventListener('message', onMessage as EventListener);
     vscode.postMessage(buildReadyMessage());
@@ -304,7 +268,7 @@ export function CustomLogsApp({
 
   const setServerFilterAndPost = useCallback(
     (filter: CustomLogsFilterView) => {
-      setServerFilter(filter);
+      dispatch({ type: 'customLogsFilter', value: filter });
       post({ type: 'customLogsSetFilter', filter });
     },
     [post]
@@ -471,7 +435,7 @@ export function CustomLogsApp({
       const added = columnsView.added.includes(path)
         ? columnsView.added.filter(column => column !== path)
         : [...columnsView.added, path];
-      setColumnsView(previous => ({ ...previous, added }));
+      dispatch({ type: 'customLogsPayloadColumns', value: { ...columnsView, added } });
       post({ type: 'customLogsSetPayloadColumns', added });
     },
     [columnsView, post]
@@ -499,11 +463,11 @@ export function CustomLogsApp({
   }, []);
 
   const onSelectOrg = (value: string) => {
-    setSelectedOrg(value);
+    dispatch({ type: 'customLogsOrgs', data: orgs, selected: value });
     post({ type: 'customLogsSelectOrg', target: value });
   };
   const onSelectSource = (sourceId: string) => {
-    setSelectedSourceId(sourceId);
+    dispatch({ type: 'customLogsSources', data: sources, selected: sourceId, issues });
     post({ type: 'customLogsSelectSource', sourceId });
   };
 

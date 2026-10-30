@@ -19,16 +19,18 @@ import {
   type CustomLogsToWebviewMessage
 } from '../shared/customLogsMessages';
 import {
-  mergePayloadFields,
-  type CustomLogColumn,
-  type CustomLogConfigIssueView,
-  type CustomLogPayloadColumnsView,
-  type CustomLogPayloadField,
-  type CustomLogRow,
-  type CustomLogSourceView,
-  type CustomLogsFilterView
+  initialCustomLogsView,
+  reduceCustomLogsView,
+  replayCustomLogsView,
+  type CustomLogsViewState
+} from '../shared/customLogsState';
+import type {
+  CustomLogConfigIssueView,
+  CustomLogPayloadColumnsView,
+  CustomLogRow,
+  CustomLogSourceView,
+  CustomLogsFilterView
 } from '../shared/customLogsTypes';
-import type { OrgItem } from '../shared/types';
 import { createWebviewPanelHost, createWebviewViewHost, type BoundWebviewHost } from './webviewHost';
 import {
   createWebviewSession,
@@ -101,25 +103,11 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
   private bootstrapNeedsRefresh = true;
   private projectConfigPending = false;
 
-  // The authoritative replay snapshot: `post` updates it before it delivers.
+  // The authoritative replay snapshot: `post` folds every outbound message into it before it delivers.
+  private state: CustomLogsViewState = initialCustomLogsView;
   private selectedOrg: string | undefined;
-  private orgs: OrgItem[] = [];
-  private hasOrgsSnapshot = false;
-  private sources: CustomLogSourceView[] = [];
-  private issues: CustomLogConfigIssueView[] = [];
-  private hasSourcesSnapshot = false;
-  private selectedSourceId: string | undefined;
   private preferredSourceId: string | undefined;
-  private filter: CustomLogsFilterView = {};
-  private payloadColumns: CustomLogPayloadColumnsView = { defaults: [], added: [] };
-  private columns: CustomLogColumn[] = [];
-  private rows: CustomLogRow[] = [];
-  private payloadFields: CustomLogPayloadField[] = [];
-  private hasMore = false;
-  private hasPageSnapshot = false;
   private cursor: string | null = null;
-  private loadingState = false;
-  private errorMessage: string | undefined;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.payloadColumnsStore = createPayloadColumnsStore(context.workspaceState);
@@ -180,7 +168,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     if (!this.view || this.disposed) {
       return;
     }
-    this.post({ type: 'customLogsOrgs', data: this.orgs, selected: next });
+    this.post({ type: 'customLogsOrgs', data: this.state.orgs?.data ?? [], selected: next });
     await this.reload({ clearPage: true, refreshSources: false });
   }
 
@@ -222,15 +210,15 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       readyTimerActive: diagnostic?.readyTimerActive ?? false,
       needsReplayOnVisible: diagnostic?.needsReplay ?? true,
       snapshots: {
-        loading: this.loadingState,
-        hasOrgsSnapshot: this.hasOrgsSnapshot,
-        orgCount: this.orgs.length,
-        hasSourcesSnapshot: this.hasSourcesSnapshot,
+        loading: this.state.loading,
+        hasOrgsSnapshot: this.state.orgs !== undefined,
+        orgCount: this.state.orgs?.data.length ?? 0,
+        hasSourcesSnapshot: this.state.sources !== undefined,
         sourceCount: this.sources.length,
-        hasPageSnapshot: this.hasPageSnapshot,
+        hasPageSnapshot: this.state.page !== undefined,
         rowCount: this.rows.length,
-        hasMore: this.hasMore,
-        hasError: this.errorMessage !== undefined,
+        hasMore: this.state.page?.hasMore ?? false,
+        hasError: this.state.error !== undefined,
         sessionEvent: diagnostic?.event,
         sessionGeneration: diagnostic?.generation,
         sessionRetryAttempt: diagnostic?.attempt,
@@ -252,8 +240,16 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     this.disposables.length = 0;
   }
 
+  private get sources(): CustomLogSourceView[] {
+    return this.state.sources?.data ?? [];
+  }
+
+  private get rows(): CustomLogRow[] {
+    return this.state.page?.rows ?? [];
+  }
+
   private selectedSource(): CustomLogSourceView | undefined {
-    return this.sources.find(source => source.id === this.selectedSourceId && source.state === 'ready');
+    return this.sources.find(source => source.id === this.state.sources?.selected && source.state === 'ready');
   }
 
   private async handleMessage(message: CustomLogsFromWebviewMessage): Promise<void> {
@@ -294,7 +290,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
   }
 
   private async selectOrg(target: string): Promise<void> {
-    const org = this.orgs.find(candidate => candidate.username === target || candidate.alias === target);
+    const org = this.state.orgs?.data.find(candidate => candidate.username === target || candidate.alias === target);
     if (!org) {
       logWarn('Custom Logs: ignored selectOrg for an org that was not listed');
       return;
@@ -303,7 +299,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       return;
     }
     this.selectedOrg = org.username;
-    this.post({ type: 'customLogsOrgs', data: this.orgs, selected: org.username });
+    this.post({ type: 'customLogsOrgs', data: this.state.orgs?.data ?? [], selected: org.username });
     await this.reload({ clearPage: true, refreshSources: false });
   }
 
@@ -314,12 +310,12 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       return;
     }
     this.preferredSourceId = source.id;
-    if (source.id === this.selectedSourceId) {
+    if (source.id === this.state.sources?.selected) {
       return;
     }
     await this.run(async (signal, current) => {
       this.clearPage();
-      this.applySources(this.sources, this.issues, source.id);
+      this.applySources(this.sources, this.state.sources?.issues ?? [], source.id);
       await this.fetchPage('replace', signal, current);
     });
   }
@@ -427,7 +423,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     this.requestController = controller;
     const current = () => this.requestController === controller && !this.disposed;
     this.post({ type: 'customLogsLoading', value: true });
-    if (this.errorMessage !== undefined) {
+    if (this.state.error !== undefined) {
       this.post({ type: 'customLogsError', message: undefined });
     }
     try {
@@ -453,7 +449,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       if (options.clearPage) {
         this.clearPage();
       }
-      if (!this.hasOrgsSnapshot || this.bootstrapNeedsRefresh) {
+      if (!this.state.orgs || this.bootstrapNeedsRefresh) {
         await this.loadOrgs(signal);
         if (!current()) {
           return;
@@ -462,12 +458,12 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       if (!this.selectedOrg) {
         return;
       }
-      const previousSourceId = this.selectedSourceId;
+      const previousSourceId = this.state.sources?.selected;
       await this.loadSources(options.refreshSources, signal, current);
       if (!current()) {
         return;
       }
-      if (this.selectedSourceId !== previousSourceId) {
+      if (this.state.sources?.selected !== previousSourceId) {
         this.clearPage();
       }
       await this.fetchPage('replace', signal, current);
@@ -514,7 +510,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       this.applySources(
         result.sources,
         result.issues,
-        pickSourceId(result.sources, [this.preferredSourceId, this.selectedSourceId], result.defaultSourceId)
+        pickSourceId(result.sources, [this.preferredSourceId, this.state.sources?.selected], result.defaultSourceId)
       );
       safeSendEvent(
         'customLogs.sources',
@@ -545,18 +541,18 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
   ): void {
     this.post({ type: 'customLogsSources', data: sources, selected, issues });
     const source = this.selectedSource();
-    this.post({ type: 'customLogsFilter', value: restrictFilter(this.filter, source) });
+    this.post({ type: 'customLogsFilter', value: restrictFilter(this.state.filter, source) });
     this.post({ type: 'customLogsPayloadColumns', value: this.columnsFor(source) });
   }
 
   /** A replace page starts a new query, so the cursor of the last one no longer belongs to the filter. */
   private stopPaging(): void {
     this.cursor = null;
-    if (this.hasMore) {
+    if (this.state.page?.hasMore) {
       this.post({
         type: 'customLogsPage',
         mode: 'append',
-        columns: this.columns,
+        columns: this.state.page.columns,
         rows: [],
         payloadFields: [],
         hasMore: false
@@ -581,7 +577,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
           targetOrg: this.selectedOrg,
           projectDir,
           source: source.id,
-          filter: this.filter,
+          filter: this.state.filter,
           limit: PAGE_SIZE,
           ...(mode === 'append' && this.cursor !== null ? { cursor: this.cursor } : {})
         },
@@ -619,87 +615,32 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
   }
 
   private async bootstrapWebview(): Promise<void> {
-    if (this.hasOrgsSnapshot && this.hasSourcesSnapshot && !this.bootstrapNeedsRefresh && !this.projectConfigPending) {
+    if (this.state.orgs && this.state.sources && !this.bootstrapNeedsRefresh && !this.projectConfigPending) {
       return;
     }
     await this.reload({ clearPage: false, refreshSources: false });
   }
 
   private getReplaySnapshot(): readonly CustomLogsToWebviewMessage[] {
-    const snapshot: CustomLogsToWebviewMessage[] = [
-      { type: 'customLogsInit', locale: vscode.env.language, surface: this.surface }
-    ];
-    if (this.hasOrgsSnapshot) {
-      snapshot.push({ type: 'customLogsOrgs', data: this.orgs, selected: this.selectedOrg });
-    }
-    if (this.hasSourcesSnapshot) {
-      snapshot.push({
-        type: 'customLogsSources',
-        data: this.sources,
-        selected: this.selectedSourceId,
-        issues: this.issues
+    let state = reduceCustomLogsView(this.state, {
+      type: 'customLogsInit',
+      locale: vscode.env.language,
+      surface: this.surface
+    });
+    if (state.orgs) {
+      state = reduceCustomLogsView(state, {
+        type: 'customLogsOrgs',
+        data: state.orgs.data,
+        selected: this.selectedOrg
       });
     }
-    snapshot.push(
-      { type: 'customLogsFilter', value: this.filter },
-      { type: 'customLogsPayloadColumns', value: this.payloadColumns }
-    );
-    if (this.hasPageSnapshot) {
-      snapshot.push({
-        type: 'customLogsPage',
-        mode: 'replace',
-        columns: this.columns,
-        rows: this.rows,
-        payloadFields: this.payloadFields,
-        hasMore: this.hasMore
-      });
-    }
-    snapshot.push(
-      { type: 'customLogsLoading', value: this.loadingState },
-      { type: 'customLogsError', message: this.errorMessage }
-    );
-    return snapshot;
+    return replayCustomLogsView(state);
   }
 
   private post(message: CustomLogsToWebviewMessage): void {
-    switch (message.type) {
-      case 'customLogsOrgs':
-        this.hasOrgsSnapshot = true;
-        this.orgs = [...message.data];
-        this.selectedOrg = message.selected;
-        break;
-      case 'customLogsSources':
-        this.hasSourcesSnapshot = true;
-        this.sources = [...message.data];
-        this.issues = [...message.issues];
-        this.selectedSourceId = message.selected;
-        break;
-      case 'customLogsFilter':
-        this.filter = message.value;
-        break;
-      case 'customLogsPayloadColumns':
-        this.payloadColumns = message.value;
-        break;
-      case 'customLogsLoading':
-        this.loadingState = message.value;
-        break;
-      case 'customLogsPage':
-        this.hasPageSnapshot = true;
-        this.columns = message.columns;
-        this.hasMore = message.hasMore;
-        if (message.mode === 'replace') {
-          this.rows = message.rows;
-          this.payloadFields = message.payloadFields;
-        } else {
-          this.rows = [...this.rows, ...message.rows];
-          this.payloadFields = mergePayloadFields(this.payloadFields, message.payloadFields);
-        }
-        break;
-      case 'customLogsError':
-        this.errorMessage = message.message;
-        break;
-      case 'customLogsInit':
-        break;
+    this.state = reduceCustomLogsView(this.state, message);
+    if (message.type === 'customLogsOrgs') {
+      this.selectedOrg = message.selected;
     }
     void this.session.deliver(message, 'replayable');
   }
@@ -776,7 +717,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     if ((reason === 'hostDisposed' || reason === 'explicit') && this.requestController) {
       this.requestController.abort();
       this.requestController = undefined;
-      this.loadingState = false;
+      this.state = reduceCustomLogsView(this.state, { type: 'customLogsLoading', value: false });
       this.bootstrapNeedsRefresh = true;
     }
     logInfo(`Custom Logs webview detached (${reason}).`);
