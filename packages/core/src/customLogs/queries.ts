@@ -2,7 +2,7 @@
  * Query plans: for each operation, the SOQL and the decoder of its records, side by side.
  *
  * A plan selects every role of its object along with its columns and flags, so a decoder can read
- * any role and a new role reaches every SELECT. Everything here is pure: `ResolvedSource` + params in, `QueryPlan` out. The
+ * any role and a new role reaches every SELECT. Everything here is pure: `ResolvedRecordSource` + params in, `QueryPlan` out. The
  * golden tests pin the SOQL text for unlocked Nebula, managed Nebula, an FLS-trimmed Nebula
  * and an `entries` source with a payload.
  *
@@ -54,8 +54,8 @@ import {
   type ResolvedEntryObject,
   type ResolvedField,
   type ResolvedPayload,
-  type ResolvedShape,
-  type ResolvedSource,
+  type ResolvedRecordShape,
+  type ResolvedRecordSource,
   type ResolvedTimeField
 } from './resolved.js';
 
@@ -95,7 +95,7 @@ export type CursorPayload = {
   /** Org id from the connection's auth fields. */
   o: string;
   s: string;
-  /** `ResolvedSource.digest`. */
+  /** `ResolvedRecordSource.digest`. */
   m: string;
   k: 'list' | 'entries';
   /** Hash of the filter as given (list) or of the scope (entries). */
@@ -240,7 +240,7 @@ export type ListPlanParams = {
   keep?: ReadonlySet<string>;
 };
 
-function unsupported(source: ResolvedSource, what: string): never {
+function unsupported(source: ResolvedRecordSource, what: string): never {
   throw customLogError(
     'CUSTOM_LOG_UNSUPPORTED_FILTER',
     `Log source "${source.id}" has no ${what}, so it cannot be filtered that way.`
@@ -302,7 +302,7 @@ function recordIdentity(record: Record<string, unknown>): RowIdentity {
 }
 
 /** What a list row (or `get`'s header row) reads: the header object, or the entry object of an `entries` source. */
-function rowObject(source: ResolvedSource) {
+function rowObject(source: ResolvedRecordSource) {
   const { shape, levels } = source;
   switch (shape.kind) {
     case 'transactions': {
@@ -335,7 +335,7 @@ function rowObject(source: ResolvedSource) {
 }
 
 function levelWhere(
-  source: ResolvedSource,
+  source: ResolvedRecordSource,
   predicate: EntryLevelPredicate | HeaderLevelPredicate,
   min: CustomLogLevel
 ): string {
@@ -360,7 +360,7 @@ function levelWhere(
  * - since/until → on `timeFilter` (the display time when filterable, else CreatedDate), literal per `encoding`.
  * - after → `(CreatedDate < :t OR (CreatedDate = :t AND Id < :id))`.
  */
-export function listPlan(source: ResolvedSource, params: ListPlanParams): QueryPlan<Page<CustomLogRow>> {
+export function listPlan(source: ResolvedRecordSource, params: ListPlanParams): QueryPlan<Page<CustomLogRow>> {
   const row = rowObject(source);
   const { filter, after, limit } = params;
   const conditions = [
@@ -390,7 +390,7 @@ function beforeCreated(after: CursorPayload): string {
 
 /** One header (`transactions`) or one entry (`entries`) by id, as a `CustomLogRow`, plus the header's full payload when mapped. */
 export function rowPlan(
-  source: ResolvedSource,
+  source: ResolvedRecordSource,
   id: RecordId
 ): QueryPlan<{ row: CustomLogRow; logPayload?: CustomLogLongValue } | undefined> {
   const row = rowObject(source);
@@ -408,7 +408,7 @@ export function rowPlan(
 }
 
 /** Where a transaction id is looked up: headers, newest first (two, to detect ambiguity), or the first entry by sequence. */
-function lookupTarget(shape: ResolvedShape): [object: string, order: string, limit: number] {
+function lookupTarget(shape: ResolvedRecordShape): [object: string, order: string, limit: number] {
   switch (shape.kind) {
     case 'transactions':
       return [shape.transaction.object, 'CreatedDate DESC, Id DESC', 2];
@@ -426,7 +426,7 @@ function lookupTarget(shape: ResolvedShape): [object: string, order: string, lim
  * the first entry of that transaction by `sequence`. No filterable `transactionId` role →
  * CUSTOM_LOG_UNSUPPORTED_FILTER. Nebula's `TransactionId__c` is a unique external id.
  */
-export function transactionLookupPlan(source: ResolvedSource, transactionId: string): QueryPlan<RecordId[]> {
+export function transactionLookupPlan(source: ResolvedRecordSource, transactionId: string): QueryPlan<RecordId[]> {
   const { shape } = source;
   const field = filterableField(listedObject(shape).roles.transactionId);
   if (!field) return unsupported(source, 'filterable transaction id mapping');
@@ -457,7 +457,7 @@ function scopeCondition(scope: EntriesScope): string {
  * The entries `get` pages for the row `id`: a header's own entries; for an `entries` source,
  * every entry with the row's transaction id when SOQL can filter that field, else the row alone.
  */
-export function entriesScopeOf(source: ResolvedSource, id: RecordId, transactionId?: string): EntriesScope {
+export function entriesScopeOf(source: ResolvedRecordSource, id: RecordId, transactionId?: string): EntriesScope {
   const { shape } = source;
   switch (shape.kind) {
     case 'transactions':
@@ -472,7 +472,7 @@ export function entriesScopeOf(source: ResolvedSource, id: RecordId, transaction
 }
 
 /** The entry's link to its header: only a `transactions` source has one. */
-function parentField(shape: ResolvedShape): ResolvedField | undefined {
+function parentField(shape: ResolvedRecordShape): ResolvedField | undefined {
   switch (shape.kind) {
     case 'transactions':
       return shape.entry.parent;
@@ -518,7 +518,7 @@ function entrySelect(entry: ResolvedEntryObject): Select {
  * (`previewClipped`), `system` comes from `systemMessagePrefix`, `presentDetails` from the flags.
  */
 export function entriesPlan(
-  source: ResolvedSource,
+  source: ResolvedRecordSource,
   scope: EntriesScope,
   params: { limit: number; minLevel?: CustomLogLevel; after?: CursorPayload; keep?: ReadonlySet<string> }
 ): QueryPlan<Page<CustomLogEntry>> {
@@ -553,7 +553,7 @@ export function entriesPlan(
  * decoder returns the header id (via `parent`) so `entry` can answer `logId`.
  */
 export function entryPlan(
-  source: ResolvedSource,
+  source: ResolvedRecordSource,
   id: RecordId
 ): QueryPlan<
   | {

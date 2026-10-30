@@ -23,6 +23,30 @@ export const appLogSource: Json = {
   levels: { Critical: 'ERROR', Notice: 'INFO' }
 };
 
+/** The platform event mapping of the design's usage example: the roles and keys `entry` uses, under `event`. */
+export const appEventSource: Json = {
+  id: 'app-events',
+  label: 'App events',
+  event: {
+    object: 'App_Log__e',
+    fields: {
+      time: 'Logged_At__c',
+      message: 'Message__c',
+      level: 'Level__c',
+      user: 'Username__c',
+      transactionId: 'Transaction_Id__c',
+      order: 'Sequence__c'
+    },
+    columns: ['Request_Id__c'],
+    details: [{ field: 'Stack_Trace__c', presence: 'Has_Stack_Trace__c' }],
+    payload: { field: 'Payload__c', columns: [] }
+  }
+};
+
+export function eventSource(props: Json): Json {
+  return { ...appEventSource, event: { ...(appEventSource.event as Json), ...props } };
+}
+
 export function projectWith(source: Json): Json {
   return { plugins: { electivus: { customLogs: { sources: [source] } } } };
 }

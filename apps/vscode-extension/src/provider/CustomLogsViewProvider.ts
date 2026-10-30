@@ -51,8 +51,16 @@ export const CUSTOM_LOGS_COMMANDS = {
 /** The level whose payload columns the list shows; a new shape fails `satisfies` here. */
 const PAYLOAD_LEVEL = {
   transactions: 'transaction',
-  entries: 'entry'
+  entries: 'entry',
+  events: 'entry'
 } as const satisfies Record<CustomLogSourceView['shape'], CustomLogPayloadLevel>;
+
+/** Whether the panel may fall back to a shape on its own. Capturing an event source spends the org's delivery allocation, so the user opens one. */
+const FALLBACK_SHAPE = {
+  transactions: true,
+  entries: true,
+  events: false
+} as const satisfies Record<CustomLogSourceView['shape'], boolean>;
 
 function levelOf(source: CustomLogSourceView): CustomLogPayloadLevel {
   return PAYLOAD_LEVEL[source.shape];
@@ -60,7 +68,7 @@ function levelOf(source: CustomLogSourceView): CustomLogPayloadLevel {
 
 /**
  * The user's choice while it is still ready, else the source on screen (so a mapping edit that adds one
- * does not move the list), else the only ready source core names, else the first ready one.
+ * does not move the list), else the only ready source core names, else the first ready record source.
  */
 function pickSourceId(
   sources: readonly CustomLogSourceView[],
@@ -71,7 +79,7 @@ function pickSourceId(
   return (
     wanted.map(ready).find(id => id !== undefined) ??
     ready(defaultSourceId) ??
-    sources.find(source => source.state === 'ready')?.id
+    sources.find(source => source.state === 'ready' && FALLBACK_SHAPE[source.shape])?.id
   );
 }
 

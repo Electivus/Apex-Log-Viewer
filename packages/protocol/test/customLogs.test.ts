@@ -6,11 +6,13 @@ import { parseCustomLogsFromWebviewMessage } from '../src/customLogsMessages.ts'
 import {
   mergePayloadFields,
   parseCustomLogPayloadColumns,
+  parseCustomLogRowId,
   type CustomLogPayloadField
 } from '../src/customLogsTypes.ts';
 
 const LOG_ID = 'a015g00000Q2xYzAAB';
 const ENTRY_ID = 'a025g00000Hk1AbAAJ';
+const EVENT_ID = 'e-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d';
 
 test('mergePayloadFields unions types in core order, sums rows and keeps first-seen path order', () => {
   const loaded: CustomLogPayloadField[] = [
@@ -71,6 +73,49 @@ test('list parser accepts each webview message and echoes the mount sequence', (
     type: 'customLogsOpenPayload',
     logId: ENTRY_ID
   });
+});
+
+test('a host accepts back a record id or an event id and nothing in between', () => {
+  const accepted = [LOG_ID, ENTRY_ID, 'a015g00000Q2xYz', EVENT_ID];
+  const rejected = [
+    EVENT_ID.slice(1),
+    EVENT_ID.slice(0, -1),
+    `${EVENT_ID}0`,
+    EVENT_ID.toUpperCase(),
+    EVENT_ID.replace(/^e-/, 'x-'),
+    `${EVENT_ID}'`,
+    ' ' + EVENT_ID,
+    'e-' + LOG_ID,
+    '',
+    null,
+    42
+  ];
+
+  for (const id of accepted) assert.equal(parseCustomLogRowId(id), id);
+  for (const id of rejected) assert.equal(parseCustomLogRowId(id), undefined, JSON.stringify(id));
+});
+
+test('every host message that names a row takes an event id', () => {
+  assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsOpenLog', logId: EVENT_ID }), {
+    type: 'customLogsOpenLog',
+    logId: EVENT_ID
+  });
+  assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsOpenPayload', logId: EVENT_ID }), {
+    type: 'customLogsOpenPayload',
+    logId: EVENT_ID
+  });
+  assert.deepEqual(parseCustomLogViewerFromWebviewMessage({ type: 'customLogViewerOpenEntry', entryId: EVENT_ID }), {
+    type: 'customLogViewerOpenEntry',
+    entryId: EVENT_ID
+  });
+  assert.deepEqual(
+    parseCustomLogViewerFromWebviewMessage({
+      type: 'customLogViewerOpenField',
+      target: { kind: 'entry', entryId: EVENT_ID, key: 'message' }
+    }),
+    { type: 'customLogViewerOpenField', target: { kind: 'entry', entryId: EVENT_ID, key: 'message' } }
+  );
+  assert.equal(parseCustomLogsFromWebviewMessage({ type: 'customLogsOpenLog', logId: EVENT_ID.slice(1) }), undefined);
 });
 
 test('list parser reads the server-side filter and drops anything else', () => {

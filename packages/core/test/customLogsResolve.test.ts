@@ -4,7 +4,13 @@ import test from 'node:test';
 import { AlvError } from '../src/index.ts';
 import { parseCustomLogsConfig, parseSourceDefinition, type SourceDefinition } from '../src/customLogs/config.ts';
 import { NEBULA_MANAGED_PRESET, NEBULA_PRESET } from '../src/customLogs/presets.ts';
-import { defaultSourceId, requireSource, requireSourceForRecord, toSourceInfo } from '../src/customLogs/catalog.ts';
+import {
+  defaultSourceId,
+  requireRecordSource,
+  requireSource,
+  requireSourceForRecord,
+  toSourceInfo
+} from '../src/customLogs/catalog.ts';
 import { locateSource, resolveDefinition } from '../src/customLogs/resolve.ts';
 import {
   CREATED_DATE,
@@ -616,4 +622,356 @@ test('the memoized reader caches a refused answer like any other', async () => {
   assert.equal(await memoized.existingObjects(['Log__c']), 'refused');
   assert.equal(await memoized.existingObjects(['Log__c']), 'refused');
   assert.equal(reader.calls.objects.length, 1);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Platform event sources
+
+/** What a team would map for Nebula's `LogEntryEvent__e`, with field names from the measured describe. */
+const nebulaEventMapping: Json = {
+  id: 'nebula-events',
+  event: {
+    object: 'LogEntryEvent__e',
+    fields: {
+      time: 'Timestamp__c',
+      message: 'Message__c',
+      messageTruncated: 'MessageTruncated__c',
+      order: 'TransactionEntryNumber__c',
+      level: 'LoggingLevel__c',
+      levelOrdinal: 'LoggingLevelOrdinal__c',
+      origin: 'OriginLocation__c',
+      user: 'LoggedByUsername__c',
+      transactionId: 'TransactionId__c',
+      requestId: 'RequestId__c'
+    },
+    columns: ['LoggerVersionNumber__c'],
+    details: ['StackTrace__c'],
+    payload: 'RecordJson__c',
+    systemMessagePrefix: 'Nebula Logger - '
+  }
+};
+
+const logEntryEvent = logEntryEventDescribe();
+const eventDescribes = (described: ObjectDescribe = logEntryEvent) => new Map([['LogEntryEvent__e', described]]);
+const withoutFields = (described: ObjectDescribe, ...names: string[]): ObjectDescribe => ({
+  ...described,
+  fields: described.fields.filter(field => !names.includes(field.name))
+});
+
+function eventOf(entry: CatalogEntry) {
+  const { shape } = ready(entry);
+  assert.equal(shape.kind, 'events');
+  return (shape as Extract<typeof shape, { kind: 'events' }>).event;
+}
+
+test('an event mapping resolves against the measured LogEntryEvent__e describe', () => {
+  const entry = resolveDefinition(define(nebulaEventMapping), 'config', '', eventDescribes());
+  const event = eventOf(entry);
+
+  assert.deepEqual(ready(entry).hidden, []);
+  assert.equal(event.object, 'LogEntryEvent__e');
+  assert.equal(event.channel, '/event/LogEntryEvent__e');
+  assert.equal(event.roles.time.api, 'Timestamp__c');
+  assert.equal(event.roles.time.encoding, 'datetime');
+  assert.equal(event.roles.message.api, 'Message__c');
+  assert.equal(event.roles.user?.api, 'LoggedByUsername__c');
+  assert.deepEqual(
+    event.columns.map(column => column.label),
+    ['Logger Version Number']
+  );
+  assert.deepEqual(
+    event.details.map(detail => [detail.key, detail.state]),
+    [['StackTrace__c', 'readable']]
+  );
+  assert.equal(event.payload?.state, 'readable');
+  assert.equal(event.systemMessagePrefix, 'Nebula Logger - ');
+});
+
+test('no field of an event is sortable or filterable, whatever describe says', () => {
+  const eager = {
+    ...logEntryEvent,
+    fields: logEntryEvent.fields.map(field => ({ ...field, sortable: true, filterable: true }))
+  };
+
+  const event = eventOf(resolveDefinition(define(nebulaEventMapping), 'config', '', eventDescribes(eager)));
+
+  const fields = [
+    ...Object.values(event.roles),
+    ...event.columns,
+    ...event.details.flatMap(detail => ('field' in detail ? [detail.field] : []))
+  ];
+  assert.ok(fields.length > 5);
+  assert.deepEqual(
+    fields.filter(field => field.sortable || field.filterable),
+    []
+  );
+});
+
+test('the channel and object name come from describe, not from how the mapping spells them', () => {
+  const definition = define({
+    id: 'lower',
+    event: { ...(nebulaEventMapping.event as Json), object: 'logentryevent__e' }
+  });
+
+  const event = eventOf(resolveDefinition(definition, 'config', '', new Map([['logentryevent__e', logEntryEvent]])));
+
+  assert.equal(event.object, 'LogEntryEvent__e');
+  assert.equal(event.channel, '/event/LogEntryEvent__e');
+});
+
+test('an event number time is read as epoch milliseconds', () => {
+  const definition = define({
+    id: 'epoch',
+    event: { object: 'LogEntryEvent__e', fields: { time: 'EpochTimestamp__c', message: 'Message__c' } }
+  });
+
+  const event = eventOf(resolveDefinition(definition, 'config', '', eventDescribes()));
+
+  assert.equal(event.roles.time.encoding, 'epochMillis');
+});
+
+test('an event field that describe omits is hidden like a record field, and a missing required role fails', () => {
+  const definition = define(nebulaEventMapping);
+  const dropped = withoutFields(
+    logEntryEvent,
+    'RequestId__c',
+    'StackTrace__c',
+    'LoggerVersionNumber__c',
+    'RecordJson__c'
+  );
+
+  const entry = resolveDefinition(definition, 'config', '', eventDescribes(dropped));
+  const event = eventOf(entry);
+
+  assert.deepEqual(
+    [...ready(entry).hidden].sort(),
+    [
+      'event.columns.LoggerVersionNumber__c',
+      'event.details.StackTrace__c',
+      'event.fields.requestId',
+      'event.payload'
+    ].sort()
+  );
+  assert.equal(event.roles.requestId, undefined);
+  assert.deepEqual(event.columns, []);
+  assert.deepEqual(
+    event.details.map(detail => detail.state),
+    ['hidden']
+  );
+  assert.equal(event.payload?.state, 'hidden');
+
+  const noMessage = resolveDefinition(
+    definition,
+    'config',
+    '',
+    eventDescribes(withoutFields(logEntryEvent, 'Message__c'))
+  );
+  assert.equal(noMessage.state === 'unavailable' && noMessage.reason, 'requiredFieldMissing');
+});
+
+test('an event role on a field of the wrong type makes the source unavailable', () => {
+  const definition = define({
+    id: 'wrong',
+    event: { object: 'LogEntryEvent__e', fields: { time: 'Timestamp__c', message: 'MessageTruncated__c' } }
+  });
+
+  const result = resolveDefinition(definition, 'config', '', eventDescribes());
+
+  assert.equal(result.state === 'unavailable' && result.reason, 'fieldTypeMismatch');
+});
+
+test('an event mapping of an object that is not a platform event is unavailable and names the mapping to use', () => {
+  const definition = define({
+    id: 'wrong-object',
+    event: { object: 'Log__e', fields: { time: 'CreatedDate', message: 'Name' } }
+  });
+  const record = unlockedAdmin.get('Log__c')!;
+  const bigObject: ObjectDescribe = { ...record, name: 'Archive__b', queryable: false };
+  const queryableEvent: ObjectDescribe = { ...logEntryEvent, queryable: true };
+
+  const messages = [record, bigObject, queryableEvent].map(described =>
+    stateOf(resolveDefinition(definition, 'config', '', new Map([['Log__e', described]])))
+  );
+
+  assert.deepEqual(messages, [
+    {
+      state: 'unavailable',
+      reason: 'notAnEvent',
+      message: 'Log__c is a record object, not a platform event. Map it under `entry` instead of `event`.'
+    },
+    { state: 'unavailable', reason: 'notAnEvent', message: 'Archive__b is not a platform event.' },
+    {
+      state: 'unavailable',
+      reason: 'notAnEvent',
+      message: 'LogEntryEvent__e is a record object, not a platform event. Map it under `entry` instead of `event`.'
+    }
+  ]);
+});
+
+test('an event whose describe is not returned is unreadable for this user', () => {
+  const result = resolveDefinition(define(nebulaEventMapping), 'config', '', new Map());
+
+  assert.deepEqual(stateOf(result), {
+    state: 'unavailable',
+    reason: 'objectNotReadable',
+    message: 'LogEntryEvent__e exists, but describe does not return it for this user.'
+  });
+});
+
+test('detection resolves a configured event source by describing only its event object', async () => {
+  const reader = fakeSchemaReader({ objects: ['LogEntryEvent__e'], describes: eventDescribes() });
+  const absent = fakeSchemaReader({ objects: [], describes: eventDescribes() });
+  const definition = define(nebulaEventMapping);
+
+  const found = await locateSource({ origin: 'config', definition }, reader, new Set());
+  const missing = await locateSource({ origin: 'config', definition }, absent, new Set());
+
+  assert.equal(eventOf(found).channel, '/event/LogEntryEvent__e');
+  assert.deepEqual(reader.calls.describes, ['LogEntryEvent__e']);
+  assert.deepEqual(stateOf(missing), {
+    state: 'unavailable',
+    reason: 'objectNotFound',
+    message: 'LogEntryEvent__e does not exist in this org.'
+  });
+  assert.deepEqual(absent.calls.describes, []);
+});
+
+test('sources reports an event source with its event object, in-memory filters and payload', () => {
+  const info = toSourceInfo(resolveDefinition(define(nebulaEventMapping), 'config', '', eventDescribes()));
+  const bare = toSourceInfo(
+    resolveDefinition(
+      define({
+        id: 'bare',
+        event: { object: 'LogEntryEvent__e', fields: { time: 'Timestamp__c', message: 'Message__c' } }
+      }),
+      'config',
+      '',
+      eventDescribes()
+    )
+  );
+
+  assert.deepEqual(info, {
+    id: 'nebula-events',
+    label: 'nebula-events',
+    origin: 'config',
+    shape: 'events',
+    objects: { event: 'LogEntryEvent__e' },
+    hiddenFields: [],
+    unmappedLevels: [],
+    capabilities: { levelFilter: true, userFilter: true, apexLogLink: true },
+    payload: { entry: { field: 'RecordJson__c', columns: [] } },
+    state: 'ready'
+  });
+  assert.deepEqual(bare.capabilities, { levelFilter: false, userFilter: false, apexLogLink: false });
+  assert.deepEqual(bare.payload, {});
+});
+
+test('an event source that is not ready still reports the event object it looked for', async () => {
+  const info = toSourceInfo(
+    await locateSource(
+      { origin: 'config', definition: define(nebulaEventMapping) },
+      fakeSchemaReader({ objects: [], describes: eventDescribes() }),
+      new Set()
+    )
+  );
+
+  assert.deepEqual([info.shape, info.objects, info.state], ['events', { event: 'LogEntryEvent__e' }, 'unavailable']);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Implicit selection never picks an event source
+
+const nebulaEvents = resolveDefinition(define(nebulaEventMapping), 'config', '', eventDescribes());
+const appEvents = resolveDefinition(
+  define({
+    id: 'app-events',
+    event: { object: 'LogEntryEvent__e', fields: { time: 'Timestamp__c', message: 'Message__c' } }
+  }),
+  'config',
+  '',
+  eventDescribes()
+);
+
+function messageOf(run: () => unknown): string {
+  try {
+    run();
+  } catch (error) {
+    return error instanceof AlvError ? `${error.code}: ${error.message}` : String(error);
+  }
+  return 'no error';
+}
+
+test('a ready event source beside a ready record source changes nothing for a call without --source', () => {
+  for (const catalog of [
+    catalogOf(unlockedNebula, nebulaEvents),
+    catalogOf(nebulaEvents, unlockedNebula),
+    catalogOf(absentManaged, nebulaEvents, unlockedNebula)
+  ]) {
+    assert.equal(requireSource(catalog, undefined).id, 'nebula');
+    assert.equal(defaultSourceId(catalog), 'nebula');
+    assert.equal(requireRecordSource(catalog, undefined).id, 'nebula');
+  }
+});
+
+test('several ready record sources are still ambiguous, and the message does not offer the event source', () => {
+  const catalog = catalogOf(appLog, unlockedNebula, nebulaEvents);
+
+  assert.equal(defaultSourceId(catalog), undefined);
+  assert.equal(
+    messageOf(() => requireSource(catalog, undefined)),
+    'CUSTOM_LOG_SOURCE_REQUIRED: Several log sources are ready (app-log, nebula). Pass one with --source.'
+  );
+});
+
+test('an explicit --source still resolves an event source, and the SOQL path refuses it', () => {
+  const catalog = catalogOf(unlockedNebula, nebulaEvents);
+
+  assert.equal(requireSource(catalog, 'nebula-events').shape.kind, 'events');
+  assert.equal(
+    messageOf(() => requireRecordSource(catalog, 'nebula-events')),
+    'CUSTOM_LOG_SOURCE_UNAVAILABLE: Log source "nebula-events" holds platform events, which SOQL cannot read.'
+  );
+});
+
+test('a record id never routes to an event source, even by name', () => {
+  const catalog = catalogOf(unlockedNebula, nebulaEvents);
+  const eventPrefixId = `${logEntryEvent.keyPrefix}000000000001AAA`;
+
+  assert.equal(requireSourceForRecord(catalog, undefined, 'a01000000000001AAA').source.id, 'nebula');
+  assert.equal(
+    codeOf(() => requireSourceForRecord(catalog, undefined, eventPrefixId)),
+    'CUSTOM_LOG_SOURCE_NOT_FOUND'
+  );
+  assert.equal(
+    messageOf(() => requireSourceForRecord(catalog, 'nebula-events', 'a01000000000001AAA')),
+    'CUSTOM_LOG_SOURCE_NOT_FOUND: Record id a01000000000001AAA does not belong to log source "nebula-events".'
+  );
+});
+
+test('an event-only project says which event sources are ready and to pass --source', () => {
+  const catalog = catalogOf(absentManaged, nebulaEvents, appEvents);
+
+  assert.equal(defaultSourceId(catalog), undefined);
+  assert.equal(
+    messageOf(() => requireSource(catalog, undefined)),
+    'CUSTOM_LOG_NO_SOURCE: No log source can be picked without --source in this org: event sources are never picked implicitly. ' +
+      'Pass --source <event source> (ready: nebula-events, app-events), or run "sf electivus custom-log sources" to see why.'
+  );
+  assert.equal(requireSource(catalog, 'app-events').id, 'app-events');
+});
+
+test('the no-source message is unchanged when no event source is ready either', () => {
+  const unreadyEvent: CatalogEntry = {
+    head: { ...nebulaEvents.head, id: 'gone' as never },
+    state: 'unavailable',
+    reason: 'objectNotFound',
+    message: 'LogEntryEvent__e does not exist in this org.'
+  };
+
+  for (const catalog of [catalogOf(absentManaged), catalogOf(absentManaged, unreadyEvent), catalogOf()]) {
+    assert.equal(
+      messageOf(() => requireSource(catalog, undefined)),
+      'CUSTOM_LOG_NO_SOURCE: No log source is ready in this org. Run "sf electivus custom-log sources" to see why.'
+    );
+  }
 });

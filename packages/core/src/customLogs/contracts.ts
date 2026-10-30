@@ -50,7 +50,8 @@ export type CustomLogSourcesParams = Omit<CustomLogScope, 'source'> & {
 };
 
 export type CustomLogSourceOrigin = 'builtin' | 'config';
-export type CustomLogSourceShape = 'transactions' | 'entries';
+/** `events`: a platform event whose rows come from the local event store. */
+export type CustomLogSourceShape = 'transactions' | 'entries' | 'events';
 
 export type CustomLogSourceState =
   | { state: 'ready' }
@@ -64,7 +65,8 @@ export type CustomLogUnavailableReason =
   | 'requiredFieldMissing' // a required role field is absent or hidden by FLS
   | 'fieldTypeMismatch' // a role, detail flag or payload points at a field of an incompatible type
   | 'metadataQueryRefused' // this user cannot run the EntityDefinition/FieldDefinition query; no fallback is tried
-  | 'notQueryable'; // a record mapping names an object SOQL cannot read, such as a platform event
+  | 'notQueryable' // a record mapping names an object SOQL cannot read, such as a platform event
+  | 'notAnEvent'; // an `event` mapping names an object that is not a platform event
 
 /** A mapped JSON payload: the qualified field and the team's default columns from the mapping. */
 export type CustomLogPayloadInfo = { field: string; columns: string[] };
@@ -83,7 +85,7 @@ export type CustomLogSourceInfo = {
   /** Namespace prefix applied to the definition, without `__`. Present only for `nebula-managed`. */
   namespace?: string;
   /** Qualified object API names the source reads. For a `notInstalled` built-in, the names that were looked for. */
-  objects: { transaction?: string; entry: string };
+  objects: CustomLogSourceObjects;
   /**
    * Definition paths dropped because describe omits them (FLS or absent): `entry.fields.exceptionType`,
    * `entry.details.StackTrace__c`, `entry.details.RecordJson__c.truncated`, `entry.payload`.
@@ -95,6 +97,16 @@ export type CustomLogSourceInfo = {
   /** Payload mapping per level. Empty object when the source maps none. */
   payload: { transaction?: CustomLogPayloadInfo; entry?: CustomLogPayloadInfo };
 } & CustomLogSourceState;
+
+/** The objects of a record source (`transactions`, `entries`) or the platform event of an `events` source. */
+export type CustomLogSourceObjects = { transaction?: string; entry: string } | { event: string };
+
+/**
+ * Event row and entry ids: opaque tokens `e-<9 base36>-<10 base36>-<32 hex>` (55 characters). Two
+ * event ids of one source compare in list order: the larger string is newer. Pass them back to
+ * `get --log-id` and `entry --entry-id` as is. No part of the id is a Salesforce replay id.
+ */
+export const CUSTOM_LOG_EVENT_ID_PATTERN = /^e-[0-9a-z]{9}-[0-9a-z]{10}-[0-9a-f]{32}$/;
 
 export type CustomLogConfigIssueCode =
   | 'invalidJson'

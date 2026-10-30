@@ -14,13 +14,15 @@ import {
   type DescribeFieldType,
   type DetailDefinition,
   type EntryDefinition,
+  type EventDefinition,
   type FieldPath,
   type PayloadDefinition,
+  type RecordShapeDefinition,
   type RoleSpec,
   type SourceDefinition,
   type TransactionDefinition
 } from './config.js';
-import type { CustomLogSourceOrigin, CustomLogUnavailableReason } from './contracts.js';
+import type { CustomLogSourceObjects, CustomLogSourceOrigin, CustomLogUnavailableReason } from './contracts.js';
 import { buildLevelTable } from './levels.js';
 import { qualifyPath, type BuiltinPreset } from './presets.js';
 import {
@@ -33,21 +35,17 @@ import {
   type HeaderLevelPredicate,
   type ResolvedDetail,
   type ResolvedEntryObject,
+  type ResolvedEventObject,
   type ResolvedField,
   type ResolvedLongField,
   type ResolvedPayload,
-  type ResolvedShape,
+  type ResolvedRecordShape,
   type ResolvedTimeField,
   type ResolvedTransactionObject
 } from './resolved.js';
 import { findField, referenceFor, type DescribedField, type ObjectDescribe, type SchemaReader } from './schema.js';
 
-/** The object names a definition reads, qualified for `namespace`: header, entry, never relationship targets. */
-export function definitionObjects(
-  definition: SourceDefinition,
-  namespace: string
-): { transaction?: string; entry: string } {
-  const { shape } = definition;
+function recordObjects(shape: RecordShapeDefinition, namespace: string): { transaction?: string; entry: string } {
   switch (shape.kind) {
     case 'transactions':
       return {
@@ -57,12 +55,27 @@ export function definitionObjects(
     case 'entries':
       return { entry: qualifyPath(shape.entry.object, namespace) };
     default:
+      return assertNever(shape, 'record shape');
+  }
+}
+
+/** The object names a definition reads, qualified for `namespace`: header, entry or event, never relationship targets. */
+export function definitionObjects(definition: SourceDefinition, namespace: string): CustomLogSourceObjects {
+  const { shape } = definition;
+  switch (shape.kind) {
+    case 'transactions':
+    case 'entries':
+      return recordObjects(shape, namespace);
+    case 'events':
+      return { event: qualifyPath(shape.event.object, namespace) };
+    default:
       return assertNever(shape, 'source shape');
   }
 }
 
-/** The objects of `definitionObjects` as a list: the header first, then the entry. */
-export function objectNames(objects: CatalogHead['objects']): string[] {
+/** The objects of `definitionObjects` as a list: the header first, then the entry; or the event alone. */
+export function objectNames(objects: CustomLogSourceObjects): string[] {
+  if ('event' in objects) return [objects.event];
   return [...(objects.transaction ? [objects.transaction] : []), objects.entry];
 }
 
@@ -91,7 +104,9 @@ class ObjectResolver {
   constructor(
     private readonly describe: ObjectDescribe,
     private readonly describes: ReadonlyMap<string, ObjectDescribe>,
-    private readonly namespace: string
+    private readonly namespace: string,
+    /** Rows are filtered and ordered in memory, not by SOQL, so no field is sortable or filterable. */
+    private readonly inMemory = false
   ) {}
 
   /** The API name Salesforce reports, qualified for the org. */
@@ -134,8 +149,8 @@ class ObjectResolver {
       api: found.api,
       label: found.field.label,
       type: found.field.type as DescribeFieldType,
-      sortable: found.field.sortable,
-      filterable: found.field.filterable
+      sortable: !this.inMemory && found.field.sortable,
+      filterable: !this.inMemory && found.field.filterable
     };
   }
 
@@ -158,14 +173,10 @@ class ObjectResolver {
   }
 
   /** Every mapped role. A required one missing or hidden fails the source; a hidden optional one is dropped. */
-  roles<R extends Record<string, RoleSpec>>(
-    specs: R,
-    paths: ByRole<R, FieldPath>,
-    at: string
-  ): ByRole<R, ResolvedField> {
+  roles<R extends Record<string, RoleSpec>>(specs: R, paths: ByRole<R, string>, at: string): ByRole<R, ResolvedField> {
     const resolved: Record<string, ResolvedField> = {};
     for (const [role, spec] of Object.entries(specs)) {
-      const path = (paths as Partial<Record<string, FieldPath>>)[role];
+      const path = (paths as Partial<Record<string, string>>)[role];
       if (path === undefined) continue;
       const what = `${at}.fields.${role}`;
       const field = spec.required ? this.required(path, spec.types, what) : this.optional(path, spec.types, what);
@@ -174,23 +185,23 @@ class ObjectResolver {
     return resolved as ByRole<R, ResolvedField>;
   }
 
-  columns(paths: readonly FieldPath[], at: string): ResolvedField[] {
+  columns(paths: readonly string[], at: string): ResolvedField[] {
     return paths.flatMap(path => {
       const field = this.optional(path, undefined, `${at}.columns.${path}`);
       return field ? [field] : [];
     });
   }
 
-  longField(path: FieldPath, at: string): ResolvedLongField {
+  longField(path: string, at: string): ResolvedLongField {
     const field = this.optional(path, LONG_TEXT_TYPES, at);
     return field
       ? { state: 'readable', key: path, field }
       : { state: 'hidden', key: path, label: humanizeApiName(path) };
   }
 
-  details(details: readonly DetailDefinition[]): ResolvedDetail[] {
+  details(details: readonly DetailDefinition<string>[], owner: 'entry' | 'event'): ResolvedDetail[] {
     return details.map(detail => {
-      const at = `entry.details.${detail.field}`;
+      const at = `${owner}.details.${detail.field}`;
       const text = this.longField(detail.field, at);
       const presence = detail.presence ? this.optional(detail.presence, FLAG_TYPES, `${at}.presence`) : undefined;
       const truncated = detail.truncated ? this.optional(detail.truncated, FLAG_TYPES, `${at}.truncated`) : undefined;
@@ -198,7 +209,7 @@ class ObjectResolver {
     });
   }
 
-  payload(definition: PayloadDefinition | undefined, at: string): ResolvedPayload | undefined {
+  payload(definition: PayloadDefinition<string> | undefined, at: string): ResolvedPayload | undefined {
     return definition && { ...this.longField(definition.field, at), columns: definition.columns };
   }
 }
@@ -241,7 +252,7 @@ function resolveEntry(definition: EntryDefinition, resolver: ObjectResolver): Re
     timeFilter: time.filterable ? time : CREATED_DATE,
     sequence: [roles.order, time, CREATED_DATE].find(field => field?.sortable) ?? CREATED_DATE,
     columns: resolver.columns(definition.columns, 'entry'),
-    details: resolver.details(definition.details),
+    details: resolver.details(definition.details, 'entry'),
     ...(definition.payload ? { payload: resolver.payload(definition.payload, 'entry.payload') } : {}),
     levelPredicate: entryPredicateOf(roles.levelOrdinal, roles.level),
     ...(definition.systemMessagePrefix ? { systemMessagePrefix: definition.systemMessagePrefix } : {})
@@ -272,6 +283,38 @@ function notQueryable(described: ObjectDescribe, mapping: 'transaction' | 'entry
     ? `is a platform event. Map it under \`event\` instead of \`${mapping}\`.`
     : 'cannot be read with SOQL.';
   return { reason: 'notQueryable', message: `${described.name} ${detail}` };
+}
+
+/** An `event` mapping of an object that is not a platform event. A record object gets the mapping that fits it. */
+function notAnEvent(described: ObjectDescribe): ResolveFailure {
+  const detail = described.queryable
+    ? 'is a record object, not a platform event. Map it under `entry` instead of `event`.'
+    : 'is not a platform event.';
+  return { reason: 'notAnEvent', message: `${described.name} ${detail}` };
+}
+
+/**
+ * One `event` mapping against the describe of its object, live or stored. Platform event custom
+ * fields cannot be picklists, so the level table falls back to the aliases and the source's `levels`.
+ */
+function resolveEventObject(
+  event: EventDefinition,
+  described: ObjectDescribe,
+  namespace: string
+): { object: ResolvedEventObject; hidden: string[] } {
+  if (!described.name.endsWith('__e') || described.queryable) throw new Fail(notAnEvent(described));
+  const resolver = new ObjectResolver(described, new Map([[described.name, described]]), namespace, true);
+  const roles = resolver.roles(ENTRY_ROLES, event.fields, 'event');
+  const object: ResolvedEventObject = {
+    object: described.name,
+    channel: `/event/${described.name}`,
+    roles: { ...roles, time: timeFieldOf(roles.time) },
+    columns: resolver.columns(event.columns, 'event'),
+    details: resolver.details(event.details, 'event'),
+    ...(event.payload ? { payload: resolver.payload(event.payload, 'event.payload') } : {}),
+    ...(event.systemMessagePrefix ? { systemMessagePrefix: event.systemMessagePrefix } : {})
+  };
+  return { object, hidden: resolver.hidden };
 }
 
 function headOf(definition: SourceDefinition, origin: CustomLogSourceOrigin, namespace: string): CatalogHead {
@@ -307,13 +350,46 @@ export function resolveDefinition(
   describes: ReadonlyMap<string, ObjectDescribe>
 ): CatalogEntry {
   const head = headOf(definition, origin, namespace);
-  const unavailable = (failure: ResolveFailure): CatalogEntry => ({ head, state: 'unavailable', ...failure });
-  const describeOf = (name: string) => describes.get(name);
-  const entryDescribe = describeOf(head.objects.entry);
-  const transactionDescribe = head.objects.transaction ? describeOf(head.objects.transaction) : undefined;
-  if (!entryDescribe || (head.objects.transaction && !transactionDescribe)) {
-    const missing = !entryDescribe ? head.objects.entry : head.objects.transaction;
-    return unavailable({
+  const { shape } = definition;
+  switch (shape.kind) {
+    case 'transactions':
+    case 'entries':
+      return resolveRecordSource({ head, definition, shape, origin, namespace, describes });
+    case 'events':
+      return resolveEventSource({ head, definition, event: shape.event, origin, namespace, describes });
+    default:
+      return assertNever(shape, 'source shape');
+  }
+}
+
+type SourceResolution = {
+  head: CatalogHead;
+  definition: SourceDefinition;
+  origin: CustomLogSourceOrigin;
+  namespace: string;
+  describes: ReadonlyMap<string, ObjectDescribe>;
+};
+
+const unavailableEntry = (head: CatalogHead, failure: ResolveFailure): CatalogEntry => ({
+  head,
+  state: 'unavailable',
+  ...failure
+});
+
+function resolveRecordSource({
+  head,
+  definition,
+  shape,
+  origin,
+  namespace,
+  describes
+}: SourceResolution & { shape: RecordShapeDefinition }): CatalogEntry {
+  const objects = recordObjects(shape, namespace);
+  const entryDescribe = describes.get(objects.entry);
+  const transactionDescribe = objects.transaction ? describes.get(objects.transaction) : undefined;
+  if (!entryDescribe || (objects.transaction && !transactionDescribe)) {
+    const missing = !entryDescribe ? objects.entry : objects.transaction;
+    return unavailableEntry(head, {
       reason: 'objectNotReadable',
       message: `${missing} exists, but describe does not return it for this user.`
     });
@@ -323,14 +399,13 @@ export function resolveDefinition(
     ['transaction', transactionDescribe],
     ['entry', entryDescribe]
   ] as const) {
-    if (described && !described.queryable) return unavailable(notQueryable(described, mapping));
+    if (described && !described.queryable) return unavailableEntry(head, notQueryable(described, mapping));
   }
 
   try {
-    const { shape } = definition;
     const entryResolver = new ObjectResolver(entryDescribe, describes, namespace);
     const entry = resolveEntry(shape.entry, entryResolver);
-    let resolvedShape: ResolvedShape;
+    let resolvedShape: ResolvedRecordShape;
     let hidden: string[];
     switch (shape.kind) {
       case 'transactions': {
@@ -350,7 +425,7 @@ export function resolveDefinition(
         hidden = entryResolver.hidden;
         break;
       default:
-        return assertNever(shape, 'source shape');
+        return assertNever(shape, 'record shape');
     }
     return {
       head,
@@ -367,7 +442,46 @@ export function resolveDefinition(
       }
     };
   } catch (error) {
-    if (error instanceof Fail) return unavailable(error.failure);
+    if (error instanceof Fail) return unavailableEntry(head, error.failure);
+    throw error;
+  }
+}
+
+function resolveEventSource({
+  head,
+  definition,
+  event,
+  origin,
+  namespace,
+  describes
+}: SourceResolution & { event: EventDefinition }): CatalogEntry {
+  const name = qualifyPath(event.object, namespace);
+  const described = describes.get(name);
+  if (!described) {
+    return unavailableEntry(head, {
+      reason: 'objectNotReadable',
+      message: `${name} exists, but describe does not return it for this user.`
+    });
+  }
+
+  try {
+    const { object, hidden } = resolveEventObject(event, described, namespace);
+    return {
+      head,
+      state: 'ready',
+      source: {
+        id: definition.id,
+        label: definition.label,
+        origin,
+        ...(namespace ? { namespace } : {}),
+        digest: definition.digest,
+        shape: { kind: 'events', event: object },
+        levels: buildLevelTable(definition.levels, picklistValuesOf(described, object.roles.level)),
+        hidden
+      }
+    };
+  } catch (error) {
+    if (error instanceof Fail) return unavailableEntry(head, error.failure);
     throw error;
   }
 }
@@ -381,9 +495,10 @@ async function describeAll(
   namespace: string,
   reader: SchemaReader
 ): Promise<Map<string, ObjectDescribe>> {
-  const objects = definitionObjects(definition, namespace);
   const described = await Promise.all(
-    objectNames(objects).map(async name => [name, await reader.describe(name)] as const)
+    objectNames(definitionObjects(definition, namespace)).map(
+      async name => [name, await reader.describe(name)] as const
+    )
   );
   const describes = new Map<string, ObjectDescribe>();
   for (const [name, describe] of described) {
@@ -392,6 +507,26 @@ async function describeAll(
   }
 
   const { shape } = definition;
+  switch (shape.kind) {
+    case 'transactions':
+    case 'entries':
+      await describeRelationshipTargets(shape, namespace, reader, describes);
+      return describes;
+    case 'events':
+      return describes;
+    default:
+      return assertNever(shape, 'source shape');
+  }
+}
+
+/** Adds the describe of every object a one-hop path of the mapping reaches. */
+async function describeRelationshipTargets(
+  shape: RecordShapeDefinition,
+  namespace: string,
+  reader: SchemaReader,
+  describes: Map<string, ObjectDescribe>
+): Promise<void> {
+  const objects = recordObjects(shape, namespace);
   const paths: [ObjectDescribe, string][] = [];
   const addPaths = (name: string, list: readonly string[]) =>
     list.forEach(path => paths.push([describes.get(name)!, path]));
@@ -415,7 +550,7 @@ async function describeAll(
     case 'entries':
       break;
     default:
-      assertNever(shape, 'source shape');
+      assertNever(shape, 'record shape');
   }
   const targets = new Set<string>();
   for (const [describe, path] of paths) {
@@ -429,7 +564,11 @@ async function describeAll(
       if (describe) describes.set(target, describe);
     })
   );
-  return describes;
+}
+
+/** The object a preset's fingerprint is read on: the entry object of a record source, the event of an event source. */
+function fingerprintObject(objects: CustomLogSourceObjects): string {
+  return 'event' in objects ? objects.event : objects.entry;
 }
 
 /** A definition to look for in the org: a project source as written, or a built-in preset in its namespace. */
@@ -474,7 +613,7 @@ export async function locateSource(
 
   if (candidate.origin === 'builtin') {
     const fingerprint = candidate.fingerprint.map(field => qualifyPath(field, namespace));
-    const found = await reader.existingFields(head.objects.entry, fingerprint);
+    const found = await reader.existingFields(fingerprintObject(head.objects), fingerprint);
     if (found === 'refused') return refused;
     if (!fingerprint.every(field => found.has(field.toLowerCase()))) {
       const mapped = wanted.some(name => configuredObjects.has(name.toLowerCase()));

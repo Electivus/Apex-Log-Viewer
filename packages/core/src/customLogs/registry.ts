@@ -33,11 +33,11 @@ export type SourceRegistry = {
    * INVALID_TYPE (schema or FLS changed since resolution), drop the username's memo and catalogs,
    * re-resolve once and retry. Converges instead of serving a stale catalog until restart.
    */
-  withSource<T>(
+  withSource<S extends ResolvedSource, T>(
     ctx: CustomLogContext,
     config: ParsedCustomLogsConfig,
-    pick: (catalog: SourceCatalog) => ResolvedSource,
-    run: (source: ResolvedSource) => Promise<T>,
+    pick: (catalog: SourceCatalog) => S,
+    run: (source: S) => Promise<T>,
     signal?: AbortSignal
   ): Promise<T>;
   clear(): void;

@@ -15,7 +15,7 @@ import type { OrgItem } from './types.js';
 import { parseCustomLogLevel, parseSinceValue } from './customLogsRules.js';
 import {
   parseCustomLogPayloadColumns,
-  parseCustomLogRecordId,
+  parseCustomLogRowId,
   type CustomLogColumn,
   type CustomLogConfigIssueView,
   type CustomLogPayloadColumnsView,
@@ -163,7 +163,7 @@ export function parseCustomLogsFromWebviewMessage(raw: unknown): CustomLogsFromW
     }
     case 'customLogsOpenLog':
     case 'customLogsOpenPayload': {
-      const logId = parseCustomLogRecordId(message.logId);
+      const logId = parseCustomLogRowId(message.logId);
       return logId ? { type: message.type, logId } : undefined;
     }
     case 'customLogsSetPayloadColumns': {

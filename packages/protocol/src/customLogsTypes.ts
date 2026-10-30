@@ -12,7 +12,7 @@ export const CUSTOM_LOG_LEVELS = ['FINEST', 'FINER', 'FINE', 'DEBUG', 'INFO', 'W
 export type CustomLogLevel = (typeof CUSTOM_LOG_LEVELS)[number];
 export type CustomLogScalar = string | number | boolean | null;
 
-export type CustomLogSourceShape = 'transactions' | 'entries';
+export type CustomLogSourceShape = 'transactions' | 'entries' | 'events';
 export type CustomLogSourceRef = { id: string; label: string; shape: CustomLogSourceShape };
 
 export type CustomLogPayloadInfo = { field: string; columns: string[] };
@@ -131,11 +131,22 @@ export type CustomLogPayloadColumnsView = { defaults: string[]; added: string[] 
 const MAX_PAYLOAD_COLUMNS = 50;
 const MAX_PAYLOAD_PATH_LENGTH = 255;
 const RECORD_ID_PATTERN = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
+/** Must equal core's `CUSTOM_LOG_EVENT_ID_PATTERN`; `customLogsAgreement.test.ts` pins both. */
+export const EVENT_ROW_ID_PATTERN = /^e-[0-9a-z]{9}-[0-9a-z]{10}-[0-9a-f]{32}$/;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
 
-/** A Salesforce record id as 15 or 18 alphanumerics, the only ids a host accepts back from a webview. */
-export function parseCustomLogRecordId(value: unknown): string | undefined {
-  return typeof value === 'string' && RECORD_ID_PATTERN.test(value) ? value : undefined;
+declare const rowIdBrand: unique symbol;
+/** A record id or an event id, validated by pattern. A host also requires it to be in its current rows. */
+export type CustomLogRowId = string & { readonly [rowIdBrand]: 'CustomLogRowId' };
+
+/**
+ * A Salesforce record id as 15 or 18 alphanumerics, or an event id (`e-` and 55 characters in all),
+ * the only ids a host accepts back from a webview.
+ */
+export function parseCustomLogRowId(value: unknown): CustomLogRowId | undefined {
+  return typeof value === 'string' && (RECORD_ID_PATTERN.test(value) || EVENT_ROW_ID_PATTERN.test(value))
+    ? (value as CustomLogRowId)
+    : undefined;
 }
 
 /**

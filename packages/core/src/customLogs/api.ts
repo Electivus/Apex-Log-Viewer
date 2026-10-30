@@ -54,9 +54,9 @@ import {
   type QueryPlan,
   type RecordId
 } from './queries.js';
-import { defaultSourceId, requireSource, requireSourceForRecord, toColumns, toSourceInfo } from './catalog.js';
+import { defaultSourceId, requireRecordSource, requireSourceForRecord, toColumns, toSourceInfo } from './catalog.js';
 import { createSourceRegistry, type CustomLogContext } from './registry.js';
-import { headerObject, listedObject, type ResolvedSource } from './resolved.js';
+import { headerObject, listedObject, type ResolvedRecordSource, type ResolvedSource } from './resolved.js';
 import { parseSinceExpression } from './since.js';
 
 export type CustomLogApi = {
@@ -209,7 +209,7 @@ export function createCustomLogApi(presets: readonly BuiltinPreset[] = BUILTIN_P
       return registry.withSource(
         ctx,
         config,
-        catalog => requireSource(catalog, nonBlank(params.source)),
+        catalog => requireRecordSource(catalog, nonBlank(params.source)),
         async source => {
           const cursor = pageCursor(ctx, source, 'list', given);
           const after = cursor.after(params.cursor);
@@ -246,7 +246,7 @@ export function createCustomLogApi(presets: readonly BuiltinPreset[] = BUILTIN_P
         ctx,
         config,
         catalog => {
-          if (logId === undefined) return requireSource(catalog, sourceId);
+          if (logId === undefined) return requireRecordSource(catalog, sourceId);
           const owner = requireSourceForRecord(catalog, sourceId, logId);
           const header = headerObject(owner.source.shape);
           if (header && owner.level === 'entry') {
@@ -328,7 +328,7 @@ export function createCustomLogApi(presets: readonly BuiltinPreset[] = BUILTIN_P
 
 async function findTransaction(
   ctx: CustomLogContext,
-  source: ResolvedSource,
+  source: ResolvedRecordSource,
   transactionId: string,
   signal: AbortSignal | undefined
 ): Promise<RecordId> {

@@ -4,8 +4,9 @@ import { parseCustomLogsFromWebviewMessage } from '@alv/protocol/customLogsMessa
 import { parseCustomLogLevel, parseSinceValue } from '@alv/protocol/customLogsRules';
 import {
   CUSTOM_LOG_LEVELS,
+  EVENT_ROW_ID_PATTERN,
   mergePayloadFields,
-  parseCustomLogRecordId,
+  parseCustomLogRowId,
   type CustomLogPayloadField,
   type CustomLogPayloadType,
   type CustomLogPayloadView
@@ -96,7 +97,34 @@ suite('Custom Logs rules agree between core and protocol', () => {
 
     for (const id of recordIds) {
       test(`treats the record id ${JSON.stringify(id)} like core`, () => {
-        assert.equal(parseCustomLogRecordId(id) !== undefined, coreSoql.isSalesforceId(id));
+        assert.equal(parseCustomLogRowId(id) !== undefined, coreSoql.isSalesforceId(id));
+      });
+    }
+
+    const eventIds = [
+      'e-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d',
+      'e-000000000-0000000000-00000000000000000000000000000000',
+      'e-zzzzzzzzz-zzzzzzzzzz-ffffffffffffffffffffffffffffffff',
+      'E-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d',
+      'e-0R5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d',
+      'e-0r5jq8z3k-00000000a1-0A1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d',
+      'e-0r5jq8z3-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d',
+      'e-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4',
+      'e-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d0',
+      'e-0r5jq8z3k-00000000a1-0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d',
+      'e-0r5jq8z3k_00000000a1_0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d',
+      ''
+    ];
+
+    test('keeps the event id pattern identical to core, so a regex edit in one package fails here', () => {
+      assert.equal(EVENT_ROW_ID_PATTERN.source, coreContracts.CUSTOM_LOG_EVENT_ID_PATTERN.source);
+      assert.equal(EVENT_ROW_ID_PATTERN.flags, coreContracts.CUSTOM_LOG_EVENT_ID_PATTERN.flags);
+    });
+
+    for (const id of eventIds) {
+      test(`treats the event id ${JSON.stringify(id)} like core`, () => {
+        const coreAccepts = coreContracts.CUSTOM_LOG_EVENT_ID_PATTERN.test(id) || coreSoql.isSalesforceId(id);
+        assert.equal(parseCustomLogRowId(id) !== undefined, coreAccepts);
       });
     }
 

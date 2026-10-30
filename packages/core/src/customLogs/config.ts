@@ -104,6 +104,10 @@ export type FieldPath = Brand<string, 'CustomLogFieldPath'>;
 export type ObjectName = Brand<string, 'CustomLogObjectName'>;
 /** A flattened payload path (`order.lines[0].sku`), 1..255 characters. Matched exactly, never parsed. */
 export type PayloadPath = Brand<string, 'CustomLogPayloadPath'>;
+/** A platform event API name, `^[A-Za-z][A-Za-z0-9_]*__e$`, as written in the mapping. Describe gives the canonical spelling. */
+export type EventObjectName = Brand<string, 'CustomLogEventObjectName'>;
+/** A field of a platform event, `^[A-Za-z][A-Za-z0-9_]*$`. Never `Relationship.Field`: events carry ids, not relationships. */
+export type EventFieldName = Brand<string, 'CustomLogEventFieldName'>;
 
 /** One `V` per role of `R`: always present for a required role, optional otherwise. */
 export type ByRole<R extends Record<string, RoleSpec>, V> = {
@@ -112,21 +116,21 @@ export type ByRole<R extends Record<string, RoleSpec>, V> = {
   readonly [K in keyof R as R[K]['required'] extends true ? never : K]?: V;
 };
 
-type RoleMap<R extends Record<string, RoleSpec>> = ByRole<R, FieldPath>;
+type RoleMap<R extends Record<string, RoleSpec>, P extends string = FieldPath> = ByRole<R, P>;
 
 /**
  * A long field fetched only by `entry`. Written as a bare field path, or as an object that adds
  * the framework's checkbox flags: `presence` (the field has content) and `truncated` (the
  * framework cut it before storing).
  */
-export type DetailDefinition = { field: FieldPath; presence?: FieldPath; truncated?: FieldPath };
+export type DetailDefinition<P extends string = FieldPath> = { field: P; presence?: P; truncated?: P };
 
 /**
  * One long-text field holding JSON whose keys become columns. Written as a bare field path, or as
  * an object with the team's default `columns`. Users add more columns in the UI; those stay in
  * the host's workspace state and never reach this file.
  */
-export type PayloadDefinition = { field: FieldPath; columns: readonly PayloadPath[] };
+export type PayloadDefinition<P extends string = FieldPath> = { field: P; columns: readonly PayloadPath[] };
 
 export type TransactionDefinition = {
   object: ObjectName;
@@ -147,12 +151,31 @@ export type EntryDefinition = {
 };
 
 /**
- * Two shapes, discriminated so a header without a parent link, or a parent link without a
- * header, cannot be represented.
+ * A platform event read from the local event store. It takes the entry's roles and keys minus
+ * `parent`, because an event carries the same kind of fields; every path is a plain field name,
+ * because an event has no relationships to hop.
+ */
+export type EventDefinition = {
+  object: EventObjectName;
+  fields: RoleMap<typeof ENTRY_ROLES, EventFieldName>;
+  columns: readonly EventFieldName[];
+  details: readonly DetailDefinition<EventFieldName>[];
+  payload?: PayloadDefinition<EventFieldName>;
+  systemMessagePrefix?: string;
+};
+
+/**
+ * Three shapes, discriminated so a header without a parent link, or a parent link without a
+ * header, cannot be represented. The `events` member carries `event`, not `entry`: a read of
+ * `shape.entry` stops compiling until it narrows to a record shape.
  */
 export type SourceShapeDefinition =
   | { kind: 'entries'; entry: EntryDefinition }
-  | { kind: 'transactions'; transaction: TransactionDefinition; entry: EntryDefinition & { parent: FieldPath } };
+  | { kind: 'transactions'; transaction: TransactionDefinition; entry: EntryDefinition & { parent: FieldPath } }
+  | { kind: 'events'; event: EventDefinition };
+
+/** The shapes whose rows are records SOQL reads. */
+export type RecordShapeDefinition = Exclude<SourceShapeDefinition, { kind: 'events' }>;
 
 export type SourceDefinition = {
   id: SourceId;
@@ -170,12 +193,21 @@ export type ParsedCustomLogsConfig = {
   issues: readonly CustomLogConfigIssue[];
   /** Hash of the normalized `customLogs` section. Keys the registry's catalog cache. */
   fingerprint: string;
+  /**
+   * `eventRetentionDays`, 1..365, default 30. One value per project, not per source: two sources
+   * over one event object share one stored history, so a per-source value would have two owners.
+   */
+  eventRetentionDays: number;
 };
 
 export const CONFIG_POINTER = '/plugins/electivus/customLogs';
 
-export const CONFIG_KEYS = ['sources'] as const;
-export const SOURCE_KEYS = ['id', 'label', 'transaction', 'entry', 'levels'] as const;
+export const DEFAULT_EVENT_RETENTION_DAYS = 30;
+export const MIN_EVENT_RETENTION_DAYS = 1;
+export const MAX_EVENT_RETENTION_DAYS = 365;
+
+export const CONFIG_KEYS = ['sources', 'eventRetentionDays'] as const;
+export const SOURCE_KEYS = ['id', 'label', 'transaction', 'entry', 'event', 'levels'] as const;
 export const TRANSACTION_KEYS = ['object', 'fields', 'columns', 'payload'] as const;
 export const ENTRY_KEYS = [
   'object',
@@ -186,12 +218,15 @@ export const ENTRY_KEYS = [
   'payload',
   'systemMessagePrefix'
 ] as const;
+export const EVENT_KEYS = ['object', 'fields', 'columns', 'details', 'payload', 'systemMessagePrefix'] as const;
 export const DETAIL_KEYS = ['field', 'presence', 'truncated'] as const;
 export const PAYLOAD_KEYS = ['field', 'columns'] as const;
 
 export const SOURCE_ID_PATTERN = /^[a-z][a-z0-9-]{0,39}$/;
 export const FIELD_PATH_PATTERN = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)?$/;
 export const OBJECT_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
+export const EVENT_OBJECT_PATTERN = /^[A-Za-z][A-Za-z0-9_]*__e$/;
+export const FIELD_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
 const MAX_NAME_LENGTH = 255;
 const MAX_LABEL_LENGTH = 80;
 
@@ -246,8 +281,40 @@ function readName<T extends string>(
   return undefined;
 }
 
-const readFieldPath = (value: unknown, pointer: string, report: Report) =>
-  readName<FieldPath>(value, FIELD_PATH_PATTERN, 'A field', pointer, report);
+type Reader<T> = (value: unknown, pointer: string, report: Report) => T | undefined;
+
+/** The names a mapping may use. A record allows one relationship hop; a platform event allows none. */
+type Vocabulary<O extends string, P extends string> = { object: Reader<O>; path: Reader<P> };
+
+const RECORD_NAMES: Vocabulary<ObjectName, FieldPath> = {
+  object: (value, pointer, report) => readName<ObjectName>(value, OBJECT_NAME_PATTERN, 'An object', pointer, report),
+  path: (value, pointer, report) => readName<FieldPath>(value, FIELD_PATH_PATTERN, 'A field', pointer, report)
+};
+
+const EVENT_NAMES: Vocabulary<EventObjectName, EventFieldName> = {
+  object: (value, pointer, report) => {
+    if (typeof value === 'string' && value.length <= MAX_NAME_LENGTH && EVENT_OBJECT_PATTERN.test(value)) {
+      return value as EventObjectName;
+    }
+    report(
+      'invalidValue',
+      pointer,
+      `An event is a platform event API name ending in "__e"${typeof value === 'string' ? `, got "${value}"` : ''}.`
+    );
+    return undefined;
+  },
+  path: (value, pointer, report) => {
+    if (typeof value === 'string' && value.includes('.')) {
+      report(
+        'invalidValue',
+        pointer,
+        `Platform events have no relationships, so "${value}" cannot be read. Map a field of the event itself, such as LoggedByUsername__c.`
+      );
+      return undefined;
+    }
+    return readName<EventFieldName>(value, FIELD_NAME_PATTERN, 'A field', pointer, report);
+  }
+};
 
 function readRequired<T>(
   value: Record<string, unknown>,
@@ -263,28 +330,34 @@ function readRequired<T>(
   return read(value[key], `${pointer}/${key}`);
 }
 
-function readFieldList(value: unknown, pointer: string, report: Report): readonly FieldPath[] | undefined {
+function readFieldList<P extends string>(
+  value: unknown,
+  pointer: string,
+  report: Report,
+  path: Reader<P>
+): readonly P[] | undefined {
   if (value === undefined) return [];
   if (!Array.isArray(value)) {
     report('invalidValue', pointer, `Expected an array of field names, got ${describeKind(value)}.`);
     return undefined;
   }
-  const fields = value.map((item, index) => readFieldPath(item, `${pointer}/${index}`, report));
-  return fields.every(field => field !== undefined) ? (fields as FieldPath[]) : undefined;
+  const fields = value.map((item, index) => path(item, `${pointer}/${index}`, report));
+  return fields.every(field => field !== undefined) ? (fields as P[]) : undefined;
 }
 
-function readRoleFields(
+function readRoleFields<P extends string>(
   value: unknown,
   roles: Record<string, RoleSpec>,
   pointer: string,
-  report: Report
-): Record<string, FieldPath> | undefined {
+  report: Report,
+  path: Reader<P>
+): Record<string, P> | undefined {
   if (!isRecord(value)) {
     report('notAnObject', pointer, `"fields" must be an object, got ${describeKind(value)}.`);
     return undefined;
   }
   warnUnknownKeys(value, Object.keys(roles), pointer, report);
-  const fields: Record<string, FieldPath> = {};
+  const fields: Record<string, P> = {};
   let valid = true;
   for (const [role, spec] of Object.entries(roles)) {
     if (value[role] === undefined) {
@@ -294,16 +367,21 @@ function readRoleFields(
       }
       continue;
     }
-    const field = readFieldPath(value[role], `${pointer}/${role}`, report);
+    const field = path(value[role], `${pointer}/${role}`, report);
     if (field) fields[role] = field;
     else valid = false;
   }
   return valid ? fields : undefined;
 }
 
-function readDetail(value: unknown, pointer: string, report: Report): DetailDefinition | undefined {
+function readDetail<P extends string>(
+  value: unknown,
+  pointer: string,
+  report: Report,
+  path: Reader<P>
+): DetailDefinition<P> | undefined {
   if (typeof value === 'string') {
-    const field = readFieldPath(value, pointer, report);
+    const field = path(value, pointer, report);
     return field && { field };
   }
   if (!isRecord(value)) {
@@ -311,22 +389,27 @@ function readDetail(value: unknown, pointer: string, report: Report): DetailDefi
     return undefined;
   }
   warnUnknownKeys(value, DETAIL_KEYS, pointer, report);
-  const field = readRequired(value, 'field', pointer, report, (item, at) => readFieldPath(item, at, report));
+  const field = readRequired(value, 'field', pointer, report, (item, at) => path(item, at, report));
   const flags = (['presence', 'truncated'] as const).map(
-    key => [key, value[key] === undefined ? null : readFieldPath(value[key], `${pointer}/${key}`, report)] as const
+    key => [key, value[key] === undefined ? null : path(value[key], `${pointer}/${key}`, report)] as const
   );
   if (!field || flags.some(([, flag]) => flag === undefined)) return undefined;
   return { field, ...Object.fromEntries(flags.filter(([, flag]) => flag !== null)) };
 }
 
-function readDetails(value: unknown, pointer: string, report: Report): readonly DetailDefinition[] | undefined {
+function readDetails<P extends string>(
+  value: unknown,
+  pointer: string,
+  report: Report,
+  path: Reader<P>
+): readonly DetailDefinition<P>[] | undefined {
   if (value === undefined) return [];
   if (!Array.isArray(value)) {
     report('invalidValue', pointer, `"details" must be an array, got ${describeKind(value)}.`);
     return undefined;
   }
-  const details = value.map((item, index) => readDetail(item, `${pointer}/${index}`, report));
-  return details.every(detail => detail !== undefined) ? (details as DetailDefinition[]) : undefined;
+  const details = value.map((item, index) => readDetail(item, `${pointer}/${index}`, report, path));
+  return details.every(detail => detail !== undefined) ? (details as DetailDefinition<P>[]) : undefined;
 }
 
 function readPayloadColumns(value: unknown, pointer: string, report: Report): readonly PayloadPath[] | undefined {
@@ -345,9 +428,14 @@ function readPayloadColumns(value: unknown, pointer: string, report: Report): re
   return valid ? (value as PayloadPath[]) : undefined;
 }
 
-function readPayload(value: unknown, pointer: string, report: Report): PayloadDefinition | undefined {
+function readPayload<P extends string>(
+  value: unknown,
+  pointer: string,
+  report: Report,
+  path: Reader<P>
+): PayloadDefinition<P> | undefined {
   if (typeof value === 'string') {
-    const field = readFieldPath(value, pointer, report);
+    const field = path(value, pointer, report);
     return field && { field, columns: [] };
   }
   if (!isRecord(value)) {
@@ -355,20 +443,36 @@ function readPayload(value: unknown, pointer: string, report: Report): PayloadDe
     return undefined;
   }
   warnUnknownKeys(value, PAYLOAD_KEYS, pointer, report);
-  const field = readRequired(value, 'field', pointer, report, (item, at) => readFieldPath(item, at, report));
+  const field = readRequired(value, 'field', pointer, report, (item, at) => path(item, at, report));
   const columns = readPayloadColumns(value.columns, `${pointer}/columns`, report);
   return field && columns && { field, columns };
 }
 
-/** Shared by header and entry objects: `payload`, `columns` and the `object` name, each read independently. */
-function readObjectParts(value: Record<string, unknown>, pointer: string, report: Report) {
+/** Shared by header, entry and event objects: `payload`, `columns` and the `object` name, each read independently. */
+function readObjectParts<O extends string, P extends string>(
+  value: Record<string, unknown>,
+  pointer: string,
+  report: Report,
+  names: Vocabulary<O, P>
+) {
   return {
-    object: readRequired(value, 'object', pointer, report, (item, at) =>
-      readName<ObjectName>(item, OBJECT_NAME_PATTERN, 'An object', at, report)
-    ),
-    columns: readFieldList(value.columns, `${pointer}/columns`, report),
-    payload: value.payload === undefined ? null : readPayload(value.payload, `${pointer}/payload`, report)
+    object: readRequired(value, 'object', pointer, report, (item, at) => names.object(item, at, report)),
+    columns: readFieldList(value.columns, `${pointer}/columns`, report, names.path),
+    payload: value.payload === undefined ? null : readPayload(value.payload, `${pointer}/payload`, report, names.path)
   };
+}
+
+/** `null` when absent, `undefined` when invalid (reported). */
+function readSystemMessagePrefix(
+  value: Record<string, unknown>,
+  pointer: string,
+  report: Report
+): string | null | undefined {
+  const prefix = value.systemMessagePrefix;
+  if (prefix === undefined) return null;
+  if (typeof prefix === 'string' && prefix.length >= 1 && prefix.length <= MAX_NAME_LENGTH) return prefix;
+  report('invalidValue', `${pointer}/systemMessagePrefix`, '"systemMessagePrefix" is a string of 1 to 255 characters.');
+  return undefined;
 }
 
 function readTransaction(value: unknown, pointer: string, report: Report): TransactionDefinition | undefined {
@@ -377,9 +481,9 @@ function readTransaction(value: unknown, pointer: string, report: Report): Trans
     return undefined;
   }
   warnUnknownKeys(value, TRANSACTION_KEYS, pointer, report);
-  const { object, columns, payload } = readObjectParts(value, pointer, report);
+  const { object, columns, payload } = readObjectParts(value, pointer, report, RECORD_NAMES);
   const fields = readRequired(value, 'fields', pointer, report, (item, at) =>
-    readRoleFields(item, TRANSACTION_ROLES, at, report)
+    readRoleFields(item, TRANSACTION_ROLES, at, report, RECORD_NAMES.path)
   );
   if (!object || !columns || !fields || payload === undefined) return undefined;
   return {
@@ -401,15 +505,15 @@ function readEntry(
     return undefined;
   }
   warnUnknownKeys(value, ENTRY_KEYS, pointer, report);
-  const { object, columns, payload } = readObjectParts(value, pointer, report);
+  const { object, columns, payload } = readObjectParts(value, pointer, report, RECORD_NAMES);
   const fields = readRequired(value, 'fields', pointer, report, (item, at) =>
-    readRoleFields(item, ENTRY_ROLES, at, report)
+    readRoleFields(item, ENTRY_ROLES, at, report, RECORD_NAMES.path)
   );
-  const details = readDetails(value.details, `${pointer}/details`, report);
+  const details = readDetails(value.details, `${pointer}/details`, report, RECORD_NAMES.path);
   let parent: FieldPath | undefined;
   let parentValid = true;
   if (hasTransaction) {
-    parent = readRequired(value, 'parent', pointer, report, (item, at) => readFieldPath(item, at, report));
+    parent = readRequired(value, 'parent', pointer, report, (item, at) => RECORD_NAMES.path(item, at, report));
     parentValid = parent !== undefined;
   } else if (value.parent !== undefined) {
     report(
@@ -419,22 +523,16 @@ function readEntry(
     );
     parentValid = false;
   }
-  let systemMessagePrefix: string | undefined;
-  let prefixValid = true;
-  if (value.systemMessagePrefix !== undefined) {
-    const prefix = value.systemMessagePrefix;
-    if (typeof prefix === 'string' && prefix.length >= 1 && prefix.length <= MAX_NAME_LENGTH)
-      systemMessagePrefix = prefix;
-    else {
-      report(
-        'invalidValue',
-        `${pointer}/systemMessagePrefix`,
-        '"systemMessagePrefix" is a string of 1 to 255 characters.'
-      );
-      prefixValid = false;
-    }
-  }
-  if (!object || !columns || !fields || !details || payload === undefined || !parentValid || !prefixValid)
+  const systemMessagePrefix = readSystemMessagePrefix(value, pointer, report);
+  if (
+    !object ||
+    !columns ||
+    !fields ||
+    !details ||
+    payload === undefined ||
+    !parentValid ||
+    systemMessagePrefix === undefined
+  )
     return undefined;
   return {
     object,
@@ -444,6 +542,31 @@ function readEntry(
     ...(payload ? { payload } : {}),
     ...(systemMessagePrefix ? { systemMessagePrefix } : {}),
     ...(parent ? { parent } : {})
+  };
+}
+
+function readEvent(value: unknown, pointer: string, report: Report): EventDefinition | undefined {
+  if (!isRecord(value)) {
+    report('notAnObject', pointer, `"event" must be an object, got ${describeKind(value)}.`);
+    return undefined;
+  }
+  warnUnknownKeys(value, EVENT_KEYS, pointer, report);
+  const { object, columns, payload } = readObjectParts(value, pointer, report, EVENT_NAMES);
+  const fields = readRequired(value, 'fields', pointer, report, (item, at) =>
+    readRoleFields(item, ENTRY_ROLES, at, report, EVENT_NAMES.path)
+  );
+  const details = readDetails(value.details, `${pointer}/details`, report, EVENT_NAMES.path);
+  const systemMessagePrefix = readSystemMessagePrefix(value, pointer, report);
+  if (!object || !columns || !fields || !details || payload === undefined || systemMessagePrefix === undefined) {
+    return undefined;
+  }
+  return {
+    object,
+    fields: fields as EventDefinition['fields'],
+    columns,
+    details,
+    ...(payload ? { payload } : {}),
+    ...(systemMessagePrefix ? { systemMessagePrefix } : {})
   };
 }
 
@@ -464,6 +587,62 @@ function readLevels(value: unknown, pointer: string, report: Report): Record<str
     }
   }
   return valid ? levels : undefined;
+}
+
+/** An absent or invalid value keeps the default; an invalid one is reported. */
+function readEventRetentionDays(value: unknown, report: Report): number {
+  if (value === undefined) return DEFAULT_EVENT_RETENTION_DAYS;
+  if (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= MIN_EVENT_RETENTION_DAYS &&
+    value <= MAX_EVENT_RETENTION_DAYS
+  ) {
+    return value;
+  }
+  report(
+    'invalidValue',
+    `${CONFIG_POINTER}/eventRetentionDays`,
+    `"eventRetentionDays" is a whole number of days from ${MIN_EVENT_RETENTION_DAYS} to ${MAX_EVENT_RETENTION_DAYS}.`
+  );
+  return DEFAULT_EVENT_RETENTION_DAYS;
+}
+
+function readRecordShape(
+  raw: Record<string, unknown>,
+  pointer: string,
+  report: Report
+): RecordShapeDefinition | undefined {
+  const hasTransaction = raw.transaction !== undefined;
+  const transaction = hasTransaction ? readTransaction(raw.transaction, `${pointer}/transaction`, report) : undefined;
+  if (raw.entry === undefined) {
+    report('missingRequired', `${pointer}/entry`, '"entry" is required, or "event" to map a platform event.');
+    return undefined;
+  }
+  const entry = readEntry(raw.entry, `${pointer}/entry`, hasTransaction, report);
+  if (!entry) return undefined;
+  const { parent, ...entryDefinition } = entry;
+  return transaction && parent
+    ? { kind: 'transactions', transaction, entry: { ...entryDefinition, parent } }
+    : { kind: 'entries', entry: entryDefinition };
+}
+
+/** `event` stands alone: a record key beside it would leave two shapes in one source. */
+function readEventShape(
+  raw: Record<string, unknown>,
+  pointer: string,
+  report: Report
+): SourceShapeDefinition | undefined {
+  if (raw.entry !== undefined || raw.transaction !== undefined) {
+    report(
+      'invalidValue',
+      `${pointer}/event`,
+      '"event" maps a platform event, so it cannot be combined with "entry" or "transaction". Use one or the other.'
+    );
+    return undefined;
+  }
+  const event = readEvent(raw.event, `${pointer}/event`, report);
+  return event && { kind: 'events', event };
 }
 
 /**
@@ -500,21 +679,12 @@ export function parseSourceDefinition(
       labelValid = false;
     }
   }
-  const hasTransaction = raw.transaction !== undefined;
-  const transaction = hasTransaction ? readTransaction(raw.transaction, `${pointer}/transaction`, report) : undefined;
-  const entry = readRequired(raw, 'entry', pointer, report, (value, at) =>
-    readEntry(value, at, hasTransaction, report)
-  );
+  const shape = raw.event === undefined ? readRecordShape(raw, pointer, report) : readEventShape(raw, pointer, report);
   const levels = readLevels(raw.levels, `${pointer}/levels`, report);
 
-  if (issues.some(issue => issue.severity === 'error') || !id || !label || !labelValid || !entry || !levels) {
+  if (issues.some(issue => issue.severity === 'error') || !id || !label || !labelValid || !shape || !levels) {
     return { issues };
   }
-  const { parent, ...entryDefinition } = entry;
-  const shape: SourceShapeDefinition =
-    transaction && parent
-      ? { kind: 'transactions', transaction, entry: { ...entryDefinition, parent } }
-      : { kind: 'entries', entry: entryDefinition };
   const definition = { id, label, shape, levels };
   return { definition: { ...definition, digest: shortHash({ id, shape, levels }) }, issues };
 }
@@ -530,23 +700,28 @@ export function parseSourceDefinition(
  * - `id` is unique within the file; a later duplicate is skipped. Reusing a built-in id is
  *   allowed and replaces that built-in.
  */
-export function parseCustomLogsConfig(raw: unknown): { sources: SourceDefinition[]; issues: CustomLogConfigIssue[] } {
-  if (raw === undefined) return { sources: [], issues: [] };
+export function parseCustomLogsConfig(raw: unknown): {
+  sources: SourceDefinition[];
+  issues: CustomLogConfigIssue[];
+  eventRetentionDays: number;
+} {
+  if (raw === undefined) return { sources: [], issues: [], eventRetentionDays: DEFAULT_EVENT_RETENTION_DAYS };
   const issues: CustomLogConfigIssue[] = [];
   const report: Report = (code, at, message) => issues.push(configIssue(code, at, message));
   if (!isRecord(raw)) {
     report('notAnObject', CONFIG_POINTER, `"customLogs" must be an object, got ${describeKind(raw)}.`);
-    return { sources: [], issues };
+    return { sources: [], issues, eventRetentionDays: DEFAULT_EVENT_RETENTION_DAYS };
   }
   warnUnknownKeys(raw, CONFIG_KEYS, CONFIG_POINTER, report);
-  if (raw.sources === undefined) return { sources: [], issues };
+  const eventRetentionDays = readEventRetentionDays(raw.eventRetentionDays, report);
+  if (raw.sources === undefined) return { sources: [], issues, eventRetentionDays };
   if (!Array.isArray(raw.sources)) {
     report(
       'invalidValue',
       `${CONFIG_POINTER}/sources`,
       `"sources" must be an array, got ${describeKind(raw.sources)}.`
     );
-    return { sources: [], issues };
+    return { sources: [], issues, eventRetentionDays };
   }
 
   const sources: SourceDefinition[] = [];
@@ -565,7 +740,7 @@ export function parseCustomLogsConfig(raw: unknown): { sources: SourceDefinition
     firstPointerById.set(definition.id, pointer);
     sources.push(definition);
   }
-  return { sources, issues };
+  return { sources, issues, eventRetentionDays };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -594,14 +769,22 @@ async function findProjectFile(projectDir: string): Promise<{ file: string; text
  */
 export async function loadCustomLogsConfig(projectDir: string | undefined): Promise<ParsedCustomLogsConfig> {
   const found = projectDir === undefined ? undefined : await findProjectFile(projectDir);
-  if (!found) return { sources: [], issues: [], fingerprint: shortHash(null) };
+  if (!found) {
+    return { sources: [], issues: [], fingerprint: shortHash(null), eventRetentionDays: DEFAULT_EVENT_RETENTION_DAYS };
+  }
 
   let project: unknown;
   try {
     project = JSON.parse(found.text);
   } catch (error) {
     const issue = configIssue('invalidJson', '', `${PROJECT_FILE} is not valid JSON: ${(error as Error).message}`);
-    return { projectFile: found.file, sources: [], issues: [issue], fingerprint: shortHash(null) };
+    return {
+      projectFile: found.file,
+      sources: [],
+      issues: [issue],
+      fingerprint: shortHash(null),
+      eventRetentionDays: DEFAULT_EVENT_RETENTION_DAYS
+    };
   }
   const plugins = isRecord(project) ? project.plugins : undefined;
   const electivus = isRecord(plugins) ? plugins.electivus : undefined;
