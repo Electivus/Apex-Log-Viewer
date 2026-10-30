@@ -5,7 +5,8 @@ const entryPoints = [
   'packages/webview/src/tail.tsx',
   'packages/webview/src/logViewer.tsx',
   'packages/webview/src/debugFlags.tsx',
-  'packages/webview/src/customLogs.tsx'
+  'packages/webview/src/customLogs.tsx',
+  'packages/webview/src/customLogViewer.tsx'
 ];
 
 const isWatch = process.argv.includes('--watch');

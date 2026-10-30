@@ -13,6 +13,12 @@ export function formatLogTime(iso: string): string {
   return `${day} ${time}`;
 }
 
+/** Local `HH:mm:ss.SSS`, for lists that already sit inside one transaction. */
+export function formatClock(iso: string): string {
+  const formatted = formatLogTime(iso);
+  return formatted === iso ? iso : formatted.slice(11);
+}
+
 export function formatScalar(value: CustomLogScalar | undefined): string {
   return value === null ? 'null' : value === undefined ? '' : String(value);
 }

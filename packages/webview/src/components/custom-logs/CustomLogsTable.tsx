@@ -1,18 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { List, type ListImperativeAPI } from 'react-window';
-import { ArrowDown, ArrowUp, TriangleAlert } from 'lucide-react';
+import { TriangleAlert } from 'lucide-react';
 import type { CustomLogRow } from '@alv/protocol/customLogsTypes';
 import type { CustomLogsMessages } from '../../i18n';
 import { cn } from '../../lib/utils';
 import type { SortState, TableColumn } from '../../utils/customLogs/columns';
-import { fillTemplate, formatLogTime, formatScalar, scalarKind } from '../../utils/customLogs/format';
+import { formatLogTime, formatScalar, scalarKind } from '../../utils/customLogs/format';
 import { payloadValues, type DiscoveredField } from '../../utils/customLogs/payloadRows';
-import { ColumnHeaderMenu } from './ColumnHeaderMenu';
+import { CustomLogsColumnsHeader, columnGrid } from './CustomLogsColumnsHeader';
 import { LevelBadge } from './LevelBadge';
-import { PAYLOAD_TYPE_LABEL_KEY, PayloadFieldPicker } from './PayloadFieldPicker';
 
 const ROW_HEIGHT = 24;
-const ADD_FIELD_WIDTH = 96;
 
 type CustomLogsTableProps = {
   t: CustomLogsMessages;
@@ -44,12 +42,6 @@ type RowProps = {
   onSelect: (row: CustomLogRow) => void;
   onOpen: (row: CustomLogRow) => void;
 };
-
-function columnTrack(column: TableColumn): string {
-  return 'flex' in column && column.flex ? `minmax(${column.width}px, 1fr)` : `${column.width}px`;
-}
-
-const HEADER_CELL = 'group/header flex min-w-0 items-center gap-1 border-r border-border/50 px-2 text-[11px] font-semibold tracking-wide text-muted-foreground';
 
 function CountsCell({ t, row }: { t: CustomLogsMessages; row: CustomLogRow }) {
   const counts = row.counts;
@@ -184,8 +176,7 @@ export function CustomLogsTable({
   const listRef = useRef<ListImperativeAPI | null>(null);
   const headerRef = useRef<HTMLDivElement | null>(null);
 
-  const gridTemplate = useMemo(() => [...columns.map(columnTrack), `${ADD_FIELD_WIDTH}px`].join(' '), [columns]);
-  const totalWidth = useMemo(() => columns.reduce((sum, column) => sum + column.width, ADD_FIELD_WIDTH), [columns]);
+  const { gridTemplate, totalWidth } = useMemo(() => columnGrid(columns), [columns]);
   const firstPayloadColumnId = useMemo(() => columns.find(column => column.kind === 'payload')?.id, [columns]);
 
   useEffect(() => {
@@ -222,9 +213,6 @@ export function CustomLogsTable({
     [t, rows, columns, gridTemplate, totalWidth, selectedId, firstPayloadColumnId, onSelect, onOpen]
   );
 
-  const ariaSort = (columnId: string): 'none' | 'ascending' | 'descending' =>
-    sort?.columnId !== columnId ? 'none' : sort.dir === 'asc' ? 'ascending' : 'descending';
-
   return (
     <div
       role="grid"
@@ -249,64 +237,22 @@ export function CustomLogsTable({
         }
       }}
     >
-      <div ref={headerRef} role="row" className="shrink-0 overflow-hidden border-b border-border bg-card/70">
-        <div style={{ display: 'grid', gridTemplateColumns: gridTemplate, minWidth: totalWidth }} className="h-6 items-stretch">
-          {columns.map(column => {
-            const sorted = sort?.columnId === column.id;
-            const type = column.kind === 'payload' && column.type ? t.picker[PAYLOAD_TYPE_LABEL_KEY[column.type]] : '';
-            return (
-              <div
-                key={column.id}
-                role="columnheader"
-                aria-sort={ariaSort(column.id)}
-                className={cn(HEADER_CELL, column.kind === 'payload' ? 'normal-case' : 'uppercase')}
-                title={
-                  column.kind === 'payload'
-                    ? fillTemplate(t.table.payloadColumn, { path: column.path, type, rows: column.rows ?? 0, total: rows.length })
-                    : column.label
-                }
-              >
-                <button
-                  type="button"
-                  className={cn('flex min-w-0 flex-1 items-center gap-1 text-left', column.kind === 'payload' && 'font-mono')}
-                  onClick={() => onSort(column.id)}
-                >
-                  {column.kind === 'payload' ? <i className="font-mono text-[10px] not-italic text-amber-400">{'{}'}</i> : null}
-                  <span className="truncate">{column.label}</span>
-                  {sorted ? (
-                    sort?.dir === 'asc' ? (
-                      <ArrowUp className="h-3 w-3 shrink-0 text-[color:var(--vscode-focusBorder,#3794ff)]" aria-label={t.table.sortedAscending} />
-                    ) : (
-                      <ArrowDown className="h-3 w-3 shrink-0 text-[color:var(--vscode-focusBorder,#3794ff)]" aria-label={t.table.sortedDescending} />
-                    )
-                  ) : null}
-                </button>
-                {column.kind === 'payload' ? (
-                  <ColumnHeaderMenu
-                    t={t}
-                    column={column.path}
-                    locked={column.locked}
-                    onSort={dir => onSort(column.id, dir)}
-                    onFilter={() => onFilterBy(column.path)}
-                    onRemove={() => onRemoveColumn(column.path)}
-                  />
-                ) : null}
-              </div>
-            );
-          })}
-          <div role="columnheader" className="flex items-center px-2">
-            <PayloadFieldPicker t={t} fields={discovered} columns={activeColumns} lockedColumns={lockedColumns} onToggleColumn={onToggleColumn}>
-              <button
-                type="button"
-                title={t.table.addFieldTitle}
-                className="text-[11px] font-semibold text-[color:var(--vscode-textLink-foreground,#3794ff)] hover:underline"
-              >
-                {t.table.addField}
-              </button>
-            </PayloadFieldPicker>
-          </div>
-        </div>
-      </div>
+      <CustomLogsColumnsHeader
+        headerRef={headerRef}
+        t={t}
+        columns={columns}
+        gridTemplate={gridTemplate}
+        totalWidth={totalWidth}
+        sort={sort}
+        loadedCount={rows.length}
+        discovered={discovered}
+        activeColumns={activeColumns}
+        lockedColumns={lockedColumns}
+        onSort={onSort}
+        onToggleColumn={onToggleColumn}
+        onRemoveColumn={onRemoveColumn}
+        onFilterBy={onFilterBy}
+      />
       <div className="relative min-h-0 flex-1">
         <VirtualList
           listRef={listRef}

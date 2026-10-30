@@ -1,15 +1,14 @@
 import React from 'react';
 import { Info, Loader2, TriangleAlert } from 'lucide-react';
 import type { CustomLogsMessages } from '../../i18n';
-import { fillTemplate, formatCount } from '../../utils/customLogs/format';
+import { fillTemplate } from '../../utils/customLogs/format';
 import type { PayloadStateCounts } from '../../utils/customLogs/payloadRows';
 import { Button } from '../ui/button';
 
 type CustomLogsStatusBarProps = {
   t: CustomLogsMessages;
-  locale: string;
-  loadedCount: number;
-  matchCount: number;
+  /** The count sentence, already worded for rows or entries. */
+  scope: string;
   /** Payload (loaded-row) filters are active. */
   filtering: boolean;
   /** Payload columns, filters or sorts are in use, so the loaded-rows caveat applies. */
@@ -22,9 +21,7 @@ type CustomLogsStatusBarProps = {
 
 export function CustomLogsStatusBar({
   t,
-  locale,
-  loadedCount,
-  matchCount,
+  scope,
   filtering,
   payloadInUse,
   payloadStates,
@@ -32,9 +29,6 @@ export function CustomLogsStatusBar({
   loading,
   onLoadMore
 }: CustomLogsStatusBarProps) {
-  const scope = filtering
-    ? fillTemplate(t.status.filtering, { loaded: formatCount(loadedCount, locale), matches: formatCount(matchCount, locale) })
-    : fillTemplate(t.status.rowsLoaded, { count: formatCount(loadedCount, locale) });
   const problems = [
     payloadStates.invalid ? fillTemplate(t.status.invalidCount, { count: payloadStates.invalid }) : '',
     payloadStates.text ? fillTemplate(t.status.textCount, { count: payloadStates.text }) : '',

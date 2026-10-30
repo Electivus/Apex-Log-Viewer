@@ -129,6 +129,65 @@ export type CustomLogsMessages = {
     issueError: string;
     issueWarning: string;
   };
+  viewer: {
+    title: string;
+    loading: string;
+    refresh: string;
+    loadMore: string;
+    entriesCount: string;
+    errorsCount: string;
+    warningsCount: string;
+    openApexLog: string;
+    apexLinked: string;
+    apexNotFound: string;
+    apexNoRequestId: string;
+    headerPayload: string;
+    search: string;
+    levelFilter: string;
+    detailFilter: string;
+    showSystem: string;
+    columns: {
+      sequence: string;
+      time: string;
+      level: string;
+      origin: string;
+      message: string;
+    };
+    status: {
+      entriesLoaded: string;
+      entriesShown: string;
+    };
+    noEntries: string;
+    noMatch: string;
+    noMatchMore: string;
+    entry: {
+      title: string;
+      close: string;
+      copy: string;
+      copyMessage: string;
+      fields: string;
+      loadingFields: string;
+      open: string;
+      stateEmpty: string;
+      stateHidden: string;
+      truncatedByLogger: string;
+      clipped: string;
+      sequence: string;
+      time: string;
+      origin: string;
+      user: string;
+      exception: string;
+      record: string;
+      field: string;
+    };
+    errors: {
+      log: string;
+      entries: string;
+      entry: string;
+      field: string;
+      apexLog: string;
+    };
+  };
 };
 
 export type Messages = {
@@ -524,6 +583,65 @@ const en: Messages = {
       issues: 'Configuration issues',
       issueError: 'Error',
       issueWarning: 'Warning'
+    },
+    viewer: {
+      title: 'Custom log',
+      loading: 'Loading entries…',
+      refresh: 'Refresh',
+      loadMore: 'Load more entries',
+      entriesCount: '{count} entries',
+      errorsCount: '{count} errors',
+      warningsCount: '{count} warnings',
+      openApexLog: 'Open Apex log',
+      apexLinked: 'Open the Apex debug log of the same request',
+      apexNotFound: 'No Apex debug log for this request: no trace flag was active, or Salesforce already deleted it.',
+      apexNoRequestId: 'This log has no request id, so it cannot be linked to an Apex debug log.',
+      headerPayload: 'Header payload',
+      search: 'Search entries…',
+      levelFilter: 'Filter by level',
+      detailFilter: 'Filter by long field',
+      showSystem: 'Show logger system messages',
+      columns: {
+        sequence: '#',
+        time: 'Time',
+        level: 'Level',
+        origin: 'Origin',
+        message: 'Message'
+      },
+      status: {
+        entriesLoaded: '{count} entries loaded',
+        entriesShown: '{shown} of {loaded} entries shown'
+      },
+      noEntries: 'This log has no entries.',
+      noMatch: 'No loaded entry matches the current filters.',
+      noMatchMore: 'Use Load more entries to widen the search.',
+      entry: {
+        title: 'Entry detail',
+        close: 'Close entry',
+        copy: 'Copy',
+        copyMessage: 'Copy message',
+        fields: 'Long fields',
+        loadingFields: 'Loading fields…',
+        open: 'Open',
+        stateEmpty: 'empty',
+        stateHidden: 'hidden by your permissions',
+        truncatedByLogger: 'truncated by the logger',
+        clipped: 'preview cut: open the message to read it in full',
+        sequence: 'Sequence',
+        time: 'Time',
+        origin: 'Origin',
+        user: 'User',
+        exception: 'Exception',
+        record: 'Record',
+        field: 'Field'
+      },
+      errors: {
+        log: 'Could not load the log',
+        entries: 'Could not load the entries',
+        entry: 'Could not load the entry',
+        field: 'Could not open the field',
+        apexLog: 'Could not open the Apex log'
+      }
     }
   }
 };
@@ -788,6 +906,65 @@ const ptBR: Messages = {
       issues: 'Problemas de configuração',
       issueError: 'Erro',
       issueWarning: 'Aviso'
+    },
+    viewer: {
+      title: 'Log personalizado',
+      loading: 'Carregando entradas…',
+      refresh: 'Atualizar',
+      loadMore: 'Carregar mais entradas',
+      entriesCount: '{count} entradas',
+      errorsCount: '{count} erros',
+      warningsCount: '{count} avisos',
+      openApexLog: 'Abrir log do Apex',
+      apexLinked: 'Abrir o log de debug do Apex da mesma requisição',
+      apexNotFound: 'Não há log de debug do Apex para esta requisição: nenhuma trace flag estava ativa ou o Salesforce já o excluiu.',
+      apexNoRequestId: 'Este log não tem id de requisição, então não dá para ligá-lo a um log de debug do Apex.',
+      headerPayload: 'Payload do cabeçalho',
+      search: 'Buscar entradas…',
+      levelFilter: 'Filtrar por nível',
+      detailFilter: 'Filtrar por campo longo',
+      showSystem: 'Mostrar mensagens de sistema do logger',
+      columns: {
+        sequence: '#',
+        time: 'Hora',
+        level: 'Nível',
+        origin: 'Origem',
+        message: 'Mensagem'
+      },
+      status: {
+        entriesLoaded: '{count} entradas carregadas',
+        entriesShown: '{shown} de {loaded} entradas exibidas'
+      },
+      noEntries: 'Este log não tem entradas.',
+      noMatch: 'Nenhuma entrada carregada corresponde aos filtros atuais.',
+      noMatchMore: 'Use Carregar mais entradas para ampliar a busca.',
+      entry: {
+        title: 'Detalhe da entrada',
+        close: 'Fechar entrada',
+        copy: 'Copiar',
+        copyMessage: 'Copiar mensagem',
+        fields: 'Campos longos',
+        loadingFields: 'Carregando campos…',
+        open: 'Abrir',
+        stateEmpty: 'vazio',
+        stateHidden: 'oculto pelas suas permissões',
+        truncatedByLogger: 'truncado pelo logger',
+        clipped: 'prévia cortada: abra a mensagem para lê-la inteira',
+        sequence: 'Sequência',
+        time: 'Hora',
+        origin: 'Origem',
+        user: 'Usuário',
+        exception: 'Exceção',
+        record: 'Registro',
+        field: 'Campo'
+      },
+      errors: {
+        log: 'Não foi possível carregar o log',
+        entries: 'Não foi possível carregar as entradas',
+        entry: 'Não foi possível carregar a entrada',
+        field: 'Não foi possível abrir o campo',
+        apexLog: 'Não foi possível abrir o log do Apex'
+      }
     }
   }
 };

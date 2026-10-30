@@ -31,7 +31,7 @@ import {
   parseFilterExpression,
   type FilterClause
 } from './utils/customLogs/filterGrammar';
-import { fillTemplate } from './utils/customLogs/format';
+import { fillTemplate, formatCount } from './utils/customLogs/format';
 import {
   SINCE_QUICK_VALUES,
   applyServerCondition,
@@ -567,9 +567,11 @@ export function CustomLogsApp({
           </div>
           <CustomLogsStatusBar
             t={t}
-            locale={locale}
-            loadedCount={rows.length}
-            matchCount={visibleRows.length}
+            scope={
+              filtering
+                ? fillTemplate(t.status.filtering, { loaded: formatCount(rows.length, locale), matches: formatCount(visibleRows.length, locale) })
+                : fillTemplate(t.status.rowsLoaded, { count: formatCount(rows.length, locale) })
+            }
             filtering={filtering}
             payloadInUse={payloadInUse}
             payloadStates={payloadStates}
