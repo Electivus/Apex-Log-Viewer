@@ -3,6 +3,7 @@ import { localize } from '../host/utils/localize';
 import { logInfo, logWarn } from '../host/utils/logger';
 import { recordInboundMessage } from '../host/utils/responsiveness';
 import { getErrorMessage } from '../host/utils/error';
+import { OrgManager } from '../host/utils/orgManager';
 import { pickSelectedOrg } from '../host/utils/orgs';
 import { buildWebviewHtml } from '../host/utils/webviewHtml';
 import { findCustomLogsProjectDir, onSfdxProjectFileChanged } from '../host/utils/workspace';
@@ -85,6 +86,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
   private readonly disposables: vscode.Disposable[] = [];
   private readonly session: WebviewSession<CustomLogsToWebviewMessage, BoundWebviewHost>;
   private readonly payloadColumnsStore: PayloadColumnsStore;
+  private readonly orgManager: OrgManager;
   private sessionDiagnostic: WebviewSessionDiagnostic | undefined;
   private disposed = false;
   private surface: 'view' | 'editor' = 'view';
@@ -114,6 +116,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.payloadColumnsStore = createPayloadColumnsStore(context.workspaceState);
+    this.orgManager = new OrgManager(context);
     this.session = createWebviewSession({
       mount: (host, generation) => {
         host.webview.html = this.getHtmlForWebview(host.webview, generation);
@@ -468,7 +471,9 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     const startedAt = Date.now();
     try {
       const orgs = await runtimeClient.orgList({}, signal);
-      const selected = pickSelectedOrg(orgs, this.selectedOrg);
+      // The workspace's target-org wins over the CLI's global default, as in the Logs view.
+      await this.orgManager.ensureProjectDefaultSelected(orgs);
+      const selected = pickSelectedOrg(orgs, this.selectedOrg ?? this.orgManager.getSelectedOrg());
       this.post({ type: 'customLogsOrgs', data: orgs, selected });
       safeSendEvent(
         'orgs.list',

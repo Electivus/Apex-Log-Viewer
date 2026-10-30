@@ -24,7 +24,7 @@ const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 
 const STATE_KEY = 'electivus.apexLogViewer.customLogs.payloadColumns';
 
-function load() {
+function load(options: { projectDefaultOrg?: string } = {}) {
   const clock = new FakeClock();
   const fake = createFakeRuntimeClient();
   const memento = createMemento();
@@ -40,6 +40,14 @@ function load() {
       localize: (_key: string, message: string, ...args: Array<string | number>) => formatLocalized(message, ...args)
     },
     '../host/utils/logger': { logInfo: () => undefined, logWarn: () => undefined },
+    '../host/utils/orgManager': {
+      OrgManager: class {
+        async ensureProjectDefaultSelected() {}
+        getSelectedOrg() {
+          return options.projectDefaultOrg;
+        }
+      }
+    },
     '../host/utils/responsiveness': { recordInboundMessage: () => undefined },
     '../host/utils/webviewHtml': { buildWebviewHtml: () => '<html></html>' },
     '../host/utils/workspace': {
@@ -119,6 +127,16 @@ suite('Custom Logs view provider', () => {
     );
     assert.equal(page.hasMore, false);
     assert.equal(host.last('customLogsLoading')?.value, false);
+  });
+
+  test('starts on the workspace target org, not the global default of the CLI', async () => {
+    const { fake, mount } = load({ projectDefaultOrg: 'qa@example.com' });
+    const host = new FakeHost();
+
+    await mount(host);
+
+    assert.equal(host.last('customLogsOrgs')?.selected, 'qa@example.com');
+    assert.equal(fake.calls.customLogSources[0]?.targetOrg, 'qa@example.com');
   });
 
   test('prefers the only ready source core names as the default over the first ready one', async () => {
