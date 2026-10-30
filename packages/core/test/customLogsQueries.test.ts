@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { AlvError } from '../src/index.ts';
 import { parseCustomLogsConfig } from '../src/customLogs/config.ts';
+import { CUSTOM_LOG_CELL_CHARS, CUSTOM_LOG_MESSAGE_PREVIEW_CHARS } from '../src/customLogs/contracts.ts';
 import { shortHash } from '../src/customLogs/hash.ts';
 import { levelFromOrdinal, normalizeLevel, parseCustomLogLevel } from '../src/customLogs/levels.ts';
 import { NEBULA_MANAGED_PRESET, NEBULA_PRESET } from '../src/customLogs/presets.ts';
@@ -339,6 +340,66 @@ test('a long message is cut for the list of entries and complete in the entry re
   assert.equal(clipped?.previewClipped, true);
   assert.equal(full?.entry.message.length, 2500);
   assert.equal(full?.entry.previewClipped, false);
+});
+
+test('a long text field mapped to a column or a text role reaches a row or entry cell cut to the cell cap', () => {
+  const raw = NEBULA_PRESET.raw as { transaction: Record<string, any>; entry: Record<string, any> };
+  const source = ready(
+    resolveDefinition(
+      parseCustomLogsConfig({
+        sources: [
+          {
+            ...NEBULA_PRESET.raw,
+            id: 'nebula-long',
+            transaction: {
+              ...raw.transaction,
+              fields: { ...raw.transaction.fields, name: 'Comments__c', user: 'OrganizationLimits__c' },
+              columns: ['Comments__c']
+            },
+            entry: {
+              ...raw.entry,
+              fields: { ...raw.entry.fields, origin: 'StackTrace__c', exceptionType: 'Tags__c' },
+              columns: ['ExceptionMessage__c']
+            }
+          }
+        ]
+      }).sources[0]!,
+      'config',
+      '',
+      describeFixture('unlocked-admin')
+    )
+  );
+  const long = 'x'.repeat(100_000);
+
+  const [row] = listPlan(source, { limit: 5, filter: {} }).decode([
+    { Id: headerId, CreatedDate: '2026-10-30T00:48:11.000+0000', Comments__c: long, OrganizationLimits__c: long }
+  ]).items;
+  const [entry] = entriesPlan(source, { kind: 'header', id: headerId }, { limit: 5 }).decode([
+    { Id: entryId, Message__c: long, StackTrace__c: long, Tags__c: long, ExceptionMessage__c: long }
+  ]).items;
+  const single = entryPlan(source, entryId).decode([{ Id: entryId, Message__c: long, StackTrace__c: long }]);
+
+  assert.equal(CUSTOM_LOG_CELL_CHARS, 255);
+  assert.deepEqual(
+    [row?.title, row?.user, row?.extra.Comments__c].map(value => String(value).length),
+    [255, 255, 255]
+  );
+  assert.deepEqual(
+    [entry?.origin, entry?.exceptionType, entry?.extra.ExceptionMessage__c].map(value => String(value).length),
+    [255, 255, 255]
+  );
+  assert.equal(entry?.message.length, CUSTOM_LOG_MESSAGE_PREVIEW_CHARS);
+  assert.equal(single?.entry.message.length, long.length);
+  assert.equal(single?.entry.origin?.length, 255);
+  assert.equal(
+    entriesPlan(appLog, { kind: 'single', id: entryId }, { limit: 5 }).decode([{ Id: entryId, Message__c: long }])
+      .items[0]?.message.length,
+    CUSTOM_LOG_MESSAGE_PREVIEW_CHARS
+  );
+  assert.equal(
+    listPlan(appLog, { limit: 5, filter: {} }).decode([{ Id: entryId, Message__c: long }]).items[0]?.title?.length,
+    255
+  );
 });
 
 test('an entry read answers every mapped detail with its state, hidden ones included', () => {

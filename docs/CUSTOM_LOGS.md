@@ -136,7 +136,7 @@ Roles are the fields whose meaning Custom Logs knows. The types are describe typ
 | Role               | Required | Types                      | Use                                                                                                                                                                                              |
 | ------------------ | -------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `time`             | Yes      | `datetime` or number types | The entry time. A number is epoch milliseconds. For an `entries` source, `--since` and `--until` use this field when describe marks it filterable, and `CreatedDate` otherwise.                  |
-| `message`          | Yes      | `string` or `textarea`     | The message. `get` returns its first 2,000 characters and sets `previewClipped` when it cut more. `entry` returns all of it. For an `entries` source, the row title is its first 200 characters. |
+| `message`          | Yes      | `string` or `textarea`     | The message. `get` returns its first 2,000 characters and sets `previewClipped` when it cut more. `entry` returns all of it. For an `entries` source, the row title is its first 255 characters. |
 | `messageTruncated` | No       | `boolean`                  | Sets the entry's `messageTruncated` when the logging framework cut the message before it saved it.                                                                                               |
 | `order`            | No       | Number types               | The order inside a transaction. Without a sortable `order`, entries are ordered by `time`, then by `CreatedDate`. Ties are ordered by `Id`.                                                      |
 | `level`            | No       | `picklist` or `string`     | The raw level, normalized through the [level table](#levels).                                                                                                                                    |
@@ -152,7 +152,7 @@ On entries, the level filter uses `levelOrdinal` when describe marks it filterab
 
 ### Columns
 
-`columns` lists display-only fields. Each one becomes a column labelled from describe, and its value comes back in `extra`, keyed by the path as you wrote it. Any field type works except the compound types `address`, `location`, `base64`, `anyType`, and `complexvalue`.
+`columns` lists display-only fields. Each one becomes a column labelled from describe, and its value comes back in `extra`, keyed by the path as you wrote it. Any field type works except the compound types `address`, `location`, `base64`, `anyType`, and `complexvalue`. A text value in `extra`, a row title, and a text role in a row or an entry keep their first 255 characters (`CUSTOM_LOG_CELL_CHARS`). To read a long text field whole, map it as a detail or a payload.
 
 ### Details
 

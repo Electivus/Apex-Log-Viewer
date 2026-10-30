@@ -209,15 +209,23 @@ export type CustomLogSourceRef = { id: string; label: string; shape: CustomLogSo
 export type CustomLogColumn = { key: string; label: string };
 
 /**
+ * Characters a row or entry cell keeps: `title`, the text roles and `extra` strings are cut here,
+ * because a column may map a long text field (131072 characters). Long text stays whole only in
+ * an `entry` message and in the long values (`details`, `rawPayload`, `logPayload`).
+ */
+export const CUSTOM_LOG_CELL_CHARS = 255;
+
+/**
  * One row of the list. For a `transactions` source it is a header record; for an `entries`
  * source it is one entry record, and opening it shows every entry with the same transaction id.
- * Rows are ordered by `CreatedDate DESC, Id DESC`, which is never null.
+ * Rows are ordered by `CreatedDate DESC, Id DESC`, which is never null. Strings are cut at
+ * `CUSTOM_LOG_CELL_CHARS`.
  */
 export type CustomLogRow = {
   id: string;
   /** ISO-8601. The mapped header `startTime` or entry `time`, or the record's CreatedDate when that value is empty. */
   time: string;
-  /** Header `name` (for example `Log-000739`), or the entry message preview. */
+  /** Header `name` (for example `Log-000739`), or the start of the entry message. */
   title?: string;
   user?: string;
   /** Worst level of the transaction, or the entry's level. */
@@ -263,6 +271,7 @@ export type CustomLogGetParams = CustomLogScope & {
       }
   );
 
+/** Strings other than `message` are cut at `CUSTOM_LOG_CELL_CHARS`. */
 export type CustomLogEntry = {
   id: string;
   /** Order inside the transaction: the mapped `order` field, else the 1-based position. */

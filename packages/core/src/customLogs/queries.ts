@@ -16,6 +16,7 @@
 import { AlvError } from '../errors.js';
 import { escapeSoqlLiteral, isSalesforceId, normalizeSoqlDateTimeLiteral } from '../soql.js';
 import {
+  CUSTOM_LOG_CELL_CHARS,
   CUSTOM_LOG_MESSAGE_PREVIEW_CHARS,
   type CustomLogApexLogLink,
   type CustomLogDetail,
@@ -193,10 +194,16 @@ function read(record: Record<string, unknown>, api: string): unknown {
 }
 
 const text = (value: unknown): string | undefined => (typeof value === 'string' && value !== '' ? value : undefined);
+/** A string bound for a row or entry cell. Long text stays whole only in `entry` and the long values. */
+const cell = (value: unknown): string | undefined => text(value)?.slice(0, CUSTOM_LOG_CELL_CHARS);
 const count = (value: unknown): number | undefined =>
   typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 const scalar = (value: unknown): CustomLogScalar =>
-  typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? value : null;
+  typeof value === 'string'
+    ? value.slice(0, CUSTOM_LOG_CELL_CHARS)
+    : typeof value === 'number' || typeof value === 'boolean'
+      ? value
+      : null;
 
 /** The display time as ISO: the mapped field, or the record's CreatedDate when it is empty. */
 function displayTime(field: ResolvedTimeField, record: Record<string, unknown>): string {
@@ -328,20 +335,18 @@ function createdDateOf(record: Record<string, unknown>): string {
   return normalizeSoqlDateTimeLiteral(record.CreatedDate) ?? new Date(0).toISOString();
 }
 
-const TITLE_CHARS = 200;
-
 function entryRow(source: ResolvedSource, record: Record<string, unknown>): CustomLogRow {
   const { entry } = source.shape;
   const message = text(valueOf(record, entry.message));
   return defined({
     id: String(record.Id),
     time: displayTime(entry.time, record),
-    title: message?.slice(0, TITLE_CHARS),
-    user: text(valueOf(record, entry.roles.user)),
+    title: cell(message),
+    user: cell(valueOf(record, entry.roles.user)),
     level: normalizeLevel(source.levels, valueOf(record, entry.roles.level), valueOf(record, entry.roles.levelOrdinal))
       .level,
-    transactionId: text(valueOf(record, entry.roles.transactionId)),
-    requestId: text(valueOf(record, entry.roles.requestId)),
+    transactionId: cell(valueOf(record, entry.roles.transactionId)),
+    requestId: cell(valueOf(record, entry.roles.requestId)),
     extra: extras(entry.columns, record),
     payload: payloadView(entry.payload, record)
   });
@@ -362,12 +367,12 @@ function transactionRow(
   return defined({
     id: String(record.Id),
     time: displayTime(transaction.startTime, record),
-    title: text(valueOf(record, roles.name)),
-    user: text(valueOf(record, roles.user)),
+    title: cell(valueOf(record, roles.name)),
+    user: cell(valueOf(record, roles.user)),
     level: ordinal === undefined ? undefined : normalizeLevel(source.levels, undefined, ordinal).level,
     counts: Object.keys(counts).length > 0 ? counts : undefined,
-    transactionId: text(valueOf(record, roles.transactionId)),
-    requestId: text(valueOf(record, roles.requestId)),
+    transactionId: cell(valueOf(record, roles.transactionId)),
+    requestId: cell(valueOf(record, roles.requestId)),
     extra: extras(transaction.columns, record),
     payload: payloadView(transaction.payload, record)
   });
@@ -577,10 +582,10 @@ function entryDto(
     message: clipped ? full.slice(0, CUSTOM_LOG_MESSAGE_PREVIEW_CHARS) : full,
     previewClipped: clipped,
     messageTruncated: typeof truncated === 'boolean' ? truncated : undefined,
-    origin: text(valueOf(record, roles.origin)),
-    user: text(valueOf(record, roles.user)),
-    exceptionType: text(valueOf(record, roles.exceptionType)),
-    recordId: text(valueOf(record, roles.recordId)),
+    origin: cell(valueOf(record, roles.origin)),
+    user: cell(valueOf(record, roles.user)),
+    exceptionType: cell(valueOf(record, roles.exceptionType)),
+    recordId: cell(valueOf(record, roles.recordId)),
     system: entry.systemMessagePrefix !== undefined && full.startsWith(entry.systemMessagePrefix),
     presentDetails: entry.details.filter(detail => valueOf(record, detail.presence) === true).map(detail => detail.key),
     extra: extras(entry.columns, record),
