@@ -1,4 +1,4 @@
-import type { CustomLogListResult, PrintsAsJson } from '@alv/core/contracts';
+import { CUSTOM_LOG_LIMITS, type CustomLogListResult, type PrintsAsJson } from '@alv/core/contracts';
 import { Flags } from '@salesforce/sf-plugins-core';
 import { AlvCommand } from '../../../command.js';
 import { core } from '../../../core.js';
@@ -10,7 +10,11 @@ export default class CustomLogList extends AlvCommand<PrintsAsJson<CustomLogList
     'List application log records (for example Nebula Logger logs), newest first.';
   public static override readonly flags = {
     cursor: cursorFlag,
-    limit: Flags.integer({ min: 1, max: 200, summary: 'Maximum rows per page (default 50).' }),
+    limit: Flags.integer({
+      min: 1,
+      max: CUSTOM_LOG_LIMITS.list.max,
+      summary: `Maximum rows per page (default ${CUSTOM_LOG_LIMITS.list.default}).`
+    }),
     'min-level': minLevelFlag,
     'payload-fields': payloadFieldsFlag,
     since: Flags.string({

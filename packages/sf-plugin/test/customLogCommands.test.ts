@@ -3,6 +3,7 @@ import path from 'node:path';
 import test, { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { CUSTOM_LOG_LIMITS } from '@alv/core/contracts';
 import { Config } from '@oclif/core';
 
 import CustomLogEntry from '../src/commands/electivus/custom-log/entry.ts';
@@ -152,10 +153,14 @@ test('flag values the contract does not allow are refused before core is called'
     /Expected --min-level=LOUD to be one of/
   );
   await assert.rejects(new CustomLogList(['--limit', '0', '--json'], config).run(), /greater than or equal to 1/);
-  await assert.rejects(new CustomLogList(['--limit', '201', '--json'], config).run(), /less than or equal to 200/);
+  const { list, entries } = CUSTOM_LOG_LIMITS;
   await assert.rejects(
-    new CustomLogGet(['--log-id', 'x', '--limit', '2001', '--json'], config).run(),
-    /less than or equal to 2000/
+    new CustomLogList(['--limit', String(list.max + 1), '--json'], config).run(),
+    new RegExp(`less than or equal to ${list.max}`)
+  );
+  await assert.rejects(
+    new CustomLogGet(['--log-id', 'x', '--limit', String(entries.max + 1), '--json'], config).run(),
+    new RegExp(`less than or equal to ${entries.max}`)
   );
   assert.equal(capture.params, undefined);
 });

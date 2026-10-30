@@ -181,7 +181,7 @@ const ENTRY_KEYS = ['object', 'parent', 'fields', 'columns', 'details', 'payload
 const DETAIL_KEYS = ['field', 'presence', 'truncated'] as const;
 const PAYLOAD_KEYS = ['field', 'columns'] as const;
 
-const SOURCE_ID_PATTERN = /^[a-z][a-z0-9-]{0,39}$/;
+export const SOURCE_ID_PATTERN = /^[a-z][a-z0-9-]{0,39}$/;
 const FIELD_PATH_PATTERN = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)?$/;
 const OBJECT_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
 const MAX_NAME_LENGTH = 255;

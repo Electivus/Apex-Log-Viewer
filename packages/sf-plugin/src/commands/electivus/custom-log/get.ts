@@ -1,4 +1,4 @@
-import type { CustomLogGetResult, PrintsAsJson } from '@alv/core/contracts';
+import { CUSTOM_LOG_LIMITS, type CustomLogGetResult, type PrintsAsJson } from '@alv/core/contracts';
 import { Flags } from '@salesforce/sf-plugins-core';
 import { AlvCommand } from '../../../command.js';
 import { core } from '../../../core.js';
@@ -10,7 +10,11 @@ export default class CustomLogGet extends AlvCommand<PrintsAsJson<CustomLogGetRe
     'Show one logged transaction with its entries and the id of its Apex debug log, when one exists.';
   public static override readonly flags = {
     cursor: cursorFlag,
-    limit: Flags.integer({ min: 1, max: 2000, summary: 'Maximum entries per page (default 200).' }),
+    limit: Flags.integer({
+      min: 1,
+      max: CUSTOM_LOG_LIMITS.entries.max,
+      summary: `Maximum entries per page (default ${CUSTOM_LOG_LIMITS.entries.default}).`
+    }),
     'log-id': Flags.string({ exactlyOne: ['log-id', 'transaction-id'], summary: 'Record id from "custom-log list".' }),
     'min-level': minLevelFlag,
     'payload-fields': payloadFieldsFlag,

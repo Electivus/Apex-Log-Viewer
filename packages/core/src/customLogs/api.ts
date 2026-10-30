@@ -20,6 +20,7 @@ import { loadCustomLogsConfig } from './config.js';
 import { shortHash } from './hash.js';
 import {
   CUSTOM_LOG_LEVELS,
+  CUSTOM_LOG_LIMITS,
   type CustomLogApexLogLink,
   type CustomLogEntryParams,
   type CustomLogEntryResult,
@@ -49,6 +50,7 @@ import {
   transactionLookupPlan,
   type CursorBinding,
   type CursorPayload,
+  type Page,
   type QueryPlan,
   type RecordId
 } from './queries.js';
@@ -61,7 +63,7 @@ export type CustomLogApi = {
   sources(ctx: CustomLogContext, params: CustomLogSourcesParams, signal?: AbortSignal): Promise<CustomLogSourcesResult>;
   /**
    * The only ready source when `params.source` is absent. First page when `cursor` is absent.
-   * `limit` 1..200 (default 50).
+   * `limit` within `CUSTOM_LOG_LIMITS.list`.
    */
   list(ctx: CustomLogContext, params: CustomLogListParams, signal?: AbortSignal): Promise<CustomLogListResult>;
   /**
@@ -69,7 +71,7 @@ export type CustomLogApi = {
    * link lookup are two small queries, run in parallel with the entries query). For an
    * `entries` source, `logId` is any entry id: core reads its transaction key and pages every
    * entry with that key. `transactionId` finds the transaction by the framework's id instead.
-   * `limit` 1..2000 (default 200).
+   * `limit` within `CUSTOM_LOG_LIMITS.entries`.
    */
   get(ctx: CustomLogContext, params: CustomLogGetParams, signal?: AbortSignal): Promise<CustomLogGetResult>;
   /** Full message, every mapped detail as a long value, and the raw payload of one entry. */
@@ -78,17 +80,12 @@ export type CustomLogApi = {
   dispose(): void;
 };
 
-const DEFAULT_LIST_LIMIT = 50;
-const MAX_LIST_LIMIT = 200;
-const DEFAULT_ENTRIES_LIMIT = 200;
-const MAX_ENTRIES_LIMIT = 2000;
-
 /** ApexLog is a Tooling object some users cannot see at all: a Standard User answers INVALID_TYPE. */
 const APEX_LOG_UNREADABLE: ReadonlySet<string> = new Set([...CANNOT_READ_CODES, 'INVALID_TYPE']);
 
-function limitOf(value: number | undefined, fallback: number, max: number): number {
+function limitOf(value: number | undefined, limits: { readonly default: number; readonly max: number }): number {
   const parsed = Math.floor(Number(value));
-  return Number.isFinite(parsed) ? Math.max(1, Math.min(max, parsed)) : fallback;
+  return Number.isFinite(parsed) ? Math.max(1, Math.min(limits.max, parsed)) : limits.default;
 }
 
 function nonBlank(value: string | undefined): string | undefined {
@@ -158,6 +155,22 @@ function wrongRecordLevel(message: string): never {
   throw customLogError('CUSTOM_LOG_RECORD_NOT_FOUND', message);
 }
 
+/**
+ * The cursor of one kind of page, bound to this org, source, mapping and the filters the page is
+ * read under. `after` reads the caller's token (CUSTOM_LOG_INVALID_CURSOR on any mismatch); `next`
+ * writes the token of the following page, or null after the last one.
+ */
+function pageCursor(ctx: CustomLogContext, source: ResolvedSource, kind: CursorBinding['k'], filters: object) {
+  const binding: CursorBinding = { o: orgIdOf(ctx), s: source.id, m: source.digest, k: kind, f: shortHash(filters) };
+  return {
+    after: (token: string | undefined): CursorPayload | undefined => (token ? decodeCursor(token, binding) : undefined),
+    next: (position: Page<unknown>['next'], window: NonNullable<CursorPayload['w']> = {}): string | null =>
+      position
+        ? encodeCursor({ v: 1, ...binding, ...(Object.keys(window).length > 0 ? { w: window } : {}), ...position })
+        : null
+  };
+}
+
 function resolveWindow(filter: CustomLogFilter | undefined, now: Date): { since?: string; until?: string } {
   const since = nonBlank(filter?.since);
   const until = nonBlank(filter?.until);
@@ -184,7 +197,7 @@ export function createCustomLogApi(presets: readonly BuiltinPreset[] = BUILTIN_P
     },
 
     async list(ctx, params, signal) {
-      const limit = limitOf(params.limit, DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT);
+      const limit = limitOf(params.limit, CUSTOM_LOG_LIMITS.list);
       const given = {
         minLevel: levelOf(params.filter?.minLevel),
         user: nonBlank(params.filter?.user),
@@ -198,14 +211,8 @@ export function createCustomLogApi(presets: readonly BuiltinPreset[] = BUILTIN_P
         config,
         catalog => requireSource(catalog, nonBlank(params.source)),
         async source => {
-          const binding: CursorBinding = {
-            o: orgIdOf(ctx),
-            s: source.id,
-            m: source.digest,
-            k: 'list',
-            f: shortHash(given)
-          };
-          const after = params.cursor ? decodeCursor(params.cursor, binding) : undefined;
+          const cursor = pageCursor(ctx, source, 'list', given);
+          const after = cursor.after(params.cursor);
           const resolved = after ? (after.w ?? {}) : window;
           const page = await run(
             ctx,
@@ -223,14 +230,7 @@ export function createCustomLogApi(presets: readonly BuiltinPreset[] = BUILTIN_P
             columns: toColumns(listed.columns),
             rows: page.items,
             payloadFields: page.payloadFields,
-            nextCursor: page.next
-              ? encodeCursor({
-                  v: 1,
-                  ...binding,
-                  ...(Object.keys(resolved).length > 0 ? { w: resolved } : {}),
-                  ...page.next
-                })
-              : null
+            nextCursor: cursor.next(page.next, resolved)
           };
         },
         signal
@@ -238,7 +238,7 @@ export function createCustomLogApi(presets: readonly BuiltinPreset[] = BUILTIN_P
     },
 
     async get(ctx, params, signal) {
-      const limit = limitOf(params.limit, DEFAULT_ENTRIES_LIMIT, MAX_ENTRIES_LIMIT);
+      const limit = limitOf(params.limit, CUSTOM_LOG_LIMITS.entries);
       const minLevel = levelOf(params.minLevel);
       const logId = params.logId === undefined ? undefined : parseRecordId(params.logId, 'logId');
       const config = await loadCustomLogsConfig(params.projectDir);
@@ -263,14 +263,10 @@ export function createCustomLogApi(presets: readonly BuiltinPreset[] = BUILTIN_P
           if (!found) notFound(`Log ${id}`);
           const { row } = found;
           const scope = entriesScopeOf(source, id, row.transactionId);
-          const binding: CursorBinding = {
-            o: orgIdOf(ctx),
-            s: source.id,
-            m: source.digest,
-            k: 'entries',
-            f: shortHash({ scope, minLevel })
-          };
-          const after: CursorPayload | undefined = params.cursor ? decodeCursor(params.cursor, binding) : undefined;
+          const { kind } = scope;
+          const scoped = scope.kind === 'transactionKey' ? { kind, value: scope.value } : { kind, id: scope.id };
+          const cursor = pageCursor(ctx, source, 'entries', { scope: scoped, minLevel });
+          const after = cursor.after(params.cursor);
           const [page, apexLog] = await Promise.all([
             run(
               ctx,
@@ -286,7 +282,7 @@ export function createCustomLogApi(presets: readonly BuiltinPreset[] = BUILTIN_P
             entryColumns: toColumns(source.shape.entry.columns),
             entries: page.items,
             payloadFields: page.payloadFields,
-            nextCursor: page.next ? encodeCursor({ v: 1, ...binding, ...page.next }) : null,
+            nextCursor: cursor.next(page.next),
             apexLog
           };
         },

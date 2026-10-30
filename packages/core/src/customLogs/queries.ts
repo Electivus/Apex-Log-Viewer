@@ -14,6 +14,7 @@
  */
 
 import { escapeSoqlLiteral, isSalesforceId, normalizeSoqlDateTimeLiteral, soqlNumberLiteral } from '../soql.js';
+import { SOURCE_ID_PATTERN } from './config.js';
 import {
   CUSTOM_LOG_CELL_CHARS,
   CUSTOM_LOG_MESSAGE_PREVIEW_CHARS,
@@ -100,7 +101,6 @@ export type CursorBinding = Pick<CursorPayload, 'o' | 's' | 'm' | 'k' | 'f'>;
 const MAX_CURSOR_CHARS = 2048;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
 const HEX_DIGEST = /^[0-9a-f]{12}$/;
-const SOURCE_ID = /^[a-z][a-z0-9-]{0,39}$/;
 /** Salesforce Number fields hold at most 18 digits (999…9 reads back as 1e18), so a larger sort value never came from a record. */
 const MAX_SORT_NUMBER = 1e18;
 
@@ -136,7 +136,7 @@ export function decodeCursor(token: string, expected: CursorBinding): CursorPayl
     cursor.v === 1 &&
     isSalesforceId(cursor.o) &&
     typeof cursor.s === 'string' &&
-    SOURCE_ID.test(cursor.s) &&
+    SOURCE_ID_PATTERN.test(cursor.s) &&
     typeof cursor.m === 'string' &&
     HEX_DIGEST.test(cursor.m) &&
     (cursor.k === 'list' || cursor.k === 'entries') &&
