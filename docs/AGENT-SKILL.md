@@ -4,7 +4,7 @@ The repository publishes three standalone Agent Skills from the canonical `skill
 
 | Skill                    | Purpose                                                                                                       |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| `apex-log-viewer-cli`    | Operate the CLI, synchronize logs, inspect cache health and configure capture.                                |
+| `apex-log-viewer-cli`    | Operate the CLI, synchronize logs, inspect cache health, configure capture and read application log records.  |
 | `apex-debug-investigate` | Find the responsible transaction, explain a functional failure, apply an authorized correction and verify it. |
 | `apex-debug-performance` | Investigate CPU, SOQL/DML, heap and recursion; compare equivalent executions before and after a change.       |
 

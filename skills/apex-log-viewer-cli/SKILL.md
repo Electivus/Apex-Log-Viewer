@@ -1,6 +1,6 @@
 ---
 name: apex-log-viewer-cli
-description: Operate sf electivus to synchronize a local Apex log corpus, inspect cache health, triage logs, and manage debug levels or trace flags. Use for Electivus CLI commands and capture setup; use an investigation or performance workflow to explain a failure or bottleneck.
+description: Operate sf electivus to synchronize a local Apex log corpus, inspect cache health, triage logs, read application log records such as Nebula Logger's, and manage debug levels or trace flags. Use for Electivus CLI commands and capture setup; use an investigation or performance workflow to explain a failure or bottleneck.
 ---
 
 # Apex Log Viewer CLI
@@ -50,6 +50,19 @@ sf electivus log triage --log-id 07L000000000001AAA --target-org my-org --json
 `resolve` finds a cached file. `triage` can acquire a missing body and identifies suspicious events, not proven failed transactions: `EXCEPTION_THROWN` can be caught. Examine surrounding events before interpreting `hasErrors`.
 
 Read necessary excerpts as part of diagnosis. `log read --max-bytes 20000` returns a bounded prefix; for events later in the log, use local searches and line-based reads. Report IDs, paths and minimal evidence without credentials or unrelated payloads. `log list` remains available for remote metadata checks. Do not invent the removed `logs search` or `logs index` commands.
+
+## Read application log records
+
+Logging frameworks such as Nebula Logger save their own log records in the org. `sf electivus custom-log` reads them through the API on every call. It writes nothing to Salesforce or to `apexlogs/`, so local searches do not see these records. Check `sf electivus custom-log --help` first, because older plugins lack it.
+
+```text
+sf electivus custom-log sources --target-org my-org --json
+sf electivus custom-log list --target-org my-org --source nebula --min-level ERROR --since 24h --json
+sf electivus custom-log get --log-id a0A000000000001AAA --target-org my-org --json
+sf electivus custom-log entry --entry-id a0B000000000001AAA --target-org my-org --json
+```
+
+Nebula Logger needs no configuration. Other objects need a source under `plugins.electivus.customLogs.sources` in `sfdx-project.json`, and the commands read the project that contains the current directory. Run `sources` first. Read each source's `state`, `hiddenFields`, and `capabilities`, and the result's `issues`. Pass `--source` when several sources are ready. Read [references/custom-logs.md](references/custom-logs.md) for paging, payload filters with `jq`, the Apex debug log link, and error codes.
 
 ## Capture and org writes
 
