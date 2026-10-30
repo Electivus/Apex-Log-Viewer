@@ -166,7 +166,7 @@
       }
     },
     "orgs.list": {
-      "description": "Org-list loading outcome for logs and tail views.",
+      "description": "Org-list loading outcome for logs, tail and custom logs views.",
       "properties": {
         "outcome": {
           "classification": "SystemMetaData",
@@ -183,7 +183,7 @@
           "classification": "SystemMetaData",
           "purpose": "FeatureInsight",
           "required": true,
-          "values": ["logs", "tail"]
+          "values": ["logs", "tail", "customLogs"]
         }
       },
       "measurements": {
@@ -453,6 +453,215 @@
         "cancelled": {
           "classification": "SystemMetaData",
           "purpose": "FeatureInsight"
+        }
+      }
+    },
+    "command.customLogs.refresh": {
+      "description": "Custom Logs refresh command was invoked from VS Code.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["invoked"]
+        }
+      }
+    },
+    "command.customLogs.openEditor": {
+      "description": "Open-Custom-Logs-editor command outcome.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["invoked", "error"]
+        }
+      }
+    },
+    "command.customLogs.configure": {
+      "description": "Configure-Custom-Logs command outcome.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["invoked", "error"]
+        }
+      }
+    },
+    "customLogs.sources": {
+      "description": "Custom Logs source detection outcome. Carries no object, field or source names.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["ok", "error"]
+        },
+        "code": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "pattern": "^[A-Z0-9_]+$"
+        },
+        "hasConfig": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "values": ["true", "false"]
+        },
+        "ready": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "values": ["true", "false"]
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "count": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight"
+        }
+      }
+    },
+    "customLogs.refresh": {
+      "description": "First page of the Custom Logs list loaded.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["ok", "error"]
+        },
+        "code": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "pattern": "^[A-Z0-9_]+$"
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "count": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight"
+        }
+      }
+    },
+    "customLogs.openLog": {
+      "description": "Custom Logs transaction viewer loaded one log.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["ok", "error"]
+        },
+        "code": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "pattern": "^[A-Z0-9_]+$"
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        }
+      }
+    },
+    "customLogs.openEntry": {
+      "description": "Custom Logs viewer fetched the long fields of one entry.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["ok", "error"]
+        },
+        "code": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "pattern": "^[A-Z0-9_]+$"
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        }
+      }
+    },
+    "customLogs.openField": {
+      "description": "A Custom Logs long field was opened as a read-only document.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["ok", "error"]
+        },
+        "code": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "pattern": "^[A-Z0-9_]+$"
+        },
+        "kind": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "values": ["message", "detail", "payload"]
+        },
+        "format": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "values": ["json", "text"]
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        }
+      }
+    },
+    "customLogs.payloadColumns": {
+      "description": "JSON payload columns were changed in a Custom Logs surface.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["ok"]
+        },
+        "level": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "values": ["transaction", "entry"]
+        }
+      },
+      "measurements": {
+        "count": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight"
+        }
+      }
+    },
+    "customLogs.openApexLog": {
+      "description": "The Apex debug log linked to a Custom Logs transaction was requested.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["linked", "notFound", "unavailable", "noRequestId", "error"]
+        },
+        "code": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "pattern": "^[A-Z0-9_]+$"
         }
       }
     },
