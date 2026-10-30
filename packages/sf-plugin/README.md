@@ -36,6 +36,20 @@ Update the plugin through your approved npm registry, then rerun the same skill 
 
 The old explicit `--codex-home <directory>` option still installs under `<directory>/skills`; it is deprecated and exclusive of the new destination flags. A bare invocation now asks for agents and defaults to the current project instead of silently installing globally for Codex. Without an explicit skill selection, JSON output preserves `skillName`, `pluginVersion`, `source`, `files`, `dryRun`, and `installations` (agents, scope, destination and status). With `--skill` or `--all`, output is `{ pluginVersion, dryRun, skills: [...] }`; each entry in `skills` contains that per-skill result. Every selected skill/destination is preflighted before writing.
 
+## Custom logs
+
+`sf electivus custom-log` reads application logs that a logging framework keeps in Salesforce records. Nebula Logger, unlocked or managed, needs no configuration: the commands detect it and work the same on both. Any other object is mapped in `sfdx-project.json` under `plugins.electivus.customLogs`, and the commands read that file from the project that contains the current directory.
+
+```bash
+sf electivus custom-log sources --target-org my-org --json
+sf electivus custom-log list --target-org my-org --min-level ERROR --since 24h --limit 20 --json
+sf electivus custom-log get --transaction-id <id> --target-org my-org --json
+sf electivus custom-log entry --entry-id <id> --target-org my-org --json
+sf electivus custom-log list --source app-log --payload-fields orderId,http.status --json
+```
+
+`list` and `get` take `--source` when more than one source is ready, and fail with `CUSTOM_LOG_SOURCE_REQUIRED` rather than guess. `nextCursor` is opaque; pass it back as `--cursor` with the same flags. A JSON payload field mapped on a source comes back as flat dot paths under `payload.values`; `--payload-fields` keeps only the paths you name, and `payloadFields` still lists every path on the page. `get` also returns the Apex debug log of the same request as `apexLog` (`linked`, `notFound` or `noRequestId`); open it with `sf electivus log read --log-id <id>`.
+
 ## Local investigation metadata
 
 `sf electivus log sync --target-org my-org --json` downloads available logs in bulk. Its result includes absolute `apexlogsRoot` and `orgLogsRoot` paths, plus `failures` with stable `logId`/`code` pairs. Search local bodies under those paths rather than downloading candidates individually. `log status` works offline and includes the last sync's `failedCount`; `orgLogsRoot` is present only when a local org identity can be resolved.
