@@ -54,7 +54,7 @@ export async function toolingQuery<TRecord = Record<string, unknown>>(
   connection: Connection,
   soql: string,
   signal?: AbortSignal
-): Promise<QueryBatch<TRecord>> {
+): Promise<QueryBatch<TRecord> & { records: TRecord[] }> {
   throwIfAborted(signal);
   const firstPage = (await awaitWithAbort(connection.tooling.query(soql), signal)) as QueryBatch<TRecord>;
   const records = [...(firstPage.records || [])];

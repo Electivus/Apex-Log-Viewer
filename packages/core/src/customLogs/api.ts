@@ -14,11 +14,10 @@
  * shared mutable state and it only caches.
  */
 
-import type { Connection } from '@salesforce/core';
-
 import { queryData, toolingQuery } from '../dataQuery.js';
-import { AlvError } from '../errors.js';
+import { AlvError, errorCodeOf } from '../errors.js';
 import { loadCustomLogsConfig } from './config.js';
+import { shortHash } from './hash.js';
 import {
   CUSTOM_LOG_LEVELS,
   type CustomLogApexLogLink,
@@ -42,7 +41,6 @@ import {
   encodeCursor,
   entriesPlan,
   entryPlan,
-  filterHash,
   listPlan,
   parseRecordId,
   rowPlan,
@@ -56,6 +54,7 @@ import {
 import {
   createSourceRegistry,
   defaultSourceId,
+  type CustomLogContext,
   requireSource,
   requireSourceForRecord,
   toColumns,
@@ -63,9 +62,6 @@ import {
   type ResolvedSource
 } from './resolve.js';
 import { parseSinceExpression } from './since.js';
-
-/** `orgCall`'s context. The cursor's org binding reads `connection.getAuthInfoFields().orgId`. */
-export type CustomLogContext = { connection: Connection; username: string };
 
 export type CustomLogApi = {
   sources(ctx: CustomLogContext, params: CustomLogSourcesParams, signal?: AbortSignal): Promise<CustomLogSourcesResult>;
@@ -145,7 +141,7 @@ function orgIdOf(ctx: CustomLogContext): string {
 async function run<T>(ctx: CustomLogContext, plan: QueryPlan<T>, signal: AbortSignal | undefined): Promise<T> {
   const records =
     plan.api === 'tooling'
-      ? ((await toolingQuery(ctx.connection, plan.soql, signal)).records ?? [])
+      ? (await toolingQuery(ctx.connection, plan.soql, signal)).records
       : (await queryData(ctx.connection, plan.soql, { maxRecords: plan.maxRecords, signal })).records;
   return plan.decode(records);
 }
@@ -159,8 +155,8 @@ async function apexLogFor(
   try {
     return await run(ctx, apexLogLinkPlan(requestId), signal);
   } catch (error) {
-    const code = (error as { errorCode?: unknown } | undefined)?.errorCode;
-    if (typeof code === 'string' && APEX_LOG_UNREADABLE.has(code)) return { state: 'unavailable', reason: 'noAccess' };
+    const code = errorCodeOf(error);
+    if (code && APEX_LOG_UNREADABLE.has(code)) return { state: 'unavailable', reason: 'noAccess' };
     throw error;
   }
 }
@@ -219,7 +215,7 @@ export function createCustomLogApi(presets: readonly BuiltinPreset[] = BUILTIN_P
             s: source.id,
             m: source.digest,
             k: 'list',
-            f: filterHash(given)
+            f: shortHash(given)
           };
           const after = params.cursor ? decodeCursor(params.cursor, binding) : undefined;
           const resolved = after ? (after.w ?? {}) : window;
@@ -289,7 +285,7 @@ export function createCustomLogApi(presets: readonly BuiltinPreset[] = BUILTIN_P
             s: source.id,
             m: source.digest,
             k: 'entries',
-            f: filterHash({ scope, minLevel })
+            f: shortHash({ scope, minLevel })
           };
           const after: CursorPayload | undefined = params.cursor ? decodeCursor(params.cursor, binding) : undefined;
           const [page, apexLog] = await Promise.all([

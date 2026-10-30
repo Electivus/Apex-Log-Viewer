@@ -9,6 +9,12 @@ export class AlvError extends Error {
   }
 }
 
+/** The `errorCode` Salesforce puts on a rejected API call, such as `INVALID_FIELD`. */
+export function errorCodeOf(error: unknown): string | undefined {
+  const code = (error as { errorCode?: unknown } | undefined)?.errorCode;
+  return typeof code === 'string' ? code : undefined;
+}
+
 export function abortError(): AlvError {
   return new AlvError('ABORTED', 'Operation cancelled.');
 }

@@ -28,7 +28,6 @@ import {
   type CustomLogRow,
   type CustomLogScalar
 } from './contracts.js';
-import { shortHash } from './hash.js';
 import { APEX_LEVEL_ORDINALS, normalizeLevel, type LevelTable } from './levels.js';
 import { decodePayload, selectPayloadPaths, summarizePayloadFields, toLongValue } from './payload.js';
 import {
@@ -160,10 +159,6 @@ export function decodeCursor(token: string, expected: CursorBinding): CursorPayl
   return cursor as CursorPayload;
 }
 
-export function filterHash(parts: Record<string, unknown>): string {
-  return shortHash(parts);
-}
-
 // ---------------------------------------------------------------------------------------------
 // SOQL text and record reading
 
@@ -203,10 +198,6 @@ const count = (value: unknown): number | undefined =>
 const scalar = (value: unknown): CustomLogScalar =>
   typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? value : null;
 
-function isoOf(value: unknown): string | undefined {
-  return normalizeSoqlDateTimeLiteral(value);
-}
-
 /** The display time as ISO: the mapped field, or the record's CreatedDate when it is empty. */
 function displayTime(field: ResolvedTimeField, record: Record<string, unknown>): string {
   const value = read(record, field.api);
@@ -215,8 +206,8 @@ function displayTime(field: ResolvedTimeField, record: Record<string, unknown>):
       ? typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 8.64e15
         ? new Date(value).toISOString()
         : undefined
-      : isoOf(value);
-  return mapped ?? isoOf(record.CreatedDate) ?? new Date(0).toISOString();
+      : normalizeSoqlDateTimeLiteral(value);
+  return mapped ?? createdDateOf(record);
 }
 
 class Select {
@@ -334,7 +325,7 @@ function paged<T extends { payload?: CustomLogPayloadView }>(
 }
 
 function createdDateOf(record: Record<string, unknown>): string {
-  return isoOf(record.CreatedDate) ?? new Date(0).toISOString();
+  return normalizeSoqlDateTimeLiteral(record.CreatedDate) ?? new Date(0).toISOString();
 }
 
 const TITLE_CHARS = 200;
@@ -548,7 +539,9 @@ function scopeCondition(source: ResolvedSource, scope: EntriesScope): string {
 
 function sequenceValue(entry: ResolvedEntryObject, record: Record<string, unknown>): string | number | null {
   const value = read(record, entry.sequence.api);
-  return NUMERIC_TYPES.has(entry.sequence.type) ? (count(value) ?? null) : (isoOf(value) ?? null);
+  return NUMERIC_TYPES.has(entry.sequence.type)
+    ? (count(value) ?? null)
+    : (normalizeSoqlDateTimeLiteral(value) ?? null);
 }
 
 /** `(sequence > t OR (sequence = t AND Id > id))`; a null `t` means the page ended inside the rows with no sequence. */
@@ -670,7 +663,6 @@ export function entryPlan(
       details: CustomLogDetail[];
       rawPayload: CustomLogLongValue;
       logId: string;
-      transactionKey?: string;
     }
   | undefined
 > {
@@ -708,8 +700,7 @@ export function entryPlan(
         entry: entryDto(source, record, 1, false),
         details,
         rawPayload,
-        logId: parent ? (text(valueOf(record, parent)) ?? '') : String(record.Id),
-        transactionKey: text(valueOf(record, entry.roles.transactionId))
+        logId: parent ? (text(valueOf(record, parent)) ?? '') : String(record.Id)
       });
     }
   };
@@ -732,7 +723,7 @@ export function apexLogLinkPlan(requestId: string): QueryPlan<CustomLogApexLogLi
         ? defined({
             state: 'linked' as const,
             logId: String(record.Id),
-            startTime: isoOf(record.StartTime),
+            startTime: normalizeSoqlDateTimeLiteral(record.StartTime),
             logLength: count(record.LogLength)
           })
         : { state: 'notFound' }

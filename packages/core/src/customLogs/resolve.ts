@@ -22,7 +22,7 @@
 
 import type { Connection } from '@salesforce/core';
 
-import { AlvError, awaitWithAbort, throwIfAborted } from '../errors.js';
+import { AlvError, awaitWithAbort, errorCodeOf, throwIfAborted } from '../errors.js';
 import { toolingQuery } from '../dataQuery.js';
 import { escapeSoqlLiteral } from '../soql.js';
 import {
@@ -350,15 +350,11 @@ export type ObjectDescribe = {
 
 export type SchemaReader = {
   /** EntityDefinition lookup: the lower-cased names that exist. `refused` when this user cannot run the query. */
-  existingObjects(names: readonly string[], signal?: AbortSignal): Promise<ReadonlySet<string> | 'refused'>;
+  existingObjects(names: readonly string[]): Promise<ReadonlySet<string> | 'refused'>;
   /** FieldDefinition lookup on one object, FLS-independent: the lower-cased names that exist. `refused` as above. */
-  existingFields(
-    object: string,
-    names: readonly string[],
-    signal?: AbortSignal
-  ): Promise<ReadonlySet<string> | 'refused'>;
+  existingFields(object: string, names: readonly string[]): Promise<ReadonlySet<string> | 'refused'>;
   /** `undefined` when describe answers NOT_FOUND. */
-  describe(object: string, signal?: AbortSignal): Promise<ObjectDescribe | undefined>;
+  describe(object: string): Promise<ObjectDescribe | undefined>;
 };
 
 const REFUSED_CODES: ReadonlySet<string> = new Set([
@@ -370,24 +366,15 @@ const REFUSED_CODES: ReadonlySet<string> = new Set([
 ]);
 const MISSING_OBJECT_CODES: ReadonlySet<string> = new Set(['NOT_FOUND', 'INVALID_TYPE']);
 
-function errorCodeOf(error: unknown): string | undefined {
-  const code = (error as { errorCode?: unknown } | undefined)?.errorCode;
-  return typeof code === 'string' ? code : undefined;
-}
-
 function inList(names: readonly string[]): string {
   return names.map(name => `'${escapeSoqlLiteral(name)}'`).join(',');
 }
 
-async function metadataNames(
-  connection: Connection,
-  soql: string,
-  signal: AbortSignal | undefined
-): Promise<ReadonlySet<string> | 'refused'> {
+async function metadataNames(connection: Connection, soql: string): Promise<ReadonlySet<string> | 'refused'> {
   try {
-    const result = await toolingQuery<{ QualifiedApiName?: string }>(connection, soql, signal);
+    const result = await toolingQuery<{ QualifiedApiName?: string }>(connection, soql);
     return new Set(
-      (result.records ?? []).flatMap(record => (record.QualifiedApiName ? [record.QualifiedApiName.toLowerCase()] : []))
+      result.records.flatMap(record => (record.QualifiedApiName ? [record.QualifiedApiName.toLowerCase()] : []))
     );
   } catch (error) {
     const code = errorCodeOf(error);
@@ -398,21 +385,19 @@ async function metadataNames(
 
 export function createSchemaReader(connection: Connection): SchemaReader {
   return {
-    existingObjects: (names, signal) =>
+    existingObjects: names =>
       metadataNames(
         connection,
-        `SELECT QualifiedApiName FROM EntityDefinition WHERE QualifiedApiName IN (${inList(names)})`,
-        signal
+        `SELECT QualifiedApiName FROM EntityDefinition WHERE QualifiedApiName IN (${inList(names)})`
       ),
-    existingFields: (object, names, signal) =>
+    existingFields: (object, names) =>
       metadataNames(
         connection,
-        `SELECT QualifiedApiName FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = '${escapeSoqlLiteral(object)}' AND QualifiedApiName IN (${inList(names)})`,
-        signal
+        `SELECT QualifiedApiName FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = '${escapeSoqlLiteral(object)}' AND QualifiedApiName IN (${inList(names)})`
       ),
-    async describe(object, signal) {
+    async describe(object) {
       try {
-        const described = await awaitWithAbort(connection.describe(object), signal);
+        const described = await connection.describe(object);
         return {
           name: described.name,
           keyPrefix: described.keyPrefix ?? '',
@@ -482,25 +467,25 @@ async function memoizedExistence(
 /** A `SchemaReader` that answers from `memo` and records each new answer there. Batches the names it lacks. */
 export function memoizedSchemaReader(reader: SchemaReader, memo: SchemaMemo): SchemaReader {
   return {
-    existingObjects: (names, signal) =>
+    existingObjects: names =>
       memoizedExistence(
         memo.objects,
         names,
         name => name,
-        missing => reader.existingObjects(missing, signal)
+        missing => reader.existingObjects(missing)
       ),
-    existingFields: (object, names, signal) =>
+    existingFields: (object, names) =>
       memoizedExistence(
         memo.fields,
         names,
         name => `${object.toLowerCase()}.${name}`,
-        missing => reader.existingFields(object, missing, signal)
+        missing => reader.existingFields(object, missing)
       ),
-    describe(object, signal) {
+    describe(object) {
       const key = object.toLowerCase();
       let pending = memo.describes.get(key);
       if (!pending) {
-        pending = reader.describe(object, signal);
+        pending = reader.describe(object);
         memo.describes.set(key, pending);
         const own = pending;
         own.catch(() => {
@@ -863,12 +848,11 @@ export function resolveDefinition(
 async function describeAll(
   definition: SourceDefinition,
   namespace: string,
-  reader: SchemaReader,
-  signal: AbortSignal | undefined
+  reader: SchemaReader
 ): Promise<{ describes: Map<string, ObjectDescribe> } | { unreadable: string }> {
   const objects = definitionObjects(definition, namespace);
   const names = [objects.entry, ...(objects.transaction ? [objects.transaction] : [])];
-  const described = await Promise.all(names.map(async name => [name, await reader.describe(name, signal)] as const));
+  const described = await Promise.all(names.map(async name => [name, await reader.describe(name)] as const));
   const describes = new Map<string, ObjectDescribe>();
   for (const [name, describe] of described) {
     if (!describe) return { unreadable: name };
@@ -906,7 +890,7 @@ async function describeAll(
   }
   await Promise.all(
     [...targets].map(async target => {
-      const describe = await reader.describe(target, signal);
+      const describe = await reader.describe(target);
       if (describe) describes.set(target, describe);
     })
   );
@@ -932,8 +916,7 @@ function absent(head: CatalogHead, detail: Exclude<CustomLogSourceState, { state
 export async function detectPreset(
   preset: BuiltinPreset,
   reader: SchemaReader,
-  configuredObjects: ReadonlySet<string>,
-  signal?: AbortSignal
+  configuredObjects: ReadonlySet<string>
 ): Promise<CatalogEntry> {
   const { definition, namespace } = preset;
   const head = headOf(definition, 'builtin', namespace);
@@ -944,22 +927,21 @@ export async function detectPreset(
   });
 
   const wanted = [head.objects.entry, ...(head.objects.transaction ? [head.objects.transaction] : [])];
-  const existing = await reader.existingObjects(wanted, signal);
+  const existing = await reader.existingObjects(wanted);
   if (existing === 'refused') return refused;
   if (!wanted.every(name => existing.has(name.toLowerCase()))) return absent(head, { state: 'notInstalled' });
 
   const fingerprint = await reader.existingFields(
     head.objects.entry,
-    preset.fingerprint.fields.map(field => qualifyPath(field, namespace)),
-    signal
+    preset.fingerprint.map(field => qualifyPath(field, namespace))
   );
   if (fingerprint === 'refused') return refused;
-  if (!preset.fingerprint.fields.every(field => fingerprint.has(qualifyPath(field, namespace).toLowerCase()))) {
+  if (!preset.fingerprint.every(field => fingerprint.has(qualifyPath(field, namespace).toLowerCase()))) {
     const mapped = wanted.some(name => configuredObjects.has(name.toLowerCase()));
     return absent(head, mapped ? { state: 'notInstalled' } : { state: 'notInstalled', hint: 'collision' });
   }
 
-  const described = await describeAll(definition, namespace, reader, signal);
+  const described = await describeAll(definition, namespace, reader);
   if ('unreadable' in described) {
     return absent(head, {
       state: 'unavailable',
@@ -970,14 +952,10 @@ export async function detectPreset(
   return resolveDefinition(definition, 'builtin', namespace, described.describes);
 }
 
-async function resolveConfigSource(
-  definition: SourceDefinition,
-  reader: SchemaReader,
-  signal: AbortSignal | undefined
-): Promise<CatalogEntry> {
+async function resolveConfigSource(definition: SourceDefinition, reader: SchemaReader): Promise<CatalogEntry> {
   const head = headOf(definition, 'config', '');
   const wanted = [head.objects.entry, ...(head.objects.transaction ? [head.objects.transaction] : [])];
-  const existing = await reader.existingObjects(wanted, signal);
+  const existing = await reader.existingObjects(wanted);
   if (existing === 'refused') {
     return absent(head, {
       state: 'unavailable',
@@ -993,7 +971,7 @@ async function resolveConfigSource(
       message: `${missing} does not exist in this org.`
     });
   }
-  const described = await describeAll(definition, '', reader, signal);
+  const described = await describeAll(definition, '', reader);
   if ('unreadable' in described) {
     return absent(head, {
       state: 'unavailable',
@@ -1004,7 +982,8 @@ async function resolveConfigSource(
   return resolveDefinition(definition, 'config', '', described.describes);
 }
 
-export type RegistryContext = { connection: Connection; username: string };
+/** `orgCall`'s context. The cursor's org binding reads `connection.getAuthInfoFields().orgId`. */
+export type CustomLogContext = { connection: Connection; username: string };
 
 export type SourceRegistry = {
   /**
@@ -1013,7 +992,7 @@ export type SourceRegistry = {
    * username's memo and catalogs first.
    */
   catalog(
-    ctx: RegistryContext,
+    ctx: CustomLogContext,
     config: ParsedCustomLogsConfig,
     options: { refresh?: boolean; signal?: AbortSignal }
   ): Promise<SourceCatalog>;
@@ -1023,7 +1002,7 @@ export type SourceRegistry = {
    * re-resolve once and retry. Converges instead of serving a stale catalog until restart.
    */
   withSource<T>(
-    ctx: RegistryContext,
+    ctx: CustomLogContext,
     config: ParsedCustomLogsConfig,
     pick: (catalog: SourceCatalog) => ResolvedSource,
     run: (source: ResolvedSource) => Promise<T>,
@@ -1041,7 +1020,7 @@ export function createSourceRegistry(presets: readonly BuiltinPreset[]): SourceR
   const orgs = new Map<string, OrgState>();
 
   const build = async (
-    ctx: RegistryContext,
+    ctx: CustomLogContext,
     config: ParsedCustomLogsConfig,
     memo: SchemaMemo
   ): Promise<SourceCatalog> => {
@@ -1061,8 +1040,8 @@ export function createSourceRegistry(presets: readonly BuiltinPreset[]): SourceR
     await reader.existingObjects(everyObject);
 
     const entries = await Promise.all([
-      ...config.sources.map(source => resolveConfigSource(source, reader, undefined)),
-      ...kept.map(preset => detectPreset(preset, reader, configured, undefined))
+      ...config.sources.map(source => resolveConfigSource(source, reader)),
+      ...kept.map(preset => detectPreset(preset, reader, configured))
     ]);
     return { username: ctx.username, entries };
   };

@@ -29,7 +29,7 @@ export type BuiltinPreset = {
    * Checked against `FieldDefinition`, which lists fields regardless of FLS (measured), so a
    * field hidden from `LoggerEndUser` cannot turn Nebula into a false collision.
    */
-  fingerprint: { object: 'entry'; fields: readonly FieldPath[] };
+  fingerprint: readonly FieldPath[];
 };
 
 /**
@@ -103,7 +103,7 @@ function builtin(
     raw,
     definition: parsed.definition,
     namespace: options.namespace,
-    fingerprint: { object: 'entry', fields: options.fingerprint as readonly FieldPath[] }
+    fingerprint: options.fingerprint as readonly FieldPath[]
   };
 }
 

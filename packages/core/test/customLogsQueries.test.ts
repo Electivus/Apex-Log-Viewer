@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { AlvError } from '../src/index.ts';
 import { parseCustomLogsConfig } from '../src/customLogs/config.ts';
+import { shortHash } from '../src/customLogs/hash.ts';
 import { levelFromOrdinal, normalizeLevel, parseCustomLogLevel } from '../src/customLogs/levels.ts';
 import { NEBULA_MANAGED_PRESET, NEBULA_PRESET } from '../src/customLogs/presets.ts';
 import {
@@ -11,7 +12,6 @@ import {
   encodeCursor,
   entriesPlan,
   entryPlan,
-  filterHash,
   listPlan,
   parseRecordId,
   rowPlan,
@@ -581,9 +581,9 @@ test('a null position continues after the entries that have no sequence', () => 
 });
 
 test('the filter hash ignores key order and changes with any value', () => {
-  assert.equal(filterHash({ user: 'a', minLevel: 'ERROR' }), filterHash({ minLevel: 'ERROR', user: 'a' }));
-  assert.notEqual(filterHash({ user: 'a' }), filterHash({ user: 'b' }));
-  assert.notEqual(filterHash({ since: '24h' }), filterHash({ since: '7d' }));
+  assert.equal(shortHash({ user: 'a', minLevel: 'ERROR' }), shortHash({ minLevel: 'ERROR', user: 'a' }));
+  assert.notEqual(shortHash({ user: 'a' }), shortHash({ user: 'b' }));
+  assert.notEqual(shortHash({ since: '24h' }), shortHash({ since: '7d' }));
 });
 
 // ---------------------------------------------------------------------------------------------
