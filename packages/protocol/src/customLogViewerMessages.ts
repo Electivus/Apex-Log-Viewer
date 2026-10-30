@@ -23,23 +23,26 @@ import {
   type CustomLogSourceRef
 } from './customLogsTypes.js';
 
+/**
+ * A field the panel delivered: an entry's field from `customLogViewerEntryFields`, or the header payload announced
+ * in `customLogViewerInit`. The webview names it by key; its text stays in the host.
+ */
+export type CustomLogViewerFieldTarget = { kind: 'entry'; entryId: string; key: string } | { kind: 'logPayload' };
+
 export type CustomLogViewerFromWebviewMessage =
   | { type: 'customLogViewerReady' }
   | { type: 'customLogViewerRefresh' }
   | { type: 'customLogViewerLoadMoreEntries' }
   /** Accepted only for an entry id the panel has delivered. The host answers with `customLogViewerEntryFields`. */
   | { type: 'customLogViewerOpenEntry'; entryId: string }
-  /**
-   * Accepted only for a field the panel delivered: an entry's field from `customLogViewerEntryFields`,
-   * or the header payload announced in `customLogViewerInit`. The host opens the value it holds.
-   */
-  | {
-      type: 'customLogViewerOpenField';
-      target: { kind: 'entry'; entryId: string; key: string } | { kind: 'logPayload' };
-    }
+  /** The host opens the whole value it holds for the field. */
+  | { type: 'customLogViewerOpenField'; target: CustomLogViewerFieldTarget }
+  /** The host copies the whole value it holds for the field, which the webview may only show as a preview. */
+  | { type: 'customLogViewerCopyField'; target: CustomLogViewerFieldTarget }
   /** No id: the panel opens the link it holds, so the webview cannot ask for an arbitrary ApexLog. */
   | { type: 'customLogViewerOpenApexLog' }
   | { type: 'customLogViewerSetPayloadColumns'; added: string[] }
+  /** For short values the webview shows whole, such as the transaction and request ids. */
   | { type: 'customLogViewerCopyText'; text: string };
 
 export type CustomLogViewerToWebviewMessage =
@@ -78,9 +81,7 @@ function parseString(value: unknown, maxLength: number): string | undefined {
   return typeof value === 'string' && value.length <= maxLength ? value : undefined;
 }
 
-function parseOpenFieldTarget(
-  value: unknown
-): Extract<CustomLogViewerFromWebviewMessage, { type: 'customLogViewerOpenField' }>['target'] | undefined {
+function parseFieldTarget(value: unknown): CustomLogViewerFieldTarget | undefined {
   const target = asRecord(value);
   if (!target) {
     return undefined;
@@ -112,9 +113,10 @@ export function parseCustomLogViewerFromWebviewMessage(raw: unknown): CustomLogV
       const entryId = parseCustomLogRecordId(message.entryId);
       return entryId ? { type: 'customLogViewerOpenEntry', entryId } : undefined;
     }
-    case 'customLogViewerOpenField': {
-      const target = parseOpenFieldTarget(message.target);
-      return target ? { type: 'customLogViewerOpenField', target } : undefined;
+    case 'customLogViewerOpenField':
+    case 'customLogViewerCopyField': {
+      const target = parseFieldTarget(message.target);
+      return target ? { type: message.type, target } : undefined;
     }
     case 'customLogViewerSetPayloadColumns': {
       const added = parseCustomLogPayloadColumns(message.added);

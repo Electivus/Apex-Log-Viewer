@@ -508,14 +508,22 @@ describe('Custom Log viewer app', () => {
       expect(screen.queryByRole('button', { name: 'Open Tags' })).toBeNull();
     });
 
-    it('copies the full message through the host and closes', () => {
-      const { posted } = mountViewer();
-      fireEvent.click(rowOf(entryIds.error));
+    it('asks the host to copy the message it holds, never the preview, and closes', () => {
+      const preview = 'x'.repeat(2000);
+      const clipped = makeEntry('a025g00000Hk1D1AAJ', 9, preview, { previewClipped: true, messageTruncated: true });
+      const { posted, bus } = mountViewer({ entries: [clipped] });
+      fireEvent.click(rowOf(clipped.id));
 
       fireEvent.click(screen.getByRole('button', { name: 'Copy message' }));
-      expect(posts(posted, 'customLogViewerCopyText')).toEqual([
-        { type: 'customLogViewerCopyText', text: 'Divide by 0' }
-      ]);
+      send(bus, { type: 'customLogViewerEntryFields', entryId: clipped.id, fields });
+      fireEvent.click(screen.getByRole('button', { name: 'Copy message' }));
+
+      const copy = { type: 'customLogViewerCopyField', target: { kind: 'entry', entryId: clipped.id, key: 'message' } };
+      expect(posts(posted, 'customLogViewerCopyField')).toEqual([copy, copy]);
+      expect(JSON.stringify(posted).includes(preview)).toBe(false);
+      expect(
+        within(screen.getByTestId('custom-log-entry-detail')).getAllByText(/truncated by the logger/)
+      ).not.toHaveLength(0);
 
       fireEvent.click(screen.getByRole('button', { name: 'Close entry' }));
       expect(screen.queryByTestId('custom-log-entry-detail')).toBeNull();

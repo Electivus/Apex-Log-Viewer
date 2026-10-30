@@ -18,7 +18,8 @@ type CustomLogEntryDetailProps = {
   columns: ReadonlySet<string>;
   lockedColumns: ReadonlySet<string>;
   onClose: () => void;
-  onCopyMessage: (message: string) => void;
+  /** The host copies the whole message; `entry.message` may be a clipped preview. */
+  onCopyMessage: () => void;
   onOpenField: (key: string) => void;
   onToggleColumn: (path: string) => void;
   onFilterEqual: (path: string, value: CustomLogScalar) => void;
@@ -88,7 +89,7 @@ export function CustomLogEntryDetail({
             size="sm"
             className="flex items-center gap-1"
             title={t.viewer.entry.copyMessage}
-            onClick={() => onCopyMessage(entry.message)}
+            onClick={onCopyMessage}
           >
             <Copy className="h-3 w-3" aria-hidden="true" />
             {t.viewer.entry.copyMessage}

@@ -362,7 +362,12 @@ export function CustomLogViewerApp({
             columns={activeColumns}
             lockedColumns={lockedColumns}
             onClose={() => setSelectedId(undefined)}
-            onCopyMessage={message => post({ type: 'customLogViewerCopyText', text: message })}
+            onCopyMessage={() =>
+              post({
+                type: 'customLogViewerCopyField',
+                target: { kind: 'entry', entryId: selectedEntry.id, key: 'message' }
+              })
+            }
             onOpenField={key =>
               post({ type: 'customLogViewerOpenField', target: { kind: 'entry', entryId: selectedEntry.id, key } })
             }

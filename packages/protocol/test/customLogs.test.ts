@@ -226,6 +226,13 @@ test('viewer parser accepts each webview message', () => {
 test('viewer parser reads open-field targets by key and never by text', () => {
   assert.deepEqual(
     parseCustomLogViewerFromWebviewMessage({
+      type: 'customLogViewerCopyField',
+      target: { kind: 'entry', entryId: ENTRY_ID, key: 'message', text: 'smuggled preview' }
+    }),
+    { type: 'customLogViewerCopyField', target: { kind: 'entry', entryId: ENTRY_ID, key: 'message' } }
+  );
+  assert.deepEqual(
+    parseCustomLogViewerFromWebviewMessage({
       type: 'customLogViewerOpenField',
       target: { kind: 'entry', entryId: ENTRY_ID, key: 'StackTrace__c', value: 'smuggled text' }
     }),
@@ -255,6 +262,8 @@ test('viewer parser rejects malformed targets, ids and copy text', () => {
     { type: 'customLogViewerOpenField', target: { kind: 'entry', entryId: 'bad', key: 'message' } },
     { type: 'customLogViewerOpenField', target: { kind: 'entry', entryId: ENTRY_ID, key: '1bad' } },
     { type: 'customLogViewerOpenField', target: { kind: 'entry', entryId: ENTRY_ID, key: 'a b' } },
+    { type: 'customLogViewerCopyField', text: 'whole message' },
+    { type: 'customLogViewerCopyField', target: { kind: 'entry', entryId: 'bad', key: 'message' } },
     { type: 'customLogViewerOpenEntry', entryId: 'bad' },
     { type: 'customLogViewerOpenApexLogs' },
     { type: 'customLogViewerCopyText', text: '' },

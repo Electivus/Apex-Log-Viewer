@@ -14,6 +14,7 @@ import { safeSendEvent } from '../shared/telemetry';
 import { getTelemetryErrorCode } from '../shared/telemetryErrorCodes';
 import {
   parseCustomLogViewerFromWebviewMessage,
+  type CustomLogViewerFieldTarget,
   type CustomLogViewerToWebviewMessage
 } from '../shared/customLogViewerMessages';
 import type { CustomLogApexLogLink } from '../shared/customLogsTypes';
@@ -33,10 +34,6 @@ const MAX_HELD_ENTRIES = 50;
 
 type ErrorScope = Extract<CustomLogViewerToWebviewMessage, { type: 'customLogViewerError' }>['scope'];
 type HeldEntry = { sequence: number; fields: BuiltLongFields };
-type OpenFieldTarget = Extract<
-  NonNullable<ReturnType<typeof parseCustomLogViewerFromWebviewMessage>>,
-  { type: 'customLogViewerOpenField' }
->['target'];
 
 export class CustomLogViewerPanel {
   private static context: vscode.ExtensionContext | undefined;
@@ -133,6 +130,9 @@ export class CustomLogViewerPanel {
         break;
       case 'customLogViewerOpenField':
         await this.openField(message.target);
+        break;
+      case 'customLogViewerCopyField':
+        await this.copyField(message.target);
         break;
       case 'customLogViewerOpenApexLog':
         await this.openApexLog();
@@ -296,28 +296,38 @@ export class CustomLogViewerPanel {
     }
   }
 
-  private async openField(target: OpenFieldTarget): Promise<void> {
+  /** The whole value of a field the panel delivered, reading its entry once when the panel no longer holds it. */
+  private async heldField(
+    target: CustomLogViewerFieldTarget
+  ): Promise<{ held: HeldLongText; sequence?: number } | undefined> {
+    if (target.kind === 'logPayload') {
+      return this.headerPayload && { held: this.headerPayload };
+    }
+    if (!this.deliveredEntryIds.has(target.entryId)) {
+      logWarn('CustomLogViewerPanel: ignored a field of an entry that was not delivered');
+      return undefined;
+    }
+    const entry = this.heldEntries.get(target.entryId) ?? (await this.fetchEntry(target.entryId));
+    const held = entry.fields.held.get(target.key);
+    return held && { held, sequence: entry.sequence };
+  }
+
+  private async openField(target: CustomLogViewerFieldTarget): Promise<void> {
     const startedAt = Date.now();
     try {
-      let held: HeldLongText | undefined;
-      let suffix = '';
-      let kind: 'message' | 'detail' | 'payload' = 'payload';
-      if (target.kind === 'logPayload') {
-        held = this.headerPayload;
-      } else {
-        if (!this.deliveredEntryIds.has(target.entryId)) {
-          logWarn('CustomLogViewerPanel: ignored openField for an entry that was not delivered');
-          return;
-        }
-        const entry = this.heldEntries.get(target.entryId) ?? (await this.fetchEntry(target.entryId));
-        held = entry.fields.held.get(target.key);
-        suffix = ` #${entry.sequence}`;
-        kind = target.key === 'message' ? 'message' : target.key === 'payload' ? 'payload' : 'detail';
-      }
-      if (!held) {
+      const field = await this.heldField(target);
+      if (!field) {
         logWarn('CustomLogViewerPanel: ignored openField for a field the panel does not hold');
         return;
       }
+      const { held, sequence } = field;
+      const kind =
+        target.kind === 'logPayload' || target.key === 'payload'
+          ? 'payload'
+          : target.key === 'message'
+            ? 'message'
+            : 'detail';
+      const suffix = sequence === undefined ? '' : ` #${sequence}`;
       await openCustomLogDocument({
         name: `${held.label} - ${this.title}${suffix}`,
         text: held.text,
@@ -357,6 +367,21 @@ export class CustomLogViewerPanel {
     const value = this.payloadColumns.read(this.options.sourceId, 'entry', this.options.payloadDefaults);
     this.post({ type: 'customLogViewerPayloadColumns', value });
     safeSendEvent('customLogs.payloadColumns', { outcome: 'ok', level: 'entry' }, { count: value.added.length });
+  }
+
+  private async copyField(target: CustomLogViewerFieldTarget): Promise<void> {
+    try {
+      const field = await this.heldField(target);
+      if (!field) {
+        logWarn('CustomLogViewerPanel: ignored copyField for a field the panel does not hold');
+        return;
+      }
+      await this.copyText(field.held.text);
+    } catch (error) {
+      if (!this.disposed) {
+        this.showFailure('entry', error);
+      }
+    }
   }
 
   private async copyText(text: string): Promise<void> {

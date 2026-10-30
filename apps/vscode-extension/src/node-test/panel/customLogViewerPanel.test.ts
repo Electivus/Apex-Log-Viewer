@@ -457,6 +457,67 @@ suite('Custom Logs viewer panel', () => {
       });
     });
 
+    test('copies the whole message it holds, reading a delivered entry once when it holds none', async () => {
+      const { fake, clipboard, open } = load();
+      const whole = `${'x'.repeat(2000)}${'y'.repeat(43050)}`;
+      fake.handlers.customLogEntry = async () =>
+        entryResult({ entry: { sequence: 31, message: whole, messageTruncated: true } });
+      const host = await open();
+      host.clear();
+
+      const copyMessage = {
+        type: 'customLogViewerCopyField',
+        target: { kind: 'entry', entryId: ENTRY_A, key: 'message' }
+      };
+      await host.emit(copyMessage);
+      await host.emit(copyMessage);
+
+      assert.equal(fake.calls.customLogEntry.length, 1);
+      assert.deepEqual(
+        clipboard.map(text => text.length),
+        [45050, 45050]
+      );
+      assert.equal(clipboard[0], whole);
+      assert.equal(textOf(host).includes('yyy'), false, 'the message text stays in the host');
+    });
+
+    test('copies nothing for an entry it never delivered or a field without text', async () => {
+      const { fake, clipboard, open } = load();
+      const host = await open();
+
+      await host.emit({
+        type: 'customLogViewerCopyField',
+        target: { kind: 'entry', entryId: 'a01000000000999AAA', key: 'message' }
+      });
+      for (const key of ['HttpRequestBody__c', 'Tags__c', 'Unused__c', 'payload']) {
+        await host.emit({ type: 'customLogViewerCopyField', target: { kind: 'entry', entryId: ENTRY_A, key } });
+      }
+
+      assert.equal(fake.calls.customLogEntry.length, 1);
+      assert.deepEqual(clipboard, []);
+    });
+
+    test('says when the entry it must copy from cannot be read', async () => {
+      const { fake, clipboard, open } = load();
+      fake.handlers.customLogEntry = async () => {
+        throw new Error('INVALID_SESSION_ID');
+      };
+      const host = await open();
+      host.clear();
+
+      await host.emit({
+        type: 'customLogViewerCopyField',
+        target: { kind: 'entry', entryId: ENTRY_A, key: 'message' }
+      });
+
+      assert.deepEqual(clipboard, []);
+      assert.deepEqual(host.last('customLogViewerError'), {
+        type: 'customLogViewerError',
+        scope: 'entry',
+        message: 'INVALID_SESSION_ID'
+      });
+    });
+
     test('copies text through the host clipboard', async () => {
       const { clipboard, open } = load();
       const host = await open();

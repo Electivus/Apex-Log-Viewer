@@ -102,6 +102,7 @@ const INBOUND_MESSAGE_TYPES: ReadonlySet<string> = new Set(
     customLogViewerLoadMoreEntries: true,
     customLogViewerOpenEntry: true,
     customLogViewerOpenField: true,
+    customLogViewerCopyField: true,
     customLogViewerOpenApexLog: true,
     customLogViewerSetPayloadColumns: true,
     customLogViewerCopyText: true
