@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { localize } from '../host/utils/localize';
 import { logInfo, logWarn } from '../host/utils/logger';
 import { recordInboundMessage } from '../host/utils/responsiveness';
+import { isAbortError } from '../host/utils/abort';
 import { getErrorMessage } from '../host/utils/error';
 import { OrgManager } from '../host/utils/orgManager';
 import { pickSelectedOrg } from '../host/utils/orgs';
@@ -78,10 +79,6 @@ function restrictFilter(filter: CustomLogsFilterView, source: CustomLogSourceVie
     ...(filter.user && source.capabilities.userFilter ? { user: filter.user } : {}),
     ...(filter.since ? { since: filter.since } : {})
   };
-}
-
-function isAbortLike(error: unknown): boolean {
-  return (error as { name?: string } | undefined)?.name === 'AbortError';
 }
 
 export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
@@ -419,7 +416,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     try {
       await work(controller.signal, current);
     } catch (error) {
-      if (current() && !isAbortLike(error)) {
+      if (current() && !isAbortError(error)) {
         const message = getErrorMessage(error);
         logWarn('Custom Logs: request failed ->', message);
         this.bootstrapNeedsRefresh = true;
@@ -477,7 +474,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
         { durationMs: Date.now() - startedAt, count: orgs.length }
       );
     } catch (error) {
-      if (!isAbortLike(error)) {
+      if (!isAbortError(error)) {
         this.post({ type: 'customLogsOrgs', data: [], selected: this.selectedOrg });
         safeSendEvent(
           'orgs.list',
@@ -512,7 +509,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
         { durationMs: Date.now() - startedAt, count: result.sources.length }
       );
     } catch (error) {
-      if (!isAbortLike(error)) {
+      if (!isAbortError(error)) {
         safeSendEvent(
           'customLogs.sources',
           { outcome: 'error', code: getTelemetryErrorCode(error) },
@@ -593,7 +590,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
         );
       }
     } catch (error) {
-      if (mode === 'replace' && !isAbortLike(error)) {
+      if (mode === 'replace' && !isAbortError(error)) {
         safeSendEvent(
           'customLogs.refresh',
           { outcome: 'error', code: getTelemetryErrorCode(error) },

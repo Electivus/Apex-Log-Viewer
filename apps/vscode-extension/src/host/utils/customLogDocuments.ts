@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { reindentJson, type CustomLogTextFormat } from './customLogText';
+import { trimOldest } from './trimOldest';
 
 /** Read-only documents for custom-log long text. Closing one never asks to save, because no file backs it. */
 export const CUSTOM_LOG_DOCUMENT_SCHEME = 'electivus-custom-log';
@@ -14,7 +15,6 @@ export interface CustomLogDocument {
   format: CustomLogTextFormat;
 }
 
-// eslint-disable-next-line no-control-regex
 const UNSAFE_FILE_NAME_CHARACTERS = /[\\/:*?"<>|\u0000-\u001f]+/g;
 
 function fileNameOf(name: string, format: CustomLogTextFormat): string {
@@ -49,9 +49,7 @@ class CustomLogDocuments implements vscode.TextDocumentContentProvider, vscode.D
       query: String((this.sequence += 1))
     });
     this.contents.set(uri.toString(), document.format === 'json' ? reindentJson(document.text) : document.text);
-    for (const stale of [...this.contents.keys()].slice(0, Math.max(0, this.contents.size - MAX_OPEN_DOCUMENTS))) {
-      this.contents.delete(stale);
-    }
+    trimOldest(this.contents, MAX_OPEN_DOCUMENTS);
     const opened = await vscode.workspace.openTextDocument(uri);
     const languageId = document.format === 'json' ? 'json' : 'plaintext';
     const shown =

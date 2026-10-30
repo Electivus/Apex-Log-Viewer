@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { localize } from '../host/utils/localize';
 import { logInfo, logWarn } from '../host/utils/logger';
 import { getErrorMessage } from '../host/utils/error';
+import { trimOldest } from '../host/utils/trimOldest';
 import { recordInboundMessage } from '../host/utils/responsiveness';
 import { buildWebviewHtml } from '../host/utils/webviewHtml';
 import { findCustomLogsProjectDir } from '../host/utils/workspace';
@@ -271,9 +272,7 @@ export class CustomLogViewerPanel {
     const held: HeldEntry = { sequence: result.entry.sequence, fields: buildEntryFields(result, this.labels()) };
     this.heldEntries.delete(entryId);
     this.heldEntries.set(entryId, held);
-    for (const oldest of [...this.heldEntries.keys()].slice(0, Math.max(0, this.heldEntries.size - MAX_HELD_ENTRIES))) {
-      this.heldEntries.delete(oldest);
-    }
+    trimOldest(this.heldEntries, MAX_HELD_ENTRIES);
     return held;
   }
 

@@ -21,6 +21,7 @@ import {
 } from '../host/utils/tailService';
 import { pickSelectedOrg } from '../host/utils/orgs';
 import { getNumberConfig, affectsConfiguration } from '../host/utils/config';
+import { isAbortLikeError } from '../host/utils/abort';
 import { getErrorMessage } from '../host/utils/error';
 import type { OrgItem } from '../shared/types';
 import { LogViewerPanel } from '../panel/LogViewerPanel';
@@ -561,7 +562,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         safeSendEvent('logs.replay', { view: 'tail', outcome: 'ok' }, { durationMs });
       } catch {}
     } catch (e) {
-      if (this.isAbortLikeError(e)) {
+      if (isAbortLikeError(e)) {
         // cancellation; no error message
       } else {
         const msg = getErrorMessage(e);
@@ -573,15 +574,6 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         } catch {}
       }
     }
-  }
-
-  private isAbortLikeError(err: unknown, message?: string): boolean {
-    if ((err as { name?: string } | undefined)?.name === 'AbortError') {
-      return true;
-    }
-
-    const normalized = String(message ?? getErrorMessage(err) ?? '').toLowerCase();
-    return normalized.includes('abort') || normalized.includes('canceled') || normalized.includes('cancelled');
   }
 
   private handleSessionDetach(reason: WebviewSessionDetachReason): void {

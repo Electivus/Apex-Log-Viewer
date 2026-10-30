@@ -1,3 +1,4 @@
+import { trimOldest } from '../host/utils/trimOldest';
 import { parseCustomLogPayloadColumns, type CustomLogPayloadColumnsView } from '../shared/customLogsTypes';
 
 /** What a list row or a viewer entry is, which decides whose payload columns these are. */
@@ -7,8 +8,6 @@ export const CUSTOM_LOGS_PAYLOAD_COLUMNS_STATE_KEY = 'electivus.apexLogViewer.cu
 
 /** The most distinct (level, source) lists kept; adding one more forgets the oldest. */
 const MAX_STORED_LISTS = 100;
-
-type StoredColumns = Record<string, string[]>;
 
 export interface PayloadColumnsMemento {
   get<T>(key: string): T | undefined;
@@ -26,16 +25,16 @@ function storeKey(sourceId: string, level: CustomLogPayloadLevel): string {
   return `${level}:${sourceId}`;
 }
 
-function readStored(memento: PayloadColumnsMemento): StoredColumns {
+function readStored(memento: PayloadColumnsMemento): Map<string, string[]> {
   const raw = memento.get<unknown>(CUSTOM_LOGS_PAYLOAD_COLUMNS_STATE_KEY);
+  const stored = new Map<string, string[]>();
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return {};
+    return stored;
   }
-  const stored: StoredColumns = {};
   for (const [key, value] of Object.entries(raw)) {
     const paths = parseCustomLogPayloadColumns(value);
     if (paths) {
-      stored[key] = paths;
+      stored.set(key, paths);
     }
   }
   return stored;
@@ -45,7 +44,7 @@ function readStored(memento: PayloadColumnsMemento): StoredColumns {
 export function createPayloadColumnsStore(memento: PayloadColumnsMemento): PayloadColumnsStore {
   return {
     read(sourceId, level, defaults) {
-      const added = readStored(memento)[storeKey(sourceId, level)] ?? [];
+      const added = readStored(memento).get(storeKey(sourceId, level)) ?? [];
       return { defaults: [...defaults], added: added.filter(path => !defaults.includes(path)) };
     },
     async write(sourceId, level, added) {
@@ -55,15 +54,12 @@ export function createPayloadColumnsStore(memento: PayloadColumnsMemento): Paylo
       }
       const stored = readStored(memento);
       const key = storeKey(sourceId, level);
-      delete stored[key];
+      stored.delete(key);
       if (paths.length > 0) {
-        stored[key] = paths;
+        stored.set(key, paths);
       }
-      const keys = Object.keys(stored);
-      for (const oldest of keys.slice(0, Math.max(0, keys.length - MAX_STORED_LISTS))) {
-        delete stored[oldest];
-      }
-      await memento.update(CUSTOM_LOGS_PAYLOAD_COLUMNS_STATE_KEY, stored);
+      trimOldest(stored, MAX_STORED_LISTS);
+      await memento.update(CUSTOM_LOGS_PAYLOAD_COLUMNS_STATE_KEY, Object.fromEntries(stored));
     }
   };
 }
