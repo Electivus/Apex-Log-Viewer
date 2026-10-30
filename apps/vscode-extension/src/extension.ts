@@ -27,7 +27,7 @@ import { getBooleanConfig, affectsConfiguration } from './host/utils/config';
 import { getErrorMessage } from './host/utils/error';
 import { findSalesforceProjectInfo, isApexLogDocument, getLogIdFromLogFilePath } from './host/utils/workspace';
 import { ApexLogCodeLensProvider } from './provider/ApexLogCodeLensProvider';
-import { getWebviewDiagnosticEvents } from './shared/webviewDiagnostics';
+import { getWebviewDiagnosticEvents, type WebviewProviderDiagnosticState } from './shared/webviewDiagnostics';
 import { formatDiagnosticsPackageMarkdown, type DiagnosticsPackage } from './shared/diagnosticsPackage';
 
 interface OrgQuickPick extends vscode.QuickPickItem {
@@ -39,23 +39,16 @@ function getExtensionVersion(context: vscode.ExtensionContext): string {
   return typeof packageJSON?.version === 'string' ? packageJSON.version : 'unknown';
 }
 
+type WebviewDiagnosticSource = () => WebviewProviderDiagnosticState | undefined;
+
 function buildDiagnosticsPackage(
   context: vscode.ExtensionContext,
-  provider: SfLogsViewProvider,
-  tailProvider: SfLogTailViewProvider,
+  webviewSources: readonly WebviewDiagnosticSource[],
   salesforceProject: Awaited<ReturnType<typeof findSalesforceProjectInfo>>,
   generatedAt = new Date().toISOString()
 ): DiagnosticsPackage {
   const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
-  const providerStates = [provider.getWebviewDiagnosticState(), tailProvider.getWebviewDiagnosticState()];
-  const logsEditorState = LogsEditorPanel.getDiagnosticState();
-  const tailEditorState = TailEditorPanel.getDiagnosticState();
-  if (logsEditorState) {
-    providerStates.push(logsEditorState);
-  }
-  if (tailEditorState) {
-    providerStates.push(tailEditorState);
-  }
+  const providerStates = webviewSources.flatMap(source => source() ?? []);
   return {
     generatedAt,
     extension: {
@@ -341,7 +334,16 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('electivus.apexLogViewer.diagnostics.copy', async () => {
       try {
-        const diagnostics = buildDiagnosticsPackage(context, provider, tailProvider, salesforceProject);
+        const diagnostics = buildDiagnosticsPackage(
+          context,
+          [
+            () => provider.getWebviewDiagnosticState(),
+            () => tailProvider.getWebviewDiagnosticState(),
+            () => LogsEditorPanel.getDiagnosticState(),
+            () => TailEditorPanel.getDiagnosticState()
+          ],
+          salesforceProject
+        );
         const markdown = formatDiagnosticsPackageMarkdown(diagnostics);
         await vscode.env.clipboard.writeText(markdown);
         logInfo(
