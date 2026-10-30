@@ -42,6 +42,8 @@ import type {
   UserSearchParams,
   UserSearchResult
 } from './contracts.js';
+import { queryData } from './dataQuery.js';
+import { AlvError, abortError, awaitWithAbort, throwIfAborted } from './errors.js';
 import {
   ApexLogLifecycleError,
   createApexLogLifecycle,
@@ -52,6 +54,9 @@ import {
   type ReadApexLogResult,
   type StoredApexLogBody
 } from './logLifecycle.js';
+import { escapeSoqlLikeLiteral, escapeSoqlLiteral, isSalesforceId, normalizeSoqlDateTimeLiteral } from './soql.js';
+
+export { AlvError, awaitWithAbort };
 
 export type CoreCallOptions = {
   signal?: AbortSignal;
@@ -66,19 +71,7 @@ export type CoreInstrumentation = {
   }) => void;
 };
 
-export class AlvError extends Error {
-  public constructor(
-    public readonly code: string,
-    message: string,
-    options?: ErrorOptions
-  ) {
-    super(message, options);
-    this.name = 'AlvError';
-  }
-}
-
 const DEFAULT_API_VERSION = '63.0';
-const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
 const APEX_LOG_ID_REGEX = /^07L[a-zA-Z0-9]{12}(?:[a-zA-Z0-9]{3})?$/;
 const DEBUG_LEVEL_FIELDS =
   'Id, DeveloperName, Language, MasterLabel, Workflow, Validation, Callout, ApexCode, ApexProfiling, ' +
@@ -141,20 +134,6 @@ function syncStatePath(workspaceRoot?: string): string {
   return path.join(resolveApexlogsRoot(workspaceRoot), '.alv', 'sync-state.json');
 }
 
-function escapeSoqlLiteral(value: string): string {
-  return String(value || '')
-    .replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'");
-}
-
-function escapeSoqlLikeLiteral(value: string): string {
-  return String(value || '').replace(/[\\'%_]/g, char => {
-    if (char === '\\') return '\\\\';
-    if (char === "'") return "\\'";
-    return `\\${char}`;
-  });
-}
-
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
@@ -168,10 +147,6 @@ function clampInt(value: unknown, fallback: number, min: number, max: number): n
   const parsed = Math.floor(Number(value));
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, parsed));
-}
-
-function isSalesforceId(value: unknown): value is string {
-  return typeof value === 'string' && SALESFORCE_ID_REGEX.test(value);
 }
 
 export function parseApexLogIds(value: string | null | undefined): string[] {
@@ -419,14 +394,6 @@ export async function toolingQuery<TRecord = JsonObject>(
   };
 }
 
-async function standardQuery<TRecord = JsonObject>(
-  connection: Connection,
-  soql: string,
-  signal?: AbortSignal
-): Promise<QueryResult<TRecord>> {
-  return (await awaitWithAbort(connection.query(soql), signal)) as QueryResult<TRecord>;
-}
-
 function apiVersion(connection: Connection): string {
   return connection.getApiVersion?.() || DEFAULT_API_VERSION;
 }
@@ -525,14 +492,6 @@ async function listLogsNative(
   );
 }
 
-export function normalizeSoqlDateTimeLiteral(value: unknown): string | undefined {
-  const raw = asString(value);
-  if (!raw) return undefined;
-  const parsed = Date.parse(raw);
-  if (!Number.isFinite(parsed)) return undefined;
-  return new Date(parsed).toISOString();
-}
-
 export function buildApexLogListSoql(params: {
   limit: number;
   offset: number;
@@ -596,10 +555,10 @@ function unreadableLogSummary(message: string): RuntimeLogTriageSummary {
 async function getCurrentUserId(ctx: ConnectionContext, signal?: AbortSignal): Promise<string | undefined> {
   throwIfAborted(signal);
   const username = escapeSoqlLiteral(ctx.username);
-  const result = await standardQuery<{ Id?: string }>(
+  const result = await queryData<{ Id?: string }>(
     ctx.connection,
     `SELECT Id FROM User WHERE Username = '${username}' LIMIT 1`,
-    signal
+    { maxRecords: 1, signal }
   );
   throwIfAborted(signal);
   return asString(result.records?.[0]?.Id);
@@ -842,9 +801,10 @@ async function usersSearchNative(ctx: ConnectionContext, params: UserSearchParam
     const escaped = escapeSoqlLikeLiteral(query);
     clauses.push(`(Name LIKE '%${escaped}%' OR Username LIKE '%${escaped}%')`);
   }
-  const result = await standardQuery<JsonObject>(
+  const result = await queryData<JsonObject>(
     ctx.connection,
-    `SELECT Id, Name, Username, IsActive FROM User WHERE ${clauses.join(' AND ')} ORDER BY Name NULLS LAST LIMIT ${limit}`
+    `SELECT Id, Name, Username, IsActive FROM User WHERE ${clauses.join(' AND ')} ORDER BY Name NULLS LAST LIMIT ${limit}`,
+    { maxRecords: limit }
   );
   const users: UserRecord[] = (result.records || [])
     .filter(record => isSalesforceId(record.Id))
@@ -866,9 +826,10 @@ function targetLabel(target: TraceFlagTarget): string {
 async function resolveTraceTargets(ctx: ConnectionContext, target: TraceFlagTarget): Promise<string[]> {
   if (target.type === 'user') return isSalesforceId(target.userId) ? [target.userId] : [];
   const userType = target.type === 'automatedProcess' ? AUTOMATED_PROCESS_USER_TYPE : PLATFORM_INTEGRATION_USER_TYPE;
-  const result = await standardQuery<{ Id?: string }>(
+  const result = await queryData<{ Id?: string }>(
     ctx.connection,
-    `SELECT Id FROM User WHERE UserType = '${escapeSoqlLiteral(userType)}' AND IsActive = true ORDER BY Id LIMIT 200`
+    `SELECT Id FROM User WHERE UserType = '${escapeSoqlLiteral(userType)}' AND IsActive = true ORDER BY Id LIMIT 200`,
+    { maxRecords: 200 }
   );
   return (result.records || []).map(record => record.Id).filter((id): id is string => isSalesforceId(id));
 }
@@ -1120,47 +1081,6 @@ async function normalizeCurrentUserTarget(ctx: ConnectionContext, target: TraceF
   const userId = await getCurrentUserId(ctx);
   if (!userId) throw new Error('Unable to determine current user id.');
   return { type: 'user', userId };
-}
-
-function abortError(): AlvError {
-  return new AlvError('ABORTED', 'Operation cancelled.');
-}
-
-function throwIfAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw abortError();
-}
-
-export async function awaitWithAbort<T>(operation: PromiseLike<T>, signal?: AbortSignal): Promise<T> {
-  throwIfAborted(signal);
-  if (!signal) return operation;
-
-  const streamBacked = operation as PromiseLike<T> & {
-    stream?: () => { destroy?: () => unknown };
-  };
-  return new Promise<T>((resolve, reject) => {
-    let settled = false;
-    const finish = (callback: () => void): void => {
-      if (settled) return;
-      settled = true;
-      signal.removeEventListener('abort', onAbort);
-      callback();
-    };
-    const onAbort = (): void => {
-      finish(() => {
-        try {
-          streamBacked.stream?.().destroy?.();
-        } catch {}
-        reject(abortError());
-      });
-    };
-
-    signal.addEventListener('abort', onAbort, { once: true });
-    Promise.resolve(operation).then(
-      value => finish(() => resolve(value)),
-      error => finish(() => reject(error))
-    );
-    if (signal.aborted) onAbort();
-  });
 }
 
 async function instrumentedCall<T>(
