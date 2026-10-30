@@ -340,3 +340,5 @@ export type ToolingRequestGetParams = {
   targetOrg?: string;
   path: string;
 };
+
+export * from './customLogs/contracts.js';
