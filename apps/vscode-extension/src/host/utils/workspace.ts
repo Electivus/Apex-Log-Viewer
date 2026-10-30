@@ -25,6 +25,26 @@ export function getWorkspaceRoot(): string | undefined {
   return undefined;
 }
 
+const SFDX_PROJECT_FILE = 'sfdx-project.json';
+
+type WorkspaceFolders = readonly Pick<vscode.WorkspaceFolder, 'uri'>[] | undefined;
+
+/** The workspace folders that hold an `sfdx-project.json`, in VS Code's multi-root folder order. */
+async function* foldersWithProjectFile(
+  workspaceFolders: WorkspaceFolders
+): AsyncGenerator<{ workspaceRoot: string; projectFilePath: string }> {
+  for (const folder of workspaceFolders ?? []) {
+    const workspaceRoot = folder.uri.fsPath;
+    const projectFilePath = path.join(workspaceRoot, SFDX_PROJECT_FILE);
+    try {
+      await fs.access(projectFilePath);
+    } catch {
+      continue;
+    }
+    yield { workspaceRoot, projectFilePath };
+  }
+}
+
 /**
  * Find the first workspace folder that contains `sfdx-project.json`.
  *
@@ -32,20 +52,13 @@ export function getWorkspaceRoot(): string | undefined {
  * runtime matches the `workspaceContains:sfdx-project.json` activation behavior.
  */
 export async function findSalesforceProjectInfo(
-  workspaceFolders: readonly Pick<vscode.WorkspaceFolder, 'uri'>[] | undefined = vscode.workspace.workspaceFolders
+  workspaceFolders: WorkspaceFolders = vscode.workspace.workspaceFolders
 ): Promise<SalesforceProjectInfo | undefined> {
-  for (const folder of workspaceFolders ?? []) {
-    const workspaceRoot = folder.uri.fsPath;
-    const projectFilePath = path.join(workspaceRoot, 'sfdx-project.json');
-
+  for await (const { workspaceRoot, projectFilePath } of foldersWithProjectFile(workspaceFolders)) {
     let rawProject: string;
     try {
       rawProject = await fs.readFile(projectFilePath, 'utf8');
-    } catch (error: any) {
-      const code = String(error?.code || '');
-      if (code === 'ENOENT' || code === 'ENOTDIR') {
-        continue;
-      }
+    } catch {
       continue;
     }
 
@@ -68,23 +81,16 @@ export async function findSalesforceProjectInfo(
   return undefined;
 }
 
-const SFDX_PROJECT_FILE = 'sfdx-project.json';
-
 /**
  * The directory Custom Logs hands core to find the project mapping: the first workspace folder that
  * holds an `sfdx-project.json` (even a broken one, so core reports it), else the first folder, which
  * core walks up from. `undefined` without a workspace means built-in sources only.
  */
 export async function findCustomLogsProjectDir(
-  workspaceFolders: readonly Pick<vscode.WorkspaceFolder, 'uri'>[] | undefined = vscode.workspace.workspaceFolders
+  workspaceFolders: WorkspaceFolders = vscode.workspace.workspaceFolders
 ): Promise<string | undefined> {
-  for (const folder of workspaceFolders ?? []) {
-    try {
-      await fs.access(path.join(folder.uri.fsPath, SFDX_PROJECT_FILE));
-      return folder.uri.fsPath;
-    } catch {
-      continue;
-    }
+  for await (const { workspaceRoot } of foldersWithProjectFile(workspaceFolders)) {
+    return workspaceRoot;
   }
   return workspaceFolders?.[0]?.uri.fsPath;
 }
