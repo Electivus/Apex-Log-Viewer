@@ -153,6 +153,7 @@ The extension activates automatically when the workspace contains `sfdx-project.
 
 ### Read Custom Logs
 
+- Custom Logs is experimental and off by default. Set `electivus.apexLogViewer.customLogs.enabled` to `true` to show it; no reload is needed. The `sf electivus custom-log` commands work without the setting.
 - Open **Custom Logs** in the VS Code panel area to read the log records that a logging framework stores in Salesforce, such as Nebula Logger's `Log__c` and `LogEntry__c`.
 - Nebula Logger needs no configuration. Map other objects under `plugins.electivus.customLogs` in `sfdx-project.json`. **Configure** opens that block, and the editor validates it.
 - Filter by level, user, and time in Salesforce, and add JSON payload keys as columns or filters over the loaded rows.
@@ -187,12 +188,15 @@ The extension activates automatically when the workspace contains `sfdx-project.
 - `Electivus Apex Logs: Open Custom Logs in Editor Area` (`electivus.apexLogViewer.customLogs.openEditor`)
 - `Electivus Apex Logs: Configure Custom Logs Sources` (`electivus.apexLogViewer.customLogs.configure`)
 
+The three Custom Logs commands appear once `electivus.apexLogViewer.customLogs.enabled` is on.
+
 ## Settings
 
 - `electivus.apexLogViewer.logs.pageSize`: logs fetched per page.
 - `electivus.apexLogViewer.logs.processingConcurrency`: concurrent head requests.
 - `electivus.apexLogViewer.logs.columns`: reorder, hide, or resize list columns.
 - `electivus.apexLogViewer.tail.bufferLines`: max in-memory tail lines.
+- `electivus.apexLogViewer.customLogs.enabled`: show the experimental Custom Logs panel and commands (off by default).
 - `electivus.apexLogViewer.logging.trace`: verbose extension logging to the output channel.
 
 Previous `sfLogs.*` and `electivus.apexLogs.*` keys are not aliases and are not migrated automatically.
