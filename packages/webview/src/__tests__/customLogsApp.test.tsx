@@ -6,6 +6,7 @@ import {
   chips,
   filterInput,
   headerLabels,
+  ids,
   lastPost,
   listedTitles,
   makeRow,
@@ -68,6 +69,13 @@ describe('Custom Logs app', () => {
 
       expect(listedTitles()).toEqual(rows.map(row => row.title));
       expect(headerLabels()).toEqual(['Time', 'Level', 'Title', 'User', 'Category']);
+    });
+
+    it('shows a null record field as an empty cell, not the word null', () => {
+      mountApp({ rows: [makeRow(ids.ok, 'Order synced', { extra: { Category__c: null } })] });
+
+      expect(screen.queryByText('null')).toBeNull();
+      expect(screen.getByTestId('custom-logs-root')).toHaveTextContent('—');
     });
 
     it('counts the loaded rows in the singular and the plural', () => {

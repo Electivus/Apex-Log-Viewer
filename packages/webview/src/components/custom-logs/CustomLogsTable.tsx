@@ -8,6 +8,7 @@ import type { SortState, TableColumn } from '../../utils/customLogs/columns';
 import { formatLogTime, formatScalar, scalarKind } from '../../utils/customLogs/format';
 import { payloadValues, type DiscoveredField } from '../../utils/customLogs/payloadRows';
 import { CustomLogsColumnsHeader, columnGrid } from './CustomLogsColumnsHeader';
+import { ExtraCell } from './ExtraCell';
 import { LevelBadge } from './LevelBadge';
 
 const ROW_HEIGHT = 24;
@@ -178,9 +179,7 @@ function CustomLogRowView({
               <CountsCell t={t} row={row} />
             )
           ) : column.kind === 'extra' ? (
-            <span className="truncate" title={formatScalar(row.extra[column.key])}>
-              {formatScalar(row.extra[column.key])}
-            </span>
+            <ExtraCell value={row.extra[column.key]} />
           ) : (
             <PayloadCell t={t} row={row} column={column} marker={column.id === firstPayloadColumnId} />
           )}

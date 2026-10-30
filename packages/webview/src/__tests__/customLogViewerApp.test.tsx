@@ -197,6 +197,17 @@ const posts = <T extends CustomLogViewerFromWebviewMessage['type']>(
   posted.filter((message): message is Extract<CustomLogViewerFromWebviewMessage, { type: T }> => message.type === type);
 
 describe('Custom Log viewer app', () => {
+  describe('entry columns', () => {
+    it('shows a null record field as an empty cell, not the word null', () => {
+      mountViewer({
+        entries: [makeEntry(entryIds.start, 1, 'Starting order sync', { extra: { OriginType__c: null } })]
+      });
+
+      expect(rowOf(entryIds.start).textContent).not.toContain('null');
+      expect(rowOf(entryIds.start).textContent).toContain('—');
+    });
+  });
+
   describe('header', () => {
     it('announces itself, then shows the log the host sends', () => {
       const { posted } = mountViewer();

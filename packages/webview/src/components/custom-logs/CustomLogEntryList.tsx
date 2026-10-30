@@ -8,6 +8,7 @@ import type { EntryColumn } from '../../utils/customLogs/entries';
 import { formatClock, formatScalar, scalarKind } from '../../utils/customLogs/format';
 import { payloadValues, type DiscoveredField } from '../../utils/customLogs/payloadRows';
 import { CustomLogsColumnsHeader, columnGrid } from './CustomLogsColumnsHeader';
+import { ExtraCell } from './ExtraCell';
 import { LevelBadge } from './LevelBadge';
 
 const DEFAULT_ROW_HEIGHT = 26;
@@ -122,9 +123,7 @@ function EntryRowView({
                 </div>
               )
             ) : column.kind === 'extra' ? (
-              <span className="block truncate" title={formatScalar(entry.extra[column.key])}>
-                {formatScalar(entry.extra[column.key])}
-              </span>
+              <ExtraCell value={entry.extra[column.key]} />
             ) : (
               <EntryPayloadCell t={t} entry={entry} path={column.path} marker={column.id === firstPayloadColumnId} />
             )}
