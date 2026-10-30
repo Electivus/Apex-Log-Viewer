@@ -1,7 +1,7 @@
 /** Questions a call asks of a `SourceCatalog`: which source it reads, and how `sources` reports each one. Pure. */
 
-import { AlvError } from '../errors.js';
 import type { CustomLogColumn, CustomLogPayloadInfo, CustomLogSourceInfo } from './contracts.js';
+import { customLogError } from './errors.js';
 import {
   filterableField,
   type CatalogEntry,
@@ -24,7 +24,7 @@ function findEntry(catalog: SourceCatalog, sourceId: string): CatalogEntry {
   const entry = catalog.entries.find(item => item.head.id === sourceId);
   if (!entry) {
     const known = catalog.entries.map(item => item.head.id).join(', ');
-    throw new AlvError(
+    throw customLogError(
       'CUSTOM_LOG_SOURCE_NOT_FOUND',
       `Unknown log source "${sourceId}". Known sources: ${known || 'none'}.`
     );
@@ -41,7 +41,7 @@ export function requireSource(catalog: SourceCatalog, sourceId: string | undefin
   if (sourceId !== undefined) {
     const entry = findEntry(catalog, sourceId);
     if (entry.state === 'ready') return entry.source;
-    throw new AlvError(
+    throw customLogError(
       'CUSTOM_LOG_SOURCE_UNAVAILABLE',
       `Log source "${sourceId}" is not available: ${describeUnavailable(entry)}.`
     );
@@ -49,12 +49,12 @@ export function requireSource(catalog: SourceCatalog, sourceId: string | undefin
   const ready = readyEntries(catalog);
   if (ready.length === 1) return ready[0]!;
   if (ready.length === 0) {
-    throw new AlvError(
+    throw customLogError(
       'CUSTOM_LOG_NO_SOURCE',
       'No log source is ready in this org. Run "sf electivus custom-log sources" to see why.'
     );
   }
-  throw new AlvError(
+  throw customLogError(
     'CUSTOM_LOG_SOURCE_REQUIRED',
     `Several log sources are ready (${ready.map(source => source.id).join(', ')}). Pass one with --source.`
   );
@@ -84,7 +84,7 @@ export function requireSourceForRecord(
     const level = levelOwning(source, prefix);
     if (level) return { source, level };
   }
-  throw new AlvError(
+  throw customLogError(
     'CUSTOM_LOG_SOURCE_NOT_FOUND',
     sourceId === undefined
       ? `No ready log source owns record id ${recordId}.`

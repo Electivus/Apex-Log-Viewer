@@ -15,7 +15,7 @@
  */
 
 import { queryData, toolingQuery } from '../dataQuery.js';
-import { AlvError, errorCodeOf } from '../errors.js';
+import { errorCodeOf } from '../errors.js';
 import { loadCustomLogsConfig } from './config.js';
 import { shortHash } from './hash.js';
 import {
@@ -33,6 +33,7 @@ import {
   type CustomLogSourcesParams,
   type CustomLogSourcesResult
 } from './contracts.js';
+import { CANNOT_READ_CODES, customLogError } from './errors.js';
 import { parseCustomLogLevel } from './levels.js';
 import { BUILTIN_PRESETS, type BuiltinPreset } from './presets.js';
 import {
@@ -82,14 +83,8 @@ const MAX_LIST_LIMIT = 200;
 const DEFAULT_ENTRIES_LIMIT = 200;
 const MAX_ENTRIES_LIMIT = 2000;
 
-/** ApexLog is a Tooling object some users cannot see at all (a Standard User answers INVALID_TYPE). */
-const APEX_LOG_UNREADABLE: ReadonlySet<string> = new Set([
-  'INVALID_TYPE',
-  'INSUFFICIENT_ACCESS',
-  'INSUFFICIENT_ACCESS_OR_READONLY',
-  'API_DISABLED_FOR_ORG',
-  'FORBIDDEN'
-]);
+/** ApexLog is a Tooling object some users cannot see at all: a Standard User answers INVALID_TYPE. */
+const APEX_LOG_UNREADABLE: ReadonlySet<string> = new Set([...CANNOT_READ_CODES, 'INVALID_TYPE']);
 
 function limitOf(value: number | undefined, fallback: number, max: number): number {
   const parsed = Math.floor(Number(value));
@@ -104,7 +99,7 @@ function levelOf(value: CustomLogLevel | undefined): CustomLogLevel | undefined 
   if (value === undefined) return undefined;
   const level = parseCustomLogLevel(value);
   if (!level) {
-    throw new AlvError(
+    throw customLogError(
       'INVALID_ARGUMENT',
       `"${String(value)}" is not a level. Use one of ${CUSTOM_LOG_LEVELS.join(', ')}.`
     );
@@ -124,7 +119,7 @@ function sourceRef(source: ResolvedSource): CustomLogSourceRef {
 function orgIdOf(ctx: CustomLogContext): string {
   const orgId = ctx.connection.getAuthInfoFields().orgId;
   if (!orgId)
-    throw new AlvError(
+    throw customLogError(
       'CUSTOM_LOG_INVALID_CURSOR',
       'The org id of this connection is unknown, so a cursor cannot be bound to it.'
     );
@@ -155,12 +150,12 @@ async function apexLogFor(
 }
 
 function notFound(what: string): never {
-  throw new AlvError('CUSTOM_LOG_RECORD_NOT_FOUND', `${what} was not found, or this user cannot read it.`);
+  throw customLogError('CUSTOM_LOG_RECORD_NOT_FOUND', `${what} was not found, or this user cannot read it.`);
 }
 
 /** A record id of the other level was passed. The message says what it is and which id to pass instead. */
 function wrongRecordLevel(message: string): never {
-  throw new AlvError('CUSTOM_LOG_RECORD_NOT_FOUND', message);
+  throw customLogError('CUSTOM_LOG_RECORD_NOT_FOUND', message);
 }
 
 function resolveWindow(filter: CustomLogFilter | undefined, now: Date): { since?: string; until?: string } {
@@ -344,7 +339,7 @@ async function findTransaction(
   const ids = await run(ctx, transactionLookupPlan(source, transactionId), signal);
   if (ids.length === 0) notFound(`Transaction ${transactionId}`);
   if (ids.length > 1) {
-    throw new AlvError(
+    throw customLogError(
       'CUSTOM_LOG_AMBIGUOUS_TRANSACTION',
       `Several logs carry transaction id ${transactionId} (${ids.join(', ')}). Pass one with --log-id.`
     );

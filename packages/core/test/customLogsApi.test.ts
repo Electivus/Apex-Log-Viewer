@@ -389,23 +389,31 @@ test('get returns the header, its entries, the page cursor and the linked Apex l
 });
 
 test('get keeps working for a user who cannot read ApexLog and never re-resolves because of it', async t => {
-  const org = await startNebulaOrg(t, {
-    describes: 'unlocked-admin',
-    objects: UNLOCKED,
-    answer: soql => {
-      if (soql.includes('FROM Log__c WHERE Id =')) return page([logRecord(1)]);
-      if (soql.includes('FROM LogEntry__c')) return page([entryRecord(1)]);
-      if (soql.includes('FROM ApexLog'))
-        return salesforceError('INVALID_TYPE', "sObject type 'ApexLog' is not supported.");
-      return undefined;
-    }
-  });
-  const { core, username } = await coreFor(t, org, 'get-no-apexlog@example.com');
+  for (const [code, message] of [
+    ['INVALID_TYPE', "sObject type 'ApexLog' is not supported."],
+    ['API_CURRENTLY_DISABLED', 'API is disabled for this User']
+  ]) {
+    const org = await startNebulaOrg(t, {
+      describes: 'unlocked-admin',
+      objects: UNLOCKED,
+      answer: soql => {
+        if (soql.includes('FROM Log__c WHERE Id =')) return page([logRecord(1)]);
+        if (soql.includes('FROM LogEntry__c')) return page([entryRecord(1)]);
+        if (soql.includes('FROM ApexLog')) return salesforceError(code!, message!);
+        return undefined;
+      }
+    });
+    const { core, username } = await coreFor(t, org, `get-no-apexlog-${code!.toLowerCase()}@example.com`);
 
-  const result = await core.customLog.get({ targetOrg: username, projectDir: undefined, logId: 'a02000000000001AAA' });
+    const result = await core.customLog.get({
+      targetOrg: username,
+      projectDir: undefined,
+      logId: 'a02000000000001AAA'
+    });
 
-  assert.deepEqual(result.apexLog, { state: 'unavailable', reason: 'noAccess' });
-  assert.equal(org.metadataQueries('EntityDefinition').length, 1);
+    assert.deepEqual(result.apexLog, { state: 'unavailable', reason: 'noAccess' }, code);
+    assert.equal(org.metadataQueries('EntityDefinition').length, 1, code);
+  }
 });
 
 test('get without a request id says so instead of querying', async t => {

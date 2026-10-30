@@ -28,3 +28,11 @@ test('code outside customLogs/ imports only its api and contracts modules', () =
     );
   assert.deepEqual(violations, []);
 });
+
+test('every error customLogs/ throws is built by customLogError, so its code is in the contract', () => {
+  const builders = sourceFiles(CUSTOM_LOGS)
+    .filter(file => file !== path.join(CUSTOM_LOGS, 'errors.ts'))
+    .filter(file => /new AlvError\(/.test(fs.readFileSync(file, 'utf8')))
+    .map(file => path.relative(SRC, file));
+  assert.deepEqual(builders, []);
+});

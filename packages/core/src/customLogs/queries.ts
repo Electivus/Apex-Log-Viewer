@@ -13,7 +13,6 @@
  * nillable formula (measured) and stays a display field.
  */
 
-import { AlvError } from '../errors.js';
 import { escapeSoqlLiteral, isSalesforceId, normalizeSoqlDateTimeLiteral, soqlNumberLiteral } from '../soql.js';
 import {
   CUSTOM_LOG_CELL_CHARS,
@@ -29,6 +28,7 @@ import {
   type CustomLogRow,
   type CustomLogScalar
 } from './contracts.js';
+import { customLogError } from './errors.js';
 import { APEX_LEVEL_ORDINALS, normalizeLevel, type LevelTable } from './levels.js';
 import { decodePayload, selectPayloadPaths, summarizePayloadFields, toLongValue } from './payload.js';
 import {
@@ -54,7 +54,7 @@ export type Soql = string & { readonly [brand]: 'Soql' };
 
 export function parseRecordId(value: string, what: string): RecordId {
   if (isSalesforceId(value)) return value as RecordId;
-  throw new AlvError('INVALID_ARGUMENT', `${what} must be a 15 or 18 character Salesforce record id.`);
+  throw customLogError('INVALID_ARGUMENT', `${what} must be a 15 or 18 character Salesforce record id.`);
 }
 
 export type QueryPlan<T> = {
@@ -109,7 +109,7 @@ export function encodeCursor(payload: CursorPayload): string {
 }
 
 function invalidCursor(reason: string): never {
-  throw new AlvError(
+  throw customLogError(
     'CUSTOM_LOG_INVALID_CURSOR',
     `The cursor does not belong to this request (${reason}). Run the command again without --cursor.`
   );
@@ -119,7 +119,7 @@ function isoInstant(value: unknown): value is string {
   return typeof value === 'string' && normalizeSoqlDateTimeLiteral(value) === value;
 }
 
-/** Throws AlvError('CUSTOM_LOG_INVALID_CURSOR') on malformed tokens or on any binding mismatch. */
+/** Throws CUSTOM_LOG_INVALID_CURSOR on malformed tokens or on any binding mismatch. */
 export function decodeCursor(token: string, expected: CursorBinding): CursorPayload {
   if (token.length > MAX_CURSOR_CHARS || !BASE64URL.test(token)) invalidCursor('malformed');
   let parsed: unknown;
@@ -172,7 +172,7 @@ const quote = (value: string): string => `'${escapeSoqlLiteral(value)}'`;
 
 function datetimeLiteral(iso: string): string {
   const normalized = normalizeSoqlDateTimeLiteral(iso);
-  if (!normalized) throw new AlvError('INVALID_ARGUMENT', `"${iso}" is not an ISO-8601 instant.`);
+  if (!normalized) throw customLogError('INVALID_ARGUMENT', `"${iso}" is not an ISO-8601 instant.`);
   return normalized;
 }
 
@@ -290,7 +290,7 @@ export type ListPlanParams = {
 };
 
 function unsupported(source: ResolvedSource, what: string): never {
-  throw new AlvError(
+  throw customLogError(
     'CUSTOM_LOG_UNSUPPORTED_FILTER',
     `Log source "${source.id}" has no ${what}, so it cannot be filtered that way.`
   );

@@ -14,6 +14,7 @@ import type { Connection } from '@salesforce/core';
 import { errorCodeOf } from '../errors.js';
 import { toolingQuery } from '../dataQuery.js';
 import { escapeSoqlLiteral } from '../soql.js';
+import { CANNOT_READ_CODES } from './errors.js';
 
 /** The subset of describe this module reads. Parsed from jsforce's DescribeSObjectResult. */
 export type ObjectDescribe = {
@@ -40,13 +41,6 @@ export type SchemaReader = {
   describe(object: string): Promise<ObjectDescribe | undefined>;
 };
 
-const REFUSED_CODES: ReadonlySet<string> = new Set([
-  'INSUFFICIENT_ACCESS',
-  'INSUFFICIENT_ACCESS_OR_READONLY',
-  'API_DISABLED_FOR_ORG',
-  'API_CURRENTLY_DISABLED',
-  'FORBIDDEN'
-]);
 const MISSING_OBJECT_CODES: ReadonlySet<string> = new Set(['NOT_FOUND', 'INVALID_TYPE']);
 
 function inList(names: readonly string[]): string {
@@ -61,7 +55,7 @@ async function metadataNames(connection: Connection, soql: string): Promise<Read
     );
   } catch (error) {
     const code = errorCodeOf(error);
-    if (code && REFUSED_CODES.has(code)) return 'refused';
+    if (code && CANNOT_READ_CODES.has(code)) return 'refused';
     throw error;
   }
 }
