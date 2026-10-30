@@ -10,20 +10,33 @@ export const PACKAGE_METADATA_FILES = [
   'telemetry.json'
 ];
 
+/** Files the extension packages from elsewhere in the repository, as repo-relative source and app-relative destination. */
+export const PACKAGE_SCHEMA_FILES = [
+  {
+    source: 'packages/core/schemas/sfdx-project.electivus.schema.json',
+    destination: 'schemas/sfdx-project.electivus.schema.json'
+  }
+];
+
 export function copyPackageMetadata({ repoRoot }) {
   const appRoot = path.join(repoRoot, 'apps', 'vscode-extension');
+  const copies = [
+    ...PACKAGE_METADATA_FILES.map(relativePath => ({ source: relativePath, destination: relativePath })),
+    ...PACKAGE_SCHEMA_FILES
+  ];
 
-  for (const relativePath of PACKAGE_METADATA_FILES) {
-    const source = path.join(repoRoot, relativePath);
-    const destination = path.join(appRoot, relativePath);
+  for (const copy of copies) {
+    const source = path.join(repoRoot, copy.source);
+    const destination = path.join(appRoot, copy.destination);
     if (!fs.existsSync(source)) {
       throw new Error(`package metadata asset not found at ${source}`);
     }
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
     fs.copyFileSync(source, destination);
   }
 
   return {
-    files: PACKAGE_METADATA_FILES.map(relativePath => path.join(appRoot, relativePath))
+    files: copies.map(copy => path.join(appRoot, copy.destination))
   };
 }
 

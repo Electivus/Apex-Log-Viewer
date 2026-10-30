@@ -64,6 +64,9 @@
     "media/tail.js",
     "media/logViewer.js",
     "media/debugFlags.js",
+    "media/customLogs.js",
+    "media/customLogViewer.js",
+    "schemas/sfdx-project.electivus.schema.json",
     "bin/**",
     "README.md",
     "CHANGELOG.md",
@@ -226,6 +229,11 @@
           "id": "electivus-apex-log-viewer-tail",
           "title": "%salesforce.tail.panel.title%",
           "icon": "media/icon.png"
+        },
+        {
+          "id": "electivus-apex-log-viewer-custom-logs",
+          "title": "%customLogs.panel.title%",
+          "icon": "media/icon.png"
         }
       ]
     },
@@ -241,6 +249,13 @@
         {
           "id": "electivus.apexLogViewer.tailView",
           "name": "%salesforce.tail.view.name%",
+          "type": "webview"
+        }
+      ],
+      "electivus-apex-log-viewer-custom-logs": [
+        {
+          "id": "electivus.apexLogViewer.customLogsView",
+          "name": "%customLogs.view.name%",
           "type": "webview"
         }
       ]
@@ -272,6 +287,21 @@
         "category": "Electivus Apex Logs"
       },
       {
+        "command": "electivus.apexLogViewer.customLogs.refresh",
+        "title": "%command.customLogs.refresh.title%",
+        "category": "Electivus Apex Logs"
+      },
+      {
+        "command": "electivus.apexLogViewer.customLogs.openEditor",
+        "title": "%command.customLogs.openEditor.title%",
+        "category": "Electivus Apex Logs"
+      },
+      {
+        "command": "electivus.apexLogViewer.customLogs.configure",
+        "title": "%command.customLogs.configure.title%",
+        "category": "Electivus Apex Logs"
+      },
+      {
         "command": "electivus.apexLogViewer.log.openViewer",
         "title": "%command.openLogInViewer.title%",
         "category": "Electivus Apex Logs"
@@ -285,6 +315,12 @@
         "command": "electivus.apexLogViewer.diagnostics.copy",
         "title": "%command.copyDiagnostics.title%",
         "category": "Electivus Apex Logs"
+      }
+    ],
+    "jsonValidation": [
+      {
+        "fileMatch": "sfdx-project.json",
+        "url": "./schemas/sfdx-project.electivus.schema.json"
       }
     ],
     "languages": [
@@ -312,13 +348,30 @@
           "icon": "$(open-preview)"
         },
         {
+          "command": "electivus.apexLogViewer.customLogs.openEditor",
+          "when": "view == electivus.apexLogViewer.customLogsView",
+          "group": "navigation@10",
+          "icon": "$(open-preview)"
+        },
+        {
+          "command": "electivus.apexLogViewer.customLogs.refresh",
+          "when": "view == electivus.apexLogViewer.customLogsView",
+          "group": "navigation@5",
+          "icon": "$(refresh)"
+        },
+        {
+          "command": "electivus.apexLogViewer.customLogs.configure",
+          "when": "view == electivus.apexLogViewer.customLogsView",
+          "group": "moreActions@90"
+        },
+        {
           "command": "electivus.apexLogViewer.diagnostics.copy",
-          "when": "view == electivus.apexLogViewer.logsView || view == electivus.apexLogViewer.tailView",
+          "when": "view == electivus.apexLogViewer.logsView || view == electivus.apexLogViewer.tailView || view == electivus.apexLogViewer.customLogsView",
           "group": "moreActions@99"
         },
         {
           "command": "electivus.apexLogViewer.output.show",
-          "when": "view == electivus.apexLogViewer.logsView || view == electivus.apexLogViewer.tailView",
+          "when": "view == electivus.apexLogViewer.logsView || view == electivus.apexLogViewer.tailView || view == electivus.apexLogViewer.customLogsView",
           "group": "moreActions@100"
         }
       ],

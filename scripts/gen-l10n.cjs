@@ -31,7 +31,18 @@ const ptBrByLegacyKey = {
   refreshingLogs: 'Atualizando logs...',
   listingOrgs: 'Listando orgs Salesforce...',
   'salesforce.logs.view.name': 'Electivus Apex Logs',
-  'salesforce.tail.view.name': 'Electivus Apex Logs Tail'
+  'salesforce.tail.view.name': 'Electivus Apex Logs Tail',
+  'customLogs.view.name': 'Electivus Logs Personalizados',
+  'customLogs.viewer.title': 'Log personalizado',
+  'customLogs.viewer.panelTitle': 'Log personalizado: {0}',
+  'customLogs.field.message': 'Mensagem',
+  'customLogs.field.payload': 'Payload',
+  'customLogs.payload.empty': 'Este registro não tem payload.',
+  'customLogs.payload.hidden': 'Você não tem permissão para ler este payload.',
+  'customLogs.payload.unmapped': 'Esta fonte não mapeia um payload.',
+  'customLogs.configure.noWorkspace': 'Abra um projeto Salesforce para configurar os Logs Personalizados.',
+  'customLogs.configure.noProjectFile':
+    'Os Logs Personalizados leem suas fontes de plugins.electivus.customLogs no sfdx-project.json, que este workspace não tem.'
 };
 
 function ensureDir(targetPath) {
