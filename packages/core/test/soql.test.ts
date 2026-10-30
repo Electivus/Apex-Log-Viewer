@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { AlvError } from '../src/index.ts';
-import { escapeSoqlLikeLiteral, escapeSoqlLiteral, isSalesforceId, normalizeSoqlDateTimeLiteral } from '../src/soql.ts';
+import {
+  escapeSoqlLikeLiteral,
+  escapeSoqlLiteral,
+  isSalesforceId,
+  normalizeSoqlDateTimeLiteral,
+  soqlNumberLiteral
+} from '../src/soql.ts';
 
 test('escapeSoqlLiteral spells every character a SOQL string literal can escape', () => {
   assert.equal(escapeSoqlLiteral('plain text 100%_'), 'plain text 100%_');
@@ -50,4 +56,21 @@ test('normalizeSoqlDateTimeLiteral returns an ISO instant or undefined', () => {
   assert.equal(normalizeSoqlDateTimeLiteral('not a date'), undefined);
   assert.equal(normalizeSoqlDateTimeLiteral(''), undefined);
   assert.equal(normalizeSoqlDateTimeLiteral(42), undefined);
+});
+
+test('soqlNumberLiteral writes plain decimal digits, never the exponent form', () => {
+  assert.equal(soqlNumberLiteral(31), '31');
+  assert.equal(soqlNumberLiteral(-2.5), '-2.5');
+  assert.equal(soqlNumberLiteral(1793321290765), '1793321290765');
+  assert.equal(soqlNumberLiteral(1e21), '1000000000000000000000');
+  assert.equal(soqlNumberLiteral(1.25e22), '12500000000000000000000');
+  assert.equal(soqlNumberLiteral(1e-7), '0.0000001');
+  assert.equal(soqlNumberLiteral(-1.5e-7), '-0.00000015');
+  assert.equal(soqlNumberLiteral(1.2345e-10), '0.00000000012345');
+  for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    assert.throws(
+      () => soqlNumberLiteral(bad),
+      (error: unknown) => error instanceof AlvError && error.code === 'INVALID_ARGUMENT'
+    );
+  }
 });

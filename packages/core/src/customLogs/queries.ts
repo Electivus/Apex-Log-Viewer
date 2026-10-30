@@ -14,7 +14,7 @@
  */
 
 import { AlvError } from '../errors.js';
-import { escapeSoqlLiteral, isSalesforceId, normalizeSoqlDateTimeLiteral } from '../soql.js';
+import { escapeSoqlLiteral, isSalesforceId, normalizeSoqlDateTimeLiteral, soqlNumberLiteral } from '../soql.js';
 import {
   CUSTOM_LOG_CELL_CHARS,
   CUSTOM_LOG_MESSAGE_PREVIEW_CHARS,
@@ -98,6 +98,8 @@ const MAX_CURSOR_CHARS = 2048;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
 const HEX_DIGEST = /^[0-9a-f]{12}$/;
 const SOURCE_ID = /^[a-z][a-z0-9-]{0,39}$/;
+/** Salesforce Number fields hold at most 18 digits (999…9 reads back as 1e18), so a larger sort value never came from a record. */
+const MAX_SORT_NUMBER = 1e18;
 
 export function encodeCursor(payload: CursorPayload): string {
   return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
@@ -142,9 +144,11 @@ export function decodeCursor(token: string, expected: CursorBinding): CursorPayl
         window !== null &&
         (window.since === undefined || isoInstant(window.since)) &&
         (window.until === undefined || isoInstant(window.until)))) &&
-    (cursor.t === null || (typeof cursor.t === 'number' && Number.isFinite(cursor.t)) || isoInstant(cursor.t)) &&
+    (cursor.t === null ||
+      (typeof cursor.t === 'number' && Math.abs(cursor.t) <= MAX_SORT_NUMBER) ||
+      isoInstant(cursor.t)) &&
     isSalesforceId(cursor.id) &&
-    (cursor.n === undefined || (Number.isInteger(cursor.n) && cursor.n >= 0));
+    (cursor.n === undefined || (Number.isSafeInteger(cursor.n) && cursor.n >= 0));
   if (!wellFormed) return invalidCursor('malformed');
 
   const mismatches: [keyof CursorBinding, string][] = [
@@ -175,7 +179,7 @@ const NUMERIC_TYPES: ReadonlySet<string> = new Set(['double', 'int']);
 function literalFor(field: ResolvedField, value: string | number): string {
   const numeric = NUMERIC_TYPES.has(field.type);
   if (numeric !== (typeof value === 'number')) invalidCursor('its position does not fit the ordering of this source');
-  return typeof value === 'number' ? String(value) : datetimeLiteral(value);
+  return typeof value === 'number' ? soqlNumberLiteral(value) : datetimeLiteral(value);
 }
 
 function soql(text: string): Soql {
@@ -292,7 +296,7 @@ function levelCondition(predicate: OrdinalOrValues, table: LevelTable, min: Cust
 
 function timeWindow(field: ResolvedTimeField, filter: ResolvedListFilter): string[] {
   const bound = (iso: string) =>
-    field.encoding === 'epochMillis' ? String(Date.parse(datetimeLiteral(iso))) : datetimeLiteral(iso);
+    field.encoding === 'epochMillis' ? soqlNumberLiteral(Date.parse(datetimeLiteral(iso))) : datetimeLiteral(iso);
   return [
     ...(filter.since ? [`${field.api} >= ${bound(filter.since)}`] : []),
     ...(filter.until ? [`${field.api} < ${bound(filter.until)}`] : [])

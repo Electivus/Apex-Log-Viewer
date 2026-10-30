@@ -609,6 +609,8 @@ test('a cursor round-trips with its window and position', () => {
   assert.deepEqual(decodeCursor(encodeCursor(full), binding), full);
   assert.deepEqual(decodeCursor(encodeCursor(entries), { ...binding, k: 'entries' }), entries);
   assert.deepEqual(decodeCursor(encodeCursor(empty), { ...binding, k: 'entries' }), empty);
+  const largest: CursorPayload = { ...cursor, k: 'entries', t: 999999999999999999 };
+  assert.deepEqual(decodeCursor(encodeCursor(largest), { ...binding, k: 'entries' }), largest);
   assert.match(encodeCursor(full), /^[A-Za-z0-9_-]+$/);
 });
 
@@ -639,6 +641,10 @@ test('a malformed cursor is rejected before any value can reach SOQL', () => {
   rejects(forged({ o: 'x y' }), binding, /malformed/);
   rejects(forged({ o: '00D0000000000012' }), binding, /malformed/);
   rejects(forged({ id: 'a0200000000000123' }), binding, /malformed/);
+  rejects(forged({ k: 'entries', t: 1.0000000000000002e18 }), { ...binding, k: 'entries' }, /malformed/);
+  rejects(forged({ n: 1e300 }), binding, /malformed/);
+  const overflow = JSON.stringify({ ...cursor, k: 'entries', t: 7 }).replace('"t":7', '"t":1e400');
+  rejects(Buffer.from(overflow).toString('base64url'), { ...binding, k: 'entries' }, /malformed/);
 });
 
 test('a position that does not fit the ordering of this source is refused', () => {
@@ -661,6 +667,28 @@ test('a position that does not fit the ordering of this source is refused', () =
     () => listPlan(unlocked, { limit: 5, filter: {}, after: { ...textual, k: 'list', t: 5 } }),
     (error: unknown) => error instanceof AlvError && error.code === 'CUSTOM_LOG_INVALID_CURSOR'
   );
+});
+
+test('a numeric position reaches SOQL as plain digits', () => {
+  const after = (t: number): CursorPayload => ({
+    v: 1,
+    o: 'x',
+    s: 'nebula',
+    m: 'x',
+    k: 'entries',
+    f: 'x',
+    t,
+    id: 'a01000000000001AAA'
+  });
+  const soqlAfter = (t: number) =>
+    entriesPlan(unlocked, { kind: 'header', id: headerId }, { limit: 5, after: after(t) }).soql;
+
+  assert.match(
+    soqlAfter(1e-7),
+    /\(TransactionEntryNumber__c > 0\.0000001 OR \(TransactionEntryNumber__c = 0\.0000001 AND/
+  );
+  assert.match(soqlAfter(-2.5e-8), /TransactionEntryNumber__c > -0\.000000025 OR/);
+  assert.doesNotMatch(soqlAfter(1e-7), /e-/);
 });
 
 test('a null position continues after the entries that have no sequence', () => {
