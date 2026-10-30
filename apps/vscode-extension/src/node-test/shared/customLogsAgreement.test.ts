@@ -79,6 +79,8 @@ suite('Custom Logs rules agree between core and protocol', () => {
       'a015g00000Q2xYz',
       'a015g00000Q2xYzAAB',
       'a015g00000Q2xY',
+      'a015g00000Q2xYzA',
+      'a015g00000Q2xYzAA',
       'a015g00000Q2xYzAABX',
       "a015g00000Q2xYz'",
       'a015g00000Q2x-zAAB',
