@@ -242,6 +242,50 @@ test('main counts repository tags when the stores still lag a publish that just 
   }
 });
 
+test('main fails instead of computing a version when the repository tags cannot be listed', async () => {
+  const mod = await import(pathToFileURL(modulePath).href);
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-prerelease-version-'));
+  let stdout = '';
+
+  try {
+    fs.mkdirSync(path.join(repoRoot, 'apps', 'vscode-extension'), { recursive: true });
+    fs.writeFileSync(
+      path.join(repoRoot, 'apps', 'vscode-extension', 'package.json'),
+      JSON.stringify({
+        name: 'apex-log-viewer',
+        publisher: 'electivus',
+        version: '0.42.0'
+      }, null, 2)
+    );
+
+    await assert.rejects(
+      mod.main(
+        ['--manifest', 'apps/vscode-extension/package.json'],
+        {
+          cwd: repoRoot,
+          stdout: {
+            write(chunk) {
+              stdout += chunk;
+            }
+          },
+          processExecPath: '/usr/bin/node',
+          vsceCliPath: '/repo/node_modules/@vscode/vsce/vsce',
+          async fetchImpl() {
+            return { ok: true, status: 200, async json() { return {}; } };
+          },
+          spawnSyncImpl: fakeSpawnSync({
+            gitResult: { status: 128, stdout: '', stderr: 'fatal: not a git repository' }
+          })
+        }
+      ),
+      /fatal: not a git repository/
+    );
+    assert.equal(stdout, '');
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
 test('main warns and continues with Marketplace versions when Open VSX lookup fails', async () => {
   const mod = await import(pathToFileURL(modulePath).href);
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-prerelease-version-'));
