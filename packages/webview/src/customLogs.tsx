@@ -63,6 +63,10 @@ const NO_COLUMNS: CustomLogColumn[] = [];
 const NO_ROWS: CustomLogRow[] = [];
 const NO_FIELDS: CustomLogPayloadField[] = [];
 
+function scopeKeyOf(org: string | undefined, sourceId: string | undefined): string | undefined {
+  return org && sourceId ? `${org}|${sourceId}` : undefined;
+}
+
 function sameFilter(a: CustomLogsFilterView, b: CustomLogsFilterView): boolean {
   return a.minLevel === b.minLevel && a.user === b.user && a.since === b.since;
 }
@@ -171,20 +175,33 @@ export function CustomLogsApp({
     vscode.setState(workbench.uiState);
   }, [vscode, workbench.uiState]);
 
-  // What the loaded rows were read from: a different org or source starts with no JSON filters, sort or selection.
+  // The org and source the JSON filters, sort and selection belong to: a different one starts with none.
   // The first org and source the host reports are not a change, so a restored webview keeps its saved filters.
-  const scopeKey = selectedOrg && selectedSourceId ? `${selectedOrg}|${selectedSourceId}` : undefined;
-  const previousScopeKey = useRef<string | undefined>(undefined);
+  const scopeKey = scopeKeyOf(selectedOrg, selectedSourceId);
+  const workbenchScope = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (scopeKey === undefined) {
       return;
     }
-    if (previousScopeKey.current !== undefined && previousScopeKey.current !== scopeKey) {
+    if (workbenchScope.current !== undefined && workbenchScope.current !== scopeKey) {
       workbench.reset();
       setSelectedId(undefined);
     }
-    previousScopeKey.current = scopeKey;
+    workbenchScope.current = scopeKey;
   }, [scopeKey, workbench.reset]);
+
+  // A switch the user makes moves the workbench to the new source at once, so the JSON filters typed with it
+  // are added after the reset and survive the host's confirmation.
+  const selectSource = useCallback(
+    (sourceId: string) => {
+      dispatch({ type: 'customLogsSources', data: sources, selected: sourceId, issues });
+      post({ type: 'customLogsSelectSource', sourceId });
+      workbenchScope.current = scopeKeyOf(selectedOrg, sourceId);
+      workbench.reset();
+      setSelectedId(undefined);
+    },
+    [issues, post, selectedOrg, sources, workbench.reset]
+  );
 
   const visibleRows = useMemo(
     () => workbench.sortItems(filterLoadedRows(rows, payloadFilters), columnSortValue),
@@ -241,7 +258,7 @@ export function CustomLogsApp({
         setServerFilterAndPost(workingFilter);
       }
       if (nextSource !== undefined && nextSource !== selectedSourceId) {
-        post({ type: 'customLogsSelectSource', sourceId: nextSource });
+        selectSource(nextSource);
       }
       workbench.addPayloadFilters(clauses);
       return { ok: true };
@@ -249,8 +266,8 @@ export function CustomLogsApp({
     [
       workbench.addPayloadFilters,
       capabilities,
-      post,
       readySources,
+      selectSource,
       selectedSourceId,
       serverFilter,
       setServerFilterAndPost,
@@ -325,10 +342,6 @@ export function CustomLogsApp({
     dispatch({ type: 'customLogsOrgs', data: orgs, selected: value });
     post({ type: 'customLogsSelectOrg', target: value });
   };
-  const onSelectSource = (sourceId: string) => {
-    dispatch({ type: 'customLogsSources', data: sources, selected: sourceId, issues });
-    post({ type: 'customLogsSelectSource', sourceId });
-  };
 
   const messageIfEmpty = (() => {
     if (loading) {
@@ -358,7 +371,7 @@ export function CustomLogsApp({
         onSelectOrg={onSelectOrg}
         sources={readySources}
         selectedSource={selectedSourceId}
-        onSelectSource={onSelectSource}
+        onSelectSource={selectSource}
         loading={loading}
         showOpenInEditor={surface !== 'editor'}
         onRefresh={() => post({ type: 'customLogsRefresh' })}

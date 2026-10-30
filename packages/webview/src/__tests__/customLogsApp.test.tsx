@@ -389,6 +389,34 @@ describe('Custom Logs app', () => {
       expect(chipSummary()).toEqual([['server', 'source=nebula']]);
       expect(listedTitles()).toEqual(['Log-000739']);
     });
+
+    it('keeps the JSON filters typed together with a source change, and drops the ones the previous source had', () => {
+      const { bus, posted } = mountApp({
+        sources: [appLog, nebula],
+        selected: 'nebula',
+        rows: [makeRow('a015g00000Q2xYzAAB', 'Log-000739', { payload: parsed({ orderId: 'ORD-1043' }) })]
+      });
+      submit('orderId = ORD-1043');
+
+      submit('source = app-log and http.status >= 500');
+      expect(lastPost(posted, 'customLogsSelectSource')).toEqual({
+        type: 'customLogsSelectSource',
+        sourceId: 'app-log'
+      });
+      send(bus, { type: 'customLogsLoading', value: true });
+      send(bus, { type: 'customLogsPage', mode: 'replace', columns: [], rows: [], payloadFields: [], hasMore: false });
+      send(bus, { type: 'customLogsSources', data: [appLog, nebula], selected: 'app-log', issues: [] });
+      send(bus, { type: 'customLogsFilter', value: {} });
+      send(bus, { type: 'customLogsPayloadColumns', value: { defaults: [], added: [] } });
+      send(bus, { type: 'customLogsPage', mode: 'replace', columns: [], rows, payloadFields: [], hasMore: false });
+      send(bus, { type: 'customLogsLoading', value: false });
+
+      expect(chipSummary()).toEqual([
+        ['server', 'source=app-log'],
+        ['loaded', 'http.status>=500']
+      ]);
+      expect(listedTitles()).toEqual(['Order sync failed', 'Legacy status as text']);
+    });
   });
 
   describe('autocomplete', () => {
