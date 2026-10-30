@@ -1,5 +1,9 @@
-import type { CustomLogEntryResult, CustomLogLongValue } from '@alv/core/contracts';
-import { detectCustomLogTextFormat, type CustomLogTextFormat } from '../host/utils/customLogText';
+import {
+  customLogTextFormat,
+  type CustomLogEntryResult,
+  type CustomLogLongValue,
+  type CustomLogTextFormat
+} from '@alv/core/contracts';
 import type { CustomLogLongFieldView } from '../shared/customLogsTypes';
 
 /** A long value the host keeps to open as a document. The webview only ever gets the matching `CustomLogLongFieldView`. */
@@ -60,7 +64,7 @@ export function buildEntryFields(result: CustomLogEntryResult, labels: LongField
       : {
           state: 'value',
           value: message,
-          format: detectCustomLogTextFormat(message),
+          format: customLogTextFormat(message),
           ...(messageTruncated !== undefined ? { truncated: messageTruncated } : {})
         }
   );

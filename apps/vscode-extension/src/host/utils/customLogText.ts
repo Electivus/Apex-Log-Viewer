@@ -1,20 +1,4 @@
-export type CustomLogTextFormat = 'json' | 'text';
-
-/** `json` when the text is one JSON object or array, otherwise `text`. */
-export function detectCustomLogTextFormat(text: string): CustomLogTextFormat {
-  const trimmed = text.trim();
-  const framed =
-    (trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'));
-  if (!framed) {
-    return 'text';
-  }
-  try {
-    JSON.parse(trimmed);
-    return 'json';
-  } catch {
-    return 'text';
-  }
-}
+export type { CustomLogTextFormat } from '@alv/core/contracts';
 
 function isJsonWhitespace(char: string | undefined): boolean {
   return char === ' ' || char === '\n' || char === '\r' || char === '\t';

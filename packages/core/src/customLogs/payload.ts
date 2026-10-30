@@ -17,25 +17,12 @@ import {
   type CustomLogPayloadView,
   type CustomLogScalar
 } from './contracts.js';
+import { customLogTextFormat, parseJsonContainer, startsLikeJson } from './textFormat.js';
 
 const PAYLOAD_TYPE_ORDER: readonly CustomLogPayloadType[] = ['string', 'number', 'boolean', 'null'];
 
 function isBlank(raw: unknown): boolean {
   return raw === null || raw === undefined || (typeof raw === 'string' && raw.trim().length === 0);
-}
-
-function startsLikeJson(text: string): boolean {
-  const first = text.trimStart()[0];
-  return first === '{' || first === '[';
-}
-
-function parseJsonContainer(text: string): object | undefined {
-  try {
-    const parsed: unknown = JSON.parse(text);
-    return typeof parsed === 'object' && parsed !== null ? parsed : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 type Frame = { path: string; value: unknown };
@@ -144,7 +131,7 @@ export function toLongValue(raw: unknown, options: { hidden: boolean; truncated?
   return {
     state: 'value',
     value,
-    format: startsLikeJson(value) && parseJsonContainer(value) ? 'json' : 'text',
+    format: customLogTextFormat(value),
     ...(options.truncated === undefined ? {} : { truncated: options.truncated })
   };
 }

@@ -167,12 +167,15 @@ export type CustomLogPayloadType = 'string' | 'number' | 'boolean' | 'null';
 export type CustomLogPayloadField = { path: string; types: CustomLogPayloadType[]; rows: number };
 
 /** A long text value read on demand. */
+export type CustomLogTextFormat = 'json' | 'text';
+export { customLogTextFormat } from './textFormat.js';
+
 export type CustomLogLongValue =
   | {
       state: 'value';
       value: string;
-      /** `json` when the value parses as a JSON object or array. Picks the editor language. */
-      format: 'json' | 'text';
+      /** `json` when the value parses as a JSON object or array (`customLogTextFormat`). Picks the editor language. */
+      format: CustomLogTextFormat;
       /** The logging framework's own truncation flag (for example `RecordJsonTruncated__c`), when mapped. */
       truncated?: boolean;
     }

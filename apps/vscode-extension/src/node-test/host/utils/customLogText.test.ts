@@ -1,18 +1,8 @@
 import assert from 'node:assert/strict';
 
-import { detectCustomLogTextFormat, reindentJson } from '../../../host/utils/customLogText';
+import { reindentJson } from '../../../host/utils/customLogText';
 
 suite('Custom Logs text helpers', () => {
-  test('recognizes a JSON object or array and nothing else', () => {
-    assert.equal(detectCustomLogTextFormat('{"a":1}'), 'json');
-    assert.equal(detectCustomLogTextFormat('  [1, 2]\n'), 'json');
-    assert.equal(detectCustomLogTextFormat('{"a":'), 'text');
-    assert.equal(detectCustomLogTextFormat('42'), 'text');
-    assert.equal(detectCustomLogTextFormat('"quoted"'), 'text');
-    assert.equal(detectCustomLogTextFormat('{not json}'), 'text');
-    assert.equal(detectCustomLogTextFormat(''), 'text');
-  });
-
   test('lays JSON out over lines and keeps empty containers compact', () => {
     assert.equal(
       reindentJson('{"a":1,"b":[1,2,{"c":null}],"d":{},"e":[ ]}'),

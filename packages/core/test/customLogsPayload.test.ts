@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { CUSTOM_LOG_PAYLOAD_LIMITS, type CustomLogPayloadView } from '../src/customLogs/contracts.ts';
+import { CUSTOM_LOG_PAYLOAD_LIMITS, customLogTextFormat, type CustomLogPayloadView } from '../src/contracts.ts';
 import { decodePayload, selectPayloadPaths, summarizePayloadFields, toLongValue } from '../src/customLogs/payload.ts';
 
 const visible = { hidden: false };
@@ -113,6 +113,26 @@ test('selectPayloadPaths trims a parsed view and lets the other states through',
   assert.deepEqual((onlyA as typeof view).cutValues, []);
   assert.deepEqual(selectPayloadPaths({ state: 'text' }, new Set(['a'])), { state: 'text' });
   assert.deepEqual(selectPayloadPaths({ state: 'hidden' }, new Set()), { state: 'hidden' });
+});
+
+test('customLogTextFormat, exported for the extension, is the rule a long value uses', () => {
+  const cases: [string, 'json' | 'text'][] = [
+    ['{"a":1}', 'json'],
+    ['  [1, 2]\n', 'json'],
+    ['{}', 'json'],
+    ['{"a":', 'text'],
+    ['42', 'text'],
+    ['"quoted"', 'text'],
+    ['{not json}', 'text'],
+    ['plain text', 'text'],
+    ['', 'text']
+  ];
+
+  for (const [text, format] of cases) {
+    assert.equal(customLogTextFormat(text), format, text);
+    const long = toLongValue(` ${text} `, visible);
+    if (long.state === 'value') assert.equal(long.format, format, text);
+  }
 });
 
 test('a long value says whether it is JSON and carries the framework truncation flag only when mapped', () => {
