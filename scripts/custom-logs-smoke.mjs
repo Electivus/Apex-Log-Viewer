@@ -411,6 +411,7 @@ async function smokeAppLog({ alias }, projectDir) {
       ['notFound', 'noRequestId'].includes(get.result.apexLog.state),
     get.ok ? get.result.apexLog : get
   );
+  if (get.ok) observed.apexLog.add(get.result.apexLog.state);
   const entry = await cli('entry', ['--entry-id', parsed.id], where);
   if (entry.ok) {
     for (const detail of entry.result.details) observed.longValues.add(detail.state);
