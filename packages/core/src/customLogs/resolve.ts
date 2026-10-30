@@ -460,21 +460,23 @@ async function memoizedExistence(
   keyOf: (name: string) => string,
   fetch: (missing: string[]) => Promise<ReadonlySet<string> | 'refused'>
 ): Promise<ReadonlySet<string> | 'refused'> {
-  const wanted = [...new Set(names.map(name => name.toLowerCase()))];
-  const missing = wanted.filter(name => !known.has(keyOf(name)));
+  const wanted = new Map(names.map(name => [name.toLowerCase(), name]));
+  const missing = [...wanted].filter(([lower]) => !known.has(keyOf(lower)));
   if (missing.length > 0) {
-    const batch = fetch(missing);
-    for (const name of missing) {
-      const answer = batch.then(result => (result === 'refused' ? 'refused' : result.has(name)));
-      known.set(keyOf(name), answer);
+    const batch = fetch(missing.map(([, name]) => name));
+    for (const [lower] of missing) {
+      const answer = batch.then(result => (result === 'refused' ? 'refused' : result.has(lower)));
+      known.set(keyOf(lower), answer);
       answer.catch(() => {
-        if (known.get(keyOf(name)) === answer) known.delete(keyOf(name));
+        if (known.get(keyOf(lower)) === answer) known.delete(keyOf(lower));
       });
     }
   }
-  const answers = await Promise.all(wanted.map(async name => [name, await known.get(keyOf(name))!] as const));
+  const answers = await Promise.all(
+    [...wanted.keys()].map(async lower => [lower, await known.get(keyOf(lower))!] as const)
+  );
   if (answers.some(([, answer]) => answer === 'refused')) return 'refused';
-  return new Set(answers.flatMap(([name, answer]) => (answer ? [name] : [])));
+  return new Set(answers.flatMap(([lower, answer]) => (answer ? [lower] : [])));
 }
 
 /** A `SchemaReader` that answers from `memo` and records each new answer there. Batches the names it lacks. */

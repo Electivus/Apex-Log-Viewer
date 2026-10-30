@@ -517,7 +517,7 @@ test('the memoized reader batches the names it lacks and answers repeats, misses
   assert.deepEqual([...((await memoized.existingObjects(['Nebula__Log__c', 'log__c'])) as Set<string>)], ['log__c']);
   assert.deepEqual([...((await memoized.existingObjects(['Other__c', 'Nebula__Log__c'])) as Set<string>)], []);
 
-  assert.deepEqual(reader.calls.objects, [['log__c', 'nebula__log__c'], ['other__c']]);
+  assert.deepEqual(reader.calls.objects, [['Log__c', 'Nebula__Log__c'], ['Other__c']]);
 });
 
 test('the memoized reader shares a pending describe and forgets one that failed', async () => {

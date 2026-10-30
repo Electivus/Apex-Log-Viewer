@@ -1,0 +1,357 @@
+/**
+ * The four operations behind `core.customLog`. With `contracts.ts`, this is the only module of
+ * `customLogs/` that code outside the folder may import: `test/customLogsBoundary.test.ts` fails
+ * on any other import, and `package.json#exports` exposes neither, so neither the runtime nor an
+ * adapter can reach the resolver, the plans or the brands and assemble SOQL for a source.
+ *
+ * Each operation, in order:
+ *   1. parse params at the boundary (ids, limits, levels, `parseSinceExpression`; INVALID_ARGUMENT),
+ *   2. load the project mapping fresh (`loadCustomLogsConfig`),
+ *   3. get the catalog / pick the source through the registry,
+ *   4. run plans with `queryData` (data API) or `toolingQuery` (ApexLog),
+ *   5. return contract DTOs.
+ * All four are reads, so retries and parallel calls are safe; the registry is the only
+ * shared mutable state and it only caches.
+ */
+
+import type { Connection } from '@salesforce/core';
+
+import { queryData, toolingQuery } from '../dataQuery.js';
+import { AlvError } from '../errors.js';
+import { loadCustomLogsConfig } from './config.js';
+import {
+  CUSTOM_LOG_LEVELS,
+  type CustomLogApexLogLink,
+  type CustomLogEntryParams,
+  type CustomLogEntryResult,
+  type CustomLogFilter,
+  type CustomLogGetParams,
+  type CustomLogGetResult,
+  type CustomLogLevel,
+  type CustomLogListParams,
+  type CustomLogListResult,
+  type CustomLogSourceRef,
+  type CustomLogSourcesParams,
+  type CustomLogSourcesResult
+} from './contracts.js';
+import { parseCustomLogLevel } from './levels.js';
+import { BUILTIN_PRESETS, type BuiltinPreset } from './presets.js';
+import {
+  apexLogLinkPlan,
+  decodeCursor,
+  encodeCursor,
+  entriesPlan,
+  entryPlan,
+  filterHash,
+  listPlan,
+  parseRecordId,
+  rowPlan,
+  transactionLookupPlan,
+  type CursorBinding,
+  type CursorPayload,
+  type EntriesScope,
+  type QueryPlan,
+  type RecordId
+} from './queries.js';
+import {
+  createSourceRegistry,
+  defaultSourceId,
+  requireSource,
+  requireSourceForRecord,
+  toColumns,
+  toSourceInfo,
+  type ResolvedSource
+} from './resolve.js';
+import { parseSinceExpression } from './since.js';
+
+/** `orgCall`'s context. The cursor's org binding reads `connection.getAuthInfoFields().orgId`. */
+export type CustomLogContext = { connection: Connection; username: string };
+
+export type CustomLogApi = {
+  sources(ctx: CustomLogContext, params: CustomLogSourcesParams, signal?: AbortSignal): Promise<CustomLogSourcesResult>;
+  /**
+   * The only ready source when `params.source` is absent. First page when `cursor` is absent.
+   * `limit` 1..200 (default 50).
+   */
+  list(ctx: CustomLogContext, params: CustomLogListParams, signal?: AbortSignal): Promise<CustomLogListResult>;
+  /**
+   * Header row + one page of entries + ApexLog link, every call (the header read and the
+   * link lookup are two small queries, run in parallel with the entries query). For an
+   * `entries` source, `logId` is any entry id: core reads its transaction key and pages every
+   * entry with that key. `transactionId` finds the transaction by the framework's id instead.
+   * `limit` 1..2000 (default 200).
+   */
+  get(ctx: CustomLogContext, params: CustomLogGetParams, signal?: AbortSignal): Promise<CustomLogGetResult>;
+  /** Full message, every mapped detail as a long value, and the raw payload of one entry. */
+  entry(ctx: CustomLogContext, params: CustomLogEntryParams, signal?: AbortSignal): Promise<CustomLogEntryResult>;
+  /** Drops the registry. Called from the facade's `dispose()`. */
+  dispose(): void;
+};
+
+const DEFAULT_LIST_LIMIT = 50;
+const MAX_LIST_LIMIT = 200;
+const DEFAULT_ENTRIES_LIMIT = 200;
+const MAX_ENTRIES_LIMIT = 2000;
+
+/** ApexLog is a Tooling object some users cannot see at all (a Standard User answers INVALID_TYPE). */
+const APEX_LOG_UNREADABLE: ReadonlySet<string> = new Set([
+  'INVALID_TYPE',
+  'INSUFFICIENT_ACCESS',
+  'INSUFFICIENT_ACCESS_OR_READONLY',
+  'API_DISABLED_FOR_ORG',
+  'FORBIDDEN'
+]);
+
+function limitOf(value: number | undefined, fallback: number, max: number): number {
+  const parsed = Math.floor(Number(value));
+  return Number.isFinite(parsed) ? Math.max(1, Math.min(max, parsed)) : fallback;
+}
+
+function nonBlank(value: string | undefined): string | undefined {
+  return value?.trim() ? value.trim() : undefined;
+}
+
+function levelOf(value: CustomLogLevel | undefined): CustomLogLevel | undefined {
+  if (value === undefined) return undefined;
+  const level = parseCustomLogLevel(value);
+  if (!level) {
+    throw new AlvError(
+      'INVALID_ARGUMENT',
+      `"${String(value)}" is not a level. Use one of ${CUSTOM_LOG_LEVELS.join(', ')}.`
+    );
+  }
+  return level;
+}
+
+function keepOf(paths: readonly string[] | undefined): ReadonlySet<string> | undefined {
+  const kept = (paths ?? []).map(path => path.trim()).filter(Boolean);
+  return kept.length > 0 ? new Set(kept) : undefined;
+}
+
+function sourceRef(source: ResolvedSource): CustomLogSourceRef {
+  return { id: source.id, label: source.label, shape: source.shape.kind };
+}
+
+function orgIdOf(ctx: CustomLogContext): string {
+  const orgId = ctx.connection.getAuthInfoFields().orgId;
+  if (!orgId)
+    throw new AlvError(
+      'CUSTOM_LOG_INVALID_CURSOR',
+      'The org id of this connection is unknown, so a cursor cannot be bound to it.'
+    );
+  return orgId;
+}
+
+async function run<T>(ctx: CustomLogContext, plan: QueryPlan<T>, signal: AbortSignal | undefined): Promise<T> {
+  const records =
+    plan.api === 'tooling'
+      ? ((await toolingQuery(ctx.connection, plan.soql, signal)).records ?? [])
+      : (await queryData(ctx.connection, plan.soql, { maxRecords: plan.maxRecords, signal })).records;
+  return plan.decode(records);
+}
+
+async function apexLogFor(
+  ctx: CustomLogContext,
+  requestId: string | undefined,
+  signal: AbortSignal | undefined
+): Promise<CustomLogApexLogLink> {
+  if (!requestId) return { state: 'noRequestId' };
+  try {
+    return await run(ctx, apexLogLinkPlan(requestId), signal);
+  } catch (error) {
+    const code = (error as { errorCode?: unknown } | undefined)?.errorCode;
+    if (typeof code === 'string' && APEX_LOG_UNREADABLE.has(code)) return { state: 'notFound' };
+    throw error;
+  }
+}
+
+function notFound(what: string): never {
+  throw new AlvError('CUSTOM_LOG_RECORD_NOT_FOUND', `${what} was not found, or this user cannot read it.`);
+}
+
+function resolveWindow(filter: CustomLogFilter | undefined, now: Date): { since?: string; until?: string } {
+  const since = nonBlank(filter?.since);
+  const until = nonBlank(filter?.until);
+  return {
+    ...(since ? { since: parseSinceExpression(since, now) } : {}),
+    ...(until ? { until: parseSinceExpression(until, now) } : {})
+  };
+}
+
+export function createCustomLogApi(presets: readonly BuiltinPreset[] = BUILTIN_PRESETS): CustomLogApi {
+  const registry = createSourceRegistry(presets);
+
+  return {
+    async sources(ctx, params, signal) {
+      const config = await loadCustomLogsConfig(params.projectDir);
+      const catalog = await registry.catalog(ctx, config, { refresh: params.refresh, signal });
+      const defaultId = defaultSourceId(catalog);
+      return {
+        ...(config.projectFile ? { projectFile: config.projectFile } : {}),
+        ...(defaultId ? { defaultSourceId: defaultId } : {}),
+        sources: catalog.entries.map(toSourceInfo),
+        issues: [...config.issues]
+      };
+    },
+
+    async list(ctx, params, signal) {
+      const limit = limitOf(params.limit, DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT);
+      const given = {
+        minLevel: levelOf(params.filter?.minLevel),
+        user: nonBlank(params.filter?.user),
+        since: nonBlank(params.filter?.since),
+        until: nonBlank(params.filter?.until)
+      };
+      const window = resolveWindow(params.filter, new Date());
+      const config = await loadCustomLogsConfig(params.projectDir);
+      return registry.withSource(
+        ctx,
+        config,
+        catalog => requireSource(catalog, nonBlank(params.source)),
+        async source => {
+          const binding: CursorBinding = {
+            o: orgIdOf(ctx),
+            s: source.id,
+            m: source.digest,
+            k: 'list',
+            f: filterHash(given)
+          };
+          const after = params.cursor ? decodeCursor(params.cursor, binding) : undefined;
+          const resolved = after ? (after.w ?? {}) : window;
+          const page = await run(
+            ctx,
+            listPlan(source, {
+              limit,
+              filter: { minLevel: given.minLevel, user: given.user, ...resolved },
+              after,
+              keep: keepOf(params.payloadFields)
+            }),
+            signal
+          );
+          const listed = source.shape.kind === 'transactions' ? source.shape.transaction : source.shape.entry;
+          return {
+            source: sourceRef(source),
+            columns: toColumns(listed.columns),
+            rows: page.items,
+            payloadFields: page.payloadFields,
+            nextCursor: page.next
+              ? encodeCursor({
+                  v: 1,
+                  ...binding,
+                  ...(Object.keys(resolved).length > 0 ? { w: resolved } : {}),
+                  ...page.next
+                })
+              : null
+          };
+        },
+        signal
+      );
+    },
+
+    async get(ctx, params, signal) {
+      const limit = limitOf(params.limit, DEFAULT_ENTRIES_LIMIT, MAX_ENTRIES_LIMIT);
+      const minLevel = levelOf(params.minLevel);
+      const logId = params.logId === undefined ? undefined : parseRecordId(params.logId, 'logId');
+      const config = await loadCustomLogsConfig(params.projectDir);
+      const sourceId = nonBlank(params.source);
+      return registry.withSource(
+        ctx,
+        config,
+        catalog => {
+          if (logId === undefined) return requireSource(catalog, sourceId);
+          const owner = requireSourceForRecord(catalog, sourceId, logId);
+          if (owner.source.shape.kind === 'transactions' && owner.level === 'entry') {
+            notFound(
+              `${logId} is an entry id, not a ${owner.source.shape.transaction.object} id; the log (see "logId" in custom-log entry)`
+            );
+          }
+          return owner.source;
+        },
+        async source => {
+          const id = logId ?? (await findTransaction(ctx, source, params.transactionId ?? '', signal));
+          const found = await run(ctx, rowPlan(source, id), signal);
+          if (!found) notFound(`Log ${id}`);
+          const { row } = found;
+          const scope: EntriesScope =
+            source.shape.kind === 'transactions'
+              ? { kind: 'header', id }
+              : row.transactionId
+                ? { kind: 'transactionKey', value: row.transactionId }
+                : { kind: 'single', id };
+          const binding: CursorBinding = {
+            o: orgIdOf(ctx),
+            s: source.id,
+            m: source.digest,
+            k: 'entries',
+            f: filterHash({ scope, minLevel })
+          };
+          const after: CursorPayload | undefined = params.cursor ? decodeCursor(params.cursor, binding) : undefined;
+          const [page, apexLog] = await Promise.all([
+            run(
+              ctx,
+              entriesPlan(source, scope, { limit, minLevel, after, keep: keepOf(params.payloadFields) }),
+              signal
+            ),
+            apexLogFor(ctx, row.requestId, signal)
+          ]);
+          return {
+            source: sourceRef(source),
+            log: row,
+            ...(found.logPayload ? { logPayload: found.logPayload } : {}),
+            entryColumns: toColumns(source.shape.entry.columns),
+            entries: page.items,
+            payloadFields: page.payloadFields,
+            nextCursor: page.next ? encodeCursor({ v: 1, ...binding, ...page.next }) : null,
+            apexLog
+          };
+        },
+        signal
+      );
+    },
+
+    async entry(ctx, params, signal) {
+      const entryId = parseRecordId(params.entryId, 'entryId');
+      const config = await loadCustomLogsConfig(params.projectDir);
+      return registry.withSource(
+        ctx,
+        config,
+        catalog => {
+          const owner = requireSourceForRecord(catalog, nonBlank(params.source), entryId);
+          if (owner.level !== 'entry') notFound(`${entryId} is a log id, not an entry id; the entry`);
+          return owner.source;
+        },
+        async source => {
+          const found = await run(ctx, entryPlan(source, entryId), signal);
+          if (!found) notFound(`Entry ${entryId}`);
+          return {
+            source: sourceRef(source),
+            logId: found.logId,
+            entry: found.entry,
+            details: found.details,
+            rawPayload: found.rawPayload
+          };
+        },
+        signal
+      );
+    },
+
+    dispose: () => registry.clear()
+  };
+}
+
+async function findTransaction(
+  ctx: CustomLogContext,
+  source: ResolvedSource,
+  transactionId: string,
+  signal: AbortSignal | undefined
+): Promise<RecordId> {
+  const ids = await run(ctx, transactionLookupPlan(source, transactionId), signal);
+  if (ids.length === 0) notFound(`Transaction ${transactionId}`);
+  if (ids.length > 1) {
+    throw new AlvError(
+      'CUSTOM_LOG_AMBIGUOUS_TRANSACTION',
+      `Several logs carry transaction id ${transactionId} (${ids.join(', ')}). Pass one with --log-id.`
+    );
+  }
+  return ids[0]!;
+}

@@ -42,6 +42,13 @@ import type {
   UserSearchParams,
   UserSearchResult
 } from './contracts.js';
+import { createCustomLogApi } from './customLogs/api.js';
+import type {
+  CustomLogEntryParams,
+  CustomLogGetParams,
+  CustomLogListParams,
+  CustomLogSourcesParams
+} from './customLogs/contracts.js';
 import { queryData, toolingQuery } from './dataQuery.js';
 import { AlvError, abortError, awaitWithAbort, throwIfAborted } from './errors.js';
 import {
@@ -1125,6 +1132,7 @@ export function createApexLogViewerCore(
     callOptions: CoreCallOptions | undefined,
     run: (ctx: ConnectionContext, signal?: AbortSignal) => Promise<T>
   ) => call(method, callOptions, signal => connections.use(targetOrg, signal, ctx => run(ctx, signal)));
+  const customLogs = createCustomLogApi();
   const apexLogRemote = options.apexLogRemote ?? createRuntimeApexLogRemote(connections);
   const rawLogLifecycle = createApexLogLifecycle({ remote: apexLogRemote });
   const lifecycleCall = <T>(
@@ -1362,6 +1370,20 @@ export function createApexLogViewerCore(
       delete: (params: LogsDeleteParams = {}, callOptions?: CoreCallOptions) =>
         orgCall('log.delete', params.targetOrg, callOptions, (ctx, signal) => logsDeleteNative(ctx, params, signal))
     },
+    customLog: {
+      sources: (params: CustomLogSourcesParams, callOptions?: CoreCallOptions) =>
+        orgCall('customLog.sources', params.targetOrg, callOptions, (ctx, signal) =>
+          customLogs.sources(ctx, params, signal)
+        ),
+      list: (params: CustomLogListParams, callOptions?: CoreCallOptions) =>
+        orgCall('customLog.list', params.targetOrg, callOptions, (ctx, signal) => customLogs.list(ctx, params, signal)),
+      get: (params: CustomLogGetParams, callOptions?: CoreCallOptions) =>
+        orgCall('customLog.get', params.targetOrg, callOptions, (ctx, signal) => customLogs.get(ctx, params, signal)),
+      entry: (params: CustomLogEntryParams, callOptions?: CoreCallOptions) =>
+        orgCall('customLog.entry', params.targetOrg, callOptions, (ctx, signal) =>
+          customLogs.entry(ctx, params, signal)
+        )
+    },
     user: {
       search: (params: UserSearchParams = {}, callOptions?: CoreCallOptions) =>
         orgCall('user.search', params.targetOrg, callOptions, ctx => usersSearchNative(ctx, params))
@@ -1402,6 +1424,7 @@ export function createApexLogViewerCore(
     },
     dispose: (): void => {
       connections.clear();
+      customLogs.dispose();
       rawLogLifecycle.dispose();
     }
   };
