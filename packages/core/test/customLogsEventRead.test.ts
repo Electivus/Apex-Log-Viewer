@@ -7,7 +7,7 @@ import test from 'node:test';
 import { AlvError, createApexLogViewerCore } from '../src/index.ts';
 import { CUSTOM_LOG_EVENT_ID_PATTERN, type CustomLogListResult } from '../src/customLogs/contracts.ts';
 import { encodeCursor } from '../src/customLogs/queries.ts';
-import { appEventSource, projectWith, type Json } from './support/customLogsFixtures.ts';
+import { projectWith, type Json } from './support/customLogsFixtures.ts';
 import { alvTestLogDescribe, logEntryEventDescribe } from './support/describeFixtures.ts';
 import { busEvent, seedEventStore } from './support/eventSeed.ts';
 import { page, startNebulaOrg } from './support/nebulaDouble.ts';
