@@ -111,7 +111,10 @@ function levelOf(source: CustomLogSourceView): CustomLogPayloadLevel {
 
 /**
  * The user's choice while it is still ready, else the source on screen (so a mapping edit that adds one
- * does not move the list), else the only ready source core names, else the first ready record source.
+ * does not move the list), else the only ready source core names, else the first ready record source, else
+ * the first ready source. A project with only event sources has nothing else to open, and the Source picker
+ * appears with two ready sources, so a lone event source left unselected could never be chosen. Selecting
+ * it buys no replay: the first-use choice does.
  */
 function pickSourceId(
   sources: readonly CustomLogSourceView[],
@@ -122,7 +125,8 @@ function pickSourceId(
   return (
     wanted.map(ready).find(id => id !== undefined) ??
     ready(defaultSourceId) ??
-    sources.find(source => source.state === 'ready' && !SHAPE_CAPTURES[source.shape])?.id
+    sources.find(source => source.state === 'ready' && !SHAPE_CAPTURES[source.shape])?.id ??
+    sources.find(source => source.state === 'ready')?.id
   );
 }
 

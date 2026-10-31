@@ -781,7 +781,7 @@ suite('Custom Logs view provider', () => {
         | { capture: { state: string; outcome?: string; code?: string }; wanted: boolean; allowance?: unknown }
         | undefined;
 
-    test('a record source never captures, and an event source is never opened on its own', async () => {
+    test('a record source is preferred to an event source, and a project with only event sources opens on the first one', async () => {
       const recordFirst = load();
       const host = new FakeHost();
       await recordFirst.mount(host);
@@ -791,9 +791,14 @@ suite('Custom Logs view provider', () => {
       eventsOnly.fake.handlers.customLogSources = async () => ({ sources: [EVENTS], issues: [] });
       const empty = new FakeHost();
       await eventsOnly.mount(empty);
-      assert.equal(empty.last('customLogsSources')?.selected, undefined);
-      assert.deepEqual(eventsOnly.fake.calls.customLogList, []);
-      assert.deepEqual(eventsOnly.fake.calls.customLogCapture, []);
+      await settle();
+      assert.equal(
+        empty.last('customLogsSources')?.selected,
+        EVENTS.id,
+        'the Source picker needs two ready sources, so a lone event source must be selected for the user'
+      );
+      assert.equal(eventsOnly.fake.calls.customLogCapture.length, 1);
+      assert.equal(eventsOnly.fake.calls.customLogCapture[0]?.params.initial, 'none', 'selecting it buys no replay');
 
       const listedFirst = load();
       listedFirst.fake.handlers.customLogSources = async () => ({ sources: [EVENTS, NEBULA], issues: [] });
