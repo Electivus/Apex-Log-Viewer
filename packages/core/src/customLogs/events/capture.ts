@@ -79,6 +79,7 @@ import {
   firstEventWait,
   nextState,
   replayFrom,
+  replayWindowStartMs,
   resumeAfter,
   storeGapOf,
   type Allowance,
@@ -608,7 +609,7 @@ function createRun(
     let { confirmedAt } = prepared;
     let activeStart = initialStart;
     let last: RunPosition | undefined = initialStart.kind === 'after' ? initialStart.position : undefined;
-    if (initialStart.kind === 'retained') await writer.rememberStored();
+    if (initialStart.kind === 'retained') await writer.rememberStored(replayWindowStartMs(clock.now()));
     const deliveredAtStart = delivered;
     const retry = { attempt: 0, auth: 0 };
     let queue: BusEvent[] = [];
@@ -768,7 +769,7 @@ function createRun(
           if (opened.created) newGaps.push(storeGapOf(opened.gap));
           last = undefined;
           activeStart = RETAINED;
-          await writer.rememberStored();
+          await writer.rememberStored(replayWindowStartMs(clock.now()));
           await reconnect('transport', false);
           return;
         }

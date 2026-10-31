@@ -298,7 +298,7 @@ export async function listHours(objectDir: string, day: string): Promise<Partiti
 }
 
 /** Hour partitions, newest first, one day directory listed at a time. A partition outside the range is not listed. */
-async function* partitionsNewestFirst(
+export async function* partitionsNewestFirst(
   objectDir: string,
   range: { latestStartMs?: number; earliestEndMs?: number } = {}
 ): AsyncGenerator<Partition> {

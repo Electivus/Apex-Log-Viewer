@@ -70,6 +70,18 @@ function errorOf(settled: Settled): AlvError {
 
 const checkpointCursor = async (store: EventStore) => (await store.checkpoint())?.cursor;
 
+/** Event lines on disk, counting a re-stored copy that the readers would merge into one row. */
+function storedLines(store: EventStore): number {
+  return fs
+    .readdirSync(store.eventsRoot, { recursive: true, encoding: 'utf8' })
+    .filter(file => /^\d{4}-\d{2}-\d{2}[\\/]\d{2}\.[0-9a-f]{8}\.ndjson$/.test(file))
+    .reduce(
+      (count, file) =>
+        count + fs.readFileSync(path.join(store.eventsRoot, file), 'utf8').split('\n').filter(Boolean).length,
+      0
+    );
+}
+
 async function tick(): Promise<void> {
   await new Promise<void>(resolve => setTimeout(resolve, 5));
 }
@@ -247,6 +259,38 @@ test('a rejected cursor writes the gap before the retained resubscribe, closes i
     );
     assert.equal(result.store.state === 'captured' ? result.store.gaps[0]?.before : undefined, busEvent(3).createdDate);
     assert.deepEqual(w.states(), ['connecting', 'catchingUp', 'reconnecting', 'catchingUp', 'live']);
+  });
+});
+
+test('a rejected cursor drops the replayed events of the whole retention window, across a day boundary', async () => {
+  await withProject(async root => {
+    const now = Date.parse('2026-10-31T00:20:00.000Z');
+    const held = [
+      busEvent(1, { createdMs: now - 71 * HOUR - 50 * 60_000 }),
+      busEvent(2, { createdMs: now - 40 * 60_000 }),
+      busEvent(3, { createdMs: now - 10 * 60_000 })
+    ];
+    const store = openStore(root);
+    await seedCheckpoint(store, held);
+    ageStoredFiles(store);
+    const { clock, transport, deps, hub } = setup(store, { clock: new ManualClock(now) });
+    const w = watcher({ follow: false });
+
+    const done = hub.watch(store.location, w.watcher, deps);
+    const first = await transport.opened(0);
+    first.subscribed();
+    first.fail({ kind: 'cursorRejected' });
+    const retained = await transport.opened(1);
+    retained.subscribed();
+    retained.events(...held, busEvent(4, { createdMs: now - 60_000 }));
+    await clock.advance(250);
+    await until(async () => (await checkpointCursor(store)) === cursorOf(4), 'the checkpoint at the replay tail');
+    await clock.advance(10_000);
+
+    const result = resultOf(await settledOf(done));
+    assert.equal(result.delivered, 4);
+    assert.equal(result.stored, 1, 'only the event the store did not hold');
+    assert.equal(storedLines(store), 4, 'one line per event on disk');
   });
 });
 

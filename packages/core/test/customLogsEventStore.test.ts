@@ -455,7 +455,7 @@ test('rememberStored makes the writer drop what a -2 replay re-delivers from fil
 
     const store = openStore(root);
     const second = await openWriter(store);
-    await second.rememberStored();
+    await second.rememberStored(T0 - HOUR);
     const { stored, duplicates } = await second.append([...batch, busEvent(4)]);
 
     assert.equal(duplicates, 3, 'the files the checkpoint covers are remembered too');
@@ -465,6 +465,36 @@ test('rememberStored makes the writer drop what a -2 replay re-delivers from fil
       dataFiles(root).flatMap(file => fs.readFileSync(file, 'utf8').split('\n').filter(Boolean)).length,
       4,
       'one line per event on disk'
+    );
+  });
+});
+
+test('rememberStored remembers every event from its start on across a day boundary and leaves older partitions unread', async () => {
+  await withProject(async root => {
+    const midnight = Date.parse('2026-10-31T00:00:00.000Z');
+    const since = midnight - 30 * 60_000;
+    const inWindow = [
+      busEvent(2, { createdMs: since }),
+      busEvent(3, { createdMs: midnight - 1 }),
+      busEvent(4, { createdMs: midnight }),
+      busEvent(5, { createdMs: midnight + 10 * 60_000 })
+    ];
+    const tenDaysOld = busEvent(1, { createdMs: midnight - 10 * DAY });
+    const first = await openWriter(openStore(root));
+    await first.append([tenDaysOld, ...inWindow]);
+    await first.advance(checkpointOf(inWindow[3]!));
+    await first.release();
+    for (const file of dataFiles(root)) age(file);
+
+    const second = await openWriter(openStore(root));
+    await second.rememberStored(since);
+    const { stored, duplicates } = await second.append([tenDaysOld, ...inWindow]);
+
+    assert.equal(duplicates, 4, 'what a replay can re-deliver is dropped, on both sides of the day boundary');
+    assert.deepEqual(
+      uuidsOf(stored),
+      [uuidOf(1)],
+      'the partition from ten days ago was not read, so the writer stores that copy again'
     );
   });
 });

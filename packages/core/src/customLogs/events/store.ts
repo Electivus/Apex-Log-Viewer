@@ -83,6 +83,7 @@ import {
   parseCheckpoint,
   parseObjectDescribe,
   partitionOf,
+  partitionsNewestFirst,
   readGapFiles,
   readStoredEvent,
   scanNewestFirst,
@@ -177,12 +178,14 @@ export type EventStoreWriter = {
    */
   append(events: readonly BusEvent[]): Promise<AppendResult>;
   /**
-   * Adds the uuid of every stored event, whatever its age, to the memory `append` drops re-deliveries by.
+   * Adds the uuid of every stored event created at or after `sinceMs` to the memory `append` drops re-deliveries by.
    * `openWriter` seeds that memory only from files the checkpoint does not cover, which is right for a crash
    * or a takeover and wrong for a `-2` replay: it re-delivers history the checkpoint covers, so without this
-   * each event the store already holds is written again and shown twice by a live view.
+   * each event the store already holds is written again and shown twice by a live view. A replay re-delivers only
+   * what Salesforce retains, so the caller passes the start of that window and older partitions are never read.
+   * Reads whole hour partitions, so events up to an hour older than `sinceMs` may be remembered too.
    */
-  rememberStored(): Promise<void>;
+  rememberStored(sinceMs: number): Promise<void>;
   /**
    * Only after `append` resolved for the events up to `cursor` (I2). `cursor` is the last DELIVERED
    * event's cursor, duplicates included, so a duplicate-only batch still advances the resume point.
@@ -435,10 +438,15 @@ function createWriter(layout: Layout, index: LineIndex, lease: Lease, start: Wri
         });
       }),
 
-    rememberStored: () =>
+    rememberStored: sinceMs =>
       enqueue(async () => {
         usable();
-        for (const partition of (await allPartitions(layout.objectDir)).reverse()) {
+        const partitions: Partition[] = [];
+        for await (const partition of partitionsNewestFirst(layout.objectDir, { earliestEndMs: sinceMs })) {
+          partitions.push(partition);
+        }
+        // Oldest first: `recent` forgets its oldest uuid past its limit, so the newest events stay remembered.
+        for (const partition of partitions.reverse()) {
           for (const file of partition.files) {
             for (const { position } of (await index.of(file)).lines) recent.add(position.uuid);
           }

@@ -38,6 +38,11 @@ export const DRAIN_MAX_MS = CUSTOM_LOG_LIMITS.drainMs.max;
 export const QUEUE_MAX_BYTES = 32 * 1024 * 1024;
 /** High-volume platform events are retained 72 h. A stored position older than this may be accepted and still skip expired events. */
 export const PLATFORM_RETENTION_MS = 72 * 60 * 60 * 1000;
+/**
+ * Slack added to the replay window. Salesforce expires an event on its own schedule and this machine's clock can differ
+ * from Salesforce's; an hour is far above both. Reading whole hour partitions adds up to one more hour.
+ */
+export const REPLAY_WINDOW_MARGIN_MS = 60 * 60 * 1000;
 export const BUDGET_SHARE = 0.5;
 export const BUDGET_FALLBACK = 5_000;
 
@@ -104,6 +109,10 @@ export function chooseStart(input: {
 function withoutPosition(initial: 'retained' | 'new' | 'none'): StartDecision {
   return initial === 'none' ? { kind: 'needsInitial' } : { kind: 'subscribe', start: { kind: initial } };
 }
+
+/** Pure: the oldest `CreatedDate` a `-2` replay started at `now` can re-deliver. The store remembers stored events from here on. */
+export const replayWindowStartMs = (now: Date): number =>
+  now.getTime() - PLATFORM_RETENTION_MS - REPLAY_WINDOW_MARGIN_MS;
 
 /** Pure: deliveries a run may spend, about: `floor(remaining * BUDGET_SHARE)`, or BUDGET_FALLBACK when /limits could not be read. Checked as events arrive, so one response can overshoot it. */
 export function deliveryBudget(allowance: Allowance | undefined): number {
