@@ -391,7 +391,7 @@ $ sf electivus custom-log capture --source app-events --target-org my-org --json
     "newGaps": [],
     "store": {
       "state": "captured",
-      "eventsRoot": "/work/my-project/apexlogs/orgs/dev@example.com/events/App_Log__e",
+      "eventsRoot": "/work/my-project/apexlogs/orgs/dev@example.com/events/app_log__e",
       "oldest": "2026-10-28T09:14:03.120Z",
       "newest": "2026-10-29T23:41:07.120Z",
       "lastCaptureAt": "2026-10-29T23:41:19.311Z",
@@ -424,7 +424,7 @@ $ sf electivus custom-log list --source app-events --min-level ERROR --since 202
     "nextCursor": null,
     "store": {
       "state": "captured",
-      "eventsRoot": "/work/my-project/apexlogs/orgs/dev@example.com/events/App_Log__e",
+      "eventsRoot": "/work/my-project/apexlogs/orgs/dev@example.com/events/app_log__e",
       "oldest": "2026-10-28T09:14:03.120Z",
       "newest": "2026-10-29T23:41:07.120Z",
       "lastCaptureAt": "2026-10-29T23:41:19.311Z",
@@ -553,7 +553,7 @@ Core owns the store. The extension and the CLI read and write it only through co
 apexlogs/orgs/<safe-org>/events/
 	format.json
 	.gitignore
-	<Object__e>/
+	<object>/
 		describe.json
 		checkpoint.json
 		gaps.<writer>.ndjson
@@ -561,16 +561,16 @@ apexlogs/orgs/<safe-org>/events/
 		<YYYY-MM-DD>/<HH>.<writer>.ndjson
 ```
 
-| Path                                | Content                                                                                                                                                                                                                    |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `format.json`                       | `{"version":1}`. A store with another version fails with `CUSTOM_LOG_STORE_UNAVAILABLE`.                                                                                                                                   |
-| `.gitignore`                        | `*`. The store ignores itself, so it never depends on the `.gitignore` of the project.                                                                                                                                     |
-| `<Object__e>/`                      | One directory for each event object, named as the mapping writes the object, with the `Nebula__` prefix for a built-in managed source. Two sources over one object share the directory, the history, and the subscription. |
-| `describe.json`                     | The describe of the event for the user who captured it. Capture writes it before the first event and refreshes it on every run. Reads use it.                                                                              |
-| `checkpoint.json`                   | The stored position: the org id, the replay cursor, the newest event, the time until which capture proved the store complete, and the time of the last write.                                                              |
-| `gaps.<writer>.ndjson`              | The gaps, one file for each capture run.                                                                                                                                                                                   |
-| `capture.lease`                     | The owner of the subscription. See [Standby and the capture lease](#standby-and-the-capture-lease).                                                                                                                        |
-| `<YYYY-MM-DD>/<HH>.<writer>.ndjson` | The events, one JSON object per line, in the day and hour (UTC) of their `CreatedDate`. A capture run writes its own files and never rewrites a file.                                                                      |
+| Path                                | Content                                                                                                                                                                                                                                                                        |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `format.json`                       | `{"version":1}`. A store with another version fails with `CUSTOM_LOG_STORE_UNAVAILABLE`.                                                                                                                                                                                       |
+| `.gitignore`                        | `*`. The store ignores itself, so it never depends on the `.gitignore` of the project.                                                                                                                                                                                         |
+| `<object>/`                         | One directory for each event object, named by its API name in lower case, such as `app_log__e`, or `nebula__logentryevent__e` for the built-in managed source. Two sources over one object share the directory, the history, and the subscription, whatever casing they write. |
+| `describe.json`                     | The describe of the event for the user who captured it. Capture writes it before the first event and refreshes it on every run. Reads use it.                                                                                                                                  |
+| `checkpoint.json`                   | The stored position: the org id, the replay cursor, the newest event, the time until which capture proved the store complete, and the time of the last write.                                                                                                                  |
+| `gaps.<writer>.ndjson`              | The gaps, one file for each capture run.                                                                                                                                                                                                                                       |
+| `capture.lease`                     | The owner of the subscription. See [Standby and the capture lease](#standby-and-the-capture-lease).                                                                                                                                                                            |
+| `<YYYY-MM-DD>/<HH>.<writer>.ndjson` | The events, one JSON object per line, in the day and hour (UTC) of their `CreatedDate`. A capture run writes its own files and never rewrites a file.                                                                                                                          |
 
 The store lives in the directory that holds `sfdx-project.json`, so a command run from a subdirectory uses the same store. When core finds no `sfdx-project.json`, it uses the directory the command runs in, or the folder that is open in VS Code. With neither, `capture` and `list` fail with `CUSTOM_LOG_STORE_UNAVAILABLE`.
 

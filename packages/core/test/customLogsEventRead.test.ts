@@ -9,6 +9,7 @@ import { CUSTOM_LOG_EVENT_ID_PATTERN, type CustomLogListResult } from '../src/cu
 import { encodeCursor } from '../src/customLogs/queries.ts';
 import { projectWith, type Json } from './support/customLogsFixtures.ts';
 import { alvTestLogDescribe, logEntryEventDescribe } from './support/describeFixtures.ts';
+import { eventObjectKey } from '../src/customLogs/events/store.ts';
 import { busEvent, seedEventStore } from './support/eventSeed.ts';
 import { page, startNebulaOrg } from './support/nebulaDouble.ts';
 import {
@@ -257,7 +258,7 @@ test('list reports what the store covers beside the page', async t => {
   const { store } = await core.customLog.list(scope);
 
   assert.ok(store?.state === 'captured');
-  assert.equal(store.eventsRoot, path.join(root, 'apexlogs', 'orgs', username, 'events', OBJECT));
+  assert.equal(store.eventsRoot, path.join(root, 'apexlogs', 'orgs', username, 'events', eventObjectKey(OBJECT)));
   assert.equal(store.oldest, new Date(T0).toISOString());
   assert.equal(store.newest, new Date(T0 + HOUR).toISOString());
   assert.equal(store.retentionDays, 30);
@@ -689,7 +690,7 @@ test('list on a source nothing was captured for is an empty page that says so, a
   );
   assert.deepEqual(result.store, {
     state: 'notCaptured',
-    eventsRoot: path.join(root, 'apexlogs', 'orgs', username, 'events', OBJECT),
+    eventsRoot: path.join(root, 'apexlogs', 'orgs', username, 'events', eventObjectKey(OBJECT)),
     retentionDays: 30
   });
   assert.equal(org.received, 0);

@@ -14,6 +14,7 @@ import {
 } from '../src/customLogs/events/ids.ts';
 import {
   LeaseLostError,
+  eventObjectKey,
   openEventStore,
   type EventStore,
   type EventStoreWriter,
@@ -47,7 +48,7 @@ async function withProject(run: (root: string) => Promise<void>): Promise<void> 
 const openStore = (root: string, object = OBJECT): EventStore => openEventStore({ root, username: USER, object });
 const orgDirOf = (root: string): string => path.join(root, 'apexlogs', 'orgs', USER);
 const eventsDirOf = (root: string): string => path.join(orgDirOf(root), 'events');
-const objectDirOf = (root: string): string => path.join(eventsDirOf(root), OBJECT);
+const objectDirOf = (root: string): string => path.join(eventsDirOf(root), eventObjectKey(OBJECT));
 
 const uuidOf = (n: number): EventUuid => {
   const uuid = parseEventUuid(`00000000-0000-4000-8000-${n.toString(16).padStart(12, '0')}`);

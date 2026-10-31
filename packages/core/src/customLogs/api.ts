@@ -68,7 +68,7 @@ import {
   storeInfoOf,
   type EventSnapshot
 } from './events/read.js';
-import { openEventStore, type EventStore, type EventStoreLocation } from './events/store.js';
+import { eventObjectKey, openEventStore, type EventStore, type EventStoreLocation } from './events/store.js';
 import { parseCustomLogLevel } from './levels.js';
 import { BUILTIN_PRESETS, qualifyPath, type BuiltinPreset } from './presets.js';
 import {
@@ -418,7 +418,7 @@ export function createCustomLogApi(
   const stores = new Map<string, EventStore>();
 
   const storeAt = ({ root, username, object }: EventStoreLocation): EventStore => {
-    const key = JSON.stringify([root, username, object]);
+    const key = JSON.stringify([root, username, eventObjectKey(object)]);
     let store = stores.get(key);
     if (!store) {
       store = openEventStore({ root, username, object });
@@ -427,7 +427,7 @@ export function createCustomLogApi(
     return store;
   };
 
-  /** Where the events of `found` are kept: the project, the org's username, and the object as the config wrote it. */
+  /** Where the events of `found` are kept: the project, the org's username, and the object, whatever its casing. */
   const locationOf = (
     env: CustomLogEnv,
     config: ParsedCustomLogsConfig,

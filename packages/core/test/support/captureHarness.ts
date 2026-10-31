@@ -15,6 +15,7 @@ import {
 import type { Allowance } from '../../src/customLogs/events/captureRules.ts';
 import { cometdCursor, parseEventUuid, type EventUuid, type ReplayCursor } from '../../src/customLogs/events/ids.ts';
 import {
+  eventObjectKey,
   openEventStore,
   type EventStore,
   type EventStoreLocation,
@@ -232,7 +233,8 @@ export async function withProject(run: (root: string) => Promise<void>): Promise
 
 export const openStore = (root: string): EventStore => openEventStore({ root, username: USER, object: OBJECT });
 
-export const objectDirOf = (root: string): string => path.join(root, 'apexlogs', 'orgs', USER, 'events', OBJECT);
+export const objectDirOf = (root: string): string =>
+  path.join(root, 'apexlogs', 'orgs', USER, 'events', eventObjectKey(OBJECT));
 
 export async function readStored(store: EventStore): Promise<StoredEvent[]> {
   const events: StoredEvent[] = [];

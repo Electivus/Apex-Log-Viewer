@@ -107,9 +107,15 @@ export type EventStoreLocation = Readonly<{
   root: string;
   /** Resolved username: the same org directory Apex logs use. */
   username: string;
-  /** Describe casing. */
+  /** The event object as the mapping wrote it. Its directory is `eventObjectKey(object)`. */
   object: string;
 }>;
+
+/**
+ * The directory name of an event object, and so its history and its capture lease. API names ignore case, so
+ * every spelling of one object maps to one directory, on any filesystem and without asking the org.
+ */
+export const eventObjectKey = (object: string): string => object.toLowerCase();
 
 export type StoreScan = {
   /**
@@ -249,7 +255,7 @@ type Layout = Readonly<{
 
 function layoutOf(location: EventStoreLocation): Layout {
   const eventsDir = path.join(orgDirectory(location.root, location.username), 'events');
-  const objectDir = path.join(eventsDir, location.object);
+  const objectDir = path.join(eventsDir, eventObjectKey(location.object));
   return {
     root: location.root,
     eventsDir,

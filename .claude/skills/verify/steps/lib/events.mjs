@@ -65,11 +65,11 @@ export async function publishEvents(session, { count, object, transactionId = 'v
   return JSON.parse(line);
 }
 
-/** `<workspace>/apexlogs/orgs/<org>/events/<object>`, once a capture created it. */
+/** `<workspace>/apexlogs/orgs/<org>/events/<object in lower case>`, once a capture created it. */
 export async function eventsRoot(session, object) {
   const orgs = path.join(session.workspacePath, 'apexlogs', 'orgs');
   for (const org of await readdir(orgs)) {
-    const candidate = path.join(orgs, org, 'events', object);
+    const candidate = path.join(orgs, org, 'events', object.toLowerCase());
     try {
       await readdir(candidate);
       return candidate;

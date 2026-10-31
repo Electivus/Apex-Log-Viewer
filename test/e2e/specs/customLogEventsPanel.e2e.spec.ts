@@ -102,8 +102,9 @@ test('first use asks before it subscribes and says what the replay would spend',
 
   const eventsDirs = await readdir(path.join(workspace.workspacePath, 'apexlogs', 'orgs')).catch(() => []);
   for (const org of eventsDirs) {
+    // Core names the store directory by the event object in lower case.
     const files = await readdir(
-      path.join(workspace.workspacePath, 'apexlogs', 'orgs', org, 'events', EVENT_OBJECTS.log)
+      path.join(workspace.workspacePath, 'apexlogs', 'orgs', org, 'events', EVENT_OBJECTS.log.toLowerCase())
     ).catch(() => []);
     expect(files, 'nothing subscribed, so no checkpoint or data exists').not.toContain('checkpoint.json');
   }

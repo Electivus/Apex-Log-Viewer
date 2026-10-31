@@ -52,7 +52,7 @@ sf electivus custom-log list --source app-log --payload-fields orderId,http.stat
 
 ### Event sources
 
-A source that maps a platform event (`event` in `sfdx-project.json`, or the built-in `nebula-events`) has no records to query: Salesforce delivers each event once and keeps it for about 72 hours. `capture` subscribes and stores every event it receives under `apexlogs/orgs/<org>/events/<Object__e>/`. After that, `list`, `get` and `entry` read the store and never contact the org, so they work offline. An event source is never chosen implicitly, because capturing spends the org's daily event delivery allocation: pass `--source`.
+A source that maps a platform event (`event` in `sfdx-project.json`, or the built-in `nebula-events`) has no records to query: Salesforce delivers each event once and keeps it for about 72 hours. `capture` subscribes and stores every event it receives under `apexlogs/orgs/<org>/events/<object>/`. After that, `list`, `get` and `entry` read the store and never contact the org, so they work offline. An event source is never chosen implicitly, because capturing spends the org's daily event delivery allocation: pass `--source`.
 
 ```bash
 sf electivus custom-log capture --source app-events --target-org my-org --json

@@ -166,7 +166,7 @@ test('--follow prints the stored row, and Ctrl-C ends with the aborted summary a
   );
   assert.match(followed.err, /Replaying the events Salesforce still retains\./);
   assert.match(followed.err, /Stopping\. Press Ctrl-C again to quit now\./);
-  assert.match(followed.err, /Delivered 1, stored 1\. Store: .*ALV_Test_Log__e/);
+  assert.match(followed.err, /Delivered 1, stored 1\. Store: .*alv_test_log__e/);
   assert.equal(double.disconnects, 1, 'the subscription was closed on the server');
 
   await double.close();

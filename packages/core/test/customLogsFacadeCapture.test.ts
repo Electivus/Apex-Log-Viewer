@@ -221,6 +221,29 @@ test('a second capture resumes after the stored cursor and stores nothing twice'
 // ---------------------------------------------------------------------------------------------
 // refusals, before any connection
 
+test('two sources that spell one event object differently share one history', async t => {
+  const lowerSource = 'alv-events-lower';
+  const { core, scope } = await world(t, {
+    events: 'single',
+    sources: [
+      alvEvents(),
+      { ...alvEvents(), id: lowerSource, event: { ...(alvEvents().event as object), object: OBJECT.toLowerCase() } }
+    ]
+  });
+
+  const captured = await core.customLog.capture({ ...scope, ...DRAIN });
+  const listed = await core.customLog.list({ ...scope, source: lowerSource });
+
+  assert.equal(captured.stored, 1);
+  assert.equal(listed.store?.state, 'captured', 'the other spelling reads the stored event');
+  assert.equal(listed.rows.length, 1);
+  assert.equal(
+    listed.store?.eventsRoot,
+    captured.store.eventsRoot,
+    'one directory, so one capture lease, whatever the filesystem does with case'
+  );
+});
+
 test('a record source is refused with CUSTOM_LOG_NOT_EVENT_SOURCE before the org is contacted', async t => {
   const { core, double, scope } = await world(t, { sources: [appLogSource, alvEvents()] });
 

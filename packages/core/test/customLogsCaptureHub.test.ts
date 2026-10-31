@@ -265,19 +265,19 @@ test('dispose ends every run now, tells its watchers aborted, and gives the leas
   });
 });
 
-test('the store and the describe are keyed by the object the caller wrote, not by the casing the resolver found', async () => {
+test('the store is keyed by the object in lower case and the describe by the spelling the caller wrote, never by the casing the resolver found', async () => {
   await withProject(async root => {
     const location = { root, username: USER, object: 'ns__App_Log__e' };
     const store = openEventStore(location);
     const { transport, deps, hub } = setup(store);
-    const w = watcher({ follow: true, initial: 'none' }, { source: eventSource('ns-events', 'ns__app_log__e') });
+    const w = watcher({ follow: true, initial: 'none' }, { source: eventSource('ns-events', 'ns__APP_LOG__E') });
 
     const result = await resultOf(hub.watch(location, w.watcher, deps));
 
     assert.equal(result.outcome, 'needsInitial');
     assert.deepEqual(deps.calls.opened, [location], 'the injected opener decides the store');
     assert.deepEqual(deps.calls.described, ['ns__App_Log__e']);
-    assert.ok(result.store.eventsRoot.endsWith('ns__App_Log__e'));
+    assert.equal(path.basename(result.store.eventsRoot), 'ns__app_log__e');
     assert.equal(transport.attempts.length, 0);
     assert.ok(await store.describe());
   });

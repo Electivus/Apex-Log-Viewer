@@ -55,7 +55,7 @@ Preconditions:
 
 ## Platform event sources
 
-A source mapped under `event` instead of `entry` shows platform events that no record keeps (Nebula's `LogEntryEvent__e` when it does not persist, or a team's own `App_Log__e`). Core subscribes while the panel shows the source, stores each event whole under `apexlogs/orgs/<org>/events/<Object__e>/`, and the table reads that store, newest first. A strip above the table shows the capture state.
+A source mapped under `event` instead of `entry` shows platform events that no record keeps (Nebula's `LogEntryEvent__e` when it does not persist, or a team's own `App_Log__e`). Core subscribes while the panel shows the source, stores each event whole under `apexlogs/orgs/<org>/events/<object>/`, and the table reads that store, newest first. A strip above the table shows the capture state.
 
 Run these against `alv-events`, never a harness org: publishing `LogEntryEvent__e` into Nebula persists into `Log__c`. Start the session with `node $V start --target-org alv-events` (no lease, no seeding). `docs/TESTING.md#platform-events-org-custom-logs-capture` describes the org and its three events.
 
