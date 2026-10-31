@@ -39,7 +39,7 @@ The entry point is `apps/vscode-extension/src/extension.ts`. Extension-only Sale
 
 The client in `apps/vscode-extension/src/runtime/runtimeClient.ts` preserves the extension-facing method surface while calling `@alv/core` in process. It supplies the workspace root, deduplicates concurrent org/auth reads, translates core log DTOs to the existing webview shape, maps cancellation to `AbortError`, and emits `core.request` telemetry.
 
-Extension Open, Replay, Tail body reads, full-log search preparation, triage, sync, status, and local purge all cross `ApexLogLifecycle`. The extension retains presentation, streaming subscriptions, Replay commands, ripgrep execution, and retention-policy selection; it does not construct cache paths or write Apex log bodies.
+Extension Open, Replay, Tail body reads, full-log search preparation, triage, sync, status, and local purge all cross `ApexLogLifecycle`. The extension retains presentation, Tail's streaming subscription, Replay commands, ripgrep execution, and Apex log retention-policy selection; it does not construct cache paths, write Apex log bodies, or open event files. Custom Logs event capture (the subscription, the checkpoint, and the store) is the core operation `customLog.capture`, which the extension and the CLI both call.
 
 ### Webview Session
 
@@ -73,7 +73,7 @@ Repository-based Agent Skills and `@electivus/plugin-electivus` can update indep
 
 `config/agent-plugin.json` declares the independent `electivus-debug` version and pinned official Certinia MCP command. `build:agent-plugin` derives `plugins/electivus-debug` and the Codex/Claude-compatible marketplace catalogs from this configuration and the same skill sources. The bundle includes portable Agent Plugins 1.0 manifests and client overlays. `check:agent-plugin` rejects drift, including stale files. It carries MCP configuration and license notices, not a vendored analyzer runtime. The MCP runs in the client's local filesystem with anonymous Apex execution disabled; skills also support plain local file analysis.
 
-Investigation starts with bulk sync, then content search across the local corpus. Core sync results expose absolute roots and bounded failure details; status exposes the previous failed count without auth. There is no additional search index, remote filtering surface or capture-session store.
+Investigation starts with bulk sync, then content search across the local corpus. Core sync results expose absolute roots and bounded failure details; status exposes the previous failed count without auth. There is no additional search index or remote filtering surface for Apex logs. The platform events that Custom Logs captures are the one capture store: `apexlogs/orgs/<safe-org>/events/`, owned by core. A single `capture.lease` per event object picks the one process that subscribes.
 
 ## Local log storage
 
@@ -84,7 +84,7 @@ Both surfaces use the same org-first store:
 - `apexlogs/orgs/<safe-org>/org.json` — resolved org metadata.
 - `apexlogs/orgs/<safe-org>/logs/<YYYY-MM-DD>/<logId>.log` — canonical full log bodies.
 
-Legacy `<safeUser>_<logId>.log` files remain readable for backward compatibility. New writes use the org-first layout; no third cache layout is introduced.
+Legacy `<safeUser>_<logId>.log` files remain readable for backward compatibility. New writes use the org-first layout; no third Apex log layout is introduced. The event store is a separate, versioned sibling of `logs/`, and no Apex log walker reads it.
 Before the first workspace write, the lifecycle best-effort adds `apexlogs/` to an existing regular `.gitignore`; it never follows a symbolic-link `.gitignore`.
 
 The lifecycle receives an explicit absolute workspace root and treats the resolved Salesforce username as the canonical org identity. Alias metadata and prior sync-state shapes remain readable offline. Required consumers receive a dependable local path or a stable error; Tail alone opts into best-effort persistence so a freshly acquired body can still be displayed when disk persistence fails.

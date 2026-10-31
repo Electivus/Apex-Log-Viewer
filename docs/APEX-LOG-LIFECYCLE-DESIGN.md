@@ -28,7 +28,7 @@ Any interface must preserve these agreed invariants:
 
 1. Reads, Open, Replay, search preparation, and triage are local-first. Only an explicit sync or refresh seeks remote freshness.
 2. The canonical layout remains `apexlogs/orgs/<safe-resolved-username>/logs/<day>/<logId>.log`.
-3. Legacy `<safeUser>_<logId>.log` files remain readable. When resolved username and `StartTime` are known, the implementation opportunistically materializes a canonical copy but retains the legacy file. No third layout is introduced.
+3. Legacy `<safeUser>_<logId>.log` files remain readable. When resolved username and `StartTime` are known, the implementation opportunistically materializes a canonical copy but retains the legacy file. No third Apex log layout is introduced, and Apex log walkers never read `events/`.
 4. Every operation receives an explicit absolute workspace root. The module never consults VS Code, `process.cwd()`, or `os.tmpdir()`.
 5. A resolved username is the canonical org identity. An alias is only an input selector or presentation value.
 6. Concurrent acquisition is shared by `(normalized workspace root, resolved username, log id)`. Each caller cancels independently; shared work is aborted only when it has no observers.
@@ -519,7 +519,7 @@ Primary files:
 
 Work:
 
-1. Keep streaming subscription, trace-flag coordination, buffering, and webview messages in the Tail adapter.
+1. Keep Tail's streaming subscription, trace-flag coordination, buffering, and webview messages in the Tail adapter. Custom Logs event capture is a core operation and never discovers Apex log ids.
 2. Treat streaming events as log-id notifications. Use lifecycle `read` for body acquisition and best-effort persistence.
 3. Remove direct filesystem writes and duplicate body acquisition from Tail.
 4. Use `requireLocalPath` when a later Open or Replay action requires a dependable path.

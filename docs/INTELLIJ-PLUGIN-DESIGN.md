@@ -68,7 +68,7 @@ A project-scoped IntelliJ service owns the runtime, lifecycle workspace, selecte
 
 ## Storage invariants
 
-The IntelliJ surface uses the existing org-first `apexlogs/` store, sync-state contract, atomic materialization rules, legacy-file compatibility, and 24-hour local body retention policy. A body remains protected while represented by the active Logs state or open in a viewer; an older unprotected body may be purged safely and reacquired later. The plugin does not introduce another cache layout or search-only retention policy. Shared conformance fixtures cover canonical and legacy local-first resolution plus triage outputs; Kotlin and TypeScript runtime suites cover the additional path-safety, checkpoint, cancellation, partial-failure, and safe-purge invariants at their native public seams.
+The IntelliJ surface uses the existing org-first `apexlogs/` store, sync-state contract, atomic materialization rules, legacy-file compatibility, and 24-hour local body retention policy. A body remains protected while represented by the active Logs state or open in a viewer; an older unprotected body may be purged safely and reacquired later. The plugin does not introduce another Apex log cache layout or search-only retention policy. It does not read the Custom Logs event store, which core keeps in `apexlogs/orgs/<safe-org>/events/`. Shared conformance fixtures cover canonical and legacy local-first resolution plus triage outputs; Kotlin and TypeScript runtime suites cover the additional path-safety, checkpoint, cancellation, partial-failure, and safe-purge invariants at their native public seams.
 
 ## Local full-log search
 

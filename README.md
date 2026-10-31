@@ -20,7 +20,7 @@ Search downloaded Salesforce Apex logs inside VS Code, jump straight to the righ
 - Highlight logs that deserve attention with error and triage badges directly in the list.
 - Open a dedicated **Apex Log Viewer** with parsed entries, focused filters, and a diagnostics sidebar.
 - Tail live logs, open the selected log, or hand it off to Apex Replay Debugger without leaving VS Code.
-- Read the application logs that Nebula Logger or your own logging framework stores in Salesforce records, with JSON payload columns and a link to the matching Apex debug log.
+- Read the application logs that Nebula Logger or your own logging framework stores in Salesforce records or publishes as platform events, with JSON payload columns and a link to the matching Apex debug log. Captured events stay on disk after Salesforce drops them.
 - Manage `USER_DEBUG` TraceFlags in a dedicated **Apex Debug Flags** screen with more room than the standard panel view.
 - Switch orgs quickly and keep the workflow centered on the org you are actively investigating.
 
@@ -75,7 +75,7 @@ sf electivus log status --target-org my-org
 
 `log sync` resolves org auth through Salesforce Core, lists `ApexLog` rows, and downloads raw log bodies over the Salesforce Tooling REST API. It materializes those bodies under `apexlogs/`, keeps incremental state in `apexlogs/.alv/sync-state.json`, writes the canonical org-first layout at `apexlogs/orgs/<safe-target-org>/logs/YYYY-MM-DD/<logId>.log`, and removes legacy SQLite search index files. Use `--concurrency` to tune parallel body downloads.
 
-`sf electivus custom-log` reads the same application log records as the Custom Logs panel, for example `sf electivus custom-log list --target-org my-org --min-level ERROR --since 24h --json`. See [Custom Logs commands](docs/CUSTOM_LOGS.md#commands).
+`sf electivus custom-log` reads the same application logs as the Custom Logs panel, for example `sf electivus custom-log list --target-org my-org --min-level ERROR --since 24h --json`. A logging framework that only publishes platform events, such as `nebula-events`, needs `sf electivus custom-log capture --source nebula-events --target-org my-org` first. It stores the events under `apexlogs/`, and `list` then reads them offline. See [Custom Logs commands](docs/CUSTOM_LOGS.md#commands) and [Event sources](docs/CUSTOM_LOGS.md#event-sources).
 
 The VS Code extension and plugin are independent adapters over the private shared `@alv/core`. The extension bundles the core directly and never packages or spawns the plugin, so extension users do not install the plugin. The published plugin provides the same camelCase JSON operations for terminal and agent workflows.
 The standalone plugin runs on Node.js 22.19+; extension users get the compatible runtime through VS Code 1.105+.
@@ -155,6 +155,7 @@ The extension activates automatically when the workspace contains `sfdx-project.
 
 - Custom Logs is experimental and off by default. Set `electivus.apexLogViewer.customLogs.enabled` to `true` to show it; no reload is needed. The `sf electivus custom-log` commands work without the setting.
 - Open **Custom Logs** in the VS Code panel area to read the log records that a logging framework stores in Salesforce, such as Nebula Logger's `Log__c` and `LogEntry__c`.
+- Pick an event source, such as `nebula-events`, to read logs that exist only as platform events. The panel captures the events into a local store while the source is open, shows what it stored, and marks any interval that may be missing as a gap.
 - Nebula Logger needs no configuration. Map other objects under `plugins.electivus.customLogs` in `sfdx-project.json`. **Configure** opens that block, and the editor validates it.
 - Filter by level, user, and time in Salesforce, and add JSON payload keys as columns or filters over the loaded rows.
 - Open a row to read the whole transaction, its long fields, and the matching Apex debug log.

@@ -11,7 +11,7 @@ import { Flags } from '@salesforce/sf-plugins-core';
 
 export const sourceFlag = Flags.string({
   summary:
-    'Log source id from "sf electivus custom-log sources", for example nebula. Optional when one source is ready.'
+    'Log source id from "sf electivus custom-log sources", for example nebula. Optional when one record source is ready. Always required for an event source, such as nebula-events.'
 });
 
 export const minLevelFlag = Flags.option({
