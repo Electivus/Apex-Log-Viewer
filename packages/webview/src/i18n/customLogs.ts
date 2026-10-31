@@ -161,7 +161,7 @@ export type CustomLogsMessages = {
       after: string;
       before: string;
       unknown: string;
-      reasons: { cursorRejected: string; retentionElapsed: string; orgChanged: string };
+      reasons: { cursorRejected: string; retentionElapsed: string; orgChanged: string; malformedEvent: string };
     };
   };
   empty: {
@@ -414,7 +414,8 @@ export const customLogsEn: CustomLogsMessages = {
       reasons: {
         cursorRejected: 'Salesforce rejected the stored position when capture resumed',
         retentionElapsed: 'the stored position was older than Salesforce keeps events',
-        orgChanged: 'this username now points to another org'
+        orgChanged: 'this username now points to another org',
+        malformedEvent: 'Salesforce delivered an event that capture could not read'
       }
     }
   },
@@ -671,7 +672,8 @@ export const customLogsPtBR: CustomLogsMessages = {
       reasons: {
         cursorRejected: 'o Salesforce rejeitou a posição armazenada quando a captura continuou',
         retentionElapsed: 'a posição armazenada era mais antiga do que o Salesforce guarda eventos',
-        orgChanged: 'este usuário agora aponta para outra org'
+        orgChanged: 'este usuário agora aponta para outra org',
+        malformedEvent: 'o Salesforce entregou um evento que a captura não conseguiu ler'
       }
     }
   },

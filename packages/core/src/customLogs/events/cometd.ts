@@ -50,12 +50,7 @@ type FayeClient = {
   };
 };
 
-export type CometdTransportOptions = {
-  /** Called with the running count each time a delivered message is too malformed to become a `BusEvent`. */
-  onDropped?(dropped: number): void;
-};
-
-export function createCometdTransport(options: CometdTransportOptions = {}): EventTransport {
+export function createCometdTransport(): EventTransport {
   return {
     name: 'cometd',
     async open({ connection, channel, from, durableCursor, signal, onSignal }) {
@@ -65,7 +60,6 @@ export function createCometdTransport(options: CometdTransportOptions = {}): Eve
       return new Promise<void>((resolve, reject) => {
         let client: FayeClient | undefined;
         let closed = false;
-        let dropped = 0;
         let pending: BusEvent[] = [];
         let flushHandle: NodeJS.Immediate | undefined;
 
@@ -88,6 +82,7 @@ export function createCometdTransport(options: CometdTransportOptions = {}): Eve
         }
 
         function flush(): void {
+          if (flushHandle) clearImmediate(flushHandle);
           flushHandle = undefined;
           const events = pending;
           pending = [];
@@ -125,8 +120,9 @@ export function createCometdTransport(options: CometdTransportOptions = {}): Eve
             if (closed) return;
             const event = parseCometdEvent(data);
             if (!event) {
-              dropped += 1;
-              options.onDropped?.(dropped);
+              // The events delivered before it go first, so the run sees it between its neighbours.
+              flush();
+              if (!closed) onSignal({ type: 'malformed' });
               return;
             }
             pending.push(event);

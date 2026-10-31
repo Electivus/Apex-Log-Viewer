@@ -45,6 +45,8 @@ export type TransportSignal =
   | { readonly type: 'subscribed' }
   /** One server response worth of events, in delivery order. */
   | { readonly type: 'events'; readonly events: readonly BusEvent[] }
+  /** A delivery the adapter could not turn into a `BusEvent`. It arrives in delivery order: after the events delivered before it, before those delivered after. */
+  | { readonly type: 'malformed' }
   | { readonly type: 'down' }
   | { readonly type: 'up' };
 

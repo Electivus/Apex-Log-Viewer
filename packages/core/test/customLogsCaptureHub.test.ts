@@ -420,7 +420,12 @@ test('a run reports one start and one end with bounded fields, however many watc
     attempt.events(busEvent(2), busEvent(3));
     await clock.advance(250);
     await until(async () => (await checkpointCursor(store)) === cursorOf(3), 'the flush');
-    deps.calls.hooks?.onDropped(2);
+    attempt.emit({ type: 'malformed' });
+    attempt.emit({ type: 'malformed' });
+    await until(async () => {
+      const coverage = await store.coverage();
+      return coverage.state === 'captured' && coverage.gaps.length === 1;
+    }, 'the unreadable deliveries to be recorded');
     first.abort();
     second.abort();
     await resultOf(firstDone);
@@ -449,7 +454,7 @@ test('a run reports one start and one end with bounded fields, however many watc
         reconnects: end.reconnects,
         dropped: end.dropped
       },
-      { outcome: 'aborted', delivered: 2, stored: 2, gaps: 0, reconnects: 0, dropped: 2 }
+      { outcome: 'aborted', delivered: 4, stored: 2, gaps: 1, reconnects: 0, dropped: 2 }
     );
     assert.ok(end.durationMs >= 250);
   });

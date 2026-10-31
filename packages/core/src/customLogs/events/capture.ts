@@ -140,8 +140,8 @@ export type RowDecoder = (
 
 /** What a run needs from the outside. The facade builds it; tests pass fakes. */
 export type CaptureDeps = {
-  /** Called once per run. `onDropped` receives the running count of malformed messages the transport discarded. */
-  createTransport(hooks: { onDropped(count: number): void }): EventTransport;
+  /** Called once per run. */
+  createTransport(): EventTransport;
   /** Opens or reuses the org connection; `fresh` evicts the cached one first (auth failure mid-stream). */
   connect(options: { fresh: boolean; signal: AbortSignal }): Promise<CaptureSession>;
   /** Live describe of the event object, through the registry's memo. `object` is the name the store is keyed by, as the caller wrote it. */
@@ -346,11 +346,7 @@ function createRun(
   let dropped = 0;
   let rejections = 0;
   const newGaps: CustomLogStoreGap[] = [];
-  const transport = deps.createTransport({
-    onDropped: count => {
-      dropped = count;
-    }
-  });
+  const transport = deps.createTransport();
 
   let state: CustomLogCaptureState = { state: 'connecting' };
   let storeInfo: CustomLogStoreInfo | undefined;
@@ -609,6 +605,8 @@ function createRun(
     let { confirmedAt } = prepared;
     let activeStart = initialStart;
     let last: RunPosition | undefined = initialStart.kind === 'after' ? initialStart.position : undefined;
+    /** `createdDate` of the newest event this subscription delivered: the neighbour an unreadable delivery has before it. */
+    let lastDelivered: string | undefined;
     const deliveredAtStart = delivered;
     const retry = { attempt: 0, auth: 0 };
     let queue: BusEvent[] = [];
@@ -619,10 +617,14 @@ function createRun(
     /** After a failure or a lost lease nothing more may be written; what the transport still delivered is dropped. */
     const writable = (): boolean => stopRequest?.kind !== 'failed' && stopRequest?.kind !== 'leaseLost';
 
-    const flushOnce = async (): Promise<void> => {
+    const takeQueue = (): BusEvent[] => {
       const batch = queue;
       queue = [];
       queueBytes = 0;
+      return batch;
+    };
+
+    const flushBatch = async (batch: readonly BusEvent[]): Promise<void> => {
       const tail = batch[batch.length - 1];
       if (!tail || !writable()) return;
       let newlyStored: readonly StoredEvent[];
@@ -659,12 +661,42 @@ function createRun(
     const flush = (): Promise<void> => {
       cancelFlushTimer?.();
       cancelFlushTimer = undefined;
-      flushing = flushing.then(flushOnce);
+      flushing = flushing.then(() => flushBatch(takeQueue()));
       return flushing;
+    };
+
+    /**
+     * An unreadable delivery costs a delivery and cannot be stored, so the stretch around it is a gap. The gap
+     * is written after the events delivered before it are on disk and before any later event is, which keeps
+     * the checkpoint from passing it without one. Its neighbours bound it: it closes at the next stored event.
+     */
+    const onMalformed = (): void => {
+      delivered += 1;
+      dropped += 1;
+      waiting.deliveredSinceAck += 1;
+      if (state.state === 'catchingUp') armLiveTimer(QUIET_MS);
+      const after = lastDelivered ?? last?.lastEvent.createdDate;
+      const before = takeQueue();
+      flushing = flushing
+        .then(() => flushBatch(before))
+        .then(async () => {
+          if (!writable()) return;
+          try {
+            const opened = await writer.openGap({
+              reason: 'malformedEvent',
+              ...(after !== undefined ? { after } : {})
+            });
+            if (opened.created) newGaps.push(storeGapOf(opened.gap));
+          } catch (error) {
+            fail(error);
+          }
+        });
+      if (delivered - deliveredAtStart >= prepared.budget) stop({ kind: 'finish', outcome: 'budget' });
     };
 
     const onEvents = (events: readonly BusEvent[]): void => {
       if (events.length === 0) return;
+      lastDelivered = events[events.length - 1]!.createdDate;
       delivered += events.length;
       waiting.deliveredSinceAck += events.length;
       for (const received of events) {
@@ -689,6 +721,7 @@ function createRun(
           retry.attempt = 0;
           retry.auth = 0;
           waiting.deliveredSinceAck = 0;
+          lastDelivered = undefined;
           const from = last ? 'after' : activeStart.kind;
           transition({ type: 'subscribed', from });
           // Decided from the watchers present at the acknowledgement; a follower that joins a drain later waits for events.
@@ -704,6 +737,9 @@ function createRun(
         }
         case 'events':
           onEvents(signal.events);
+          break;
+        case 'malformed':
+          onMalformed();
           break;
         case 'down':
           reconnects += 1;

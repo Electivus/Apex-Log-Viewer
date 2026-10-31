@@ -123,8 +123,10 @@ export type CustomLogStoreGap = {
    * stream reset), so capture replayed what was still retained. `retentionElapsed`: the stored position
    * was older than the retention window; Salesforce accepted it, which does not prove the events in
    * between were still there. `orgChanged`: the username now names another org (sandbox refresh).
+   * `malformedEvent`: Salesforce delivered a message that capture could not read as an event, so it
+   * could not be stored; the gap is the stretch between the events delivered around it.
    */
-  reason: 'cursorRejected' | 'retentionElapsed' | 'orgChanged';
+  reason: 'cursorRejected' | 'retentionElapsed' | 'orgChanged' | 'malformedEvent';
   /** The newest event stored before the gap. Absent when the store held none. */
   after?: string;
   /** The first event stored after the gap. Absent while the gap is open: nothing newer than `after` has arrived yet. */

@@ -687,6 +687,7 @@ A gap is an interval for which the store cannot vouch. Salesforce never says whe
 | `cursorRejected`   | Salesforce rejected the stored position when capture resumed, because it is older than Salesforce keeps or comes from before a stream reset. Capture writes the gap, then replays what Salesforce still retains. |
 | `retentionElapsed` | The last capture confirmed the stored position more than 72 hours before this run. Salesforce can accept such a position and still skip expired events, so an accepted position proves nothing.                  |
 | `orgChanged`       | The username now names another org, for example after a sandbox refresh. Capture treats the store as having no position. The panel asks the first-use question again.                                            |
+| `malformedEvent`   | Salesforce delivered a message that capture could not read as an event, so it stored nothing for it. The gap spans the events delivered around it, and the delivery still counts in `delivered`.                 |
 
 A gap has the `reason`, `after` (the newest event stored before it), `before` (the first event stored after it), and `detectedAt`. `before` is absent while the gap is open. A gap closes at the first stored event newer than `after`. When a replay returns nothing newer, the gap stays open, and the strip says `Events after <time> may be missing`.
 

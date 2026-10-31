@@ -357,8 +357,6 @@ export type TestDeps = CaptureDeps & {
     decoded: string[];
     runEvents: CaptureRunEvent[];
     callbackErrors: unknown[];
-    /** What the run handed `createTransport`; the CometD adapter reports malformed messages through it. */
-    hooks: { onDropped(count: number): void } | undefined;
   };
 };
 
@@ -371,16 +369,12 @@ export function captureDeps(options: DepsOptions): TestDeps {
     opened: [],
     decoded: [],
     runEvents: [],
-    callbackErrors: [],
-    hooks: undefined
+    callbackErrors: []
   };
   const session = { ctx: { connection, username: USER }, orgId: options.orgId ?? ORG_ID };
   return {
     calls,
-    createTransport: hooks => {
-      calls.hooks = hooks;
-      return options.transport.transport;
-    },
+    createTransport: () => options.transport.transport,
     connect:
       options.connect ??
       (async ({ fresh }) => {

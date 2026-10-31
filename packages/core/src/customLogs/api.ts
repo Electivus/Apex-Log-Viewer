@@ -480,7 +480,7 @@ export function createCustomLogApi(
 
   /** What a run needs from outside the hub. The hub keeps the first caller's, so a caller that joins a run shares that connection and retention. */
   const captureDeps = (env: CustomLogEnv, config: ParsedCustomLogsConfig): CaptureDeps => ({
-    createTransport: ({ onDropped }) => createCometdTransport({ onDropped }),
+    createTransport: createCometdTransport,
     connect: async ({ fresh, signal }) => {
       const ctx = await env.connection({ fresh, signal });
       const orgId = authOrgId(ctx);

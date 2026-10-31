@@ -168,7 +168,7 @@ export type CustomLogApexLogLink =
   | { state: 'noRequestId' };
 
 export type CustomLogStoreGapView = {
-  reason: 'cursorRejected' | 'retentionElapsed' | 'orgChanged';
+  reason: 'cursorRejected' | 'retentionElapsed' | 'orgChanged' | 'malformedEvent';
   after?: string;
   before?: string;
   detectedAt: string;

@@ -281,6 +281,9 @@ describe('gap lines', () => {
     expect(lines([gap({ reason: 'orgChanged', after, before })])).toEqual([
       `Events ${span} may be missing (this username now points to another org)`
     ]);
+    expect(lines([gap({ reason: 'malformedEvent', after, before })])).toEqual([
+      `Events ${span} may be missing (Salesforce delivered an event that capture could not read)`
+    ]);
   });
 
   it('reads an open gap as everything after its start', () => {

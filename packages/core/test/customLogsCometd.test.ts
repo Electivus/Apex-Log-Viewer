@@ -10,8 +10,7 @@ import {
   classifyFailure,
   createCometdTransport,
   parseCometdEvent,
-  replayValueFor,
-  type CometdTransportOptions
+  replayValueFor
 } from '../src/customLogs/events/cometd.ts';
 import {
   TransportError,
@@ -46,7 +45,6 @@ type Run = {
 type RunOptions = {
   from?: ReplayFrom;
   durableCursor?: () => ReplayCursor | undefined;
-  transport?: CometdTransportOptions;
 };
 
 async function openRun(t: test.TestContext, script: DoubleScript, options: RunOptions = {}) {
@@ -64,7 +62,7 @@ function startRun(connection: Connection, options: RunOptions): Run {
   const at: number[] = [];
   const waiting = new Set<() => void>();
   const startedAt = performance.now();
-  const finished = createCometdTransport(options.transport).open({
+  const finished = createCometdTransport().open({
     connection,
     channel: CHANNEL,
     from: options.from ?? { kind: 'new' },
@@ -355,23 +353,25 @@ test('a resubscribe after a re-handshake that Salesforce rejects surfaces as a r
   assert.equal(double.heldPolls, 0);
 });
 
-test('messages that are not platform events are dropped and counted, the rest are delivered', async t => {
+test('a message that is not a platform event is reported where it arrived, between the events around it', async t => {
   const valid = BURST.slice(0, 2);
   const withoutUuid = { ...valid[0]!.data, event: { replayId: 5, EventApiName: 'ALV_Test_Log__e' } };
-  const dropped: number[] = [];
-  const { run } = await openRun(
-    t,
-    { connects: [{ events: [valid[0]!, { data: withoutUuid }, { data: 'garbage' }, valid[1]!] }] },
-    { transport: { onDropped: count => dropped.push(count) } }
-  );
+  const { run } = await openRun(t, {
+    connects: [{ events: [valid[0]!, { data: withoutUuid }, { data: 'garbage' }, valid[1]!] }]
+  });
 
-  await run.until(signals => eventBatches(signals).length === 1);
+  await run.until(signals => eventBatches(signals).length === 2);
 
   assert.deepEqual(
-    eventBatches(run.signals)[0]!.map(event => event.uuid),
-    valid.map(recorded => recorded.data.event.EventUuid)
+    run.signals.flatMap(signal =>
+      signal.type === 'events'
+        ? [signal.events.map(event => event.uuid)]
+        : signal.type === 'malformed'
+          ? ['malformed']
+          : []
+    ),
+    [[valid[0]!.data.event.EventUuid], 'malformed', 'malformed', [valid[1]!.data.event.EventUuid]]
   );
-  assert.deepEqual(dropped, [1, 2]);
 });
 
 test('a dropped connection is reported as down', async t => {

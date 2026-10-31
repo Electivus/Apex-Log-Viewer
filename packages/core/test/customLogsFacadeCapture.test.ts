@@ -92,6 +92,8 @@ async function world(
   t: test.TestContext,
   options: {
     events?: 'single' | 'burst-870';
+    /** Faye `data` as the stream delivers it, in order; wins over `events`. */
+    deliveries?: readonly { data: unknown }[];
     sources?: Json[];
     instrumentation?: CoreInstrumentation;
   } = {}
@@ -101,7 +103,13 @@ async function world(
   t.after(() => core.dispose());
   const double = await startBayeuxDouble(
     t,
-    { connects: options.events ? [{ events: freshEvents(options.events) }] : [] },
+    {
+      connects: options.deliveries
+        ? [{ events: options.deliveries }]
+        : options.events
+          ? [{ events: freshEvents(options.events) }]
+          : []
+    },
     nebulaHandler({
       describes: 'unlocked-admin',
       objects: [OBJECT],
@@ -175,6 +183,27 @@ test('capture stores a recorded burst of 870 events and list pages through all o
   } while (cursor);
   assert.equal(ids.size, 870);
   assert.equal(double.received, received, 'paging made no HTTP request');
+});
+
+test('a delivery without an EventUuid is counted, stored as a gap between the events around it, and the rest are stored', async t => {
+  const [before, after] = [freshEvents('burst-870')[0]!, freshEvents('burst-870')[40]!];
+  const unreadable = {
+    data: { ...before.data, event: { replayId: before.data.event.replayId + 1, EventApiName: OBJECT } }
+  };
+  const { core, scope } = await world(t, { deliveries: [before, unreadable, after] });
+
+  const result = await core.customLog.capture({ ...scope, ...DRAIN });
+
+  assert.deepEqual([result.delivered, result.stored], [3, 2]);
+  assert.deepEqual(
+    result.newGaps.map(gap => [gap.reason, gap.after]),
+    [['malformedEvent', before.data.payload.CreatedDate]]
+  );
+  assert.deepEqual(
+    result.store.state === 'captured' ? result.store.gaps.map(gap => [gap.reason, gap.after, gap.before]) : [],
+    [['malformedEvent', before.data.payload.CreatedDate, after.data.payload.CreatedDate]]
+  );
+  assert.equal((await core.customLog.list(scope)).rows.length, 2);
 });
 
 test('a second capture resumes after the stored cursor and stores nothing twice', async t => {

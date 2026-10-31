@@ -1054,7 +1054,6 @@ test('a transport that drops and recovers reports reconnecting and catchingUp, a
     await clock.advance(15_000);
     attempt.emit({ type: 'down' });
     attempt.emit({ type: 'up' });
-    deps.calls.hooks?.onDropped(4);
     w.abort();
     const result = resultOf(await settledOf(done));
 
@@ -1063,7 +1062,104 @@ test('a transport that drops and recovers reports reconnecting and catchingUp, a
     const end = deps.calls.runEvents.find(event => event.type === 'end');
     assert.ok(end?.type === 'end');
     assert.equal(end.reconnects, 1);
-    assert.equal(end.dropped, 4);
+  });
+});
+
+test('a delivery the transport could not read becomes a gap between its neighbours, written before the checkpoint passes it', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+    let atPass: Awaited<ReturnType<EventStore['coverage']>> | undefined;
+    const guarded = instrumentStore(store, {
+      advance: async cursor => {
+        if (cursor === cursorOf(3)) atPass = await store.coverage();
+      }
+    });
+    const { clock, transport, deps, hub } = setup(guarded);
+    const w = watcher({ follow: true, initial: 'new' });
+
+    const done = hub.watch(store.location, w.watcher, deps);
+    const attempt = await transport.opened(0);
+    attempt.subscribed();
+    attempt.events(busEvent(1));
+    attempt.emit({ type: 'malformed' });
+    attempt.events(busEvent(3));
+    await clock.advance(250);
+    await until(
+      async () => (await checkpointCursor(store)) === cursorOf(3),
+      'the checkpoint past the unreadable delivery'
+    );
+    w.abort();
+    const result = resultOf(await settledOf(done));
+
+    assert.deepEqual(
+      atPass?.state === 'captured' ? atPass.gaps.map(gap => [gap.reason, gap.after, gap.before]) : atPass,
+      [['malformedEvent', busEvent(1).createdDate, undefined]],
+      'the gap was open on disk when the checkpoint moved to the event after it'
+    );
+    assert.equal(result.delivered, 3, 'the unreadable delivery still cost an allowance unit');
+    assert.equal(result.stored, 2);
+    assert.deepEqual(
+      result.newGaps.map(gap => [gap.reason, gap.after]),
+      [['malformedEvent', busEvent(1).createdDate]]
+    );
+    assert.deepEqual(
+      result.store.state === 'captured' ? result.store.gaps.map(gap => [gap.reason, gap.after, gap.before]) : [],
+      [['malformedEvent', busEvent(1).createdDate, busEvent(3).createdDate]],
+      'the next stored event closes the gap'
+    );
+    assert.deepEqual((await readStored(store)).map(event => event.createdDate).sort(), [
+      busEvent(1).createdDate,
+      busEvent(3).createdDate
+    ]);
+    const end = deps.calls.runEvents.find(event => event.type === 'end');
+    assert.ok(end?.type === 'end');
+    assert.deepEqual([end.delivered, end.stored, end.gaps, end.dropped], [3, 2, 1, 1]);
+  });
+});
+
+test('an unreadable delivery that nothing follows leaves its gap open and the checkpoint before it, and the next run closes the gap once', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+    const { clock, transport, deps, hub } = setup(store);
+    const first = watcher({ follow: true, initial: 'new' });
+
+    const firstDone = hub.watch(store.location, first.watcher, deps);
+    const firstAttempt = await transport.opened(0);
+    firstAttempt.subscribed();
+    firstAttempt.events(busEvent(1));
+    firstAttempt.emit({ type: 'malformed' });
+    await until(async () => (await store.coverage()).state === 'captured', 'the first flush');
+    first.abort();
+    const firstResult = resultOf(await settledOf(firstDone));
+
+    assert.equal(await checkpointCursor(store), cursorOf(1), 'the checkpoint stays before the unreadable delivery');
+    assert.deepEqual(
+      firstResult.newGaps.map(gap => [gap.reason, gap.after]),
+      [['malformedEvent', busEvent(1).createdDate]]
+    );
+    assert.deepEqual(
+      firstResult.store.state === 'captured' ? firstResult.store.gaps.map(gap => gap.before) : [],
+      [undefined],
+      'nothing newer has arrived, so the gap is open'
+    );
+
+    const second = watcher({ follow: true });
+    const secondDone = hub.watch(store.location, second.watcher, deps);
+    const secondAttempt = await transport.opened(1);
+    assert.deepEqual(secondAttempt.from, { kind: 'after', cursor: cursorOf(1) }, 'Salesforce redelivers it');
+    secondAttempt.subscribed();
+    secondAttempt.emit({ type: 'malformed' });
+    secondAttempt.events(busEvent(3));
+    await clock.advance(250);
+    await until(async () => (await checkpointCursor(store)) === cursorOf(3), 'the checkpoint at the next event');
+    second.abort();
+    const secondResult = resultOf(await settledOf(secondDone));
+
+    assert.deepEqual(secondResult.newGaps, [], 'the redelivered unreadable message is the same gap');
+    assert.deepEqual(
+      secondResult.store.state === 'captured' ? secondResult.store.gaps.map(gap => [gap.after, gap.before]) : [],
+      [[busEvent(1).createdDate, busEvent(3).createdDate]]
+    );
   });
 });
 
