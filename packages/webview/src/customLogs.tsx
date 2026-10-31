@@ -14,6 +14,7 @@ import { initialCustomLogsView, reduceCustomLogsView } from '@alv/protocol/custo
 import type { OrgItem } from '@alv/protocol/types';
 import { getMessages } from './i18n';
 import { CustomLogRowDetail } from './components/custom-logs/CustomLogRowDetail';
+import { CustomLogsCaptureStrip } from './components/custom-logs/CustomLogsCaptureStrip';
 import { CustomLogsEmptyState } from './components/custom-logs/CustomLogsEmptyState';
 import { CustomLogsFilterBar, type FilterChip } from './components/custom-logs/CustomLogsFilterBar';
 import { CustomLogsStatusBar } from './components/custom-logs/CustomLogsStatusBar';
@@ -106,6 +107,7 @@ export function CustomLogsApp({
   const rows = view.page?.rows ?? NO_ROWS;
   const payloadFields = view.page?.payloadFields ?? NO_FIELDS;
   const hasMore = view.page?.hasMore ?? false;
+  const capture = view.capture;
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
   const [rootRef, rootHeight] = useElementHeight<HTMLDivElement>();
 
@@ -358,7 +360,8 @@ export function CustomLogsApp({
       return undefined;
     }
     if (rows.length === 0) {
-      return t.noRows;
+      // A store that was never captured is explained by the capture strip, with the choice to fill it.
+      return capture?.store.state === 'notCaptured' ? undefined : t.noRows;
     }
     if (visibleRows.length === 0) {
       return [fillTemplate(t.noMatch, { count: rows.length }), hasMore ? t.noMatchMore : ''].filter(Boolean).join(' ');
@@ -413,7 +416,24 @@ export function CustomLogsApp({
             onSubmit={onSubmitFilter}
             onAddColumn={path => !activeColumns.has(path) && workbench.toggleColumn(path)}
             prefill={workbench.prefill}
+            stored={capture !== undefined}
           />
+          {capture ? (
+            <CustomLogsCaptureStrip
+              t={t}
+              locale={locale}
+              sourceLabel={selectedSource?.label ?? ''}
+              capture={capture}
+              onStop={() => post({ type: 'customLogsCapture', action: 'stop' })}
+              onStart={initial =>
+                post(
+                  initial
+                    ? { type: 'customLogsCapture', action: 'start', initial }
+                    : { type: 'customLogsCapture', action: 'start' }
+                )
+              }
+            />
+          ) : null}
           <div className={dock === 'right' ? 'flex min-h-0 flex-1 flex-row' : 'flex min-h-0 flex-1 flex-col'}>
             <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
               {messageIfEmpty ? (
@@ -469,6 +489,7 @@ export function CustomLogsApp({
             }
             filtering={filtering}
             payloadInUse={workbench.payloadInUse}
+            hint={capture ? t.status.hintStored : t.status.hint}
             payloadStates={payloadStates}
             hasMore={hasMore}
             loading={loading}

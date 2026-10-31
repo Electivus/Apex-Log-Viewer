@@ -12,6 +12,7 @@ import { ExtraCell } from './ExtraCell';
 import { LevelBadge } from './LevelBadge';
 import { PayloadCell } from './PayloadCell';
 import { useGridList } from './useGridList';
+import { useLiveAnchor } from './useLiveAnchor';
 
 const ROW_HEIGHT = 24;
 
@@ -163,6 +164,7 @@ export function CustomLogsTable({
 }: CustomLogsTableProps) {
   const VirtualList = virtualListComponent ?? List;
   const { listRef, headerRef, onKeyDown } = useGridList(rows, selectedId, onSelect, onOpen);
+  useLiveAnchor(rows, ROW_HEIGHT, listRef);
 
   const { gridTemplate, totalWidth } = useMemo(() => columnGrid(columns), [columns]);
   const firstPayloadColumnId = useMemo(() => columns.find(column => column.kind === 'payload')?.id, [columns]);

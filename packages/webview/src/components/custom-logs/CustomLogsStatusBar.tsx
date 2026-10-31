@@ -13,6 +13,8 @@ type CustomLogsStatusBarProps = {
   filtering: boolean;
   /** Payload columns, filters or sorts are in use, so the loaded-rows caveat applies. */
   payloadInUse: boolean;
+  /** The caveat shown while payload columns, filters or sorts are in use. */
+  hint?: string;
   payloadStates: PayloadStateCounts;
   hasMore: boolean;
   loading: boolean;
@@ -24,6 +26,7 @@ export function CustomLogsStatusBar({
   scope,
   filtering,
   payloadInUse,
+  hint,
   payloadStates,
   hasMore,
   loading,
@@ -58,7 +61,7 @@ export function CustomLogsStatusBar({
           {t.loadMore}
         </Button>
       ) : null}
-      {payloadInUse ? <span className="truncate text-muted-foreground">{t.status.hint}</span> : null}
+      {payloadInUse ? <span className="truncate text-muted-foreground">{hint ?? t.status.hint}</span> : null}
       <span className="flex-1" />
       {problems.length > 0 ? (
         <span className="flex items-center gap-1 text-amber-400">

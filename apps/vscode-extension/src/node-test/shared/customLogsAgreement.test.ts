@@ -5,6 +5,7 @@ import { parseCustomLogLevel, parseSinceValue } from '@alv/protocol/customLogsRu
 import {
   CUSTOM_LOG_LEVELS,
   EVENT_ROW_ID_PATTERN,
+  mergeLiveRows,
   mergePayloadFields,
   parseCustomLogRowId,
   type CustomLogPayloadField,
@@ -19,7 +20,15 @@ import {
   serverFieldOf
 } from '../../../../../packages/webview/src/utils/customLogs/filterGrammar';
 import { normalizePayloadPath, payloadMatches } from '../../../../../packages/webview/src/utils/customLogs/payloadRows';
-import { coreConfig, coreContracts, coreLevels, corePayload, coreSince, coreSoql } from '../coreInternals';
+import {
+  coreConfig,
+  coreContracts,
+  coreEventIds,
+  coreLevels,
+  corePayload,
+  coreSince,
+  coreSoql
+} from '../coreInternals';
 
 const NOW = Date.parse('2026-10-30T12:00:00Z');
 
@@ -140,6 +149,28 @@ suite('Custom Logs rules agree between core and protocol', () => {
         assert.equal(protocolAccepts, !coreRejects);
       });
     }
+  });
+
+  suite('live row order', () => {
+    const eventId = (createdMs: number, seq: number, uuidTail: number) =>
+      `e-${createdMs.toString(36).padStart(9, '0')}-${seq.toString(36).padStart(10, '0')}-${uuidTail.toString(16).padStart(32, '0')}`;
+
+    test('merges event rows into the order core lists them, ties on time, sequence and uuid included', () => {
+      const positions = [0, 1, 2].flatMap(time =>
+        [0, 1].flatMap(seq =>
+          [0, 1].map(tail => coreEventIds.parseEventRowId(eventId(1_790_000_000_000 + time, seq, tail))!)
+        )
+      );
+      const listed = positions
+        .sort(coreEventIds.compareNewestFirst)
+        .map(position => ({ id: coreEventIds.eventRowId(position) }));
+
+      for (const stride of [2, 3, 5]) {
+        const loaded = listed.filter((_, index) => index % stride === 0);
+        const incoming = listed.filter((_, index) => index % stride !== 0).reverse();
+        assert.deepEqual(mergeLiveRows(loaded, incoming, { hasMore: false }), listed, `every ${stride}th row loaded`);
+      }
+    });
   });
 
   suite('payload field summaries', () => {

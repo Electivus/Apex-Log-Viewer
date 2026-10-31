@@ -76,6 +76,50 @@ export function mergePayloadFields(
   return [...merged.values()];
 }
 
+/** Rows the shared reducer keeps before the provider resets the list to the newest page. */
+export const CUSTOM_LOGS_LIVE_ROW_CAP = 5_000;
+
+/**
+ * Folds rows a capture stored into the loaded list, newest first, one row per id.
+ *
+ * Event ids order by plain string comparison, and the list is newest first, so the larger id sorts
+ * first (core's `compareNewestFirst` is this order). The merge never parses an id, and only event
+ * sources produce live rows. An incoming row already loaded is dropped, as is a repeat inside the batch.
+ *
+ * While `hasMore`, the loaded list ends where the next page starts, so an incoming row older than its
+ * last row stays out: the next page reads it from the store, and merging it here would place it
+ * above rows that page still has to deliver. An empty list has no next page to protect.
+ */
+export function mergeLiveRows<R extends { id: string }>(
+  loaded: readonly R[],
+  incoming: readonly R[],
+  options: { hasMore: boolean }
+): R[] {
+  const merged: R[] = [];
+  let next = 0;
+  let previousId: string | undefined;
+  for (const row of [...incoming].sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))) {
+    if (row.id === previousId) {
+      continue;
+    }
+    previousId = row.id;
+    while (next < loaded.length && loaded[next]!.id > row.id) {
+      merged.push(loaded[next++]!);
+    }
+    if (next < loaded.length) {
+      if (loaded[next]!.id !== row.id) {
+        merged.push(row);
+      }
+    } else if (!options.hasMore || loaded.length === 0) {
+      merged.push(row);
+    }
+  }
+  for (; next < loaded.length; next++) {
+    merged.push(loaded[next]!);
+  }
+  return merged;
+}
+
 export type CustomLogRow = {
   id: string;
   time: string;
@@ -159,6 +203,13 @@ export type CustomLogCaptureStateView =
   | { state: 'failed'; code: string; message: string };
 
 export type CustomLogCaptureAllowanceView = { remaining?: number; max?: number; budget: number };
+
+/**
+ * What the user picks on the `needsInitial` prompt. Core's `CustomLogCaptureInitial` adds `none`, which only
+ * the panel's own automatic start uses, so a webview can never send it.
+ */
+export const CUSTOM_LOG_CAPTURE_CHOICES = ['retained', 'new'] as const;
+export type CustomLogCaptureChoice = (typeof CUSTOM_LOG_CAPTURE_CHOICES)[number];
 
 /** What the capture strip renders. `undefined` in the view state means the selected source is not an event source. */
 export type CustomLogCaptureView = {

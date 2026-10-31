@@ -6,16 +6,19 @@
  * share one unprefixed parser, which lets a Tail message validate at the Logs provider).
  *
  * Replay: every outbound message is `replayable`. The provider's snapshot is exactly
- * Init, Orgs, Sources, Filter, PayloadColumns, Page (mode 'replace', all loaded rows and the
- * payload fields merged across them), Loading, Error, so a remount reproduces the screen from
- * the latest of each.
+ * Init, Orgs, Sources, Filter, PayloadColumns, Page (mode 'replace', all loaded rows, live rows
+ * included, and the payload fields merged across them), Capture (only while the selected source
+ * is an event source), Loading, Error, so a remount reproduces the screen from the latest of each.
  */
 
 import type { OrgItem } from './types.js';
 import { parseCustomLogLevel, parseSinceValue } from './customLogsRules.js';
 import {
+  CUSTOM_LOG_CAPTURE_CHOICES,
   parseCustomLogPayloadColumns,
   parseCustomLogRowId,
+  type CustomLogCaptureChoice,
+  type CustomLogCaptureView,
   type CustomLogColumn,
   type CustomLogConfigIssueView,
   type CustomLogPayloadColumnsView,
@@ -51,7 +54,13 @@ export type CustomLogsFromWebviewMessage =
   /** Opens `sfdx-project.json` at `plugins.electivus.customLogs` (same as the configure command). */
   | { type: 'customLogsOpenConfig' }
   /** Opens the same view in an editor tab. */
-  | { type: 'customLogsOpenEditor' };
+  | { type: 'customLogsOpenEditor' }
+  /**
+   * Stops or starts capture for the selected event source. `initial` answers the `needsInitial` prompt
+   * and travels only with `start`; the host ignores it when the store already has a position.
+   */
+  | { type: 'customLogsCapture'; action: 'stop' }
+  | { type: 'customLogsCapture'; action: 'start'; initial?: CustomLogCaptureChoice };
 
 export type CustomLogsToWebviewMessage =
   /** `surface` 'editor' hides the "open in editor" action; absent means the bottom-panel view. */
@@ -61,6 +70,14 @@ export type CustomLogsToWebviewMessage =
   | { type: 'customLogsFilter'; value: CustomLogsFilterView }
   | { type: 'customLogsPayloadColumns'; value: CustomLogPayloadColumnsView }
   | { type: 'customLogsLoading'; value: boolean }
+  /** The capture strip's state; `value` undefined clears it (the selected source is not an event source). */
+  | { type: 'customLogsCapture'; value?: CustomLogCaptureView }
+  /**
+   * Rows a capture stored, already decoded and filtered for this view, merged into the loaded page by
+   * `mergeLiveRows` with their `payloadFields`. The provider folds them into its snapshot, so a remount
+   * replays them inside the one `customLogsPage` replace.
+   */
+  | { type: 'customLogsLiveRows'; rows: CustomLogRow[]; payloadFields: CustomLogPayloadField[] }
   | {
       type: 'customLogsPage';
       mode: 'replace' | 'append';
@@ -124,8 +141,9 @@ function parseCustomLogsFilter(value: unknown): CustomLogsFilterView | undefined
 /**
  * Hand-written validator in the style of `parseDebugFlagsFromWebviewMessage`: length caps,
  * record-id and source-id patterns, `minLevel` in CUSTOM_LOG_LEVELS, `since` must be a duration or
- * an ISO instant with an offset (what core accepts), at most 50 payload columns of at most 255 characters. Returns undefined for
- * anything else.
+ * an ISO instant with an offset (what core accepts), at most 50 payload columns of at most 255 characters,
+ * a capture `stop` with nothing else or a `start` with an optional `initial` of `retained` or `new`. Returns
+ * undefined for anything else.
  */
 export function parseCustomLogsFromWebviewMessage(raw: unknown): CustomLogsFromWebviewMessage | undefined {
   const message = asRecord(raw);
@@ -169,6 +187,19 @@ export function parseCustomLogsFromWebviewMessage(raw: unknown): CustomLogsFromW
     case 'customLogsSetPayloadColumns': {
       const added = parseCustomLogPayloadColumns(message.added);
       return added ? { type: 'customLogsSetPayloadColumns', added } : undefined;
+    }
+    case 'customLogsCapture': {
+      if (message.action === 'stop') {
+        return message.initial === undefined ? { type: 'customLogsCapture', action: 'stop' } : undefined;
+      }
+      if (message.action !== 'start') {
+        return undefined;
+      }
+      if (message.initial === undefined) {
+        return { type: 'customLogsCapture', action: 'start' };
+      }
+      const initial = CUSTOM_LOG_CAPTURE_CHOICES.find(choice => choice === message.initial);
+      return initial ? { type: 'customLogsCapture', action: 'start', initial } : undefined;
     }
     default:
       return undefined;

@@ -193,6 +193,62 @@ test('list parser reads the filter typed with a source switch by the same rules,
   }
 });
 
+test('capture messages carry a stop, or a start with the first-use choice when there is one', () => {
+  assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsCapture', action: 'stop' }), {
+    type: 'customLogsCapture',
+    action: 'stop'
+  });
+  assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsCapture', action: 'start' }), {
+    type: 'customLogsCapture',
+    action: 'start'
+  });
+  assert.deepEqual(
+    parseCustomLogsFromWebviewMessage({ type: 'customLogsCapture', action: 'start', initial: undefined }),
+    { type: 'customLogsCapture', action: 'start' }
+  );
+  for (const initial of ['retained', 'new'] as const) {
+    assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsCapture', action: 'start', initial }), {
+      type: 'customLogsCapture',
+      action: 'start',
+      initial
+    });
+  }
+});
+
+test('capture messages drop every field outside the contract', () => {
+  assert.deepEqual(
+    parseCustomLogsFromWebviewMessage({
+      type: 'customLogsCapture',
+      action: 'start',
+      initial: 'new',
+      cursor: 'cometd:7'
+    }),
+    { type: 'customLogsCapture', action: 'start', initial: 'new' }
+  );
+  assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsCapture', action: 'stop', force: true }), {
+    type: 'customLogsCapture',
+    action: 'stop'
+  });
+});
+
+test('capture messages reject an unknown action, a choice core reserves for the panel and a choice on stop', () => {
+  const rejected = [
+    { type: 'customLogsCapture' },
+    { type: 'customLogsCapture', action: 'pause' },
+    { type: 'customLogsCapture', action: 'START' },
+    { type: 'customLogsCapture', action: 7 },
+    { type: 'customLogsCapture', action: 'start', initial: 'none' },
+    { type: 'customLogsCapture', action: 'start', initial: 'Retained' },
+    { type: 'customLogsCapture', action: 'start', initial: null },
+    { type: 'customLogsCapture', action: 'start', initial: 1 },
+    { type: 'customLogsCapture', action: 'start', initial: ['new'] },
+    { type: 'customLogsCapture', action: 'stop', initial: 'new' },
+    { type: 'customLogsCapture', action: 'stop', initial: null }
+  ].map(parseCustomLogsFromWebviewMessage);
+
+  assert.deepEqual(rejected, Array(rejected.length).fill(undefined));
+});
+
 test('list parser rejects malformed ids, sources and orgs', () => {
   const rejected = [
     { type: 'customLogsOpenLog', logId: 'short' },
