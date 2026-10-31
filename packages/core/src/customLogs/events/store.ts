@@ -177,6 +177,13 @@ export type EventStoreWriter = {
    */
   append(events: readonly BusEvent[]): Promise<AppendResult>;
   /**
+   * Adds the uuid of every stored event, whatever its age, to the memory `append` drops re-deliveries by.
+   * `openWriter` seeds that memory only from files the checkpoint does not cover, which is right for a crash
+   * or a takeover and wrong for a `-2` replay: it re-delivers history the checkpoint covers, so without this
+   * each event the store already holds is written again and shown twice by a live view.
+   */
+  rememberStored(): Promise<void>;
+  /**
    * Only after `append` resolved for the events up to `cursor` (I2). `cursor` is the last DELIVERED
    * event's cursor, duplicates included, so a duplicate-only batch still advances the resume point.
    * Re-reads the lease immediately before the atomic write; throws LeaseLostError when it is not held.
@@ -426,6 +433,16 @@ function createWriter(layout: Layout, index: LineIndex, lease: Lease, start: Wri
           });
           if (stored !== text) await writeJsonAtomic(layout.describeFile, describe, { syncDirectory: true });
         });
+      }),
+
+    rememberStored: () =>
+      enqueue(async () => {
+        usable();
+        for (const partition of (await allPartitions(layout.objectDir)).reverse()) {
+          for (const file of partition.files) {
+            for (const { position } of (await index.of(file)).lines) recent.add(position.uuid);
+          }
+        }
       }),
 
     append: events =>

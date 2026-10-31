@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 
 import { AlvError } from '../src/errors.ts';
@@ -31,6 +33,23 @@ import {
 const HOUR = 3_600_000;
 
 type Settled = { result: CustomLogCaptureResult } | { error: unknown };
+
+/**
+ * A real store is older than its checkpoint: the checkpoint is rewritten at the clean end of every run, minutes or
+ * days after the files it covers were written. Freshly seeded files sit within the writer's mtime slack of
+ * `updatedAt` and hide that, so a test that depends on history being old ages it.
+ */
+function ageStoredFiles(store: EventStore, hours = 1): void {
+  const past = new Date(Date.now() - hours * HOUR);
+  const walk = (dir: string): void => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(entryPath);
+      else if (entry.name.endsWith('.ndjson')) fs.utimesSync(entryPath, past, past);
+    }
+  };
+  walk(store.eventsRoot);
+}
 
 /** The outcome of a `watch` that may reject, observed without leaving a rejection unhandled. */
 const settledOf = (promise: Promise<CustomLogCaptureResult>): Promise<Settled> =>
@@ -187,6 +206,7 @@ test('a rejected cursor writes the gap before the retained resubscribe, closes i
   await withProject(async root => {
     const store = openStore(root);
     await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
+    ageStoredFiles(store);
     const snapshots: Awaited<ReturnType<EventStore['coverage']>>[] = [];
     const transport = fakeTransport({ onOpen: async () => void snapshots.push(await store.coverage()) });
     const { clock, deps, hub } = setup(store, { transport });

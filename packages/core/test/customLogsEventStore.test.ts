@@ -444,6 +444,31 @@ test('a file that predates the checkpoint is not reread: its re-delivery is stor
   });
 });
 
+test('rememberStored makes the writer drop what a -2 replay re-delivers from files older than the checkpoint', async () => {
+  await withProject(async root => {
+    const first = await openWriter(openStore(root));
+    const batch = [busEvent(1), busEvent(2), busEvent(3)];
+    await first.append(batch);
+    await first.advance(checkpointOf(batch[2]!));
+    await first.release();
+    age(dataFiles(root)[0]!);
+
+    const store = openStore(root);
+    const second = await openWriter(store);
+    await second.rememberStored();
+    const { stored, duplicates } = await second.append([...batch, busEvent(4)]);
+
+    assert.equal(duplicates, 3, 'the files the checkpoint covers are remembered too');
+    assert.deepEqual(uuidsOf(stored), [uuidOf(4)]);
+    assert.deepEqual(uuidsOf(await readAll(store)), [4, 3, 2, 1].map(uuidOf));
+    assert.equal(
+      dataFiles(root).flatMap(file => fs.readFileSync(file, 'utf8').split('\n').filter(Boolean)).length,
+      4,
+      'one line per event on disk'
+    );
+  });
+});
+
 test('copies of one uuid in different hours read back as one event, in a scan and across pages whose cursor is in the newer copy hour', async () => {
   await withProject(async root => {
     const first = await openWriter(openStore(root));
