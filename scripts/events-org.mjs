@@ -9,18 +9,24 @@
 //       test/e2e/fixtures/events-org/, assign ALV_Test_Events to the admin, create the restricted
 //       user without it (alias alv-events-restricted), then run `verify`.
 //   node scripts/events-org.mjs publish --count N --transaction-id T [--level L|mixed] [--run-tag R] [--message-chars C]
+//                                        [--object ALV_Test_Log__e|ALV_Test_Replay__e|ALV_Test_Backlog__e]
 //       Publish N synthetic events over REST in batches of 25. Transaction_Id__c is `<T>-<run tag>`, so
 //       assertions that filter by it never see another run's events. --message-chars pads Message__c to C
-//       characters (up to the field's 131072) for large-event scenarios.
+//       characters (up to the field's 131072) for large-event scenarios. Scenarios that replay `-2` use
+//       ALV_Test_Replay__e, and the 10,000-event backlog uses ALV_Test_Backlog__e, so the retained backlog
+//       of ALV_Test_Log__e (what every `-2` replay of it delivers for 72 hours) stays small.
 //   node scripts/events-org.mjs limits
 //       Print the platform event and streaming allocations from /limits.
 //   node scripts/events-org.mjs verify  [--capture-describe]
-//       Exit 1 unless the org is the events org, no trigger or active flow subscribes to ALV_Test_Log__e,
-//       the permission set is assigned to the admin only, and the describe matches the committed fixture.
-//       --capture-describe rewrites that fixture from the org first.
+//       Exit 1 unless the org is the events org, no trigger or active flow subscribes to any ALV test event,
+//       the permission set is assigned to the admin only, and the describe of ALV_Test_Log__e matches the
+//       committed fixture. --capture-describe rewrites that fixture from the org first.
 //   node scripts/events-org.mjs record  --name <fixture> --replay -2|-1|<id> [--max-events N]
 //       Subscribe once without the core adapter and write the sanitized messages to
 //       test/fixtures/customLogs/events/<fixture>.events.json for the Bayeux double.
+//   node scripts/events-org.mjs measure --object O --replay -2|-1|<id> [--max-events N] [--quiet-ms M] [--no-event-ms M] [--max-ms M]
+//       Subscribe once without the core adapter, write nothing, and print when the subscribe was acknowledged,
+//       when each response arrived and how many events it held. The first-byte latency of a replay.
 //
 // Every subscription costs one delivery per event against the org's daily allocation: `record` refuses
 // to start when fewer than --max-events deliveries remain. The counter in /limits lags by more than a
@@ -42,6 +48,9 @@ export const EVENTS_ORG_ALIAS = 'alv-events';
 export const RESTRICTED_USER_ALIAS = 'alv-events-restricted';
 export const EVENTS_ORG_NAME = 'ALV events';
 export const EVENT_OBJECT = 'ALV_Test_Log__e';
+export const REPLAY_OBJECT = 'ALV_Test_Replay__e';
+export const BACKLOG_OBJECT = 'ALV_Test_Backlog__e';
+export const EVENT_OBJECTS = [EVENT_OBJECT, REPLAY_OBJECT, BACKLOG_OBJECT];
 export const EVENT_CHANNEL = `/event/${EVENT_OBJECT}`;
 export const PERMISSION_SET = 'ALV_Test_Events';
 export const SYNTHETIC_USERNAME = 'synthetic.user@example.com';
@@ -110,10 +119,11 @@ const COMMANDS = {
       'transaction-id': matching(/^[A-Za-z0-9._-]{1,40}$/, 'letters, digits, dots, underscores or dashes (1-40)'),
       level: oneOf([...LEVELS, 'mixed']),
       'run-tag': matching(/^[A-Za-z0-9]{4,12}$/, 'letters and digits (4-12)'),
-      'message-chars': integer(1, MESSAGE_MAX_CHARS)
+      'message-chars': integer(1, MESSAGE_MAX_CHARS),
+      object: oneOf(EVENT_OBJECTS)
     },
     required: ['count', 'transaction-id'],
-    defaults: { level: 'INFO' }
+    defaults: { level: 'INFO', object: EVENT_OBJECT }
   },
   limits: { flags: { 'target-org': aliasText }, required: [], defaults: {} },
   verify: { flags: { 'target-org': aliasText, 'capture-describe': BOOLEAN }, required: [], defaults: {} },
@@ -128,6 +138,19 @@ const COMMANDS = {
       'max-ms': integer(1000, 600000)
     },
     required: ['name', 'replay'],
+    defaults: { 'max-events': 1000, 'quiet-ms': 8000, 'no-event-ms': 30000, 'max-ms': 120000 }
+  },
+  measure: {
+    flags: {
+      'target-org': aliasText,
+      object: oneOf(EVENT_OBJECTS),
+      replay: replayId,
+      'max-events': integer(1, 50000),
+      'quiet-ms': integer(500, 120000),
+      'no-event-ms': integer(1000, 300000),
+      'max-ms': integer(1000, 1800000)
+    },
+    required: ['object', 'replay'],
     defaults: { 'max-events': 1000, 'quiet-ms': 8000, 'no-event-ms': 30000, 'max-ms': 120000 }
   }
 };
@@ -330,7 +353,11 @@ async function sfJson(args, { cwd = REPO_ROOT, timeoutMs = 10 * 60 * 1000 } = {}
     } catch {
       detail = undefined;
     }
-    const failure = new Error(`sf ${args.join(' ')} failed: ${detail?.message ?? error.message}`);
+    const problems = [detail?.result?.details?.componentFailures ?? []]
+      .flat()
+      .map(component => `${component.fullName}: ${component.problem}`);
+    const reason = problems.length > 0 ? problems.join('; ') : (detail?.message ?? error.message);
+    const failure = new Error(`sf ${args.join(' ')} failed: ${reason}`);
     failure.sfName = detail?.name;
     throw failure;
   }
@@ -397,7 +424,7 @@ async function publish(alias, options) {
   for (let start = 0; start < events.length; start += batchSize) {
     const records = events
       .slice(start, start + batchSize)
-      .map(event => ({ attributes: { type: EVENT_OBJECT }, ...event }));
+      .map(event => ({ attributes: { type: options.object }, ...event }));
     const results = await connection.request({
       method: 'POST',
       url,
@@ -413,7 +440,13 @@ async function publish(alias, options) {
     }
   }
   console.log(
-    JSON.stringify({ alias, published: events.length, runTag, transactionId: `${options['transaction-id']}-${runTag}` })
+    JSON.stringify({
+      alias,
+      object: options.object,
+      published: events.length,
+      runTag,
+      transactionId: `${options['transaction-id']}-${runTag}`
+    })
   );
 }
 
@@ -460,14 +493,6 @@ async function verify(alias, options) {
     await fs.writeFile(DESCRIBE_FIXTURE, text);
     console.log(`wrote ${path.relative(REPO_ROOT, DESCRIBE_FIXTURE)} (${describe.fields.length} fields)`);
   }
-  check(
-    `${EVENT_OBJECT} is a platform event (not queryable, key prefix e00)`,
-    !describe.queryable && describe.keyPrefix === 'e00',
-    {
-      queryable: describe.queryable,
-      keyPrefix: describe.keyPrefix
-    }
-  );
   const committed = await readCommittedDescribe();
   check(
     'the describe matches the committed fixture',
@@ -477,26 +502,34 @@ async function verify(alias, options) {
       : 'fixture differs: run verify --capture-describe'
   );
 
-  const [entity] = (
-    await connection.tooling.query(
-      `SELECT DurableId, Label FROM EntityDefinition WHERE QualifiedApiName = '${EVENT_OBJECT}'`
-    )
-  ).records;
-  const entityNames = [EVENT_OBJECT, entity?.DurableId].filter(Boolean);
   const triggers = (await connection.tooling.query('SELECT Name, TableEnumOrId FROM ApexTrigger')).records;
-  check(`no Apex trigger subscribes to ${EVENT_OBJECT}`, triggersReferencing(triggers, entityNames).length === 0, {
-    triggers: triggersReferencing(triggers, entityNames)
-  });
   const flows = (
     await connection.query(
       'SELECT ApiName, TriggerObjectOrEventId, TriggerObjectOrEventLabel FROM FlowDefinitionView WHERE IsActive = true'
     )
   ).records;
-  check(
-    `no active flow or process starts from ${EVENT_OBJECT}`,
-    flowsReferencing(flows, entityNames, entity?.Label).length === 0,
-    { flows: flowsReferencing(flows, entityNames, entity?.Label) }
-  );
+  for (const object of EVENT_OBJECTS) {
+    const objectDescribe = object === EVENT_OBJECT ? describe : trimDescribe(await connection.describe(object));
+    check(
+      `${object} is a platform event (not queryable, key prefix e0N)`,
+      !objectDescribe.queryable && /^e\d\d$/.test(objectDescribe.keyPrefix),
+      { queryable: objectDescribe.queryable, keyPrefix: objectDescribe.keyPrefix }
+    );
+    const [entity] = (
+      await connection.tooling.query(
+        `SELECT DurableId, Label FROM EntityDefinition WHERE QualifiedApiName = '${object}'`
+      )
+    ).records;
+    const entityNames = [object, entity?.DurableId].filter(Boolean);
+    check(`no Apex trigger subscribes to ${object}`, triggersReferencing(triggers, entityNames).length === 0, {
+      triggers: triggersReferencing(triggers, entityNames)
+    });
+    check(
+      `no active flow or process starts from ${object}`,
+      flowsReferencing(flows, entityNames, entity?.Label).length === 0,
+      { flows: flowsReferencing(flows, entityNames, entity?.Label) }
+    );
+  }
 
   const permissionSet = (await connection.query(`SELECT Id FROM PermissionSet WHERE Name = '${PERMISSION_SET}'`))
     .records;
@@ -615,16 +648,12 @@ function disconnectClient(client) {
   });
 }
 
-async function record(alias, options) {
-  const connection = await connect(alias);
-  const before = (await readLimits(connection)).DailyDeliveredPlatformEvents;
-  if (!before || before.remaining < options['max-events']) {
-    throw new Error(
-      `DailyDeliveredPlatformEvents has ${before?.remaining ?? 'unknown'} deliveries left; --max-events is ${options['max-events']}.`
-    );
-  }
-
-  const client = connection.streaming.createClient([replayExtension(EVENT_CHANNEL, options.replay)]);
+/**
+ * One plain Faye subscription, stopped by the first limit it meets. Faye hands over a whole HTTP response
+ * in one synchronous loop, so a response is one microtask turn, and `atMs` is when it arrived.
+ */
+async function collect(connection, { channel, replay, maxEvents, quietMs, noEventMs, maxMs }) {
+  const client = connection.streaming.createClient([replayExtension(channel, replay)]);
   const received = [];
   const arrivals = [];
   let batch = -1;
@@ -634,8 +663,7 @@ async function record(alias, options) {
   let subscribeError;
   let acknowledgedAt;
 
-  const subscription = client.subscribe(EVENT_CHANNEL, data => {
-    // Faye hands over a whole HTTP response in one synchronous loop, so a response is one microtask turn.
+  const subscription = client.subscribe(channel, data => {
     if (!batchOpen) {
       batchOpen = true;
       batch += 1;
@@ -659,11 +687,10 @@ async function record(alias, options) {
       const now = Date.now();
       let reason;
       if (subscribeError) reason = 'subscribeError';
-      else if (received.length >= options['max-events']) reason = 'maxEvents';
-      else if (received.length > 0 && now - lastEventAt >= options['quiet-ms']) reason = 'quiet';
-      else if (received.length === 0 && acknowledgedAt && now - acknowledgedAt >= options['no-event-ms'])
-        reason = 'noEvent';
-      else if (now - startedAt >= options['max-ms']) reason = 'maxTime';
+      else if (received.length >= maxEvents) reason = 'maxEvents';
+      else if (received.length > 0 && now - lastEventAt >= quietMs) reason = 'quiet';
+      else if (received.length === 0 && acknowledgedAt && now - acknowledgedAt >= noEventMs) reason = 'noEvent';
+      else if (now - startedAt >= maxMs) reason = 'maxTime';
       if (reason) {
         clearInterval(ticker);
         resolve(reason);
@@ -672,6 +699,48 @@ async function record(alias, options) {
   });
   subscription.cancel();
   await disconnectClient(client);
+  return {
+    received,
+    arrivals,
+    stopReason,
+    subscribeError,
+    ackMs: acknowledgedAt === undefined ? undefined : acknowledgedAt - startedAt,
+    lastEventMs: received.length === 0 ? undefined : lastEventAt - startedAt
+  };
+}
+
+async function deliveriesLeft(connection, maxEvents) {
+  const before = (await readLimits(connection)).DailyDeliveredPlatformEvents;
+  if (!before || before.remaining < maxEvents) {
+    throw new Error(
+      `DailyDeliveredPlatformEvents has ${before?.remaining ?? 'unknown'} deliveries left; --max-events is ${maxEvents}.`
+    );
+  }
+  return before;
+}
+
+const collectOptions = options => ({
+  replay: options.replay,
+  maxEvents: options['max-events'],
+  quietMs: options['quiet-ms'],
+  noEventMs: options['no-event-ms'],
+  maxMs: options['max-ms']
+});
+
+const batchSummary = (arrivals, received) =>
+  arrivals.map(arrival => ({
+    batch: arrival.batch,
+    events: received.filter(entry => entry.batch === arrival.batch).length,
+    atMs: arrival.atMs
+  }));
+
+async function record(alias, options) {
+  const connection = await connect(alias);
+  const before = await deliveriesLeft(connection, options['max-events']);
+  const { received, arrivals, stopReason, subscribeError } = await collect(connection, {
+    channel: EVENT_CHANNEL,
+    ...collectOptions(options)
+  });
 
   if (subscribeError) throw new Error(`subscribe was rejected: ${subscribeError}`);
   if (received.length === 0) throw new Error(`no event arrived (stopped: ${stopReason}); nothing written.`);
@@ -689,11 +758,7 @@ async function record(alias, options) {
       file: path.relative(REPO_ROOT, file),
       stopped: stopReason,
       events: received.length,
-      batches: arrivals.map(arrival => ({
-        batch: arrival.batch,
-        events: received.filter(entry => entry.batch === arrival.batch).length,
-        atMs: arrival.atMs
-      })),
+      batches: batchSummary(arrivals, received),
       replayIds: { first: replayIds[0], last: replayIds.at(-1) },
       bytes: Buffer.byteLength(text),
       deliveries: { before: before.remaining, max: before.max }
@@ -701,7 +766,37 @@ async function record(alias, options) {
   );
 }
 
-const HANDLERS = { ensure, publish, limits, verify, record };
+async function measure(alias, options) {
+  const connection = await connect(alias);
+  const before = await deliveriesLeft(connection, options['max-events']);
+  const started = new Date();
+  const { received, arrivals, stopReason, subscribeError, ackMs, lastEventMs } = await collect(connection, {
+    channel: `/event/${options.object}`,
+    ...collectOptions(options)
+  });
+  if (subscribeError) throw new Error(`subscribe was rejected: ${subscribeError}`);
+  const batches = batchSummary(arrivals, received);
+  const replayIds = received.map(entry => entry.data.event.replayId);
+  console.log(
+    JSON.stringify({
+      object: options.object,
+      replay: options.replay,
+      startedAt: started.toISOString(),
+      stopped: stopReason,
+      events: received.length,
+      ackMs,
+      firstEventMs: arrivals[0]?.atMs,
+      lastEventMs,
+      responses: batches.length,
+      firstResponses: batches.slice(0, 5),
+      largestResponse: batches.reduce((most, entry) => Math.max(most, entry.events), 0),
+      replayIds: { first: replayIds[0], last: replayIds.at(-1) },
+      deliveries: { before: before.remaining, max: before.max }
+    })
+  );
+}
+
+const HANDLERS = { ensure, publish, limits, verify, record, measure };
 
 export async function main(argv) {
   let parsed;

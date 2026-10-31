@@ -38,7 +38,8 @@ test('every command refuses another alias before it reads anything else', async 
     ['publish', '--count', '5', '--transaction-id', 'T'],
     ['limits'],
     ['verify'],
-    ['record', '--name', 'x', '--replay', '-2']
+    ['record', '--name', 'x', '--replay', '-2'],
+    ['measure', '--object', 'ALV_Test_Backlog__e', '--replay', '-2']
   ];
   for (const command of commands) {
     assert.throws(
@@ -58,12 +59,44 @@ test('arguments parse into typed options with defaults', async () => {
   assert.equal(parseArgs(['--help']).command, 'help');
 
   const publish = parseArgs(['publish', '--count', '870', '--transaction-id=burst', '--level', 'mixed']);
-  assert.deepEqual(publish.options, { level: 'mixed', count: 870, 'transaction-id': 'burst' });
+  assert.deepEqual(publish.options, {
+    level: 'mixed',
+    object: 'ALV_Test_Log__e',
+    count: 870,
+    'transaction-id': 'burst'
+  });
   assert.equal(parseArgs(['publish', '--count', '1', '--transaction-id', 'T']).options.level, 'INFO');
 
   assert.deepEqual(parseArgs(['ensure']).options, { 'duration-days': 30, wait: 20 });
   assert.equal(parseArgs(['ensure', '--dev-hub', 'my-hub', '--duration-days', '7']).options['dev-hub'], 'my-hub');
   assert.equal(parseArgs(['verify', '--capture-describe']).options['capture-describe'], true);
+});
+
+test('publish and measure take one of the three ALV test events', async () => {
+  const { EVENT_OBJECTS, parseArgs } = await load();
+  assert.deepEqual(EVENT_OBJECTS, ['ALV_Test_Log__e', 'ALV_Test_Replay__e', 'ALV_Test_Backlog__e']);
+  for (const object of EVENT_OBJECTS) {
+    assert.equal(
+      parseArgs(['publish', '--count', '1', '--transaction-id', 'T', '--object', object]).options.object,
+      object
+    );
+    assert.equal(parseArgs(['measure', '--object', object, '--replay', '-2']).options.object, object);
+  }
+  assert.throws(
+    () => parseArgs(['publish', '--count', '1', '--transaction-id', 'T', '--object', 'LogEntryEvent__e']),
+    /--object must be one of/
+  );
+  assert.throws(() => parseArgs(['measure', '--replay', '-2']), /measure needs --object/);
+  assert.throws(() => parseArgs(['measure', '--object', 'ALV_Test_Backlog__e']), /measure needs --replay/);
+  const measure = parseArgs(['measure', '--object', 'ALV_Test_Backlog__e', '--replay', '-2', '--max-events', '10000']);
+  assert.deepEqual(measure.options, {
+    object: 'ALV_Test_Backlog__e',
+    replay: -2,
+    'max-events': 10000,
+    'quiet-ms': 8000,
+    'no-event-ms': 30000,
+    'max-ms': 120000
+  });
 });
 
 test('record takes -2, -1 or a replay id after a space or an equals sign', async () => {
@@ -395,7 +428,8 @@ test('the describe and recording formats stay one entry per line and round-trip'
 });
 
 test('the scratch definition and metadata describe a subscriber-free high-volume event', async () => {
-  const { EVENTS_ORG_NAME, EVENT_OBJECT, PERMISSION_SET, SCRATCH_DEFINITION, ORG_PROJECT_DIR } = await load();
+  const { EVENTS_ORG_NAME, EVENT_OBJECT, EVENT_OBJECTS, PERMISSION_SET, SCRATCH_DEFINITION, ORG_PROJECT_DIR } =
+    await load();
   const definition = JSON.parse(fs.readFileSync(SCRATCH_DEFINITION, 'utf8'));
   assert.equal(definition.orgName, EVENTS_ORG_NAME);
   assert.equal(definition.edition, 'Developer');
@@ -430,7 +464,23 @@ test('the scratch definition and metadata describe a subscriber-free high-volume
     'utf8'
   );
   assert.match(permissionSet, /<allowRead>true<\/allowRead>/);
-  for (const name of fields) assert.match(permissionSet, new RegExp(`<field>${EVENT_OBJECT}\\.${name}</field>`));
+  for (const name of fields) {
+    assert.match(permissionSet, new RegExp(`<field>${EVENT_OBJECT}\\.${name}</field>`));
+  }
+
+  for (const object of EVENT_OBJECTS.filter(object => object !== EVENT_OBJECT)) {
+    const dir = path.join(ORG_PROJECT_DIR, 'force-app/main/default/objects', object);
+    assert.match(fs.readFileSync(path.join(dir, `${object}.object-meta.xml`), 'utf8'), /<eventType>HighVolume</);
+    assert.deepEqual(
+      fs.readdirSync(path.join(dir, 'fields')).sort(),
+      fs.readdirSync(path.join(objectDir, 'fields')).sort(),
+      `${object} has the fields of ${EVENT_OBJECT}`
+    );
+    assert.match(permissionSet, new RegExp(`<object>${object}</object>`));
+    for (const name of fields) {
+      assert.match(permissionSet, new RegExp(`<field>${object}\\.${name}</field>`));
+    }
+  }
 
   const listed = [];
   const walk = dir =>
