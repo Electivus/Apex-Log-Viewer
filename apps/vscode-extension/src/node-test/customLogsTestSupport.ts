@@ -5,8 +5,14 @@ import type {
   CustomLogEntry,
   CustomLogPayloadField,
   CustomLogRow,
-  CustomLogSourceView
+  CustomLogSourceView,
+  CustomLogStoreView
 } from '../shared/customLogsTypes';
+import type {
+  CustomLogCaptureCallOptions,
+  CustomLogCaptureResultView,
+  CustomLogCaptureUpdateView
+} from '../runtime/runtimeClient';
 
 type Message = { type: string } & Record<string, unknown>;
 
@@ -139,6 +145,17 @@ export const APP_LOG: CustomLogSourceView = {
   state: 'ready'
 };
 
+export const EVENTS: CustomLogSourceView = {
+  id: 'app-events',
+  label: 'App events',
+  origin: 'config',
+  shape: 'events',
+  hiddenFields: [],
+  capabilities: { levelFilter: true, userFilter: true, apexLogLink: false },
+  payload: {},
+  state: 'ready'
+};
+
 export const NOT_INSTALLED: CustomLogSourceView = {
   id: 'nebula-managed',
   label: 'Nebula Logger (managed)',
@@ -156,6 +173,28 @@ export const LOG_IDS = {
   second: 'a02000000000002AAA',
   third: 'a02000000000003AAA'
 } as const;
+
+/** An event row id as core builds it: fixed width, so plain string order is list order. */
+export function eventId(n: number): string {
+  return `e-mgv1x3a2k-${n.toString(36).padStart(10, '0')}-${'a'.repeat(32)}`;
+}
+
+export const NOT_CAPTURED: CustomLogStoreView = {
+  state: 'notCaptured',
+  eventsRoot: '/project/apexlogs/orgs/dev/events/App_Log__e',
+  retentionDays: 30
+};
+
+export const CAPTURED: CustomLogStoreView = {
+  state: 'captured',
+  eventsRoot: '/project/apexlogs/orgs/dev/events/App_Log__e',
+  oldest: '2026-10-02T09:14:03.120Z',
+  newest: '2026-10-30T17:58:41.007Z',
+  lastCaptureAt: '2026-10-30T17:58:52.311Z',
+  sizeBytes: 19_293_184,
+  retentionDays: 30,
+  gaps: []
+};
 
 export function row(id: string, title = id, extra: Partial<CustomLogRow> = {}): CustomLogRow {
   return { id, time: '2026-10-30T00:48:10.000Z', title, extra: {}, ...extra };
@@ -187,6 +226,47 @@ export const LINKED = { state: 'linked', logId: '07L000000000001AAA' } as const 
 
 type CallLog<T> = T[];
 
+/** One `customLog.capture` call the provider made: the test plays core, which reports updates until it ends. */
+export class FakeCapture {
+  readonly promise: Promise<CustomLogCaptureResultView>;
+  private settle!: { resolve(result: CustomLogCaptureResultView): void; reject(error: unknown): void };
+
+  constructor(
+    readonly params: Record<string, unknown>,
+    private readonly options: CustomLogCaptureCallOptions
+  ) {
+    this.promise = new Promise((resolve, reject) => {
+      this.settle = { resolve, reject };
+    });
+    // Core resolves an aborted capture with outcome `aborted`; it never rejects with ABORTED.
+    options.signal?.addEventListener('abort', () => this.settle.resolve({ outcome: 'aborted', store: CAPTURED }), {
+      once: true
+    });
+  }
+
+  get aborted(): boolean {
+    return this.options.signal?.aborted === true;
+  }
+
+  report(update: Partial<CustomLogCaptureUpdateView> = {}): void {
+    this.options.onUpdate?.({
+      capture: { state: 'live', basis: 'quiet' },
+      store: CAPTURED,
+      rows: [],
+      payloadFields: [],
+      ...update
+    });
+  }
+
+  end(outcome: CustomLogCaptureResultView['outcome'], store: CustomLogStoreView = CAPTURED): void {
+    this.settle.resolve({ outcome, store });
+  }
+
+  fail(error: unknown): void {
+    this.settle.reject(error);
+  }
+}
+
 /** A scripted `runtimeClient`: every method records its params and answers from a replaceable handler. */
 export function createFakeRuntimeClient() {
   const calls = {
@@ -194,7 +274,10 @@ export function createFakeRuntimeClient() {
     customLogSources: [] as CallLog<Record<string, unknown>>,
     customLogList: [] as CallLog<Record<string, unknown>>,
     customLogGet: [] as CallLog<Record<string, unknown>>,
-    customLogEntry: [] as CallLog<Record<string, unknown>>
+    customLogEntry: [] as CallLog<Record<string, unknown>>,
+    customLogCapture: [] as CallLog<FakeCapture>,
+    /** Which calls started, in order, so a test can tell "capture after the page" from "page after capture". */
+    order: [] as string[]
   };
   const handlers = {
     orgList: async (): Promise<Array<{ username: string; alias?: string; isDefaultUsername?: boolean }>> => [
@@ -227,7 +310,14 @@ export function createFakeRuntimeClient() {
     },
     customLogList: (params: Record<string, unknown>) => {
       calls.customLogList.push(params);
+      calls.order.push('list');
       return handlers.customLogList(params);
+    },
+    customLogCapture: (params: Record<string, unknown>, options: CustomLogCaptureCallOptions) => {
+      const capture = new FakeCapture(params, options);
+      calls.customLogCapture.push(capture);
+      calls.order.push('capture');
+      return capture.promise;
     },
     customLogGet: (params: Record<string, unknown>) => {
       calls.customLogGet.push(params);

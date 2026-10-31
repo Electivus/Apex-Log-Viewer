@@ -6,11 +6,13 @@ import {
   type ApexLogLocalFile,
   type ApexLogViewerCore,
   type AvailableLocalPathsResult,
+  type CoreInstrumentation,
   type PurgeApexLogsResult,
   type ReadApexLogResult
 } from '@alv/core';
 import type * as core from '@alv/core/contracts';
 import type {
+  CustomLogCaptureParams,
   CustomLogEntryParams,
   CustomLogEntryResult,
   CustomLogGetParams,
@@ -108,7 +110,8 @@ const TELEMETRY_METHOD_NAMES: Record<string, string> = {
   'customLog.sources': 'custom_log_sources',
   'customLog.list': 'custom_log_list',
   'customLog.get': 'custom_log_get',
-  'customLog.entry': 'custom_log_entry'
+  'customLog.entry': 'custom_log_entry',
+  'customLog.capture.callback': 'custom_log_capture_callback'
 };
 
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
@@ -146,8 +149,29 @@ export type CustomLogDtoProof = [
     ui.CustomLogCaptureView,
     Pick<core.CustomLogCaptureUpdate, 'capture' | 'store' | 'allowance'> & { wanted: boolean }
   >,
-  AssignsTo<ui.CustomLogLiveRowsView, Pick<core.CustomLogCaptureUpdate, 'rows' | 'payloadFields'>>
+  AssignsTo<ui.CustomLogLiveRowsView, Pick<core.CustomLogCaptureUpdate, 'rows' | 'payloadFields'>>,
+  AssignsTo<CustomLogCaptureUpdateView, core.CustomLogCaptureUpdate>,
+  AssignsTo<CustomLogCaptureResultView, core.CustomLogCaptureResult>
 ];
+
+/** What one `onUpdate` of a capture carries, as the panel posts it. */
+export type CustomLogCaptureUpdateView = {
+  capture: ui.CustomLogCaptureStateView;
+  store: ui.CustomLogStoreView;
+  rows: ui.CustomLogRow[];
+  payloadFields: ui.CustomLogPayloadField[];
+  allowance?: ui.CustomLogCaptureAllowanceView;
+};
+
+export type CustomLogCaptureResultView = {
+  outcome: ui.CustomLogCaptureOutcomeView;
+  store: ui.CustomLogStoreView;
+};
+
+export type CustomLogCaptureCallOptions = {
+  signal?: AbortSignal;
+  onUpdate?: (update: CustomLogCaptureUpdateView) => void;
+};
 
 export type CustomLogSourcesView = {
   defaultSourceId?: string;
@@ -176,6 +200,32 @@ export type CustomLogGetView = {
   apexLog: ui.CustomLogApexLogLink;
   store?: ui.CustomLogStoreView;
 };
+
+/**
+ * One `start` and one `end` per capture run, whatever number of panels watch it. Bounded fields only: no
+ * payload, id, cursor or org value.
+ */
+function reportCaptureRun(event: Parameters<NonNullable<CoreInstrumentation['onCapture']>>[0]): void {
+  switch (event.type) {
+    case 'start':
+      safeSendEvent('customLogs.capture.start', { outcome: 'started', from: event.from });
+      return;
+    case 'end':
+      safeSendEvent(
+        'customLogs.capture.end',
+        { outcome: event.outcome, ...(event.code ? { code: event.code } : {}) },
+        {
+          durationMs: event.durationMs,
+          delivered: event.delivered,
+          stored: event.stored,
+          gaps: event.gaps,
+          reconnects: event.reconnects,
+          dropped: event.dropped
+        }
+      );
+      return;
+  }
+}
 
 function createAbortError(): Error {
   const error = new Error('aborted');
@@ -213,7 +263,8 @@ export class CoreClient {
             };
             if (event.error) properties.code = getTelemetryErrorCode(event.error);
             safeSendEvent('core.request', properties, { durationMs: event.durationMs });
-          }
+          },
+          onCapture: reportCaptureRun
         }
       });
   }
@@ -456,6 +507,14 @@ export class CoreClient {
   /** Host-only: the panel keeps the long values to open as documents and posts `CustomLogLongFieldView`s. */
   public customLogEntry(params: CustomLogEntryParams, signal?: AbortSignal): Promise<CustomLogEntryResult> {
     return this.call(signal, () => this.core.customLog.entry(params, { signal }));
+  }
+
+  /** Not timed as a `core.request`: a follow lasts as long as the panel shows the source. `reportCaptureRun` reports it. */
+  public customLogCapture(
+    params: CustomLogCaptureParams,
+    options: CustomLogCaptureCallOptions = {}
+  ): Promise<CustomLogCaptureResultView> {
+    return this.call(options.signal, () => this.core.customLog.capture(params, options));
   }
 
   public dispose(): Promise<void> {

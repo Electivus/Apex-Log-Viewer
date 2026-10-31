@@ -10,7 +10,7 @@ import { buildWebviewHtml } from '../host/utils/webviewHtml';
 import { findCustomLogsProjectDir, onSfdxProjectFileChanged } from '../host/utils/workspace';
 import { openCustomLogDocument } from '../host/utils/customLogDocuments';
 import { CustomLogViewerPanel } from '../panel/CustomLogViewerPanel';
-import { runtimeClient } from '../runtime/runtimeClient';
+import { runtimeClient, type CustomLogCaptureUpdateView } from '../runtime/runtimeClient';
 import { safeSendEvent } from '../shared/telemetry';
 import { getTelemetryErrorCode } from '../shared/telemetryErrorCodes';
 import type { WebviewProviderDiagnosticState } from '../shared/webviewDiagnostics';
@@ -25,12 +25,14 @@ import {
   replayCustomLogsView,
   type CustomLogsViewState
 } from '../shared/customLogsState';
-import type {
-  CustomLogConfigIssueView,
-  CustomLogPayloadColumnsView,
-  CustomLogRow,
-  CustomLogSourceView,
-  CustomLogsFilterView
+import {
+  CUSTOM_LOGS_LIVE_ROW_CAP,
+  type CustomLogCaptureChoice,
+  type CustomLogConfigIssueView,
+  type CustomLogPayloadColumnsView,
+  type CustomLogRow,
+  type CustomLogSourceView,
+  type CustomLogsFilterView
 } from '../shared/customLogsTypes';
 import { createWebviewPanelHost, createWebviewViewHost, type BoundWebviewHost } from './webviewHost';
 import { createWebviewSession, type WebviewSession, type WebviewSessionDetachReason } from './webviewSession';
@@ -55,12 +57,53 @@ const PAYLOAD_LEVEL = {
   events: 'entry'
 } as const satisfies Record<CustomLogSourceView['shape'], CustomLogPayloadLevel>;
 
-/** Whether the panel may fall back to a shape on its own. Capturing an event source spends the org's delivery allocation, so the user opens one. */
-const FALLBACK_SHAPE = {
-  transactions: true,
-  entries: true,
-  events: false
+/**
+ * Whether the panel captures a shape while it is open. Capturing spends the org's delivery allocation, so a shape
+ * that captures is never picked as a fallback: the user opens it.
+ */
+const SHAPE_CAPTURES = {
+  transactions: false,
+  entries: false,
+  events: true
 } as const satisfies Record<CustomLogSourceView['shape'], boolean>;
+
+/** What the user asked of capture for one org and source; a new selection starts over with all of it. */
+type CaptureIntent = {
+  selection: string | undefined;
+  /** False after Stop, until Start or another org or source is picked. */
+  wanted: boolean;
+  /** The answer to the first-use prompt, spent by the next start. */
+  initial: CustomLogCaptureChoice | undefined;
+  /** Page 1 was reloaded once for this selection's columns. */
+  columnsReloaded: boolean;
+};
+
+const newIntent = (selection: string | undefined): CaptureIntent => ({
+  selection,
+  wanted: true,
+  initial: undefined,
+  columnsReloaded: false
+});
+
+/** The capture running for the screen. `key` names what it was started for, `ended` that its promise settled. */
+type CaptureRun = { controller: AbortController; key: string; ended: boolean };
+
+/** The messages that can change what a capture is for, so `post` checks the running one after them. */
+const RETARGETING = new Set<CustomLogsToWebviewMessage['type']>([
+  'customLogsOrgs',
+  'customLogsSources',
+  'customLogsFilter'
+]);
+
+/** Core takes the level and user of the filter; `since` only bounds the list. */
+function captureFilterOf(filter: CustomLogsFilterView): Pick<CustomLogsFilterView, 'minLevel' | 'user'> {
+  return { ...(filter.minLevel ? { minLevel: filter.minLevel } : {}), ...(filter.user ? { user: filter.user } : {}) };
+}
+
+function captureCodeOf(error: unknown): string {
+  const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+  return typeof code === 'string' ? code : 'CUSTOM_LOG_CAPTURE_FAILED';
+}
 
 function levelOf(source: CustomLogSourceView): CustomLogPayloadLevel {
   return PAYLOAD_LEVEL[source.shape];
@@ -79,7 +122,7 @@ function pickSourceId(
   return (
     wanted.map(ready).find(id => id !== undefined) ??
     ready(defaultSourceId) ??
-    sources.find(source => source.state === 'ready' && FALLBACK_SHAPE[source.shape])?.id
+    sources.find(source => source.state === 'ready' && !SHAPE_CAPTURES[source.shape])?.id
   );
 }
 
@@ -121,6 +164,8 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
   private selectedOrg: string | undefined;
   private preferredSourceId: string | undefined;
   private cursor: string | null = null;
+  private captureIntent = newIntent(undefined);
+  private capture: CaptureRun | undefined;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.payloadColumnsStore = createPayloadColumnsStore(context.workspaceState);
@@ -223,7 +268,8 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
         hasPageSnapshot: this.state.page !== undefined,
         rowCount: this.rows.length,
         hasMore: this.state.page?.hasMore ?? false,
-        hasError: this.state.error !== undefined
+        hasError: this.state.error !== undefined,
+        captureState: this.state.capture?.capture.state
       }
     });
   }
@@ -236,6 +282,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     this.view = undefined;
     this.requestController?.abort();
     this.requestController = undefined;
+    this.stopCapture();
     this.session.dispose();
     vscode.Disposable.from(...this.disposables).dispose();
     this.disposables.length = 0;
@@ -278,6 +325,9 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
         return;
       case 'customLogsSetPayloadColumns':
         await this.setPayloadColumns(message.added);
+        return;
+      case 'customLogsCapture':
+        await this.changeCapture(message);
         return;
       case 'customLogsOpenConfig':
         await vscode.commands.executeCommand(CUSTOM_LOGS_COMMANDS.configure);
@@ -347,6 +397,163 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     const value = this.columnsFor(source);
     this.post({ type: 'customLogsPayloadColumns', value });
     safeSendEvent('customLogs.payloadColumns', { outcome: 'ok', level }, { count: value.added.length });
+  }
+
+  /**
+   * The Stop and Start buttons of the capture strip. Start answers the first-use prompt with `initial`, or
+   * restarts a capture that ended; Stop keeps the user's choice until another org or source is picked.
+   */
+  private async changeCapture(
+    message: Extract<CustomLogsFromWebviewMessage, { type: 'customLogsCapture' }>
+  ): Promise<void> {
+    const source = this.selectedSource();
+    if (!source || !SHAPE_CAPTURES[source.shape]) {
+      logWarn('Custom Logs: ignored a capture action for a source that does not capture');
+      return;
+    }
+    if (message.action === 'stop') {
+      this.captureIntent = { ...this.captureIntent, wanted: false };
+      this.stopCapture();
+      const view = this.state.capture;
+      if (view) {
+        this.post({
+          type: 'customLogsCapture',
+          value: { ...view, capture: { state: 'stopped', outcome: 'aborted' }, wanted: false }
+        });
+      }
+      return;
+    }
+    this.captureIntent = { ...this.captureIntent, wanted: true, initial: message.initial };
+    this.ensureCapture(await findCustomLogsProjectDir(), 'start');
+  }
+
+  private captureSelection(): string {
+    return JSON.stringify([this.selectedOrg, this.state.sources?.selected]);
+  }
+
+  /** What a capture is started for: the org and source on screen, and the part of the filter core applies to live rows. */
+  private captureKey(): string {
+    return JSON.stringify([this.captureSelection(), captureFilterOf(this.state.filter)]);
+  }
+
+  /**
+   * Runs after every message that moves the org, the source or the filter. A capture belongs to the screen it
+   * started for, so it ends when that changes and the next page load starts the one that fits. A new org or
+   * source also starts the user's choices over and takes the strip down until its own capture reports.
+   */
+  private retarget(): void {
+    const selection = this.captureSelection();
+    if (selection !== this.captureIntent.selection) {
+      this.captureIntent = newIntent(selection);
+      if (this.state.capture) {
+        this.post({ type: 'customLogsCapture', value: undefined });
+      }
+    }
+    if (this.capture && this.capture.key !== this.captureKey()) {
+      this.stopCapture();
+    }
+  }
+
+  /**
+   * Starts a follow capture for the selected event source unless one already serves this screen. The page
+   * load starts it (an empty `notCaptured` page counts) and never restarts one that ended; the Start button
+   * restarts an ended one. `initial: 'none'` keeps the first and largest replay of an org behind the user's click.
+   */
+  private ensureCapture(projectDir: string | undefined, trigger: 'page' | 'start'): void {
+    const source = this.selectedSource();
+    if (!source || !SHAPE_CAPTURES[source.shape] || !this.captureIntent.wanted || this.disposed) {
+      return;
+    }
+    if (this.capture && (trigger === 'page' || !this.capture.ended)) {
+      return;
+    }
+    const run: CaptureRun = { controller: new AbortController(), key: this.captureKey(), ended: false };
+    this.capture = run;
+    const initial = this.captureIntent.initial ?? 'none';
+    this.captureIntent = { ...this.captureIntent, initial: undefined };
+    void runtimeClient
+      .customLogCapture(
+        {
+          targetOrg: this.selectedOrg,
+          projectDir,
+          source: source.id,
+          follow: true,
+          initial,
+          filter: captureFilterOf(this.state.filter)
+        },
+        { signal: run.controller.signal, onUpdate: update => this.onCaptureUpdate(run, update) }
+      )
+      .then(
+        () => {
+          run.ended = true;
+        },
+        error => this.failCapture(run, error)
+      );
+  }
+
+  private onCaptureUpdate(run: CaptureRun, update: CustomLogCaptureUpdateView): void {
+    if (this.capture !== run) {
+      return;
+    }
+    this.post({
+      type: 'customLogsCapture',
+      value: {
+        capture: update.capture,
+        store: update.store,
+        wanted: this.captureIntent.wanted,
+        ...(update.allowance ? { allowance: update.allowance } : {})
+      }
+    });
+    if (update.rows.length === 0) {
+      return;
+    }
+    this.post({ type: 'customLogsLiveRows', rows: update.rows, payloadFields: update.payloadFields });
+    this.reloadAfterLiveRows();
+  }
+
+  /**
+   * Live rows never set columns and the reducer never evicts, so the newest page is read again (the way
+   * Refresh does) when the first stored batch finds the page without columns, once per selection, and when
+   * the page outgrows the row cap. A source that maps no columns reloads once too, not on every flush.
+   */
+  private reloadAfterLiveRows(): void {
+    const page = this.state.page;
+    const needsColumns = !this.captureIntent.columnsReloaded && (page?.columns.length ?? 0) === 0;
+    if (!needsColumns && (page?.rows.length ?? 0) <= CUSTOM_LOGS_LIVE_ROW_CAP) {
+      return;
+    }
+    if (needsColumns) {
+      this.captureIntent = { ...this.captureIntent, columnsReloaded: true };
+    }
+    void this.run((signal, current) => this.fetchPage('replace', signal, current));
+  }
+
+  /** Core reports a run's own failure in an update; one that stops the run before it starts has none, so it shows here. */
+  private failCapture(run: CaptureRun, error: unknown): void {
+    run.ended = true;
+    if (this.capture !== run || isAbortError(error)) {
+      return;
+    }
+    const message = getErrorMessage(error);
+    logWarn('Custom Logs: capture failed ->', message);
+    const view = this.state.capture;
+    if (!view) {
+      this.post({ type: 'customLogsError', message });
+      return;
+    }
+    this.post({
+      type: 'customLogsCapture',
+      value: {
+        ...view,
+        capture: { state: 'failed', code: captureCodeOf(error), message },
+        wanted: this.captureIntent.wanted
+      }
+    });
+  }
+
+  private stopCapture(): void {
+    this.capture?.controller.abort();
+    this.capture = undefined;
   }
 
   private async openLog(logId: string): Promise<void> {
@@ -611,6 +818,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
           { outcome: 'ok' },
           { durationMs: Date.now() - startedAt, count: page.rows.length }
         );
+        this.ensureCapture(projectDir, 'page');
       }
     } catch (error) {
       if (mode === 'replace' && !isAbortError(error)) {
@@ -653,6 +861,9 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       this.selectedOrg = message.selected;
     }
     void this.session.deliver(message, 'replayable');
+    if (RETARGETING.has(message.type)) {
+      this.retarget();
+    }
   }
 
   private getHtmlForWebview(webview: vscode.Webview, mountSequence?: number): string {
@@ -667,11 +878,19 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
 
   private handleSessionDetach(reason: WebviewSessionDetachReason): void {
     this.view = undefined;
-    if ((reason === 'hostDisposed' || reason === 'explicit') && this.requestController) {
-      this.requestController.abort();
-      this.requestController = undefined;
-      this.state = reduceCustomLogsView(this.state, { type: 'customLogsLoading', value: false });
-      this.bootstrapNeedsRefresh = true;
+    if (reason === 'hostDisposed' || reason === 'explicit') {
+      // The next webview reloads and starts the capture again; until then its replay must not claim "Live".
+      if (this.capture) {
+        this.stopCapture();
+        this.state = reduceCustomLogsView(this.state, { type: 'customLogsCapture', value: undefined });
+        this.bootstrapNeedsRefresh = true;
+      }
+      if (this.requestController) {
+        this.requestController.abort();
+        this.requestController = undefined;
+        this.state = reduceCustomLogsView(this.state, { type: 'customLogsLoading', value: false });
+        this.bootstrapNeedsRefresh = true;
+      }
     }
     logInfo(`Custom Logs webview detached (${reason}).`);
   }

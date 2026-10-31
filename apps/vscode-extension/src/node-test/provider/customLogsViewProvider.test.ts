@@ -2,14 +2,19 @@ import assert from 'node:assert/strict';
 import proxyquire from 'proxyquire';
 
 import { WEBVIEW_SESSION_MOUNT_DELAY_MS } from '../../provider/webviewSession';
+import { CUSTOM_LOGS_LIVE_ROW_CAP, type CustomLogColumn, type CustomLogRow } from '../../shared/customLogsTypes';
 import { FakeClock, createWebviewSessionForTest, settle } from '../webviewSessionTestSupport';
 import {
   APP_LOG,
+  CAPTURED,
+  EVENTS,
   FakeHost,
   LOG_IDS,
   NEBULA,
+  NOT_CAPTURED,
   createFakeRuntimeClient,
   createMemento,
+  eventId,
   field,
   formatLocalized,
   resetVscodeStub,
@@ -746,6 +751,381 @@ suite('Custom Logs view provider', () => {
         outcome: 'ok',
         view: 'customLogs'
       });
+    });
+  });
+
+  suite('event capture', () => {
+    const REQUEST_COLUMN: CustomLogColumn = { key: 'Request_Id__c', label: 'Request' };
+
+    /** A project that maps `app-events`; its list answers from `page`, which a test edits as the store fills. */
+    function loadEvents() {
+      const ctx = load();
+      const page = { columns: [] as CustomLogColumn[], rows: [] as CustomLogRow[] };
+      ctx.fake.handlers.customLogSources = async () => ({ sources: [NEBULA, EVENTS, APP_LOG], issues: [] });
+      ctx.fake.handlers.customLogList = async params =>
+        params.source === EVENTS.id
+          ? { columns: page.columns, rows: page.rows, payloadFields: [], nextCursor: null, store: NOT_CAPTURED }
+          : { columns: [], rows: [row(LOG_IDS.first)], payloadFields: [], nextCursor: null };
+      return { ...ctx, page };
+    }
+
+    async function openEvents(ctx: ReturnType<typeof loadEvents>) {
+      const host = new FakeHost();
+      await ctx.mount(host);
+      await host.emit({ type: 'customLogsSelectSource', sourceId: EVENTS.id });
+      return host;
+    }
+
+    const strip = (host: FakeHost) =>
+      host.last('customLogsCapture')?.value as never as
+        | { capture: { state: string; outcome?: string; code?: string }; wanted: boolean; allowance?: unknown }
+        | undefined;
+
+    test('a record source never captures, and an event source is never opened on its own', async () => {
+      const recordFirst = load();
+      const host = new FakeHost();
+      await recordFirst.mount(host);
+      assert.equal(recordFirst.fake.calls.customLogCapture.length, 0);
+
+      const eventsOnly = load();
+      eventsOnly.fake.handlers.customLogSources = async () => ({ sources: [EVENTS], issues: [] });
+      const empty = new FakeHost();
+      await eventsOnly.mount(empty);
+      assert.equal(empty.last('customLogsSources')?.selected, undefined);
+      assert.deepEqual(eventsOnly.fake.calls.customLogList, []);
+      assert.deepEqual(eventsOnly.fake.calls.customLogCapture, []);
+
+      const listedFirst = load();
+      listedFirst.fake.handlers.customLogSources = async () => ({ sources: [EVENTS, NEBULA], issues: [] });
+      const mixed = new FakeHost();
+      await listedFirst.mount(mixed);
+      assert.equal(mixed.last('customLogsSources')?.selected, 'nebula');
+      assert.deepEqual(listedFirst.fake.calls.customLogCapture, []);
+    });
+
+    test('starts a follow capture once the first page is shown, for the stored position only', async () => {
+      const ctx = loadEvents();
+      const host = await openEvents(ctx);
+
+      assert.deepEqual(ctx.fake.calls.order, ['list', 'list', 'capture']);
+      assert.deepEqual(ctx.fake.calls.customLogCapture[0]?.params, {
+        targetOrg: 'dev@example.com',
+        projectDir: '/project',
+        source: EVENTS.id,
+        follow: true,
+        initial: 'none',
+        filter: {}
+      });
+
+      ctx.fake.calls.customLogCapture[0]!.report({ capture: { state: 'connecting' }, store: NOT_CAPTURED });
+      await settle();
+
+      assert.deepEqual(strip(host), { capture: { state: 'connecting' }, store: NOT_CAPTURED, wanted: true });
+      assert.equal(ctx.provider.getWebviewDiagnosticState().snapshots.captureState, 'connecting');
+    });
+
+    test('first use: the page load never buys the replay, the strip choice does, and only once', async () => {
+      const ctx = loadEvents();
+      const host = await openEvents(ctx);
+      const allowance = { remaining: 8_412, max: 10_000, budget: 4_206 };
+      const first = ctx.fake.calls.customLogCapture[0]!;
+      first.report({ capture: { state: 'stopped', outcome: 'needsInitial' }, store: NOT_CAPTURED, allowance });
+      first.end('needsInitial', NOT_CAPTURED);
+      await settle();
+      assert.deepEqual(strip(host), {
+        capture: { state: 'stopped', outcome: 'needsInitial' },
+        store: NOT_CAPTURED,
+        wanted: true,
+        allowance
+      });
+
+      await host.emit({ type: 'customLogsRefresh' });
+      assert.equal(
+        ctx.fake.calls.customLogCapture.length,
+        1,
+        'refreshing the page does not ask Salesforce for 72 hours'
+      );
+
+      await host.emit({ type: 'customLogsCapture', action: 'start', initial: 'retained' });
+      assert.equal(ctx.fake.calls.customLogCapture.length, 2);
+      assert.equal(ctx.fake.calls.customLogCapture[1]?.params.initial, 'retained');
+
+      await host.emit({ type: 'customLogsSetFilter', filter: { minLevel: 'ERROR' } });
+      assert.equal(
+        ctx.fake.calls.customLogCapture[2]?.params.initial,
+        'none',
+        'the choice was spent by the first start'
+      );
+    });
+
+    test('stored rows join the list newest first, and a remount replays one page and the strip, never live batches', async () => {
+      const ctx = loadEvents();
+      ctx.page.columns = [REQUEST_COLUMN];
+      ctx.page.rows = [row(eventId(2)), row(eventId(1))];
+      const host = await openEvents(ctx);
+      const capture = ctx.fake.calls.customLogCapture[0]!;
+
+      capture.report({ rows: [row(eventId(3))], payloadFields: [field('orderId')] });
+      capture.report({ rows: [row(eventId(5)), row(eventId(4))] });
+      await settle();
+      assert.equal(host.ofType('customLogsLiveRows').length, 2);
+
+      const listCalls = ctx.fake.calls.customLogList.length;
+      const second = new FakeHost();
+      await ctx.mount(second, 2);
+
+      assert.deepEqual(types(second), [
+        'customLogsInit',
+        'customLogsOrgs',
+        'customLogsSources',
+        'customLogsFilter',
+        'customLogsPayloadColumns',
+        'customLogsPage',
+        'customLogsCapture',
+        'customLogsLoading',
+        'customLogsError'
+      ]);
+      const page = second.last('customLogsPage') as never as {
+        rows: Array<{ id: string }>;
+        payloadFields: unknown[];
+      };
+      assert.deepEqual(
+        page.rows.map(r => r.id),
+        [5, 4, 3, 2, 1].map(eventId)
+      );
+      assert.deepEqual(page.payloadFields, [field('orderId')]);
+      assert.deepEqual(strip(second)?.capture, { state: 'live', basis: 'quiet' });
+      assert.equal(ctx.fake.calls.customLogList.length, listCalls, 'the remount does not read the store again');
+      assert.equal(capture.aborted, false, 'a rebind keeps the capture');
+      assert.equal(ctx.fake.calls.customLogCapture.length, 1);
+    });
+
+    test('the first stored batch reloads page 1 once, so the mapped columns appear', async () => {
+      const ctx = loadEvents();
+      const host = await openEvents(ctx);
+      const capture = ctx.fake.calls.customLogCapture[0]!;
+      const listCalls = ctx.fake.calls.customLogList.length;
+      assert.deepEqual((host.last('customLogsPage') as never as { columns: unknown[] }).columns, []);
+
+      ctx.page.columns = [REQUEST_COLUMN];
+      ctx.page.rows = [row(eventId(1))];
+      capture.report({ rows: [row(eventId(1))] });
+      await settle();
+
+      assert.equal(ctx.fake.calls.customLogList.length, listCalls + 1);
+      assert.deepEqual((host.last('customLogsPage') as never as { columns: unknown[] }).columns, [REQUEST_COLUMN]);
+      for (let n = 2; n < 12; n += 1) {
+        capture.report({ rows: [row(eventId(n))] });
+      }
+      await settle();
+      assert.equal(ctx.fake.calls.customLogList.length, listCalls + 1, 'later batches do not reload');
+    });
+
+    test('a source that maps no columns reloads once per selection, not once per batch', async () => {
+      const ctx = loadEvents();
+      const host = await openEvents(ctx);
+      const listCalls = ctx.fake.calls.customLogList.length;
+
+      for (let n = 1; n <= 10; n += 1) {
+        ctx.fake.calls.customLogCapture[0]!.report({ rows: [row(eventId(n))] });
+        await settle();
+      }
+      assert.equal(ctx.fake.calls.customLogList.length, listCalls + 1);
+
+      await host.emit({ type: 'customLogsSelectSource', sourceId: NEBULA.id });
+      await host.emit({ type: 'customLogsSelectSource', sourceId: EVENTS.id });
+      const afterReselect = ctx.fake.calls.customLogList.length;
+      ctx.fake.calls.customLogCapture[1]!.report({ rows: [row(eventId(11))] });
+      await settle();
+      assert.equal(ctx.fake.calls.customLogList.length, afterReselect + 1, 'a new selection reloads once more');
+    });
+
+    test('past the row cap the list reads its newest page again', async () => {
+      const ctx = loadEvents();
+      ctx.page.columns = [REQUEST_COLUMN];
+      ctx.page.rows = [row(eventId(1))];
+      const host = await openEvents(ctx);
+      const listCalls = ctx.fake.calls.customLogList.length;
+
+      ctx.fake.calls.customLogCapture[0]!.report({
+        rows: Array.from({ length: CUSTOM_LOGS_LIVE_ROW_CAP + 1 }, (_, n) => row(eventId(n + 10)))
+      });
+      await settle();
+
+      assert.equal(ctx.fake.calls.customLogList.length, listCalls + 1);
+      const page = host.last('customLogsPage') as never as { mode: string; rows: Array<{ id: string }> };
+      assert.equal(page.mode, 'replace');
+      assert.deepEqual(
+        page.rows.map(r => r.id),
+        [eventId(1)]
+      );
+    });
+
+    test('restarts for a level or user filter, and keeps running for Refresh and a date range', async () => {
+      const ctx = loadEvents();
+      const host = await openEvents(ctx);
+      const captures = ctx.fake.calls.customLogCapture;
+
+      await host.emit({ type: 'customLogsSetFilter', filter: { minLevel: 'ERROR', user: 'dev@example.com' } });
+      assert.equal(captures[0]?.aborted, true);
+      assert.deepEqual(captures[1]?.params.filter, { minLevel: 'ERROR', user: 'dev@example.com' });
+
+      await host.emit({
+        type: 'customLogsSetFilter',
+        filter: { minLevel: 'ERROR', user: 'dev@example.com', since: '24h' }
+      });
+      await host.emit({ type: 'customLogsRefresh' });
+      assert.equal(captures.length, 2);
+      assert.equal(captures[1]?.aborted, false);
+
+      await host.emit({ type: 'customLogsSetFilter', filter: {} });
+      assert.equal(captures[1]?.aborted, true);
+      assert.deepEqual(captures[2]?.params.filter, {});
+    });
+
+    test('hears nothing from a capture that was replaced', async () => {
+      const ctx = loadEvents();
+      ctx.page.columns = [REQUEST_COLUMN];
+      const host = await openEvents(ctx);
+      await host.emit({ type: 'customLogsSetFilter', filter: { minLevel: 'WARN' } });
+      const liveBatches = host.ofType('customLogsLiveRows').length;
+      const strips = host.ofType('customLogsCapture').length;
+
+      ctx.fake.calls.customLogCapture[0]!.report({ rows: [row(eventId(9))] });
+      await settle();
+
+      assert.equal(host.ofType('customLogsLiveRows').length, liveBatches);
+      assert.equal(host.ofType('customLogsCapture').length, strips);
+    });
+
+    test('Stop ends the capture and keeps it off through refreshes until Start', async () => {
+      const ctx = loadEvents();
+      const host = await openEvents(ctx);
+      const captures = ctx.fake.calls.customLogCapture;
+      captures[0]!.report();
+      await settle();
+
+      await host.emit({ type: 'customLogsCapture', action: 'stop' });
+
+      assert.equal(captures[0]?.aborted, true);
+      assert.deepEqual(strip(host), {
+        capture: { state: 'stopped', outcome: 'aborted' },
+        store: CAPTURED,
+        wanted: false
+      });
+      await host.emit({ type: 'customLogsRefresh' });
+      await host.emit({ type: 'customLogsSetFilter', filter: { minLevel: 'ERROR' } });
+      assert.equal(captures.length, 1);
+
+      await host.emit({ type: 'customLogsCapture', action: 'start' });
+      assert.equal(captures.length, 2);
+      assert.equal(captures[1]?.params.initial, 'none');
+      captures[1]!.report();
+      await settle();
+      assert.equal(strip(host)?.wanted, true);
+    });
+
+    test('Start while a capture is running does not restart it', async () => {
+      const ctx = loadEvents();
+      const host = await openEvents(ctx);
+
+      await host.emit({ type: 'customLogsCapture', action: 'start' });
+
+      assert.equal(ctx.fake.calls.customLogCapture.length, 1);
+      assert.equal(ctx.fake.calls.customLogCapture[0]?.aborted, false);
+    });
+
+    test('a record source takes the strip down, and the next event source starts over', async () => {
+      const ctx = loadEvents();
+      const host = await openEvents(ctx);
+      const captures = ctx.fake.calls.customLogCapture;
+      captures[0]!.report();
+      await settle();
+      await host.emit({ type: 'customLogsCapture', action: 'stop' });
+
+      await host.emit({ type: 'customLogsSelectSource', sourceId: APP_LOG.id });
+
+      assert.equal(host.last('customLogsCapture')?.value, undefined);
+      assert.equal(captures.length, 1);
+      await host.emit({ type: 'customLogsSelectSource', sourceId: EVENTS.id });
+      assert.equal(captures.length, 2, 'Stop applied to the source that was left, not to this selection');
+    });
+
+    test('another org restarts the capture for that org from a clean strip', async () => {
+      const ctx = loadEvents();
+      const host = await openEvents(ctx);
+      const captures = ctx.fake.calls.customLogCapture;
+      captures[0]!.report();
+      await settle();
+
+      await host.emit({ type: 'customLogsSelectOrg', target: 'qa' });
+
+      assert.equal(captures[0]?.aborted, true);
+      assert.equal(captures[1]?.params.targetOrg, 'qa@example.com');
+      assert.equal(captures[1]?.params.source, EVENTS.id);
+      assert.equal(host.ofType('customLogsCapture').at(-1)?.value, undefined, 'the old org strip is gone');
+    });
+
+    test('stops when the webview goes away and starts again with the next one, without a stale "Live"', async () => {
+      const ctx = loadEvents();
+      const first = await openEvents(ctx);
+      const captures = ctx.fake.calls.customLogCapture;
+      captures[0]!.report();
+      await settle();
+
+      first.dispose();
+      await settle();
+      assert.equal(captures[0]?.aborted, true);
+
+      const second = new FakeHost();
+      await ctx.mount(second, 2);
+
+      assert.equal(captures.length, 2);
+      assert.equal(captures[1]?.params.initial, 'none');
+      assert.equal(second.ofType('customLogsCapture').length, 0);
+    });
+
+    test('stops on dispose, which is also how turning the setting off ends it', async () => {
+      const ctx = loadEvents();
+      await openEvents(ctx);
+
+      ctx.provider.dispose();
+
+      assert.equal(ctx.fake.calls.customLogCapture[0]?.aborted, true);
+    });
+
+    test('a capture that fails shows in the strip once it exists, and in the banner before that', async () => {
+      const failure = Object.assign(new Error('Another client holds the subscription.'), {
+        code: 'CUSTOM_LOG_CLIENT_LIMIT'
+      });
+      const early = loadEvents();
+      const earlyHost = await openEvents(early);
+      early.fake.calls.customLogCapture[0]!.fail(failure);
+      await settle();
+      assert.equal(earlyHost.last('customLogsError')?.message, 'Another client holds the subscription.');
+
+      const late = loadEvents();
+      const lateHost = await openEvents(late);
+      late.fake.calls.customLogCapture[0]!.report();
+      late.fake.calls.customLogCapture[0]!.fail(failure);
+      await settle();
+      assert.deepEqual(strip(lateHost)?.capture, {
+        state: 'failed',
+        code: 'CUSTOM_LOG_CLIENT_LIMIT',
+        message: 'Another client holds the subscription.'
+      });
+      await lateHost.emit({ type: 'customLogsCapture', action: 'start' });
+      assert.equal(late.fake.calls.customLogCapture.length, 2, 'Start tries again after a failure');
+    });
+
+    test('an aborted capture is not a failure', async () => {
+      const ctx = loadEvents();
+      const host = await openEvents(ctx);
+
+      ctx.fake.calls.customLogCapture[0]!.fail(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+      await settle();
+
+      assert.equal(host.last('customLogsError')?.message, undefined);
     });
   });
 
