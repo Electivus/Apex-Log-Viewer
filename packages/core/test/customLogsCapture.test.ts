@@ -599,7 +599,7 @@ test('a duplicate-only batch stores nothing but still moves the resume point', a
 
 const updatedAtOf = async (store: EventStore) => (await store.checkpoint())?.updatedAt;
 
-test('the clean end of a live run that stored nothing re-sends the position seeded from the checkpoint', async () => {
+test('the clean end of a live run that stored nothing re-sends the position seeded from the checkpoint, with the coverage it proved', async () => {
   await withProject(async root => {
     const store = openStore(root);
     await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
@@ -617,9 +617,14 @@ test('the clean end of a live run that stored nothing re-sends the position seed
     assert.equal(result.outcome, 'quiet');
     const after = await store.checkpoint();
     assert.ok(after && seeded && after.updatedAt > seeded.updatedAt, 'updatedAt moved');
+    assert.ok(
+      after.coveredUntil && seeded.coveredUntil && after.coveredUntil >= seeded.coveredUntil,
+      'coverage did not go back'
+    );
+    assert.ok(after.coveredUntil <= clock.now().toISOString(), 'and claims no time after the end');
     assert.deepEqual(
-      { ...after, updatedAt: '', writer: '' },
-      { ...seeded, updatedAt: '', writer: '' },
+      { ...after, updatedAt: '', writer: '', coveredUntil: '' },
+      { ...seeded, updatedAt: '', writer: '', coveredUntil: '' },
       'and nothing else did'
     );
     assert.equal(result.store.state === 'captured' ? result.store.lastCaptureAt : undefined, after.updatedAt);

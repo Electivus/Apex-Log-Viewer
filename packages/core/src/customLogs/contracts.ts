@@ -154,7 +154,7 @@ export type CustomLogStoreInfo =
       /** `CreatedDate` of the oldest and newest stored events. Absent when every stored event was purged. */
       oldest?: string;
       newest?: string;
-      /** When a capture last confirmed the stored position: a stored batch, or the clean end of a run that reached `live`. */
+      /** When a capture last wrote the stored position: a stored batch, or the clean end of a run that reached `live`. */
       lastCaptureAt: string;
       sizeBytes: number;
       /** Days of history core keeps (`eventRetentionDays`). */
@@ -493,8 +493,9 @@ export type CustomLogCaptureState =
 
 /**
  * `quiet`: a drain ended because the stream went quiet, including one whose first-event wait ran to
- * `maxDurationMs` without a single event. It is not proof the backlog was complete; an early stop is
- * harmless because the stored position is exact and the next capture resumes after it.
+ * `maxDurationMs` without a single event. It is not proof the backlog was complete; an early stop costs
+ * one more capture, which resumes after the exact stored position and records a `retentionElapsed` gap when
+ * the oldest event left behind may have expired.
  * `timeLimit`: `maxDurationMs` passed while events were still arriving, or before the transport was up.
  * `budget`: the run spent its delivery budget (see `CustomLogCaptureAllowance.budget`); the next capture resumes.
  * `aborted`: the caller's signal fired. `capturedElsewhere`: a drain found another process holding the

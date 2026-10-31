@@ -192,6 +192,8 @@ export type EventStoreWriter = {
     channel: string;
     cursor: ReplayCursor;
     lastEvent: { createdDate: string; uuid: EventUuid };
+    /** The run's proven coverage (`EventCheckpoint.coveredUntil`); omitted when no run proved any. */
+    coveredUntil?: string;
   }): Promise<void>;
   /** Appends an `open` line to this writer's gap file and `datasync`s it BEFORE the caller resubscribes. `created: false` with the already open gap when one exists, in any writer's file (I5). */
   openGap(gap: { reason: GapReason; after?: string }): Promise<{ gap: OpenGap; created: boolean }>;
@@ -531,6 +533,7 @@ function createWriter(layout: Layout, index: LineIndex, lease: Lease, start: Wri
           lastEvent: checkpoint.lastEvent,
           nextSeq,
           updatedAt: new Date().toISOString(),
+          ...(checkpoint.coveredUntil !== undefined ? { coveredUntil: checkpoint.coveredUntil } : {}),
           writer: writerId
         };
         await orUnavailable('Cannot write', layout.checkpointFile, () =>

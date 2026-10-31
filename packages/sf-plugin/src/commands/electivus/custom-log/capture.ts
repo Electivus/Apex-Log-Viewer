@@ -17,7 +17,8 @@ export default class CustomLogCapture extends AlvCommand<PrintsAsJson<CustomLogC
     'Salesforce keeps platform events for about 72 hours, and every event delivered counts against the org-wide daily allocation. ' +
     'This command subscribes, stores each event whole under apexlogs/, and resumes from the stored position on the next run.\n\n' +
     'By default it drains: it stops when the stream goes quiet, when this run has spent about half of the remaining daily allocation, or after --max-time. ' +
-    'A quiet stream does not prove the backlog was complete, but the stored position is exact, so an early stop costs one more run and loses nothing. ' +
+    'A quiet stream does not prove the backlog was complete. The stored position is exact, so an early stop costs one more run; ' +
+    'if that run starts after the oldest event left behind has expired, the result lists the interval as a gap. ' +
     'A drain that hears nothing over a stored position older than one hour, or on a first run that replays retained events, waits the whole --max-time before it stops, ' +
     'because the first event of a backlog can take that long. Lower --max-time for a stream you know is quiet.\n\n' +
     'With --follow it keeps capturing, prints each stored row to stdout and state changes to stderr, and stops on Ctrl-C with exit code 0. A second Ctrl-C quits at once.\n\n' +

@@ -250,18 +250,21 @@ export async function openWriter(store: EventStore, surface: 'vscode' | 'cli' = 
 export async function seedCheckpoint(
   store: EventStore,
   events: readonly BusEvent[],
-  options: { orgId?: string } = {}
+  options: { orgId?: string; coveredUntil?: string | null } = {}
 ): Promise<void> {
   const writer = await openWriter(store);
   try {
     await writer.append(events);
     const tail = events[events.length - 1]!;
+    // By default an earlier capture that ended proven current now; `null` for one that proved nothing past its last event.
+    const coveredUntil = options.coveredUntil === undefined ? new Date().toISOString() : options.coveredUntil;
     await writer.advance({
       orgId: options.orgId ?? ORG_ID,
       transport: 'cometd',
       channel: CHANNEL,
       cursor: tail.cursor,
-      lastEvent: { createdDate: tail.createdDate, uuid: tail.uuid }
+      lastEvent: { createdDate: tail.createdDate, uuid: tail.uuid },
+      ...(coveredUntil === null ? {} : { coveredUntil })
     });
   } finally {
     await writer.release();

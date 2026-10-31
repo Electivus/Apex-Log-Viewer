@@ -39,9 +39,10 @@
  *
  * "Live": CometD has no end-of-backlog marker, so catchingUp → live{quiet} after QUIET_MS without events
  * once one arrived, or when the first-event wait expires with none since the ack (`firstEventWait`,
- * `drainBoundOutcome`). That claims nothing about completeness: the cursor is exact. A clean end (quiet,
- * aborted, timeLimit) of a run that is `live` re-sends `last`, which refreshes `updatedAt`, so a quiet
- * stream captured daily never looks older than retention to `chooseStart`.
+ * `drainBoundOutcome`). That claims nothing about completeness: the cursor is exact. What the store covers
+ * past the last stored event is `TipProof` (captureRules.ts), written as `coveredUntil` with every advance;
+ * a clean end (quiet, aborted, timeLimit) of a `live` run writes it once more, so a quiet stream captured
+ * daily never looks older than retention to `chooseStart`.
  */
 
 import { AlvError } from '../../errors.js';
@@ -77,12 +78,17 @@ import {
   closesGap,
   deliveryBudget,
   drainBoundOutcome,
+  coveredUntilMs,
   firstEventWait,
   nextState,
+  proofOnAck,
+  proofOnDown,
+  proofOnLive,
   replayFrom,
   resumeAfter,
   storeGapOf,
   type Allowance,
+  type TipProof,
   type FirstEventWait,
   type RunPosition,
   type StartDecision,
@@ -282,7 +288,7 @@ type RunEnd = { kind: 'outcome'; outcome: CustomLogCaptureOutcome } | { kind: 'f
 
 type EpochExit = { kind: 'end'; end: RunEnd } | { kind: 'standby' };
 
-/** Outcomes whose end of a live run re-sends the last position to refresh `updatedAt`. */
+/** Outcomes whose end of a live run writes the last position and the coverage once more. */
 const CLEAN_ENDS: ReadonlySet<CustomLogCaptureOutcome> = new Set(['quiet', 'aborted', 'timeLimit']);
 
 /** Transport failures with a code of their own; `cursorRejected` and `authRejected` are recoverable. */
@@ -309,6 +315,7 @@ type Prepared = {
   decision: StartDecision;
   budget: number;
   confirmedAt: string | undefined;
+  coveredUntil: string | undefined;
 };
 
 const noop = (): void => {};
@@ -360,6 +367,7 @@ function createRun(
     wait: { kind: 'drainBound' },
     deliveredSinceAck: 0
   };
+  let proof: TipProof = {};
   let cancelLiveTimer: () => void = noop;
   let resolveClosed: () => void = noop;
   const closed = new Promise<void>(resolve => {
@@ -466,6 +474,7 @@ function createRun(
   };
 
   const becomeLive = (): void => {
+    if (state.state === 'catchingUp') proof = proofOnLive(proof, waiting.deliveredSinceAck, clock.now().getTime());
     transition({ type: 'quiet' });
     if (state.state !== 'live') return;
     for (const w of [...watchers]) if (!w.watcher.params.follow) leave(w, 'quiet');
@@ -594,7 +603,7 @@ function createRun(
     reportStart(
       decision.kind === 'needsInitial' ? 'none' : decision.start.kind === 'after' ? 'position' : decision.start.kind
     );
-    return { session, decision, budget, confirmedAt: checkpoint?.updatedAt };
+    return { session, decision, budget, confirmedAt: checkpoint?.updatedAt, coveredUntil: checkpoint?.coveredUntil };
   };
 
   // -------------------------------------------------------------------------------------------
@@ -603,6 +612,7 @@ function createRun(
   const stream = async (writer: EventStoreWriter, prepared: Prepared, initialStart: Start): Promise<void> => {
     let { session } = prepared;
     let { confirmedAt } = prepared;
+    proof = prepared.coveredUntil === undefined ? {} : { coveredMs: Date.parse(prepared.coveredUntil) };
     let activeStart = initialStart;
     let last: RunPosition | undefined = initialStart.kind === 'after' ? initialStart.position : undefined;
     /** `createdDate` of the newest event this subscription delivered: the neighbour an unreadable delivery has before it. */
@@ -616,6 +626,11 @@ function createRun(
 
     /** After a failure or a lost lease nothing more may be written; what the transport still delivered is dropped. */
     const writable = (): boolean => stopRequest?.kind !== 'failed' && stopRequest?.kind !== 'leaseLost';
+
+    const coverage = (): { coveredUntil?: string } => {
+      const coveredMs = coveredUntilMs(proof, clock.now().getTime());
+      return coveredMs === undefined ? {} : { coveredUntil: new Date(coveredMs).toISOString() };
+    };
 
     const takeQueue = (): BusEvent[] => {
       const batch = queue;
@@ -637,7 +652,13 @@ function createRun(
             ? { createdDate: newest.createdDate, uuid: newest.position.uuid }
             : (last?.lastEvent ?? { createdDate: tail.createdDate, uuid: tail.uuid })
         };
-        await writer.advance({ orgId: session.orgId, transport: transport.name, channel: event.channel, ...next });
+        await writer.advance({
+          orgId: session.orgId,
+          transport: transport.name,
+          channel: event.channel,
+          ...next,
+          ...coverage()
+        });
         last = next;
         confirmedAt = clock.now().toISOString();
         stored += newlyStored.length;
@@ -723,6 +744,7 @@ function createRun(
           waiting.deliveredSinceAck = 0;
           lastDelivered = undefined;
           const from = last ? 'after' : activeStart.kind;
+          proof = proofOnAck(proof, from, clock.now().getTime());
           transition({ type: 'subscribed', from });
           // Decided from the watchers present at the acknowledgement; a follower that joins a drain later waits for events.
           waiting.wait = firstEventWait({
@@ -743,6 +765,7 @@ function createRun(
           break;
         case 'down':
           reconnects += 1;
+          proof = proofOnDown(proof, clock.now().getTime());
           cancelLiveTimer();
           transition({ type: 'down' });
           break;
@@ -833,13 +856,19 @@ function createRun(
       }
     };
 
-    /** The clean end of a live run re-sends the last position, so a quiet stream never looks older than retention. */
+    /** The clean end of a live run writes the coverage it proved since the last flush, so a quiet stream never looks older than retention. */
     const cleanEnd = async (): Promise<void> => {
       const request = stopRequest;
       if (request?.kind !== 'finish' || !CLEAN_ENDS.has(request.outcome)) return;
       if (state.state !== 'live' || !last) return;
       try {
-        await writer.advance({ orgId: session.orgId, transport: transport.name, channel: event.channel, ...last });
+        await writer.advance({
+          orgId: session.orgId,
+          transport: transport.name,
+          channel: event.channel,
+          ...last,
+          ...coverage()
+        });
       } catch (error) {
         if (!(error instanceof LeaseLostError)) fail(error);
       }

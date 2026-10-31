@@ -72,16 +72,19 @@ export type StartDecision =
  *   no checkpoint                                  → initial: retained | new → subscribe; none → needsInitial
  *   checkpoint.orgId !== orgId                     → gap orgChanged (after = lastEvent.createdDate), then as "no checkpoint"
  *   checkpoint.transport !== transport             → subscribe retained, no gap (cursors are not portable; dedupe absorbs overlap)
- *   now - checkpoint.updatedAt > PLATFORM_RETENTION_MS → subscribe after(cursor) with gap retentionElapsed (after = lastEvent.createdDate):
+ *   now - coverage > PLATFORM_RETENTION_MS         → subscribe after(cursor) with gap retentionElapsed (after = lastEvent.createdDate):
  *                                                    Salesforce may accept the id and still start at the oldest retained event (measured:
  *                                                    ids far below the oldest retained were accepted), so acceptance proves nothing.
- *                                                    `updatedAt`, not `lastEvent.createdDate`: every flush and every clean end of a live
- *                                                    run refresh it, so a stream that publishes every four days and is captured daily
- *                                                    raises no gap. An unreadable `updatedAt` counts as elapsed.
+ *                                                    coverage = max(lastEvent.createdDate, coveredUntil): ordered delivery covers every
+ *                                                    event up to the last stored one, and `coveredUntil` is what a run proved past it
+ *                                                    (`TipProof`). A flush or a stop while catching up proves nothing past the last
+ *                                                    stored event, so a run that stops with backlog left raises the gap once the oldest
+ *                                                    undelivered event may have expired. A stream that publishes every four days and is
+ *                                                    captured daily raises none: each silent capture proves the store current.
  *   otherwise                                      → subscribe after(cursor)
  */
 export function chooseStart(input: {
-  checkpoint: Pick<EventCheckpoint, 'orgId' | 'transport' | 'cursor' | 'lastEvent' | 'updatedAt'> | undefined;
+  checkpoint: Pick<EventCheckpoint, 'orgId' | 'transport' | 'cursor' | 'lastEvent' | 'coveredUntil'> | undefined;
   orgId: string;
   transport: 'cometd' | 'pubsub';
   initial: 'retained' | 'new' | 'none';
@@ -95,10 +98,66 @@ export function chooseStart(input: {
   }
   if (checkpoint.transport !== transport) return { kind: 'subscribe', start: RETAINED };
   const start = resumeAfter({ cursor: checkpoint.cursor, lastEvent: checkpoint.lastEvent });
-  const age = now.getTime() - Date.parse(checkpoint.updatedAt);
-  return age <= PLATFORM_RETENTION_MS
+  const coveredMs = Math.max(timeOf(checkpoint.lastEvent.createdDate), timeOf(checkpoint.coveredUntil));
+  return now.getTime() - coveredMs <= PLATFORM_RETENTION_MS
     ? { kind: 'subscribe', start }
     : { kind: 'subscribe', start, gap: { reason: 'retentionElapsed', after: checkpoint.lastEvent.createdDate } };
+}
+
+/** An unreadable or absent time proves nothing. */
+function timeOf(iso: string | undefined): number {
+  const ms = iso === undefined ? Number.NaN : Date.parse(iso);
+  return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+}
+
+/**
+ * What a run has proven about reaching the newest event, for `coveredUntil`. CometD has no end-of-backlog marker,
+ * so a subscription proves it only by subscribing with `new`, or by hearing nothing for FIRST_EVENT_WAIT_MS after
+ * its acknowledgement (the real org sent the first event of a 10,000-event replay 6.6 s after it). Events, or a
+ * shorter silence, prove nothing: a replay can pause 51 s between responses. Once proven, every event published
+ * until CONFIRM_LAG_MS ago has arrived while the transport stays up; a drop ends the proof at that moment, and the
+ * next acknowledgement can prove it again. A run that starts with a backlog and then hears nothing more never
+ * proves it, so its coverage stays at its last stored event: a later capture past retention shows a gap that may
+ * be empty.
+ */
+export type TipProof = Readonly<{
+  /** Coverage proven before the current subscription, carried from the checkpoint. */
+  coveredMs?: number;
+  /** The acknowledgement of the current subscription; absent while the transport is down. */
+  ackAtMs?: number;
+  /** Since when the current subscription is proven at the newest event. */
+  tipSinceMs?: number;
+}>;
+
+/** How long a live event may take to arrive. A proven run claims coverage up to this long ago, not up to now. */
+export const CONFIRM_LAG_MS = 5 * 60 * 1000;
+
+/** Pure: the coverage a run can claim at `nowMs`. */
+export function coveredUntilMs(proof: TipProof, nowMs: number): number | undefined {
+  if (proof.tipSinceMs === undefined) return proof.coveredMs;
+  return Math.max(proof.coveredMs ?? Number.NEGATIVE_INFINITY, proof.tipSinceMs, nowMs - CONFIRM_LAG_MS);
+}
+
+/** Pure: a subscribe acknowledgement. `new` starts at the newest event by definition. */
+export const proofOnAck = (proof: TipProof, from: ReplayFrom['kind'], nowMs: number): TipProof => ({
+  ...withClaim(proof, nowMs),
+  ackAtMs: nowMs,
+  ...(from === 'new' ? { tipSinceMs: nowMs } : {})
+});
+
+/** Pure: the run enters live. Proves the tip when nothing arrived for FIRST_EVENT_WAIT_MS since the acknowledgement. */
+export function proofOnLive(proof: TipProof, deliveredSinceAck: number, nowMs: number): TipProof {
+  const { ackAtMs } = proof;
+  if (proof.tipSinceMs !== undefined || ackAtMs === undefined || deliveredSinceAck > 0) return proof;
+  return nowMs - ackAtMs >= FIRST_EVENT_WAIT_MS ? { ...proof, tipSinceMs: ackAtMs } : proof;
+}
+
+/** Pure: the transport dropped. What was proven up to now stays proven; the next acknowledgement starts over. */
+export const proofOnDown = (proof: TipProof, nowMs: number): TipProof => withClaim(proof, nowMs);
+
+function withClaim(proof: TipProof, nowMs: number): TipProof {
+  const coveredMs = coveredUntilMs(proof, nowMs);
+  return coveredMs === undefined ? {} : { coveredMs };
 }
 
 function withoutPosition(initial: 'retained' | 'new' | 'none'): StartDecision {

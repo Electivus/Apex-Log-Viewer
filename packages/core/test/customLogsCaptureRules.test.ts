@@ -4,6 +4,7 @@ import test from 'node:test';
 import type { CustomLogCaptureState } from '../src/customLogs/contracts.ts';
 import {
   BUDGET_FALLBACK,
+  CONFIRM_LAG_MS,
   DRAIN_DEFAULT_MS,
   FIRST_EVENT_WAIT_MS,
   PLATFORM_RETENTION_MS,
@@ -11,14 +12,20 @@ import {
   backoffMs,
   chooseStart,
   closesGap,
+  coveredUntilMs,
   deliveryBudget,
   drainBoundOutcome,
   firstEventWait,
   nextState,
-  type StateInput
+  proofOnAck,
+  proofOnDown,
+  proofOnLive,
+  type StateInput,
+  type TipProof
 } from '../src/customLogs/events/captureRules.ts';
 import { cometdCursor, parseEventUuid, type EventUuid } from '../src/customLogs/events/ids.ts';
 
+const HOUR = 3_600_000;
 const NOW = new Date('2026-10-30T12:00:00.000Z');
 const ORG = '00D000000000001AAA';
 const OTHER_ORG = '00D000000000002AAA';
@@ -35,6 +42,24 @@ const checkpoint = (overrides: { orgId?: string; transport?: 'cometd' | 'pubsub'
 });
 
 const AFTER = { kind: 'after', position: { cursor: CURSOR, lastEvent: LAST_EVENT } } as const;
+
+/** A checkpoint whose last event is older than retention, so only `coveredUntil` can spare the gap. */
+const OLD_EVENT = { createdDate: '2026-10-20T00:00:00.000Z', uuid };
+const oldCheckpoint = (overrides: { coveredUntil?: string }) => ({
+  ...checkpoint(),
+  lastEvent: OLD_EVENT,
+  ...(overrides.coveredUntil !== undefined ? { coveredUntil: overrides.coveredUntil } : {})
+});
+const ago = (ms: number): string => new Date(NOW.getTime() - ms).toISOString();
+
+/** What the store covers decides the retention gap: max(last event, coveredUntil). `updatedAt` (always fresh here) does not count. */
+const coverageCases: [label: string, overrides: Parameters<typeof oldCheckpoint>[0], gap: boolean][] = [
+  ['an old last event with no proven coverage raises the gap, however fresh updatedAt is', {}, true],
+  ['coverage proven inside the window raises no gap', { coveredUntil: ago(PLATFORM_RETENTION_MS - 1) }, false],
+  ['coverage proven exactly at the window is not elapsed', { coveredUntil: ago(PLATFORM_RETENTION_MS) }, false],
+  ['coverage proven before the window raises the gap', { coveredUntil: ago(PLATFORM_RETENTION_MS + 1) }, true],
+  ['an unreadable coveredUntil proves nothing', { coveredUntil: 'not a date' }, true]
+];
 
 type StartCase = [label: string, input: Parameters<typeof chooseStart>[0], expected: ReturnType<typeof chooseStart>];
 
@@ -90,56 +115,15 @@ const startCases: StartCase[] = [
     },
     { kind: 'subscribe', start: { kind: 'retained' }, gap: { reason: 'orgChanged', after: LAST_EVENT.createdDate } }
   ],
-  [
-    'updatedAt exactly at the retention window is not elapsed',
-    {
-      checkpoint: checkpoint({ ageMs: PLATFORM_RETENTION_MS }),
-      orgId: ORG,
-      transport: 'cometd',
-      initial: 'retained',
-      now: NOW
-    },
-    { kind: 'subscribe', start: AFTER }
-  ],
-  [
-    'updatedAt older than the retention window: after the cursor, with a retentionElapsed gap',
-    {
-      checkpoint: checkpoint({ ageMs: PLATFORM_RETENTION_MS + 1 }),
-      orgId: ORG,
-      transport: 'cometd',
-      initial: 'retained',
-      now: NOW
-    },
-    { kind: 'subscribe', start: AFTER, gap: { reason: 'retentionElapsed', after: LAST_EVENT.createdDate } }
-  ],
-  [
-    'an event older than the window but a fresh updatedAt raises no gap',
-    {
-      checkpoint: { ...checkpoint(), lastEvent: { createdDate: '2026-10-20T00:00:00.000Z', uuid } },
-      orgId: ORG,
-      transport: 'cometd',
-      initial: 'retained',
-      now: NOW
-    },
+  ...coverageCases.map(([label, overrides, gap]): StartCase => [
+    label,
+    { checkpoint: oldCheckpoint(overrides), orgId: ORG, transport: 'cometd', initial: 'retained', now: NOW },
     {
       kind: 'subscribe',
-      start: {
-        kind: 'after',
-        position: { cursor: CURSOR, lastEvent: { createdDate: '2026-10-20T00:00:00.000Z', uuid } }
-      }
+      start: { kind: 'after', position: { cursor: CURSOR, lastEvent: OLD_EVENT } },
+      ...(gap ? { gap: { reason: 'retentionElapsed', after: OLD_EVENT.createdDate } } : {})
     }
-  ],
-  [
-    'an unreadable updatedAt counts as elapsed',
-    {
-      checkpoint: { ...checkpoint(), updatedAt: 'not a date' },
-      orgId: ORG,
-      transport: 'cometd',
-      initial: 'retained',
-      now: NOW
-    },
-    { kind: 'subscribe', start: AFTER, gap: { reason: 'retentionElapsed', after: LAST_EVENT.createdDate } }
-  ]
+  ])
 ];
 
 for (const [label, input, expected] of startCases) {
@@ -339,3 +323,49 @@ test('closesGap: any stored event closes a gap with no bound; otherwise only an 
   assert.equal(closesGap({ after: '2026-10-30T09:00:00.000Z' }, at('2026-10-30T09:00:00.000Z')), false);
   assert.equal(closesGap({ after: '2026-10-30T09:00:00.000Z' }, at('2026-10-30T08:59:59.999Z')), false);
 });
+
+// ---------------------------------------------------------------------------------------------
+// tip proof
+
+const T = NOW.getTime();
+const proofSteps: [label: string, steps: (proof: TipProof) => TipProof, atMs: number, coveredMs: number | undefined][] =
+  [
+    ['nothing proven', proof => proof, T, undefined],
+    ['carried coverage stays', () => ({ coveredMs: T - 1_000 }), T, T - 1_000],
+    [
+      'a `new` acknowledgement proves the tip at once',
+      proof => proofOnAck(proof, 'new', T),
+      T + HOUR,
+      T + HOUR - CONFIRM_LAG_MS
+    ],
+    [
+      'silence for the first-event wait after an `after` acknowledgement proves it from the acknowledgement',
+      proof => proofOnLive(proofOnAck(proof, 'after', T), 0, T + FIRST_EVENT_WAIT_MS),
+      T + FIRST_EVENT_WAIT_MS,
+      T
+    ],
+    [
+      'a shorter silence proves nothing',
+      proof => proofOnLive(proofOnAck(proof, 'after', T), 0, T + FIRST_EVENT_WAIT_MS - 1),
+      T + HOUR,
+      undefined
+    ],
+    [
+      'events since the acknowledgement prove nothing',
+      proof => proofOnLive(proofOnAck(proof, 'retained', T), 1, T + HOUR),
+      T + 2 * HOUR,
+      undefined
+    ],
+    [
+      'a drop keeps what was proven until then and nothing after',
+      proof => proofOnLive(proofOnDown(proofOnAck(proof, 'new', T), T + HOUR), 0, T + 3 * HOUR),
+      T + 4 * HOUR,
+      T + HOUR - CONFIRM_LAG_MS
+    ]
+  ];
+
+for (const [label, steps, atMs, coveredMs] of proofSteps) {
+  test(`tip proof: ${label}`, () => {
+    assert.equal(coveredUntilMs(steps({}), atMs), coveredMs);
+  });
+}

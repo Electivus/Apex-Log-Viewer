@@ -51,6 +51,12 @@ export type EventCheckpoint = {
   /** Next CaptureSeq the lease holder may allocate. */
   nextSeq: number;
   updatedAt: string;
+  /**
+   * Every event published before this time is stored or marked by a gap, because a run proved it had reached the
+   * newest event then (see `TipProof` in captureRules.ts). Absent when no run proved it; `lastEvent.createdDate`
+   * then bounds what the store covers.
+   */
+  coveredUntil?: string;
   /** Writer id (file-name tag) of the writer that wrote it; diagnostics and seq recovery. */
   writer: string;
 };
@@ -112,7 +118,7 @@ export function createdMsOf(createdDate: unknown): number | undefined {
 
 export function parseCheckpoint(value: unknown): EventCheckpoint | undefined {
   if (!isRecord(value) || value.version !== FORMAT_VERSION) return undefined;
-  const { orgId, transport, channel, cursor, lastEvent, nextSeq, updatedAt, writer } = value;
+  const { orgId, transport, channel, cursor, lastEvent, nextSeq, updatedAt, coveredUntil, writer } = value;
   const last = isRecord(lastEvent) ? lastEvent : undefined;
   const lastUuid = parseEventUuid(last?.uuid);
   if (
@@ -139,6 +145,8 @@ export function parseCheckpoint(value: unknown): EventCheckpoint | undefined {
     lastEvent: { createdDate: last.createdDate, uuid: lastUuid },
     nextSeq,
     updatedAt,
+    // An unreadable claim is dropped, not trusted: the store then covers what `lastEvent` proves.
+    ...(typeof coveredUntil === 'string' && !Number.isNaN(Date.parse(coveredUntil)) ? { coveredUntil } : {}),
     writer
   };
 }
