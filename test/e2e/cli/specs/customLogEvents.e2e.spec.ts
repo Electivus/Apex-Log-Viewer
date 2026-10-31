@@ -287,13 +287,11 @@ test.describe('Custom Logs platform event capture on the events org', () => {
       expect.objectContaining({ reason: 'cursorRejected', after: before.lastEvent.createdDate })
     ]);
     expect(rejected.result.delivered, 'the -2 replay delivers every retained event, stored or not').toBe(retained);
+    expect(rejected.result.stored, 'the store already holds every one of them').toBe(0);
     const copies = (await readStoredEvents(eventsRoot)).filter(event =>
       String(event.payload.Transaction_Id__c).endsWith(`-${seeded.runTag}`)
     );
-    testInfo.annotations.push({
-      type: 'replay overlap',
-      description: `${rejected.result.stored} written again, ${copies.length} lines on disk for ${seeded.published} events`
-    });
+    expect(copies, 'one line per event on disk').toHaveLength(seeded.published);
     const listing = await run(
       ['custom-log', 'list', '--source', EVENT_SOURCE_ID, '--target-org', EVENTS_ORG_ALIAS, '--limit', '200', '--json'],
       { cwd: project.dir }
@@ -301,7 +299,7 @@ test.describe('Custom Logs platform event capture on the events org', () => {
     const rows: { id: string; transactionId: string }[] = listing.json.result.rows.filter(
       (row: { transactionId: string }) => row.transactionId.endsWith(`-${seeded.runTag}`)
     );
-    expect(rows, 'a replay that overlaps stored history shows each event once').toHaveLength(seeded.published);
+    expect(rows, 'and each event shows once').toHaveLength(seeded.published);
     expect(new Set(rows.map(row => row.id)).size).toBe(seeded.published);
     expect(rejected.result.store.gaps).toHaveLength(1);
     expect(rejected.result.store.gaps[0].before, 'nothing newer arrived, so the gap stays open').toBeUndefined();
