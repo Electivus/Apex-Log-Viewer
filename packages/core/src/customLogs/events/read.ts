@@ -410,7 +410,9 @@ export async function getEvent(
   const binding: Binding = { o: orgId, s: source.id, m: source.digest, f: shortHash({ scope, minLevel }) };
   const after = params.cursor ? decodeEventCursor(params.cursor, 'eventEntries', binding) : undefined;
 
-  const anchor = await anchorOf(store, source, params.anchor);
+  // A later page continues the window of the first: a newer occurrence of the transaction id must not move it.
+  const continued = after ? parseEventRowId(after.id) : undefined;
+  const anchor = await anchorOf(store, source, continued ? { logId: continued } : params.anchor);
   const members = (await transactionOfAnchor(store, event, anchor)).filter(stored => {
     if (!minLevel) return true;
     const level = levelOf(event, source, stored.record);

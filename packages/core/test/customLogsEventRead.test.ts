@@ -543,6 +543,32 @@ test('get by transaction id anchors on the newest stored event that carries it',
   );
 });
 
+test('later pages of a transaction keep the anchor of the first, even after a newer occurrence of its id is stored', async t => {
+  const original = [
+    logEvent(1, T0, { tx: 'tx-a', seq: 1, message: 'one' }),
+    logEvent(2, T0, { tx: 'tx-a', seq: 2, message: 'two' }),
+    logEvent(3, T0, { tx: 'tx-a', seq: 3, message: 'three' })
+  ];
+  const { core, root, username, scope } = await world(t, { events: original });
+
+  const first = await core.customLog.get({ ...scope, transactionId: 'tx-a', limit: 1 });
+  await seedEventStore({
+    root,
+    username,
+    describe: alvTestLogDescribe(),
+    events: [logEvent(4, T0 + 3 * HOUR, { tx: 'tx-a', seq: 1, message: 'reused hours later' })]
+  });
+  const second = await core.customLog.get({ ...scope, transactionId: 'tx-a', limit: 1, cursor: first.nextCursor! });
+  const third = await core.customLog.get({ ...scope, transactionId: 'tx-a', limit: 1, cursor: second.nextCursor! });
+
+  assert.deepEqual(
+    [first, second, third].map(page => page.entries.map(entry => entry.message)),
+    [['one'], ['two'], ['three']]
+  );
+  assert.equal(second.log.id, first.log.id, 'every page reports the same anchor');
+  assert.equal(third.nextCursor, null);
+});
+
 test('get pages the entries of a transaction and filters them by level', async t => {
   const events = [
     logEvent(1, T0, { tx: 'tx-a', seq: 1, level: 'INFO', message: 'one' }),
