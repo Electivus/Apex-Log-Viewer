@@ -14,7 +14,7 @@
  *   lease held elsewhere ─► standby ─ poll: relay stored rows; the holder's pid dies ─┐
  *   lease won ◄────────────────────────────────────────────────────────────────────────┘
  *     │ connecting: connect, org id, allowance and budget, describe → describe.json, purge, chooseStart
- *     │            a gap decided at start is written BEFORE any subscribe; `needsInitial` subscribes nothing
+ *     │            a gap decided at start is written BEFORE any subscribe; `needsInitial` and a budget of 0 subscribe nothing
  *     ▼
  *   subscribe ─ subscribed ─► catchingUp ─ quiet ─► live{quiet}
  *     │  cursorRejected: gap written first, then `retained` (a second one fails the run)
@@ -836,6 +836,7 @@ function createRun(
     try {
       const prepared = await prepare(writer);
       if (prepared.decision.kind === 'needsInitial') stop({ kind: 'finish', outcome: 'needsInitial' });
+      else if (prepared.budget === 0) stop({ kind: 'finish', outcome: 'budget' });
       else await stream(writer, prepared, prepared.decision.start);
     } catch (error) {
       fail(error);

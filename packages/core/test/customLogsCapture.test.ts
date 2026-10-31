@@ -802,6 +802,50 @@ test('a run that spends its budget flushes what it received, stops with outcome 
   });
 });
 
+for (const [label, remaining] of [
+  ['nothing', 0],
+  ['one delivery', 1]
+] as const) {
+  test(`an allowance of ${label} left gives a budget of zero: the run ends budget before it opens a transport`, async () => {
+    await withProject(async root => {
+      const store = openStore(root);
+      await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
+      const { transport, deps, hub } = setup(store, { allowance: { remaining, max: 10_000 } });
+      const w = watcher({ follow: true, initial: 'retained' });
+
+      const result = resultOf(await within(settledOf(hub.watch(store.location, w.watcher, deps)), 'the budget stop'));
+
+      assert.equal(result.outcome, 'budget');
+      assert.equal(transport.attempts.length, 0, 'no subscription is opened, so Salesforce delivers nothing');
+      assert.equal(result.delivered, 0);
+      assert.equal(result.stored, 0);
+      assert.deepEqual(result.newGaps, []);
+      assert.equal(await checkpointCursor(store), cursorOf(2));
+      const last = w.updates[w.updates.length - 1]!;
+      assert.deepEqual(last.capture, { state: 'stopped', outcome: 'budget' });
+      assert.equal(last.allowance?.budget, 0);
+      await openWriter(store);
+    });
+  });
+}
+
+test('a drain with a budget of zero ends budget at once and reports one start and one end', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+    const { transport, deps, hub } = setup(store, { allowance: { remaining: 1, max: 10_000 } });
+    const w = watcher({ follow: false, initial: 'new' });
+
+    const result = resultOf(await within(settledOf(hub.watch(store.location, w.watcher, deps)), 'the budget stop'));
+
+    assert.equal(result.outcome, 'budget');
+    assert.equal(transport.attempts.length, 0);
+    assert.deepEqual(
+      deps.calls.runEvents.map(event => event.type),
+      ['start', 'end']
+    );
+  });
+});
+
 test('a replay response of 2,600 events, as measured on a real 10,000-event backlog, is stored without a reconnect', async () => {
   await withProject(async root => {
     const store = openStore(root);
