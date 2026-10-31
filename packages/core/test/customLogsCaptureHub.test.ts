@@ -24,7 +24,8 @@ import {
   until,
   USER,
   watcher,
-  withProject
+  withProject,
+  within
 } from './support/captureHarness.ts';
 
 const settledOf = (promise: Promise<CustomLogCaptureResult>) =>
@@ -359,6 +360,30 @@ test('a drain that finds the lease held ends at once with capturedElsewhere', as
     } finally {
       await holder.release();
     }
+  });
+});
+
+test('a standby run relays every row of a burst the holder stored between two polls, oldest first', async () => {
+  await withProject(async root => {
+    const holder = await openWriter(openStore(root), 'cli');
+    const real = openStore(root);
+    const heldBy = { surface: 'cli' as const, pid: process.pid, host: os.hostname(), since: new Date().toISOString() };
+    const store: EventStore = { ...real, openWriter: async () => ({ heldBy }) };
+    const { clock, deps, hub } = setup(store);
+    const w = watcher({ follow: true });
+    const done = hub.watch(store.location, w.watcher, deps);
+    await until(() => standbyUpdate(w) !== undefined && clock.pending > 0, 'the standby state');
+
+    await holder.append(Array.from({ length: 1_500 }, (_, i) => busEvent(i + 1, { createdMs: Date.now() + i })));
+    await clock.advance(2_000);
+    await until(() => w.rows().length === 1_500, 'every stored row');
+    assert.equal(w.rows()[0], 'message 1');
+    assert.equal(w.rows().at(-1), 'message 1500');
+
+    w.abort();
+    await within(done, 'the standby run to stop');
+    await holder.release();
+    await hub.dispose();
   });
 });
 

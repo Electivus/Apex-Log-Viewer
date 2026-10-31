@@ -112,8 +112,8 @@ import {
   type TransportSignal
 } from './transport.js';
 
-/** Rows one standby relay sends at most; older ones show on the next list reload. */
-const RELAY_MAX = FLUSH_MAX;
+/** Rows per fan-out of a standby relay. A relay sends every row stored since the last one, in chunks of this size. */
+const RELAY_CHUNK = FLUSH_MAX;
 
 /** Time, injected: tests drive timers by hand. */
 export type CaptureClock = {
@@ -540,18 +540,17 @@ function createRun(
     return undefined;
   };
 
-  /** Rows the holder stored since `sentUpTo`, oldest first. Late events older than it show on the next list reload. */
+  /** Every row the holder stored since `sentUpTo`, oldest first. Late events older than it show on the next list reload. */
   const relay = async (sentUpTo: EventPosition | undefined): Promise<EventPosition | undefined> => {
     const fresh: StoredEvent[] = [];
     for await (const candidate of store.newestFirst({})) {
       if (sentUpTo && compareNewestFirst(candidate.position, sentUpTo) >= 0) break;
       fresh.push(candidate);
-      if (fresh.length >= RELAY_MAX) break;
     }
     if (fresh.length === 0) return sentUpTo;
     fresh.reverse();
     await refreshStoreInfo();
-    fanOut(fresh);
+    for (let start = 0; start < fresh.length; start += RELAY_CHUNK) fanOut(fresh.slice(start, start + RELAY_CHUNK));
     return fresh[fresh.length - 1]!.position;
   };
 
