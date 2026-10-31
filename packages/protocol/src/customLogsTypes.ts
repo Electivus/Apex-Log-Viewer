@@ -26,6 +26,7 @@ export type CustomLogSourceView = {
   hiddenFields: string[];
   capabilities: { levelFilter: boolean; userFilter: boolean; apexLogLink: boolean };
   payload: { transaction?: CustomLogPayloadInfo; entry?: CustomLogPayloadInfo };
+  store?: CustomLogStoreView;
 } & (
   | { state: 'ready' }
   | { state: 'notInstalled'; hint?: 'collision' }
@@ -119,8 +120,57 @@ export type CustomLogLongFieldView = {
 export type CustomLogApexLogLink =
   | { state: 'linked'; logId: string; startTime?: string; logLength?: number }
   | { state: 'notFound' }
-  | { state: 'unavailable'; reason: 'noAccess' }
+  | { state: 'unavailable'; reason: 'noAccess' | 'offline' }
   | { state: 'noRequestId' };
+
+export type CustomLogStoreGapView = {
+  reason: 'cursorRejected' | 'retentionElapsed' | 'orgChanged';
+  after?: string;
+  before?: string;
+  detectedAt: string;
+};
+
+export type CustomLogStoreView =
+  | { state: 'notCaptured'; eventsRoot: string; retentionDays: number }
+  | {
+      state: 'captured';
+      eventsRoot: string;
+      oldest?: string;
+      newest?: string;
+      lastCaptureAt: string;
+      sizeBytes: number;
+      retentionDays: number;
+      gaps: CustomLogStoreGapView[];
+    };
+
+/** `needsInitial`: this org was never captured; the strip offers "Load retained events" and "Only new events". */
+export type CustomLogCaptureOutcomeView =
+  'quiet' | 'timeLimit' | 'budget' | 'aborted' | 'capturedElsewhere' | 'needsInitial';
+
+export type CustomLogCaptureStateView =
+  | { state: 'connecting' }
+  | { state: 'standby'; holder: { surface: 'vscode' | 'cli'; pid: number; host: string; since: string } }
+  | { state: 'catchingUp'; from: 'position' | 'retained' | 'new' }
+  /** `quiet` renders a tooltip: inferred from 10 s without events, not a server signal. */
+  | { state: 'live'; basis: 'quiet' | 'signal' }
+  | { state: 'reconnecting'; attempt: number; cause: 'transport' | 'auth' | 'overflow' }
+  | { state: 'stopped'; outcome: CustomLogCaptureOutcomeView }
+  /** `code` is a core `CustomLogErrorCode`, kept a plain string like `unavailable.reason`. */
+  | { state: 'failed'; code: string; message: string };
+
+export type CustomLogCaptureAllowanceView = { remaining?: number; max?: number; budget: number };
+
+/** What the capture strip renders. `undefined` in the view state means the selected source is not an event source. */
+export type CustomLogCaptureView = {
+  capture: CustomLogCaptureStateView;
+  store: CustomLogStoreView;
+  /** False after the user pressed Stop; the provider will not restart capture on its own. */
+  wanted: boolean;
+  allowance?: CustomLogCaptureAllowanceView;
+};
+
+/** Rows a capture stored, already decoded and filtered for this view. */
+export type CustomLogLiveRowsView = { rows: CustomLogRow[]; payloadFields: CustomLogPayloadField[] };
 
 /** What the list toolbar can set. Applied server-side by core; `since` takes an ISO instant or `30m`/`24h`/`7d`. */
 export type CustomLogsFilterView = { minLevel?: CustomLogLevel; user?: string; since?: string };

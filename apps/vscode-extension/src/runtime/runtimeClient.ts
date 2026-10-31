@@ -129,7 +129,24 @@ export type CustomLogDtoProof = [
   AssignsTo<ui.CustomLogEntry, core.CustomLogEntry>,
   AssignsTo<ui.CustomLogPayloadField, core.CustomLogPayloadField>,
   AssignsTo<ui.CustomLogSourceRef, core.CustomLogSourceRef>,
-  AssignsTo<ui.CustomLogApexLogLink, core.CustomLogApexLogLink>
+  AssignsTo<ui.CustomLogApexLogLink, core.CustomLogApexLogLink>,
+  Holds<Same<ui.CustomLogStoreView, core.CustomLogStoreInfo>>,
+  Holds<Same<ui.CustomLogStoreGapView, core.CustomLogStoreGap>>,
+  Holds<Same<ui.CustomLogCaptureOutcomeView, core.CustomLogCaptureOutcome>>,
+  Holds<Same<ui.CustomLogCaptureAllowanceView, core.CustomLogCaptureAllowance>>,
+  // The view's `failed.code` is a plain string, so the other states are pinned both ways and `failed` one way.
+  AssignsTo<ui.CustomLogCaptureStateView, core.CustomLogCaptureState>,
+  Holds<
+    Same<
+      Exclude<ui.CustomLogCaptureStateView, { state: 'failed' }>,
+      Exclude<core.CustomLogCaptureState, { state: 'failed' }>
+    >
+  >,
+  AssignsTo<
+    ui.CustomLogCaptureView,
+    Pick<core.CustomLogCaptureUpdate, 'capture' | 'store' | 'allowance'> & { wanted: boolean }
+  >,
+  AssignsTo<ui.CustomLogLiveRowsView, Pick<core.CustomLogCaptureUpdate, 'rows' | 'payloadFields'>>
 ];
 
 export type CustomLogSourcesView = {
@@ -144,6 +161,7 @@ export type CustomLogListView = {
   rows: ui.CustomLogRow[];
   payloadFields: ui.CustomLogPayloadField[];
   nextCursor: string | null;
+  store?: ui.CustomLogStoreView;
 };
 
 /** `logPayload` is host-only: the panel keeps its text to open as a document, and the webview gets its state. */
@@ -156,6 +174,7 @@ export type CustomLogGetView = {
   payloadFields: ui.CustomLogPayloadField[];
   nextCursor: string | null;
   apexLog: ui.CustomLogApexLogLink;
+  store?: ui.CustomLogStoreView;
 };
 
 function createAbortError(): Error {

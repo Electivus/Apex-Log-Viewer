@@ -40,7 +40,8 @@ export type EventPosition = Readonly<{
 export type EventRowId = Brand<string, 'CustomLogEventRowId'>;
 
 export const SEQ_LIMIT = 36 ** 10;
-const CREATED_MS_LIMIT = 36 ** 9;
+/** An event id holds the event time in 9 base36 digits. */
+export const EVENT_TIME_LIMIT_MS = 36 ** 9;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ROW_ID_PATTERN = /^e-([0-9a-z]{9})-([0-9a-z]{10})-([0-9a-f]{32})$/;
@@ -74,7 +75,7 @@ export function readCursor(cursor: ReplayCursor): { transport: (typeof CURSOR_TR
 
 export function eventRowId(position: EventPosition): EventRowId {
   const { createdMs, seq, uuid } = position;
-  if (!Number.isSafeInteger(createdMs) || createdMs < 0 || createdMs >= CREATED_MS_LIMIT) {
+  if (!Number.isSafeInteger(createdMs) || createdMs < 0 || createdMs >= EVENT_TIME_LIMIT_MS) {
     throw new RangeError(`An event time of ${createdMs} ms does not fit an event id.`);
   }
   return `e-${createdMs.toString(36).padStart(9, '0')}-${seq.toString(36).padStart(10, '0')}-${uuid.replaceAll('-', '')}` as EventRowId;

@@ -11,6 +11,7 @@ import path from 'node:path';
 
 import type { ObjectDescribe } from '../schema.js';
 import {
+  EVENT_TIME_LIMIT_MS,
   compareNewestFirst,
   eventRowId,
   isCaptureSeq,
@@ -76,8 +77,6 @@ const GAP_FILE = /^gaps\.([0-9a-f]{8})\.ndjson$/;
 const CURSOR_TEXT = /^[a-z][a-z0-9]*:[0-9A-Za-z]+$/;
 const GAP_REASONS: ReadonlySet<string> = new Set<GapReason>(['cursorRejected', 'retentionElapsed', 'orgChanged']);
 
-/** An event id holds the event time in 9 base36 digits (ids.ts). */
-const EVENT_TIME_LIMIT_MS = 36 ** 9;
 export const HOUR_MS = 3_600_000;
 export const DAY_MS = 24 * HOUR_MS;
 const READ_CHUNK_BYTES = 1 << 20;
