@@ -27,8 +27,10 @@ import {
 } from '../shared/customLogsState';
 import {
   CUSTOM_LOGS_LIVE_ROW_CAP,
+  mergePayloadFields,
   type CustomLogCaptureChoice,
   type CustomLogConfigIssueView,
+  type CustomLogLiveRowsView,
   type CustomLogPayloadColumnsView,
   type CustomLogRow,
   type CustomLogSourceView,
@@ -170,6 +172,11 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
   private cursor: string | null = null;
   private captureIntent = newIntent(undefined);
   private capture: CaptureRun | undefined;
+  /**
+   * Live batches that arrive while a replace page is read. That page's store snapshot may predate them and the
+   * replace drops every merged row, while capture sends each batch once, so they are merged again after it.
+   */
+  private liveDuringReplace: CustomLogLiveRowsView | undefined;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.payloadColumnsStore = createPayloadColumnsStore(context.workspaceState);
@@ -514,6 +521,11 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     if (update.rows.length === 0) {
       return;
     }
+    const missed = this.liveDuringReplace;
+    if (missed) {
+      missed.rows.push(...update.rows);
+      missed.payloadFields = mergePayloadFields(missed.payloadFields, update.payloadFields);
+    }
     this.post({ type: 'customLogsLiveRows', rows: update.rows, payloadFields: update.payloadFields });
     this.reloadAfterLiveRows();
   }
@@ -793,6 +805,10 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     if (mode === 'replace') {
       this.stopPaging();
     }
+    const missed: CustomLogLiveRowsView | undefined = mode === 'replace' ? { rows: [], payloadFields: [] } : undefined;
+    if (missed) {
+      this.liveDuringReplace = missed;
+    }
     const startedAt = Date.now();
     try {
       const projectDir = await findCustomLogsProjectDir();
@@ -819,6 +835,9 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
         payloadFields: page.payloadFields,
         hasMore: page.nextCursor !== null
       });
+      if (missed && missed.rows.length > 0) {
+        this.post({ type: 'customLogsLiveRows', rows: missed.rows, payloadFields: missed.payloadFields });
+      }
       if (mode === 'replace') {
         safeSendEvent(
           'customLogs.refresh',
@@ -836,6 +855,10 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
         );
       }
       throw error;
+    } finally {
+      if (missed && this.liveDuringReplace === missed) {
+        this.liveDuringReplace = undefined;
+      }
     }
   }
 

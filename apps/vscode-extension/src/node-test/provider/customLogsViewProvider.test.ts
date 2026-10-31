@@ -3,6 +3,7 @@ import proxyquire from 'proxyquire';
 
 import { WEBVIEW_SESSION_MOUNT_DELAY_MS } from '../../provider/webviewSession';
 import { CUSTOM_LOGS_LIVE_ROW_CAP, type CustomLogColumn, type CustomLogRow } from '../../shared/customLogsTypes';
+import { initialCustomLogsView, reduceCustomLogsView } from '../../shared/customLogsState';
 import { FakeClock, createWebviewSessionForTest, settle } from '../webviewSessionTestSupport';
 import {
   APP_LOG,
@@ -1028,6 +1029,46 @@ suite('Custom Logs view provider', () => {
       captures[1]!.report();
       await settle();
       assert.equal(strip(host)?.wanted, true);
+    });
+
+    test('a live batch that lands while Refresh reads the store is still on screen after the new page', async () => {
+      const ctx = loadEvents();
+      ctx.page.columns = [REQUEST_COLUMN];
+      ctx.page.rows = [row(eventId(1))];
+      const host = await openEvents(ctx);
+      const capture = ctx.fake.calls.customLogCapture[0]!;
+      let release!: () => void;
+      const held = new Promise<void>(resolve => (release = resolve));
+      const snapshot = { columns: [REQUEST_COLUMN], rows: [row(eventId(1))] };
+      ctx.fake.handlers.customLogList = async () => {
+        await held;
+        return { ...snapshot, payloadFields: [], nextCursor: null, store: NOT_CAPTURED };
+      };
+
+      const refreshed = host.emit({ type: 'customLogsRefresh' });
+      await settle();
+      capture.report({ rows: [row(eventId(2))] });
+      await settle();
+      release();
+      await refreshed;
+      await settle();
+
+      const seen = host.posted.reduce(
+        (view, message) => reduceCustomLogsView(view, message as never),
+        initialCustomLogsView
+      );
+      assert.deepEqual(
+        seen.page?.rows.map(r => r.id),
+        [eventId(2), eventId(1)],
+        'the store snapshot predates the batch, and capture never sends it again'
+      );
+      const second = new FakeHost();
+      await ctx.mount(second, 2);
+      assert.deepEqual(
+        (second.last('customLogsPage') as never as { rows: Array<{ id: string }> }).rows.map(r => r.id),
+        [eventId(2), eventId(1)],
+        'the replay snapshot keeps it too'
+      );
     });
 
     test('Start while a capture is running does not restart it', async () => {
