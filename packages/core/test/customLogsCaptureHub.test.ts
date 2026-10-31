@@ -7,7 +7,7 @@ import test from 'node:test';
 
 import type { CustomLogCaptureResult } from '../src/customLogs/contracts.ts';
 import { createCaptureHub } from '../src/customLogs/events/capture.ts';
-import { LeaseLostError, type EventStore } from '../src/customLogs/events/store.ts';
+import { LeaseLostError, openEventStore, type EventStore } from '../src/customLogs/events/store.ts';
 import {
   ManualClock,
   busEvent,
@@ -22,6 +22,7 @@ import {
   readStored,
   seedCheckpoint,
   until,
+  USER,
   watcher,
   withProject
 } from './support/captureHarness.ts';
@@ -40,10 +41,10 @@ async function resultOf(promise: Promise<CustomLogCaptureResult>): Promise<Custo
 
 const checkpointCursor = async (store: EventStore) => (await store.checkpoint())?.cursor;
 
-function setup(options: { clock?: ManualClock; surface?: 'vscode' | 'cli' } = {}) {
+function setup(store: EventStore, options: { clock?: ManualClock; surface?: 'vscode' | 'cli' } = {}) {
   const clock = options.clock ?? new ManualClock();
   const transport = fakeTransport();
-  const deps = captureDeps({ clock, transport, ...(options.surface ? { surface: options.surface } : {}) });
+  const deps = captureDeps({ store, clock, transport, ...(options.surface ? { surface: options.surface } : {}) });
   return { clock, transport, deps, hub: createCaptureHub() };
 }
 
@@ -88,14 +89,14 @@ const standbyUpdate = (w: ReturnType<typeof watcher>) =>
 test('two watchers share one connection, one subscription and one set of stored rows, each decoded through its own source', async () => {
   await withProject(async root => {
     const store = openStore(root);
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(store);
     const first = watcher({ follow: true, initial: 'new' });
     const second = watcher({ follow: true }, { source: eventSource('second') });
 
-    const firstDone = hub.watch(store, first.watcher, deps);
+    const firstDone = hub.watch(store.location, first.watcher, deps);
     const attempt = await transport.opened(0);
     attempt.subscribed();
-    const secondDone = hub.watch(store, second.watcher, deps);
+    const secondDone = hub.watch(store.location, second.watcher, deps);
     await until(() => second.updates.length > 0, 'the joiner to be told the current state');
     assert.deepEqual(second.updates[0]!.capture, { state: 'catchingUp', from: 'new' });
 
@@ -129,17 +130,17 @@ test('two watchers share one connection, one subscription and one set of stored 
 test('a drain that joins a run that is already live is done at once, and a follow watcher that joins is not', async () => {
   await withProject(async root => {
     const store = openStore(root);
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(store);
     const follower = watcher({ follow: true, initial: 'new' });
 
-    const followerDone = hub.watch(store, follower.watcher, deps);
+    const followerDone = hub.watch(store.location, follower.watcher, deps);
     const attempt = await transport.opened(0);
     attempt.subscribed();
     await clock.advance(15_000);
     assert.ok(follower.states().includes('live'));
 
     const drain = watcher({ follow: false });
-    const drainResult = await resultOf(hub.watch(store, drain.watcher, deps));
+    const drainResult = await resultOf(hub.watch(store.location, drain.watcher, deps));
     assert.equal(drainResult.outcome, 'quiet');
     assert.equal(attempt.aborted, false);
     assert.equal(transport.attempts.length, 1);
@@ -152,7 +153,7 @@ test('a drain that joins a run that is already live is done at once, and a follo
 test('a watcher callback that throws is detached and reported, and neither the run nor the other watcher notices', async () => {
   await withProject(async root => {
     const store = openStore(root);
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(store);
     const healthy = watcher({ follow: true, initial: 'new' });
     const broken = watcher({ follow: true });
     let calls = 0;
@@ -161,8 +162,8 @@ test('a watcher callback that throws is detached and reported, and neither the r
       throw new Error('webview disposed');
     };
 
-    const healthyDone = hub.watch(store, healthy.watcher, deps);
-    const brokenDone = hub.watch(store, broken.watcher, deps);
+    const healthyDone = hub.watch(store.location, healthy.watcher, deps);
+    const brokenDone = hub.watch(store.location, broken.watcher, deps);
     const attempt = await transport.opened(0);
     attempt.subscribed();
     attempt.events(busEvent(1));
@@ -182,11 +183,11 @@ test('a watcher callback that throws is detached and reported, and neither the r
 test('a watcher whose signal already fired resolves aborted without a connection, a lease or a subscription', async () => {
   await withProject(async root => {
     const store = openStore(root);
-    const { transport, deps, hub } = setup();
+    const { transport, deps, hub } = setup(store);
     const w = watcher({ follow: true });
     w.abort();
 
-    const result = await resultOf(hub.watch(store, w.watcher, deps));
+    const result = await resultOf(hub.watch(store.location, w.watcher, deps));
 
     assert.equal(result.outcome, 'aborted');
     assert.equal(deps.calls.connects.length, 0);
@@ -198,15 +199,15 @@ test('a watcher whose signal already fired resolves aborted without a connection
 test('a watcher that arrives while the last one is closing the run waits for the lease instead of mistaking it for another process', async () => {
   await withProject(async root => {
     const store = openStore(root);
-    const { transport, deps, hub } = setup();
+    const { transport, deps, hub } = setup(store);
     const leaving = watcher({ follow: true, initial: 'new' });
-    const leavingDone = hub.watch(store, leaving.watcher, deps);
+    const leavingDone = hub.watch(store.location, leaving.watcher, deps);
     const first = await transport.opened(0);
     first.subscribed();
 
     leaving.abort();
     const arriving = watcher({ follow: false, initial: 'new' });
-    const arrivingDone = hub.watch(store, arriving.watcher, deps);
+    const arrivingDone = hub.watch(store.location, arriving.watcher, deps);
 
     await resultOf(leavingDone);
     const second = await transport.opened(1);
@@ -220,9 +221,9 @@ test('a watcher that arrives while the last one is closing the run waits for the
 test('dispose ends every run now, tells its watchers aborted, and gives the lease back', async () => {
   await withProject(async root => {
     const store = openStore(root);
-    const { transport, deps, hub } = setup();
+    const { transport, deps, hub } = setup(store);
     const w = watcher({ follow: true, initial: 'new' });
-    const done = hub.watch(store, w.watcher, deps);
+    const done = hub.watch(store.location, w.watcher, deps);
     const attempt = await transport.opened(0);
     attempt.subscribed();
 
@@ -233,10 +234,28 @@ test('dispose ends every run now, tells its watchers aborted, and gives the leas
     await openWriter(store);
     const later = watcher({ follow: true });
     assert.equal(
-      (await resultOf(hub.watch(store, later.watcher, deps))).outcome,
+      (await resultOf(hub.watch(store.location, later.watcher, deps))).outcome,
       'aborted',
       'a disposed hub starts nothing'
     );
+  });
+});
+
+test('the store and the describe are keyed by the object the caller wrote, not by the casing the resolver found', async () => {
+  await withProject(async root => {
+    const location = { root, username: USER, object: 'ns__App_Log__e' };
+    const store = openEventStore(location);
+    const { transport, deps, hub } = setup(store);
+    const w = watcher({ follow: true, initial: 'none' }, { source: eventSource('ns-events', 'ns__app_log__e') });
+
+    const result = await resultOf(hub.watch(location, w.watcher, deps));
+
+    assert.equal(result.outcome, 'needsInitial');
+    assert.deepEqual(deps.calls.opened, [location], 'the injected opener decides the store');
+    assert.deepEqual(deps.calls.described, ['ns__App_Log__e']);
+    assert.ok(result.store.eventsRoot.endsWith('ns__App_Log__e'));
+    assert.equal(transport.attempts.length, 0);
+    assert.ok(await store.describe());
   });
 });
 
@@ -255,11 +274,11 @@ test('a process that finds the lease held stands by, relays what the holder stor
       cursor: cursorOf(1),
       lastEvent: { createdDate: busEvent(1).createdDate, uuid: busEvent(1).uuid }
     });
-    const { clock, transport, deps, hub } = setup({ surface: 'cli' });
+    const { clock, transport, deps, hub } = setup(store, { surface: 'cli' });
     const w = watcher({ follow: true });
     const foreign = await foreignHolder(root);
     try {
-      const done = hub.watch(store, w.watcher, deps);
+      const done = hub.watch(store.location, w.watcher, deps);
       await until(() => standbyUpdate(w) !== undefined, 'the standby state');
       const holderState = standbyUpdate(w);
       assert.ok(holderState?.state === 'standby');
@@ -328,10 +347,10 @@ test('a drain that finds the lease held ends at once with capturedElsewhere', as
     const store = openStore(root);
     const holder = await openWriter(openStore(root), 'vscode');
     try {
-      const { transport, deps, hub } = setup();
+      const { transport, deps, hub } = setup(store);
       const w = watcher({ follow: false });
 
-      const result = await resultOf(hub.watch(store, w.watcher, deps));
+      const result = await resultOf(hub.watch(store.location, w.watcher, deps));
 
       assert.equal(result.outcome, 'capturedElsewhere');
       assert.equal(transport.attempts.length, 0);
@@ -359,9 +378,9 @@ test('a lease taken away mid-run sends the run to standby, drops the batch it co
       }
     });
     try {
-      const { clock, transport, deps, hub } = setup();
+      const { clock, transport, deps, hub } = setup(guarded);
       const w = watcher({ follow: true });
-      const done = hub.watch(guarded, w.watcher, deps);
+      const done = hub.watch(guarded.location, w.watcher, deps);
       const first = await transport.opened(0);
       first.subscribed();
       first.events(busEvent(3));
@@ -391,12 +410,12 @@ test('a run reports one start and one end with bounded fields, however many watc
   await withProject(async root => {
     const store = openStore(root);
     await seedCheckpoint(store, [busEvent(1)]);
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(store);
     const first = watcher({ follow: true });
     const second = watcher({ follow: true }, { source: eventSource('second') });
-    const firstDone = hub.watch(store, first.watcher, deps);
+    const firstDone = hub.watch(store.location, first.watcher, deps);
     const attempt = await transport.opened(0);
-    const secondDone = hub.watch(store, second.watcher, deps);
+    const secondDone = hub.watch(store.location, second.watcher, deps);
     attempt.subscribed();
     attempt.events(busEvent(2), busEvent(3));
     await clock.advance(250);

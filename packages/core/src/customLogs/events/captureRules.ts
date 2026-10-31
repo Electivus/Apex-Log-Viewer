@@ -9,12 +9,11 @@ import type {
   CustomLogCaptureOutcome,
   CustomLogCaptureState,
   CustomLogErrorCode,
-  CustomLogStoreGap,
-  CustomLogStoreInfo
+  CustomLogStoreGap
 } from '../contracts.js';
 import { assertNever } from '../resolved.js';
 import type { EventUuid, ReplayCursor } from './ids.js';
-import type { EventCheckpoint, GapReason, OpenGap, StoreCoverage } from './store.js';
+import type { EventCheckpoint, GapReason, OpenGap } from './store.js';
 import type { ReplayFrom } from './transport.js';
 
 export const FLUSH_MS = 250;
@@ -218,20 +217,3 @@ export const storeGapOf = (gap: OpenGap): CustomLogStoreGap => ({
   ...(gap.after !== undefined ? { after: gap.after } : {}),
   detectedAt: gap.detectedAt
 });
-
-/** The store's coverage as every event result reports it. */
-export function storeInfoOf(coverage: StoreCoverage, retentionDays: number): CustomLogStoreInfo {
-  if (coverage.state === 'notCaptured') {
-    return { state: 'notCaptured', eventsRoot: coverage.eventsRoot, retentionDays };
-  }
-  return {
-    state: 'captured',
-    eventsRoot: coverage.eventsRoot,
-    ...(coverage.oldest !== undefined ? { oldest: coverage.oldest } : {}),
-    ...(coverage.newest !== undefined ? { newest: coverage.newest } : {}),
-    lastCaptureAt: coverage.lastCaptureAt,
-    sizeBytes: coverage.sizeBytes,
-    retentionDays,
-    gaps: coverage.gaps
-  };
-}

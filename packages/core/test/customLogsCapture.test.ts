@@ -56,10 +56,10 @@ async function tick(): Promise<void> {
   await new Promise<void>(resolve => setTimeout(resolve, 5));
 }
 
-function setup(options: Partial<DepsOptions> = {}) {
+function setup(store: EventStore, options: Partial<Omit<DepsOptions, 'store'>> = {}) {
   const clock = options.clock ?? new ManualClock();
   const transport = options.transport ?? fakeTransport();
-  const deps = captureDeps({ ...options, clock, transport });
+  const deps = captureDeps({ ...options, store, clock, transport });
   const hub: CaptureHub = createCaptureHub();
   return { clock: clock as ManualClock, transport, deps, hub };
 }
@@ -71,10 +71,10 @@ test('a drain resumes after the stored cursor, stores what follows exactly, and 
   await withProject(async root => {
     const store = openStore(root);
     await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(store);
     const w = watcher({ follow: false });
 
-    const done = hub.watch(store, w.watcher, deps);
+    const done = hub.watch(store.location, w.watcher, deps);
     const attempt = await transport.opened(0);
     assert.deepEqual(attempt.from, { kind: 'after', cursor: cursorOf(2) });
     assert.equal(
@@ -109,10 +109,10 @@ test('a drain resumes after the stored cursor, stores what follows exactly, and 
 test('needsInitial writes the describe and reads the allowance but subscribes nothing', async () => {
   await withProject(async root => {
     const store = openStore(root);
-    const { transport, deps, hub } = setup({ allowance: { remaining: 8_412, max: 10_000 } });
+    const { transport, deps, hub } = setup(store, { allowance: { remaining: 8_412, max: 10_000 } });
     const w = watcher({ follow: true, initial: 'none' });
 
-    const result = resultOf(await settledOf(hub.watch(store, w.watcher, deps)));
+    const result = resultOf(await settledOf(hub.watch(store.location, w.watcher, deps)));
 
     assert.equal(result.outcome, 'needsInitial');
     assert.equal(transport.attempts.length, 0);
@@ -134,9 +134,9 @@ test('needsInitial writes the describe and reads the allowance but subscribes no
 test('an allowance /limits could not give falls back to the default budget and reports no remaining', async () => {
   await withProject(async root => {
     const store = openStore(root);
-    const { deps, hub } = setup({ allowance: undefined });
+    const { deps, hub } = setup(store, { allowance: undefined });
     const w = watcher({ follow: false, initial: 'none' });
-    resultOf(await settledOf(hub.watch(store, w.watcher, deps)));
+    resultOf(await settledOf(hub.watch(store.location, w.watcher, deps)));
     assert.deepEqual(w.updates[w.updates.length - 1]!.allowance, { budget: 5_000 });
   });
 });
@@ -145,9 +145,9 @@ for (const initial of ['new', 'retained'] as const) {
   test(`a first run with initial ${initial} subscribes ${initial === 'new' ? 'from the end' : 'to everything Salesforce keeps'}`, async () => {
     await withProject(async root => {
       const store = openStore(root);
-      const { transport, deps, hub } = setup();
+      const { transport, deps, hub } = setup(store);
       const w = watcher({ follow: true, initial });
-      const done = hub.watch(store, w.watcher, deps);
+      const done = hub.watch(store.location, w.watcher, deps);
       const attempt = await transport.opened(0);
       assert.deepEqual(attempt.from, { kind: initial });
       assert.equal(attempt.durableCursor(), undefined);
@@ -163,9 +163,9 @@ test('a checkpoint of another org records an orgChanged gap before it subscribes
     await seedCheckpoint(store, [busEvent(1)], { orgId: '00D000000000009AAA' });
     const snapshots: Awaited<ReturnType<EventStore['coverage']>>[] = [];
     const transport = fakeTransport({ onOpen: async () => void snapshots.push(await store.coverage()) });
-    const { deps, hub } = setup({ transport });
+    const { deps, hub } = setup(store, { transport });
     const w = watcher({ follow: true, initial: 'retained' });
-    const done = hub.watch(store, w.watcher, deps);
+    const done = hub.watch(store.location, w.watcher, deps);
     const attempt = await transport.opened(0);
 
     assert.deepEqual(attempt.from, { kind: 'retained' });
@@ -189,10 +189,10 @@ test('a rejected cursor writes the gap before the retained resubscribe, closes i
     await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
     const snapshots: Awaited<ReturnType<EventStore['coverage']>>[] = [];
     const transport = fakeTransport({ onOpen: async () => void snapshots.push(await store.coverage()) });
-    const { clock, deps, hub } = setup({ transport });
+    const { clock, deps, hub } = setup(store, { transport });
     const w = watcher({ follow: false });
 
-    const done = hub.watch(store, w.watcher, deps);
+    const done = hub.watch(store.location, w.watcher, deps);
     const first = await transport.opened(0);
     first.subscribed();
     first.fail({ kind: 'cursorRejected' });
@@ -238,10 +238,10 @@ test('a rejected cursor whose recovery brings nothing leaves the gap open and ad
     const before = await store.checkpoint();
     const advanced: string[] = [];
     const guarded = instrumentStore(store, { advanced: cursor => advanced.push(cursor) });
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(guarded);
     const w = watcher({ follow: false });
 
-    const done = hub.watch(guarded, w.watcher, deps);
+    const done = hub.watch(guarded.location, w.watcher, deps);
     const first = await transport.opened(0);
     first.subscribed();
     first.fail({ kind: 'cursorRejected' });
@@ -267,10 +267,10 @@ test('a rejected resubscribe after the first checkpoint opens the same gap and f
     await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
     const snapshots: Awaited<ReturnType<EventStore['coverage']>>[] = [];
     const transport = fakeTransport({ onOpen: async () => void snapshots.push(await store.coverage()) });
-    const { clock, deps, hub } = setup({ transport });
+    const { clock, deps, hub } = setup(store, { transport });
     const w = watcher({ follow: true });
 
-    const done = hub.watch(store, w.watcher, deps);
+    const done = hub.watch(store.location, w.watcher, deps);
     const first = await transport.opened(0);
     first.subscribed();
     first.events(busEvent(3));
@@ -295,10 +295,10 @@ test('a second rejected cursor in one run fails it with CUSTOM_LOG_CAPTURE_FAILE
   await withProject(async root => {
     const store = openStore(root);
     await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(store);
     const w = watcher({ follow: true });
 
-    const settled = settledOf(hub.watch(store, w.watcher, deps));
+    const settled = settledOf(hub.watch(store.location, w.watcher, deps));
     const first = await transport.opened(0);
     first.subscribed();
     first.fail({ kind: 'cursorRejected' });
@@ -333,9 +333,9 @@ test('a gap found open at start is not new, whether the start decides it again o
 
     const snapshots: Awaited<ReturnType<EventStore['coverage']>>[] = [];
     const first = fakeTransport({ onOpen: async () => void snapshots.push(await store.coverage()) });
-    const run1 = setup({ clock: stale(), transport: first });
+    const run1 = setup(store, { clock: stale(), transport: first });
     const w1 = watcher({ follow: true });
-    const done1 = run1.hub.watch(store, w1.watcher, run1.deps);
+    const done1 = run1.hub.watch(store.location, w1.watcher, run1.deps);
     const attempt1 = await first.opened(0);
     const durable = snapshots[0];
     assert.deepEqual(
@@ -355,9 +355,9 @@ test('a gap found open at start is not new, whether the start decides it again o
     );
 
     const second = fakeTransport();
-    const run2 = setup({ clock: stale(), transport: second });
+    const run2 = setup(store, { clock: stale(), transport: second });
     const w2 = watcher({ follow: true });
-    const done2 = run2.hub.watch(store, w2.watcher, run2.deps);
+    const done2 = run2.hub.watch(store.location, w2.watcher, run2.deps);
     await second.opened(0);
     w2.abort();
     const result2 = resultOf(await settledOf(done2));
@@ -382,10 +382,10 @@ test('a row reaches a watcher only after the append that stores it resolved', as
       },
       appended: () => log.push('append resolved')
     });
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(guarded);
     const w = watcher({ follow: true, initial: 'new' });
 
-    const done = hub.watch(guarded, w.watcher, deps);
+    const done = hub.watch(guarded.location, w.watcher, deps);
     const attempt = await transport.opened(0);
     attempt.subscribed();
     attempt.events(busEvent(1));
@@ -419,10 +419,10 @@ test('flushes are single-flight: advance calls land in the order append calls co
       appended: events => log.push(`appended ${events.length}`),
       advance: cursor => void log.push(`advance ${cursor}`)
     });
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(guarded);
     const w = watcher({ follow: true, initial: 'new' });
 
-    const done = hub.watch(guarded, w.watcher, deps);
+    const done = hub.watch(guarded.location, w.watcher, deps);
     const attempt = await transport.opened(0);
     attempt.subscribed();
     attempt.events(busEvent(1));
@@ -453,10 +453,10 @@ test('a flush that finds the queue drained advances nothing', async () => {
     const store = openStore(root);
     const advanced: string[] = [];
     const guarded = instrumentStore(store, { advance: cursor => void advanced.push(cursor) });
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(guarded);
     const w = watcher({ follow: true, initial: 'new' });
 
-    const done = hub.watch(guarded, w.watcher, deps);
+    const done = hub.watch(guarded.location, w.watcher, deps);
     const attempt = await transport.opened(0);
     attempt.subscribed();
     attempt.events(busEvent(1));
@@ -482,10 +482,10 @@ test('an abort during a flush still stores and checkpoints the batch, and the ch
         await gate;
       };
       const guarded = instrumentStore(store, gated === 'append' ? { append: hold } : { advance: hold });
-      const { clock, transport, deps, hub } = setup();
+      const { clock, transport, deps, hub } = setup(guarded);
       const w = watcher({ follow: true, initial: 'new' });
 
-      const settled = settledOf(hub.watch(guarded, w.watcher, deps));
+      const settled = settledOf(hub.watch(guarded.location, w.watcher, deps));
       const attempt = await transport.opened(0);
       attempt.subscribed();
       attempt.events(busEvent(1), busEvent(2));
@@ -512,10 +512,10 @@ test('a duplicate-only batch stores nothing but still moves the resume point', a
   await withProject(async root => {
     const store = openStore(root);
     await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(store);
     const w = watcher({ follow: true });
 
-    const done = hub.watch(store, w.watcher, deps);
+    const done = hub.watch(store.location, w.watcher, deps);
     const attempt = await transport.opened(0);
     attempt.subscribed();
     attempt.events(busEvent(1, { cursor: 1_003 }), busEvent(2, { cursor: 1_004 }));
@@ -542,10 +542,10 @@ test('the clean end of a live run that stored nothing re-sends the position seed
     await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
     const seeded = await store.checkpoint();
     await tick();
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(store);
     const w = watcher({ follow: false });
 
-    const done = hub.watch(store, w.watcher, deps);
+    const done = hub.watch(store.location, w.watcher, deps);
     const attempt = await transport.opened(0);
     attempt.subscribed();
     await clock.advance(15_000);
@@ -569,10 +569,10 @@ test('a flush followed by a clean end re-sends that flush, not the checkpoint re
     await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
     const advanced: string[] = [];
     const guarded = instrumentStore(store, { advanced: cursor => void advanced.push(cursor) });
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(guarded);
     const w = watcher({ follow: false });
 
-    const done = hub.watch(guarded, w.watcher, deps);
+    const done = hub.watch(guarded.location, w.watcher, deps);
     const attempt = await transport.opened(0);
     attempt.subscribed();
     attempt.events(busEvent(3));
@@ -594,18 +594,18 @@ test('an abort while catching up leaves updatedAt alone, and an abort once live 
     const seeded = await updatedAtOf(store);
     await tick();
 
-    const catching = setup();
+    const catching = setup(store);
     const w1 = watcher({ follow: true });
-    const done1 = catching.hub.watch(store, w1.watcher, catching.deps);
+    const done1 = catching.hub.watch(store.location, w1.watcher, catching.deps);
     const a1 = await catching.transport.opened(0);
     a1.subscribed();
     w1.abort();
     assert.equal(resultOf(await settledOf(done1)).outcome, 'aborted');
     assert.equal(await updatedAtOf(store), seeded, 'undelivered backlog may remain, so nothing is confirmed');
 
-    const live = setup();
+    const live = setup(store);
     const w2 = watcher({ follow: true });
-    const done2 = live.hub.watch(store, w2.watcher, live.deps);
+    const done2 = live.hub.watch(store.location, w2.watcher, live.deps);
     const a2 = await live.transport.opened(0);
     a2.subscribed();
     await live.clock.advance(15_000);
@@ -624,11 +624,11 @@ test('a drain over a day-old cursor on a quiet stream waits its whole bound, end
     const seeded = await updatedAtOf(store);
     await tick();
     const clock = new ManualClock(Date.now() + 24 * HOUR);
-    const { transport, deps, hub } = setup({ clock });
+    const { transport, deps, hub } = setup(store, { clock });
     const w = watcher({ follow: false });
 
     let finished = false;
-    const done = settledOf(hub.watch(store, w.watcher, deps)).then(settled => ((finished = true), settled));
+    const done = settledOf(hub.watch(store.location, w.watcher, deps)).then(settled => ((finished = true), settled));
     const attempt = await transport.opened(0);
     attempt.subscribed();
     await clock.advance(119_999);
@@ -650,10 +650,10 @@ test('a drain bound shorter than the young-cursor wait ends timeLimit and does n
     await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
     const seeded = await updatedAtOf(store);
     await tick();
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(store);
     const w = watcher({ follow: false, maxDurationMs: 10_000 });
 
-    const done = hub.watch(store, w.watcher, deps);
+    const done = hub.watch(store.location, w.watcher, deps);
     const attempt = await transport.opened(0);
     attempt.subscribed();
     await clock.advance(10_000);
@@ -668,10 +668,10 @@ test('a drain whose bound fires while events keep arriving ends timeLimit, and s
     const store = openStore(root);
     await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
     const clock = new ManualClock(Date.now() + 24 * HOUR);
-    const busy = setup({ clock });
+    const busy = setup(store, { clock });
     const w = watcher({ follow: false });
 
-    const done = busy.hub.watch(store, w.watcher, busy.deps);
+    const done = busy.hub.watch(store.location, w.watcher, busy.deps);
     const attempt = await busy.transport.opened(0);
     attempt.subscribed();
     for (let n = 3; n < 3 + 23; n += 1) {
@@ -681,9 +681,9 @@ test('a drain whose bound fires while events keep arriving ends timeLimit, and s
     await clock.advance(5_000);
     assert.equal(resultOf(await settledOf(done)).outcome, 'timeLimit');
 
-    const silent = setup({ clock: new ManualClock() });
+    const silent = setup(store, { clock: new ManualClock() });
     const w2 = watcher({ follow: false });
-    const done2 = silent.hub.watch(store, w2.watcher, silent.deps);
+    const done2 = silent.hub.watch(store.location, w2.watcher, silent.deps);
     await silent.transport.opened(0);
     await silent.clock.advance(120_000);
     assert.equal(resultOf(await settledOf(done2)).outcome, 'timeLimit');
@@ -693,10 +693,10 @@ test('a drain whose bound fires while events keep arriving ends timeLimit, and s
 test('a drain stops at live when events arrive and then go quiet for 10 s', async () => {
   await withProject(async root => {
     const store = openStore(root);
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(store);
     const w = watcher({ follow: false, initial: 'retained' });
 
-    const done = hub.watch(store, w.watcher, deps);
+    const done = hub.watch(store.location, w.watcher, deps);
     const attempt = await transport.opened(0);
     attempt.subscribed();
     attempt.events(busEvent(1), busEvent(2));
@@ -717,10 +717,10 @@ test('a drain stops at live when events arrive and then go quiet for 10 s', asyn
 test('a run that spends its budget flushes what it received, stops with outcome budget, and resumes next time', async () => {
   await withProject(async root => {
     const store = openStore(root);
-    const { clock, transport, deps, hub } = setup({ allowance: { remaining: 1_000, max: 10_000 } });
+    const { clock, transport, deps, hub } = setup(store, { allowance: { remaining: 1_000, max: 10_000 } });
     const w = watcher({ follow: true, initial: 'retained' });
 
-    const done = hub.watch(store, w.watcher, deps);
+    const done = hub.watch(store.location, w.watcher, deps);
     const attempt = await transport.opened(0);
     attempt.subscribed();
     attempt.events(...Array.from({ length: 300 }, (_, index) => busEvent(index + 1)));
@@ -742,10 +742,10 @@ test('a run that spends its budget flushes what it received, stops with outcome 
 test('a response past the queue bound aborts the transport, commits everything, and reopens from the committed cursor', async () => {
   await withProject(async root => {
     const store = openStore(root);
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(store);
     const w = watcher({ follow: true, initial: 'retained' });
 
-    const done = hub.watch(store, w.watcher, deps);
+    const done = hub.watch(store.location, w.watcher, deps);
     const first = await transport.opened(0);
     first.subscribed();
     const count = QUEUE_MAX_EVENTS + 1;
@@ -773,10 +773,10 @@ test('a response past the queue bound aborts the transport, commits everything, 
 test('a response past the queue byte bound reconnects the same way', async () => {
   await withProject(async root => {
     const store = openStore(root);
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(store);
     const w = watcher({ follow: true, initial: 'new' });
 
-    const done = hub.watch(store, w.watcher, deps);
+    const done = hub.watch(store.location, w.watcher, deps);
     const first = await transport.opened(0);
     first.subscribed();
     const megabytes = 16 * 1024 * 1024;
@@ -805,10 +805,10 @@ const rebuild = async (w: ReturnType<typeof watcher>, attempt: number, backoffMs
 test('an auth rejection rebuilds the connection with backoff and fails after three rebuilds without a subscribed', async () => {
   await withProject(async root => {
     const store = openStore(root);
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(store);
     const w = watcher({ follow: true, initial: 'new' });
 
-    const settled = settledOf(hub.watch(store, w.watcher, deps));
+    const settled = settledOf(hub.watch(store.location, w.watcher, deps));
     for (const [index, backoff] of [1_000, 2_000, 5_000].entries()) {
       const attempt = await transport.opened(index);
       attempt.fail({ kind: 'authRejected' });
@@ -835,10 +835,10 @@ test('an auth rejection rebuilds the connection with backoff and fails after thr
 test('a subscribed between auth rejections resets the rebuild count', async () => {
   await withProject(async root => {
     const store = openStore(root);
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(store);
     const w = watcher({ follow: true, initial: 'new' });
 
-    const done = hub.watch(store, w.watcher, deps);
+    const done = hub.watch(store.location, w.watcher, deps);
     const reconnects = () => w.updates.filter(update => update.capture.state === 'reconnecting').length;
     for (let index = 0; index < 5; index += 1) {
       const attempt = await transport.opened(index);
@@ -876,10 +876,10 @@ for (const [label, failure, code] of terminal) {
   test(`a ${label} failure ends the run with ${code} after storing what it received`, async () => {
     await withProject(async root => {
       const store = openStore(root);
-      const { transport, deps, hub } = setup();
+      const { transport, deps, hub } = setup(store);
       const w = watcher({ follow: true, initial: 'new' });
 
-      const settled = settledOf(hub.watch(store, w.watcher, deps));
+      const settled = settledOf(hub.watch(store.location, w.watcher, deps));
       const attempt = await transport.opened(0);
       attempt.subscribed();
       attempt.events(busEvent(1));
@@ -903,10 +903,10 @@ test('a failed append ends the run with the store error and gives the lease back
         throw customLogError('CUSTOM_LOG_STORE_UNAVAILABLE', 'Appending to the day file failed.');
       }
     });
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(guarded);
     const w = watcher({ follow: true, initial: 'new' });
 
-    const settled = settledOf(hub.watch(guarded, w.watcher, deps));
+    const settled = settledOf(hub.watch(guarded.location, w.watcher, deps));
     const attempt = await transport.opened(0);
     attempt.subscribed();
     attempt.events(busEvent(1));
@@ -922,14 +922,14 @@ test('a connect failure rejects with that error, reports failed, and subscribes 
   await withProject(async root => {
     const store = openStore(root);
     const refusal = new AlvError('ORG_NOT_FOUND', 'No authorized org matches dev@example.com.');
-    const { transport, deps, hub } = setup({
+    const { transport, deps, hub } = setup(store, {
       connect: async () => {
         throw refusal;
       }
     });
     const w = watcher({ follow: true });
 
-    const settled = await settledOf(hub.watch(store, w.watcher, deps));
+    const settled = await settledOf(hub.watch(store.location, w.watcher, deps));
 
     assert.equal(errorOf(settled), refusal);
     assert.equal(transport.attempts.length, 0);
@@ -945,10 +945,10 @@ test('a connect failure rejects with that error, reports failed, and subscribes 
 test('a transport that drops and recovers reports reconnecting and catchingUp, and counts the reconnect', async () => {
   await withProject(async root => {
     const store = openStore(root);
-    const { clock, transport, deps, hub } = setup();
+    const { clock, transport, deps, hub } = setup(store);
     const w = watcher({ follow: true, initial: 'new' });
 
-    const done = hub.watch(store, w.watcher, deps);
+    const done = hub.watch(store.location, w.watcher, deps);
     const attempt = await transport.opened(0);
     attempt.subscribed();
     await clock.advance(15_000);
@@ -977,9 +977,9 @@ test('the channel the run subscribes comes from the resolved source, so the adap
       seen.push(params.channel);
       return open(params);
     };
-    const { deps, hub } = setup({ transport });
+    const { deps, hub } = setup(store, { transport });
     const w = watcher({ follow: true, initial: 'new' });
-    const done = hub.watch(store, w.watcher, deps);
+    const done = hub.watch(store.location, w.watcher, deps);
     await transport.opened(0);
     assert.deepEqual(seen, [CHANNEL]);
     w.abort();

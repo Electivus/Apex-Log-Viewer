@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import type { Connection } from '@salesforce/core';
 
-import type { CustomLogCaptureUpdate, CustomLogRow } from '../../src/customLogs/contracts.ts';
+import type { CustomLogCaptureUpdate, CustomLogRow, CustomLogStoreInfo } from '../../src/customLogs/contracts.ts';
 import {
   type CaptureClock,
   type CaptureDeps,
@@ -17,7 +17,9 @@ import { cometdCursor, parseEventUuid, type EventUuid, type ReplayCursor } from 
 import {
   openEventStore,
   type EventStore,
+  type EventStoreLocation,
   type EventStoreWriter,
+  type StoreCoverage,
   type StoredEvent
 } from '../../src/customLogs/events/store.ts';
 import {
@@ -296,11 +298,11 @@ export function instrumentStore(store: EventStore, hooks: WriterHooks): EventSto
 // the run's dependencies
 
 /** Capture reads the id, label, kind, object and channel of a source; decoding is the injected decoder's. */
-export function eventSource(id = 'app-events'): ResolvedEventSource {
+export function eventSource(id = 'app-events', object = OBJECT): ResolvedEventSource {
   return {
     id,
     label: 'App events',
-    shape: { kind: 'events', event: { object: OBJECT, channel: CHANNEL } }
+    shape: { kind: 'events', event: { object, channel: CHANNEL } }
   } as unknown as ResolvedEventSource;
 }
 
@@ -308,7 +310,25 @@ export const appDescribe = (): ObjectDescribe => ({ ...logEntryEventDescribe(), 
 
 const connection = {} as Connection;
 
+/** The facade maps coverage once for `list`, `get` and `capture`; this stands in for it. */
+export function storeInfoOf(coverage: StoreCoverage, retentionDays: number): CustomLogStoreInfo {
+  if (coverage.state === 'notCaptured') return { state: 'notCaptured', eventsRoot: coverage.eventsRoot, retentionDays };
+  const { state, eventsRoot, oldest, newest, lastCaptureAt, sizeBytes, gaps } = coverage;
+  return {
+    state,
+    eventsRoot,
+    ...(oldest !== undefined ? { oldest } : {}),
+    ...(newest !== undefined ? { newest } : {}),
+    lastCaptureAt,
+    sizeBytes,
+    retentionDays,
+    gaps
+  };
+}
+
 export type DepsOptions = {
+  /** What the injected opener answers; a test passes its instrumented store here. */
+  store: EventStore;
   transport: FakeTransport;
   clock: ManualClock;
   allowance?: Allowance | undefined;
@@ -323,6 +343,9 @@ export type TestDeps = CaptureDeps & {
     connects: { fresh: boolean }[];
     allowances: number;
     describes: number;
+    /** The object name each describe was asked for. */
+    described: string[];
+    opened: EventStoreLocation[];
     decoded: string[];
     runEvents: CaptureRunEvent[];
     callbackErrors: unknown[];
@@ -336,6 +359,8 @@ export function captureDeps(options: DepsOptions): TestDeps {
     connects: [],
     allowances: 0,
     describes: 0,
+    described: [],
+    opened: [],
     decoded: [],
     runEvents: [],
     callbackErrors: [],
@@ -354,10 +379,16 @@ export function captureDeps(options: DepsOptions): TestDeps {
         calls.connects.push({ fresh });
         return session;
       }),
-    describe: async () => {
+    describe: async (_ctx, object) => {
       calls.describes += 1;
+      calls.described.push(object);
       return appDescribe();
     },
+    openStore: location => {
+      calls.opened.push(location);
+      return options.store;
+    },
+    storeInfo: coverage => storeInfoOf(coverage, options.retentionDays ?? 30),
     readAllowance: async () => {
       calls.allowances += 1;
       return 'allowance' in options ? options.allowance : { remaining: 10_000, max: 25_000 };

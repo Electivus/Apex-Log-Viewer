@@ -81,7 +81,6 @@ import {
   replayFrom,
   resumeAfter,
   storeGapOf,
-  storeInfoOf,
   type Allowance,
   type FirstEventWait,
   type RunPosition,
@@ -90,7 +89,14 @@ import {
   type Start
 } from './captureRules.js';
 import { compareNewestFirst, type EventPosition } from './ids.js';
-import { LeaseLostError, type EventStore, type EventStoreWriter, type StoredEvent } from './store.js';
+import {
+  LeaseLostError,
+  type EventStore,
+  type EventStoreLocation,
+  type EventStoreWriter,
+  type StoreCoverage,
+  type StoredEvent
+} from './store.js';
 import {
   TransportError,
   type BusEvent,
@@ -139,11 +145,16 @@ export type CaptureDeps = {
   createTransport(hooks: { onDropped(count: number): void }): EventTransport;
   /** Opens or reuses the org connection; `fresh` evicts the cached one first (auth failure mid-stream). */
   connect(options: { fresh: boolean; signal: AbortSignal }): Promise<CaptureSession>;
-  /** Live describe of the event object, through the registry's memo. */
+  /** Live describe of the event object, through the registry's memo. `object` is the name the store is keyed by, as the caller wrote it. */
   describe(ctx: CustomLogContext, object: string, signal: AbortSignal): Promise<ObjectDescribe>;
+  /** The store handle for a location. The facade memoizes it, so the same location answers the same store. */
+  openStore(location: EventStoreLocation): EventStore;
+  /** The store's coverage as every event result reports it: the one mapping `list`, `get` and `capture` share. */
+  storeInfo(coverage: StoreCoverage): CustomLogStoreInfo;
   /** `DailyDeliveredPlatformEvents` from `/limits`; undefined when the org will not say. */
   readAllowance(ctx: CustomLogContext, signal: AbortSignal): Promise<Allowance | undefined>;
   decodeRows: RowDecoder;
+  /** Days of history `purge` keeps at the start of a run. */
   retentionDays: number;
   surface: 'vscode' | 'cli';
   clock: CaptureClock;
@@ -186,7 +197,7 @@ export type CaptureHub = {
    * store without a usable position. A watcher that arrives while the run is closing waits for it and
    * starts the next one.
    */
-  watch(store: EventStore, watcher: CaptureWatcher, deps: CaptureDeps): Promise<CustomLogCaptureResult>;
+  watch(location: EventStoreLocation, watcher: CaptureWatcher, deps: CaptureDeps): Promise<CustomLogCaptureResult>;
   /** Facade dispose: ends every run now (no linger), releases leases, and resolves when all are closed. */
   dispose(): Promise<void>;
 };
@@ -203,7 +214,8 @@ export function createCaptureHub(): CaptureHub {
   let disposed = false;
 
   return {
-    async watch(store, watcher, deps) {
+    async watch(location, watcher, deps) {
+      const store = deps.openStore(location);
       if (disposed || watcher.signal.aborted) return resultWithoutRun(store, watcher, deps);
       const key = store.eventsRoot;
       for (;;) {
@@ -244,7 +256,7 @@ async function resultWithoutRun(
     delivered: 0,
     stored: 0,
     newGaps: [],
-    store: storeInfoOf(await store.coverage(), deps.retentionDays)
+    store: deps.storeInfo(await store.coverage())
   };
 }
 
@@ -392,7 +404,7 @@ function createRun(
   };
 
   const refreshStoreInfo = async (): Promise<void> => {
-    storeInfo = storeInfoOf(await store.coverage(), deps.retentionDays);
+    storeInfo = deps.storeInfo(await store.coverage());
   };
 
   const report = (runEvent: CaptureRunEvent): void => {
@@ -415,7 +427,7 @@ function createRun(
     delivered: delivered - w.base.delivered,
     stored: stored - w.base.stored,
     newGaps: newGaps.slice(w.base.gaps),
-    store: storeInfoOf(await store.coverage(), deps.retentionDays)
+    store: deps.storeInfo(await store.coverage())
   });
 
   const settle = async (w: WatcherState, outcome: CustomLogCaptureOutcome): Promise<void> => {
@@ -570,7 +582,7 @@ function createRun(
     const remaining = await deps.readAllowance(session.ctx, signal);
     const budget = deliveryBudget(remaining);
     allowance = { ...(remaining ? { remaining: remaining.remaining, max: remaining.max } : {}), budget };
-    await writer.writeDescribe(await deps.describe(session.ctx, event.object, signal));
+    await writer.writeDescribe(await deps.describe(session.ctx, store.location.object, signal));
     await writer.purge(deps.retentionDays, clock.now());
     const checkpoint = await store.checkpoint();
     const decision = chooseStart({

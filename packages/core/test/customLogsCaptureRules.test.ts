@@ -15,7 +15,6 @@ import {
   drainBoundOutcome,
   firstEventWait,
   nextState,
-  storeInfoOf,
   type StateInput
 } from '../src/customLogs/events/captureRules.ts';
 import { cometdCursor, parseEventUuid, type EventUuid } from '../src/customLogs/events/ids.ts';
@@ -339,59 +338,4 @@ test('closesGap: any stored event closes a gap with no bound; otherwise only an 
   assert.equal(closesGap({ after: '2026-10-30T09:00:00.000Z' }, at('2026-10-30T09:00:00.001Z')), true);
   assert.equal(closesGap({ after: '2026-10-30T09:00:00.000Z' }, at('2026-10-30T09:00:00.000Z')), false);
   assert.equal(closesGap({ after: '2026-10-30T09:00:00.000Z' }, at('2026-10-30T08:59:59.999Z')), false);
-});
-
-test('storeInfoOf: notCaptured keeps the root and the retention; captured carries the coverage and omits absent bounds', () => {
-  assert.deepEqual(storeInfoOf({ state: 'notCaptured', eventsRoot: '/r/App_Log__e' }, 30), {
-    state: 'notCaptured',
-    eventsRoot: '/r/App_Log__e',
-    retentionDays: 30
-  });
-  const gaps = [
-    { reason: 'cursorRejected' as const, after: '2026-10-21T18:02:11.000Z', detectedAt: '2026-10-28T08:00:01.002Z' }
-  ];
-  assert.deepEqual(
-    storeInfoOf(
-      {
-        state: 'captured',
-        eventsRoot: '/r/App_Log__e',
-        lastCaptureAt: '2026-10-30T10:00:00.000Z',
-        sizeBytes: 12,
-        gaps
-      },
-      7
-    ),
-    {
-      state: 'captured',
-      eventsRoot: '/r/App_Log__e',
-      lastCaptureAt: '2026-10-30T10:00:00.000Z',
-      sizeBytes: 12,
-      retentionDays: 7,
-      gaps
-    }
-  );
-  assert.deepEqual(
-    storeInfoOf(
-      {
-        state: 'captured',
-        eventsRoot: '/r/App_Log__e',
-        oldest: '2026-10-02T09:14:03.120Z',
-        newest: '2026-10-30T17:58:41.007Z',
-        lastCaptureAt: '2026-10-30T17:58:52.311Z',
-        sizeBytes: 5,
-        gaps: []
-      },
-      30
-    ),
-    {
-      state: 'captured',
-      eventsRoot: '/r/App_Log__e',
-      oldest: '2026-10-02T09:14:03.120Z',
-      newest: '2026-10-30T17:58:41.007Z',
-      lastCaptureAt: '2026-10-30T17:58:52.311Z',
-      sizeBytes: 5,
-      retentionDays: 30,
-      gaps: []
-    }
-  );
 });
