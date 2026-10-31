@@ -1040,6 +1040,21 @@ suite('Custom Logs view provider', () => {
       assert.equal(ctx.fake.calls.customLogCapture[0]?.aborted, false);
     });
 
+    test('a mapping edit that keeps the source id restarts the capture, so core resolves the new mapping', async () => {
+      const ctx = loadEvents();
+      await openEvents(ctx);
+      const captures = ctx.fake.calls.customLogCapture;
+      captures[0]!.report();
+      await settle();
+
+      await ctx.provider.onProjectConfigChanged();
+
+      assert.equal(captures[0]?.aborted, true, 'the capture of the old mapping ends');
+      assert.equal(captures.length, 2);
+      assert.equal(captures[1]?.params.source, EVENTS.id);
+      assert.equal(captures[1]?.params.initial, 'none', 'the restart buys no replay');
+    });
+
     test('a record source takes the strip down, and the next event source starts over', async () => {
       const ctx = loadEvents();
       const host = await openEvents(ctx);

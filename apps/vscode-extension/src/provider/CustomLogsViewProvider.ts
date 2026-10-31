@@ -244,12 +244,15 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
 
   /**
    * `sfdx-project.json` changed: resolve the sources against the new mapping and reload the page. Core keys
-   * its detection memo by the mapping, so a save does not drop what it already learned about the org.
+   * its detection memo by the mapping, so a save does not drop what it already learned about the org. A
+   * capture keeps the mapping it was started with, so it ends here and the page load starts one on the new
+   * mapping, even when the source id did not change.
    */
   public async onProjectConfigChanged(): Promise<void> {
     if (this.disposed) {
       return;
     }
+    this.stopCapture();
     if (!this.view) {
       this.projectConfigPending = true;
       return;
