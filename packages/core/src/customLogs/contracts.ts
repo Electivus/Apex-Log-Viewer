@@ -380,4 +380,5 @@ export type CustomLogErrorCode =
   | 'CUSTOM_LOG_RECORD_NOT_FOUND' // the id or transaction id is not visible to this user
   | 'CUSTOM_LOG_AMBIGUOUS_TRANSACTION' // several headers carry the requested transaction id; the message lists their ids
   | 'CUSTOM_LOG_UNSUPPORTED_FILTER' // e.g. minLevel on a source with no level mapping, or a transaction id it cannot filter
-  | 'CUSTOM_LOG_INVALID_CURSOR'; // malformed, or produced for another org, source mapping, query or window
+  | 'CUSTOM_LOG_INVALID_CURSOR' // malformed, or produced for another org, source mapping, query or window
+  | 'CUSTOM_LOG_STORE_UNAVAILABLE'; // the event store cannot be used: no directory, a newer format, an unreadable lease or checkpoint, a symlinked directory, or a failed write (the message names the file)
