@@ -166,7 +166,7 @@ jobs:
           node scripts/run-vsce.js package --no-dependencies --skip-prepublish --no-yarn --target "${MATRIX_TARGET}" --out "apex-log-viewer-${VERSION}-${CHANNEL_SUFFIX}-${MATRIX_TARGET}.vsix" "${PRE_ARGS[@]}"
 
       - name: Upload VSIX artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: apex-log-viewer-${{ steps.determine_channel.outputs.version }}-${{ steps.determine_channel.outputs.channel_suffix }}-vsix-${{ matrix.target }}
           path: |
@@ -292,7 +292,7 @@ jobs:
           find "${VSIX_DIR}" -name '*.vsix' -exec mv {} . \;
 
       - name: Upload VSIX artifact for marketplace publish jobs
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: apex-log-viewer-${{ steps.determine_channel.outputs.version }}-${{ steps.determine_channel.outputs.channel_suffix }}-publish-vsix
           path: |
