@@ -55,9 +55,10 @@ export function noSourceMessage(catalog: SourceCatalog): string {
   );
 }
 
+/** A full sentence: every `unavailable` message already ends with its period. */
 function describeUnavailable(entry: Exclude<CatalogEntry, { state: 'ready' }>): string {
   if (entry.state === 'unavailable') return `${entry.reason}: ${entry.message}`;
-  return entry.hint === 'collision' ? 'not installed (a Log__c exists that is not Nebula Logger)' : 'not installed';
+  return entry.hint === 'collision' ? 'not installed (a Log__c exists that is not Nebula Logger).' : 'not installed.';
 }
 
 /** The error for an id no source answers to, with the ids that exist. */
@@ -90,7 +91,7 @@ export function requireSource(catalog: SourceCatalog, sourceId: string | undefin
     if (entry.state === 'ready') return entry.source;
     throw customLogError(
       'CUSTOM_LOG_SOURCE_UNAVAILABLE',
-      `Log source "${sourceId}" is not available: ${describeUnavailable(entry)}.`
+      `Log source "${sourceId}" is not available: ${describeUnavailable(entry)}`
     );
   }
   const candidates = implicitCandidates(catalog);

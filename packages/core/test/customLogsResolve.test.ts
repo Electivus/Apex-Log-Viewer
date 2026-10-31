@@ -483,6 +483,22 @@ function codeOf(run: () => unknown): string | undefined {
   return undefined;
 }
 
+test('the error for an unavailable source ends with one period, whichever way the source is unavailable', () => {
+  const unreadable = resolveDefinition(define(nebulaEventMapping), 'config', '', new Map());
+  const messages = [absentManaged, unreadable].map(entry => {
+    try {
+      requireSource(catalogOf(entry), entry.head.id);
+    } catch (error) {
+      return error instanceof AlvError ? error.message : String(error);
+    }
+    return '';
+  });
+
+  for (const message of messages) {
+    assert.match(message, /is not available: .*[^.]\.$/, message);
+  }
+});
+
 test('requireSource picks the only ready source and never guesses between several', () => {
   const one = catalogOf(absentManaged, unlockedNebula);
   const two = catalogOf(appLog, unlockedNebula, absentManaged);
