@@ -234,7 +234,7 @@ function parseGapLine(text: string): GapLine | undefined {
   };
 }
 
-const hourStartOf = (createdMs: number): number => Math.floor(createdMs / HOUR_MS) * HOUR_MS;
+export const hourStartOf = (createdMs: number): number => Math.floor(createdMs / HOUR_MS) * HOUR_MS;
 
 export function partitionOf(createdMs: number): { day: string; hour: string } {
   const iso = new Date(createdMs).toISOString();

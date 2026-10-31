@@ -34,6 +34,8 @@
  *       same-hour copies merge on every page, and copies whose CreatedDate hours differ merge inside
  *       one scan but not across pages. Order is EventPosition. Two writers across a lease handover, a
  *       crash replay, a `-2` replay over stored events, or a publisher duplicate all read back as one event.
+ *       Writers dedupe too: `append` skips a uuid a stored line already holds in the hour of its CreatedDate,
+ *       so those copies normally never reach disk, and read-time dedupe is the safety net.
  *   I4  Stored payloads hold every delivered field except nulls (events ignore FLS, and raw history
  *       must survive remaps). Reads gate through `describe.json`: a mapped field it does not list is
  *       `hidden`. A missing key reads as null, which the decoders treat as empty.
@@ -73,6 +75,7 @@ import {
   closeAll,
   createdMsOf,
   foldGaps,
+  hourStartOf,
   isNotFound,
   isRecord,
   keptCopies,
@@ -83,7 +86,6 @@ import {
   parseCheckpoint,
   parseObjectDescribe,
   partitionOf,
-  partitionsNewestFirst,
   readGapFiles,
   readStoredEvent,
   scanNewestFirst,
@@ -145,9 +147,9 @@ export type EventStore = StoreScan & {
   /**
    * Lease, then a writer. `heldBy` means another live process captures this object. Throws
    * CUSTOM_LOG_STORE_UNAVAILABLE for an unreadable lease or a newer format. The writer starts with its
-   * uuid memory and `nextSeq` seeded from every writer's data files whose mtime is at or after
-   * `checkpoint.updatedAt` (every data file when there is no checkpoint), so a crash or takeover
-   * re-delivery is dropped before it is written and no seq is reused.
+   * `nextSeq` seeded from every writer's data files whose mtime is at or after `checkpoint.updatedAt`
+   * (every data file when there is no checkpoint), so no seq is reused. A re-delivery of a stored event
+   * (crash, takeover or `-2` replay) is dropped by `append`, which looks the uuid up in the stored hour.
    */
   openWriter(surface: 'vscode' | 'cli'): Promise<{ writer: EventStoreWriter } | { heldBy: LeaseHolder }>;
 };
@@ -170,22 +172,15 @@ export type EventStoreWriter = {
   /** Writes `describe.json` when it differs from the stored one. Called in prepare, before any append, so `list` can resolve columns and gate fields through it from the first event. */
   writeDescribe(describe: ObjectDescribe): Promise<void>;
   /**
-   * Drops null payload keys and keeps every other key (I4), allocates seqs, appends to
-   * `<day>/<HH>.<writer>.ndjson` per event, `datasync`s every touched file. Rejects with
+   * Drops an event whose uuid a stored line already holds in the hour of its CreatedDate, whichever writer
+   * wrote it and whatever the checkpoint covers, so a crash replay, a takeover and a `-2` replay over any
+   * number of stored events write each event once. Then drops null payload keys and keeps every other key
+   * (I4), allocates seqs, appends to `<day>/<HH>.<writer>.ndjson` per event, `datasync`s every touched file. Rejects with
    * CUSTOM_LOG_STORE_UNAVAILABLE (naming the file) when an append fails; the writer is then retired:
    * every later call rejects, the batch was not checkpointed, and the next run (new writer id, new
    * files) re-delivers it. A partial write is never followed by a retry in the same file.
    */
   append(events: readonly BusEvent[]): Promise<AppendResult>;
-  /**
-   * Adds the uuid of every stored event created at or after `sinceMs` to the memory `append` drops re-deliveries by.
-   * `openWriter` seeds that memory only from files the checkpoint does not cover, which is right for a crash
-   * or a takeover and wrong for a `-2` replay: it re-delivers history the checkpoint covers, so without this
-   * each event the store already holds is written again and shown twice by a live view. A replay re-delivers only
-   * what Salesforce retains, so the caller passes the start of that window and older partitions are never read.
-   * Reads whole hour partitions, so events up to an hour older than `sinceMs` may be remembered too.
-   */
-  rememberStored(sinceMs: number): Promise<void>;
   /**
    * Only after `append` resolved for the events up to `cursor` (I2). `cursor` is the last DELIVERED
    * event's cursor, duplicates included, so a duplicate-only batch still advances the resume point.
@@ -215,8 +210,8 @@ export type EventStoreWriter = {
 };
 
 const OBJECT_NAME = /^[A-Za-z][A-Za-z0-9_]*__e$/;
-/** In-session dedupe window: re-deliveries after an in-session reconnect are skipped before writing. */
-const SESSION_UUID_MEMORY = 50_000;
+/** Hour partitions whose uuids the writer keeps in memory: the hour being written and the ones a replay or a late event can still touch. */
+const UUID_HOURS_KEPT = 4;
 /** A file system may round mtime down by seconds; files modified this close before a checkpoint are seeded too. */
 const MTIME_SLACK_MS = 2_000;
 /** A temporary file this old belongs to no live write: the longest write is a few milliseconds. */
@@ -310,28 +305,59 @@ async function readJsonFile(file: string): Promise<unknown> {
 // ---------------------------------------------------------------------------------------------
 // The writer
 
-/** Insertion-ordered set that forgets its oldest uuid past `limit`. */
-class RecentUuids {
-  private readonly uuids = new Set<EventUuid>();
+type Delivery = Readonly<{ event: BusEvent; createdMs: number }>;
 
-  constructor(private readonly limit: number) {}
+/**
+ * Which deliveries a stored line already holds, decided exactly: a uuid is looked up among the uuids
+ * of the hour partition its CreatedDate selects (the lines of every writer). Memory keeps the uuid
+ * sets of the last `keep` hours touched, and an hour that was dropped is read again, so the memory
+ * only saves reads and never decides that an event is new. A `-2` replay walks the hours in order,
+ * so each hour is read about once however many events the window holds.
+ */
+class StoredUuids {
+  private readonly hours = new Map<number, Set<EventUuid>>();
 
-  has(uuid: EventUuid): boolean {
-    return this.uuids.has(uuid);
+  constructor(
+    private readonly load: (hourStartMs: number) => Promise<Set<EventUuid>>,
+    private readonly keep: number
+  ) {}
+
+  /** The deliveries no stored line holds, in input order. */
+  async unseen(deliveries: readonly Delivery[]): Promise<Delivery[]> {
+    const byHour = new Map<number, Delivery[]>();
+    for (const delivery of deliveries) {
+      const hourStartMs = hourStartOf(delivery.createdMs);
+      const group = byHour.get(hourStartMs);
+      if (group) group.push(delivery);
+      else byHour.set(hourStartMs, [delivery]);
+    }
+    const stored = new Set<Delivery>();
+    for (const [hourStartMs, group] of byHour) {
+      const uuids = await this.uuidsOf(hourStartMs);
+      for (const delivery of group) if (uuids.has(delivery.event.uuid)) stored.add(delivery);
+    }
+    return deliveries.filter(delivery => !stored.has(delivery));
   }
 
-  add(uuid: EventUuid): void {
-    this.uuids.delete(uuid);
-    this.uuids.add(uuid);
-    if (this.uuids.size > this.limit) {
-      const oldest = this.uuids.values().next();
-      if (!oldest.done) this.uuids.delete(oldest.value);
+  /** After the line is on disk. A dropped hour needs nothing: reading it again finds the line. */
+  add({ createdMs, uuid }: Pick<EventPosition, 'createdMs' | 'uuid'>): void {
+    this.hours.get(hourStartOf(createdMs))?.add(uuid);
+  }
+
+  private async uuidsOf(hourStartMs: number): Promise<Set<EventUuid>> {
+    const known = this.hours.get(hourStartMs);
+    const uuids = known ?? (await this.load(hourStartMs));
+    this.hours.delete(hourStartMs);
+    this.hours.set(hourStartMs, uuids);
+    for (const oldest of this.hours.keys()) {
+      if (this.hours.size <= this.keep) break;
+      this.hours.delete(oldest);
     }
+    return uuids;
   }
 }
 
 type WriterStart = Readonly<{
-  recent: RecentUuids;
   nextSeq: number;
   openGaps: readonly OpenGap[];
 }>;
@@ -344,7 +370,17 @@ function createWriter(layout: Layout, index: LineIndex, lease: Lease, start: Wri
   const gapFile = path.join(layout.objectDir, `gaps.${writerId}.ndjson`);
   const appenders = new Map<string, DurableAppender>();
   const openGaps = new Map(start.openGaps.map(gap => [gap.id, gap]));
-  const { recent } = start;
+  /** The uuids of every writer's lines in one hour partition. */
+  const uuidsOfHour = async (hourStartMs: number): Promise<Set<EventUuid>> => {
+    const { day, hour } = partitionOf(hourStartMs);
+    const partition = (await listHours(layout.objectDir, day)).find(candidate => candidate.hour === hour);
+    const uuids = new Set<EventUuid>();
+    for (const file of partition?.files ?? []) {
+      for (const { position } of (await index.of(file)).lines) uuids.add(position.uuid);
+    }
+    return uuids;
+  };
+  const storedUuids = new StoredUuids(uuidsOfHour, UUID_HOURS_KEPT);
   let nextSeq = start.nextSeq;
   let retired: AlvError | undefined;
   let released = false;
@@ -438,35 +474,21 @@ function createWriter(layout: Layout, index: LineIndex, lease: Lease, start: Wri
         });
       }),
 
-    rememberStored: sinceMs =>
-      enqueue(async () => {
-        usable();
-        const partitions: Partition[] = [];
-        for await (const partition of partitionsNewestFirst(layout.objectDir, { earliestEndMs: sinceMs })) {
-          partitions.push(partition);
-        }
-        // Oldest first: `recent` forgets its oldest uuid past its limit, so the newest events stay remembered.
-        for (const partition of partitions.reverse()) {
-          for (const file of partition.files) {
-            for (const { position } of (await index.of(file)).lines) recent.add(position.uuid);
-          }
-        }
-      }),
-
     append: events =>
       enqueue(async () => {
         usable();
-        const fresh: { event: BusEvent; createdMs: number }[] = [];
+        const delivered: Delivery[] = [];
         const inBatch = new Set<EventUuid>();
         for (const event of events) {
-          if (inBatch.has(event.uuid) || recent.has(event.uuid)) continue;
+          if (inBatch.has(event.uuid)) continue;
           inBatch.add(event.uuid);
           const createdMs = createdMsOf(event.createdDate);
           if (createdMs === undefined) {
             throw new RangeError(`Event ${event.uuid} carries no usable CreatedDate: ${event.createdDate}`);
           }
-          fresh.push({ event, createdMs });
+          delivered.push({ event, createdMs });
         }
+        const fresh = await storedUuids.unseen(delivered);
 
         const receivedAt = new Date().toISOString();
         const stored: StoredEvent[] = [];
@@ -492,7 +514,7 @@ function createWriter(layout: Layout, index: LineIndex, lease: Lease, start: Wri
           stored.push(storedEvent);
         }
         for (const [file, fileLines] of texts) await appendOrRetire(file, `${fileLines.join('\n')}\n`);
-        for (const event of stored) recent.add(event.position.uuid);
+        for (const event of stored) storedUuids.add(event.position);
         return { stored, duplicates: events.length - fresh.length };
       }),
 
@@ -619,24 +641,20 @@ export function openEventStore(location: EventStoreLocation): EventStore {
     return checkpoint;
   };
 
-  /** Uuids and sequences of every file that may hold events the checkpoint does not cover. */
+  /** The next sequence above every file that may hold events the checkpoint does not cover, and the open gaps. */
   const seedWriter = async (checkpoint: EventCheckpoint | undefined): Promise<WriterStart> => {
-    const recent = new RecentUuids(SESSION_UUID_MEMORY);
     let nextSeq = checkpoint?.nextSeq ?? 0;
     const sinceMs = checkpoint === undefined ? undefined : Date.parse(checkpoint.updatedAt) - MTIME_SLACK_MS;
-    for (const partition of (await allPartitions(layout.objectDir)).reverse()) {
+    for (const partition of await allPartitions(layout.objectDir)) {
       for (const file of partition.files) {
         if (sinceMs !== undefined && (await fs.stat(file)).mtimeMs < sinceMs) continue;
-        for (const { position } of (await index.of(file)).lines) {
-          recent.add(position.uuid);
-          nextSeq = Math.max(nextSeq, position.seq + 1);
-        }
+        for (const { position } of (await index.of(file)).lines) nextSeq = Math.max(nextSeq, position.seq + 1);
       }
     }
     const openGaps = foldGaps(await readGapFiles(layout.objectDir))
       .filter(gap => gap.before === undefined)
       .map(openGapOf);
-    return { recent, nextSeq, openGaps };
+    return { nextSeq, openGaps };
   };
 
   const extremes = async (partition: Partition): Promise<{ min: number; max: number } | undefined> => {

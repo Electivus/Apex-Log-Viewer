@@ -6,6 +6,7 @@ import test, { type TestContext } from 'node:test';
 
 import {
   cometdCursor,
+  eventRowId,
   parseEventUuid,
   type CaptureSeq,
   type EventPosition,
@@ -135,6 +136,22 @@ const linesOf = (file: string): unknown[] =>
 function age(file: string): void {
   const past = new Date(Date.now() - 10 * DAY);
   fs.utimesSync(file, past, past);
+}
+
+/**
+ * What read-time dedupe absorbs: a second copy of every stored line in another writer's file, with `seq` raised
+ * by `seqOffset`, as a writer that lost its lease and wrote on leaves behind. `append` never writes one itself.
+ */
+function writeForeignCopies(root: string, seqOffset: number): void {
+  for (const file of dataFiles(root)) {
+    const lines = linesOf(file).map(line => {
+      const stored = line as { uuid: EventUuid; seq: number; createdDate: string };
+      const seq = (stored.seq + seqOffset) as CaptureSeq;
+      const id = eventRowId({ createdMs: Date.parse(stored.createdDate), seq, uuid: stored.uuid });
+      return JSON.stringify({ ...stored, id, seq });
+    });
+    fs.writeFileSync(file.replace(/\.[0-9a-f]{8}\.ndjson$/, '.ffffffff.ndjson'), `${lines.join('\n')}\n`);
+  }
 }
 
 /** Every directory the code creates, every directory fsync, every append-mode open, and the order they happen in. */
@@ -415,36 +432,7 @@ test('a crashed first run leaves no checkpoint: every data file seeds the next w
   });
 });
 
-test('a file that predates the checkpoint is not reread: its re-delivery is stored and the readers merge the copies', async () => {
-  await withProject(async root => {
-    const first = await openWriter(openStore(root));
-    const batch = [busEvent(1), busEvent(2), busEvent(3)];
-    const written = await first.append(batch);
-    await first.advance(checkpointOf(batch[2]!));
-    await first.release();
-    age(dataFiles(root)[0]!);
-
-    const store = openStore(root);
-    const second = await openWriter(store);
-    const { stored, duplicates } = await second.append(batch);
-
-    assert.equal(duplicates, 0, 'the checkpoint covers that file, so the writer does not look inside it');
-    assert.deepEqual(
-      stored.map(event => event.position.seq),
-      [3, 4, 5],
-      'the checkpoint carried the next sequence'
-    );
-    const rows = await readAll(store);
-    assert.deepEqual(uuidsOf(rows), [3, 2, 1].map(uuidOf), 'one row per uuid');
-    assert.deepEqual(
-      rows.map(row => row.id),
-      written.stored.map(event => event.id).reverse(),
-      'the copy with the smallest seq is the one kept'
-    );
-  });
-});
-
-test('rememberStored makes the writer drop what a -2 replay re-delivers from files older than the checkpoint', async () => {
+test('a re-delivery of events the checkpoint covers is dropped, however old their file', async () => {
   await withProject(async root => {
     const first = await openWriter(openStore(root));
     const batch = [busEvent(1), busEvent(2), busEvent(3)];
@@ -455,46 +443,101 @@ test('rememberStored makes the writer drop what a -2 replay re-delivers from fil
 
     const store = openStore(root);
     const second = await openWriter(store);
-    await second.rememberStored(T0 - HOUR);
     const { stored, duplicates } = await second.append([...batch, busEvent(4)]);
 
-    assert.equal(duplicates, 3, 'the files the checkpoint covers are remembered too');
+    assert.equal(duplicates, 3);
     assert.deepEqual(uuidsOf(stored), [uuidOf(4)]);
+    assert.equal(stored[0]!.position.seq, 3, 'the checkpoint carried the next sequence');
     assert.deepEqual(uuidsOf(await readAll(store)), [4, 3, 2, 1].map(uuidOf));
     assert.equal(
-      dataFiles(root).flatMap(file => fs.readFileSync(file, 'utf8').split('\n').filter(Boolean)).length,
+      dataFiles(root).reduce((lines, file) => lines + linesOf(file).length, 0),
       4,
       'one line per event on disk'
     );
   });
 });
 
-test('rememberStored remembers every event from its start on across a day boundary and leaves older partitions unread', async () => {
+test('a re-delivery is recognized in the hour of its own CreatedDate on both sides of a day boundary and ten days back', async () => {
   await withProject(async root => {
     const midnight = Date.parse('2026-10-31T00:00:00.000Z');
-    const since = midnight - 30 * 60_000;
-    const inWindow = [
-      busEvent(2, { createdMs: since }),
+    const history = [
+      busEvent(1, { createdMs: midnight - 10 * DAY }),
+      busEvent(2, { createdMs: midnight - 30 * 60_000 }),
       busEvent(3, { createdMs: midnight - 1 }),
       busEvent(4, { createdMs: midnight }),
       busEvent(5, { createdMs: midnight + 10 * 60_000 })
     ];
-    const tenDaysOld = busEvent(1, { createdMs: midnight - 10 * DAY });
     const first = await openWriter(openStore(root));
-    await first.append([tenDaysOld, ...inWindow]);
-    await first.advance(checkpointOf(inWindow[3]!));
+    await first.append(history);
+    await first.advance(checkpointOf(history[4]!));
     await first.release();
     for (const file of dataFiles(root)) age(file);
 
     const second = await openWriter(openStore(root));
-    await second.rememberStored(since);
-    const { stored, duplicates } = await second.append([tenDaysOld, ...inWindow]);
+    const fresh = busEvent(6, { createdMs: midnight + 20 * 60_000 });
+    const { stored, duplicates } = await second.append([...history, fresh]);
 
-    assert.equal(duplicates, 4, 'what a replay can re-deliver is dropped, on both sides of the day boundary');
+    assert.equal(duplicates, 5);
+    assert.deepEqual(uuidsOf(stored), [uuidOf(6)]);
+  });
+});
+
+test('a re-delivery that alternates between more hours than the writer keeps in memory is still dropped', async () => {
+  await withProject(async root => {
+    const alternating = (n: number): BusEvent => busEvent(n, { createdMs: T0 - 12 * HOUR + (n % 12) * HOUR + n });
+    const history = Array.from({ length: 2_400 }, (_, i) => alternating(i + 1));
+    const first = await openWriter(openStore(root));
+    await first.append(history);
+    await first.advance(checkpointOf(history.at(-1)!));
+    await first.release();
+
+    const second = await openWriter(openStore(root));
+    const replay = [...history, ...Array.from({ length: 12 }, (_, i) => alternating(2_401 + i))];
+    const storedUuids: string[] = [];
+    for (let from = 0; from < replay.length; from += 100) {
+      storedUuids.push(...uuidsOf((await second.append(replay.slice(from, from + 100))).stored));
+    }
+
     assert.deepEqual(
-      uuidsOf(stored),
-      [uuidOf(1)],
-      'the partition from ten days ago was not read, so the writer stores that copy again'
+      storedUuids,
+      Array.from({ length: 12 }, (_, i) => uuidOf(2_401 + i)),
+      'only the twelve new events, one per hour, are stored'
+    );
+    assert.equal(
+      dataFiles(root).reduce((lines, file) => lines + linesOf(file).length, 0),
+      2_412
+    );
+  });
+});
+
+test('a -2 replay over a window of 60,000 stored events, oldest first, stores none of them again', async () => {
+  await withProject(async root => {
+    const windowEvents = Array.from({ length: 60_000 }, (_, i) =>
+      busEvent(i + 1, { createdMs: T0 - 12 * HOUR + Math.floor((i * 12 * HOUR) / 60_000) })
+    );
+    const first = await openWriter(openStore(root));
+    for (let from = 0; from < windowEvents.length; from += 2_000) {
+      await first.append(windowEvents.slice(from, from + 2_000));
+    }
+    await first.advance(checkpointOf(windowEvents.at(-1)!));
+    await first.release();
+    for (const file of dataFiles(root)) age(file);
+
+    const second = await openWriter(openStore(root));
+    let stored = 0;
+    let duplicates = 0;
+    for (let from = 0; from < windowEvents.length; from += 2_000) {
+      const result = await second.append(windowEvents.slice(from, from + 2_000));
+      stored += result.stored.length;
+      duplicates += result.duplicates;
+    }
+
+    assert.equal(stored, 0, 'every event of the replay is already stored');
+    assert.equal(duplicates, 60_000);
+    assert.equal(
+      dataFiles(root).reduce((lines, file) => lines + linesOf(file).length, 0),
+      60_000,
+      'one line per event on disk'
     );
   });
 });
@@ -531,12 +574,8 @@ test('a page boundary between two copies of one uuid in one hour never shows the
     await first.append(batch);
     await first.advance(checkpointOf(batch[79]!));
     await first.release();
-    age(dataFiles(root)[0]!);
-
+    writeForeignCopies(root, 100);
     const store = openStore(root);
-    const second = await openWriter(store);
-    const replay = await second.append(batch);
-    assert.equal(replay.stored.length, 80, 'every uuid now has two copies in one hour');
 
     for (const limit of [1, 7, 50, 80, 100]) {
       const pages = await pageThrough(store, limit);
@@ -562,16 +601,14 @@ test('find resolves the id of any stored copy to the kept copy', async () => {
     const original = await first.append([busEvent(1), busEvent(2)]);
     await first.advance(checkpointOf(busEvent(2)));
     await first.release();
-    age(dataFiles(root)[0]!);
+    writeForeignCopies(root, 100);
     const store = openStore(root);
-    const second = await openWriter(store);
-    const duplicate = await second.append([busEvent(2)]);
 
     const kept = original.stored[1]!;
-    const other = duplicate.stored[0]!;
-    assert.notEqual(kept.id, other.id);
+    const otherPosition = { ...kept.position, seq: (kept.position.seq + 100) as CaptureSeq };
+    assert.notEqual(kept.id, eventRowId(otherPosition));
     assert.equal((await store.find(kept.position))?.id, kept.id);
-    assert.equal((await store.find(other.position))?.id, kept.id);
+    assert.equal((await store.find(otherPosition))?.id, kept.id);
     assert.equal(await store.find({ ...kept.position, uuid: uuidOf(99) }), undefined);
     assert.equal(await store.find({ ...kept.position, createdMs: kept.position.createdMs + DAY }), undefined);
     assert.equal((await store.find(kept.position))?.record.Message__c, 'message 2');

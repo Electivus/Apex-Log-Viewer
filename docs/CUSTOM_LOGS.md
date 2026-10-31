@@ -578,7 +578,7 @@ Each line holds the whole event as Salesforce delivered it: `id`, `uuid`, `seq`,
 
 The store keeps every delivered field. Salesforce applies no field-level security to platform event fields, so the subscriber receives every value. Reads still follow the stored describe. A mapped field that the describe does not list shows as `hidden`, for example when someone removed the field from the event after the capture. A permission never causes it. Core never decodes the value of a `hidden` field. The value stays on disk, so a later remap can use it and a search can find it.
 
-Salesforce can deliver an event twice. The store keeps the copies and reads one row for each `uuid`, so a duplicate delivery, a crash replay, and two overlapping captures show as one row.
+Salesforce can deliver an event twice. Before it writes an event, core looks its `uuid` up among the events already stored in the hour of its `CreatedDate`, so a duplicate delivery, a crash replay and a replay of the whole 72 hours write each event once, however many events the window holds. Core reads the stored events of an hour only when an event of that hour arrives. If a copy still reaches disk, because a capture lost its lease before it noticed or because the copies carry different `CreatedDate` hours, the store keeps both and reads one row for each `uuid`.
 
 ### Retention
 
