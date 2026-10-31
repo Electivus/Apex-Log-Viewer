@@ -377,10 +377,14 @@ export type CustomLogEntry = {
 
 export const CUSTOM_LOG_MESSAGE_PREVIEW_CHARS = 2000;
 
-/** Page sizes: `list` pages rows and `get` pages entries. A `limit` out of range is clamped; none takes the default. */
+/**
+ * Page sizes: `list` pages rows and `get` pages entries. A `limit` out of range is clamped; none takes the default.
+ * `drainMs` bounds a drain's `CustomLogCaptureParams.maxDurationMs`; one out of range is rejected.
+ */
 export const CUSTOM_LOG_LIMITS = {
   list: { default: 50, max: 200 },
-  entries: { default: 200, max: 2000 }
+  entries: { default: 200, max: 2000 },
+  drainMs: { default: 120_000, max: 3_600_000 }
 } as const;
 
 /** Link to the Apex debug log of the same request (`ApexLog.RequestIdentifier` = mapped `requestId`). */

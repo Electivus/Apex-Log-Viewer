@@ -1,4 +1,9 @@
-import { CUSTOM_LOG_LEVELS, type CustomLogCaptureResult, type PrintsAsJson } from '@alv/core/contracts';
+import {
+  CUSTOM_LOG_LEVELS,
+  CUSTOM_LOG_LIMITS,
+  type CustomLogCaptureResult,
+  type PrintsAsJson
+} from '@alv/core/contracts';
 import { Flags } from '@salesforce/sf-plugins-core';
 import { AlvCommand } from '../../../command.js';
 import { core } from '../../../core.js';
@@ -34,9 +39,9 @@ export default class CustomLogCapture extends AlvCommand<PrintsAsJson<CustomLogC
     })(),
     'max-time': Flags.integer({
       min: 1,
-      max: 3600,
+      max: CUSTOM_LOG_LIMITS.drainMs.max / 1000,
       exclusive: ['follow'],
-      summary: 'Stop after this many seconds even while events keep arriving (default 120).'
+      summary: `Stop after this many seconds even while events keep arriving (default ${CUSTOM_LOG_LIMITS.drainMs.default / 1000}).`
     }),
     'min-level': Flags.option({
       options: CUSTOM_LOG_LEVELS,
