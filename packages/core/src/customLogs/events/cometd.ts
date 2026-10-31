@@ -179,8 +179,10 @@ function cancelRetries(client: FayeClient): void {
 }
 
 /**
- * A reply that ends the subscription for good, or undefined when Faye should handle it (its own
- * `403::Unknown client` re-handshake, an ordinary success, an event).
+ * A reply that ends the subscription for good, or undefined when Faye should handle it: an ordinary
+ * success, an event, or a `/meta/connect` or `/meta/handshake` failure Faye retries itself, such as its
+ * `403::Unknown client` re-handshake. A failed `/meta/subscribe` always ends the run; the next capture
+ * resumes from the stored position.
  */
 function failureOf(message: FayeMessage): TransportFailure | undefined {
   switch (message.channel) {
