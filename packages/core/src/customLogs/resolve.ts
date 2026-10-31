@@ -576,6 +576,10 @@ export type SourceCandidate =
   | { readonly origin: 'config'; readonly definition: SourceDefinition }
   | ({ readonly origin: 'builtin' } & BuiltinPreset);
 
+/** Project sources are written as they are in the org; only a built-in preset is qualified. */
+export const namespaceOf = (candidate: SourceCandidate): string =>
+  candidate.origin === 'builtin' ? candidate.namespace : '';
+
 /**
  * Look for a definition in the org, then `resolveDefinition` it against describe. Object existence
  * comes from EntityDefinition, a preset's fingerprint from FieldDefinition.
@@ -592,7 +596,7 @@ export async function locateSource(
   configuredObjects: ReadonlySet<string>
 ): Promise<CatalogEntry> {
   const { origin, definition } = candidate;
-  const namespace = candidate.origin === 'builtin' ? candidate.namespace : '';
+  const namespace = namespaceOf(candidate);
   const head = headOf(definition, origin, namespace);
   const refused: CatalogEntry = {
     head,

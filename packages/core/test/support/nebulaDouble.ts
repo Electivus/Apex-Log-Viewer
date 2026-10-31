@@ -8,6 +8,7 @@ import {
   type SalesforceDouble
 } from './salesforceDouble.ts';
 import { describeBodies, type DescribeFixtureName } from './describeFixtures.ts';
+import type { ObjectDescribe } from '../../src/customLogs/schema.ts';
 
 export type NebulaOrg = SalesforceDouble & {
   soql: (kind: 'data' | 'tooling') => string[];
@@ -26,6 +27,8 @@ export type NebulaOrgOptions = {
   answer?: (soql: string, request: DoubleRequest) => DoubleResponse | undefined;
   /** Makes the Tooling metadata queries answer INSUFFICIENT_ACCESS. */
   refuseMetadata?: boolean;
+  /** Objects beyond the fixture (a platform event, say): described and listed by FieldDefinition like the rest. */
+  extraDescribes?: Readonly<Record<string, ObjectDescribe>>;
 };
 
 const IN_LIST = /\bIN \(([^)]*)\)/i;
@@ -40,8 +43,8 @@ export const page = (records: unknown[], extra: Record<string, unknown> = {}): D
 
 /** A Salesforce org double that answers EntityDefinition, FieldDefinition and describe from captured fixtures. */
 export async function startNebulaOrg(t: test.TestContext, options: NebulaOrgOptions): Promise<NebulaOrg> {
-  const describes = describeBodies(options.describes);
-  const fieldSource = describeBodies(options.fieldDefinitions ?? options.describes);
+  const describes = { ...describeBodies(options.describes), ...options.extraDescribes };
+  const fieldSource = { ...describeBodies(options.fieldDefinitions ?? options.describes), ...options.extraDescribes };
   const listed = new Set(options.objects.map(name => name.toLowerCase()));
   const salesforce = await startSalesforceDouble(t, request => {
     const soql = request.query.get('q') ?? '';
@@ -76,6 +79,9 @@ export async function startNebulaOrg(t: test.TestContext, options: NebulaOrgOpti
       .map(request => request.query.get('q') ?? '');
   return {
     ...salesforce,
+    get received() {
+      return salesforce.received;
+    },
     soql: queries,
     metadataQueries: entity => queries('tooling').filter(soql => soql.includes(`FROM ${entity}`)),
     describeRequests: () =>

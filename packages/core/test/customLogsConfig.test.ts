@@ -186,12 +186,14 @@ test('the digest follows the mapping and ignores key order and the label', () =>
   assert.notEqual(digest({ ...appLogSource, levels: { Critical: 'WARN' } }), base);
 });
 
-test('the Nebula presets are ordinary definitions registered under two ids', () => {
+test('the Nebula presets are ordinary definitions registered under two ids per source shape', () => {
   assert.deepEqual(
     BUILTIN_PRESETS.map(preset => [preset.definition.id, preset.namespace]),
     [
       ['nebula', ''],
-      ['nebula-managed', 'Nebula']
+      ['nebula-managed', 'Nebula'],
+      ['nebula-events', ''],
+      ['nebula-events-managed', 'Nebula']
     ]
   );
   const [shape, other] = [NEBULA_PRESET.definition, NEBULA_MANAGED_PRESET.definition];

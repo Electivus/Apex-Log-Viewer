@@ -206,7 +206,7 @@
       "properties": {
         "id": {
           "type": "string",
-          "description": "Stable source id used by --source. Reusing a built-in id (nebula, nebula-managed) replaces that built-in in this project.",
+          "description": "Stable source id used by --source. Reusing a built-in id (nebula, nebula-managed, nebula-events, nebula-events-managed) replaces that built-in in this project.",
           "pattern": "^[a-z][a-z0-9-]{0,39}$"
         },
         "label": {

@@ -10,7 +10,7 @@ import type { Connection } from '@salesforce/core';
 import { awaitWithAbort, errorCodeOf, throwIfAborted } from '../errors.js';
 import type { ParsedCustomLogsConfig } from './config.js';
 import type { BuiltinPreset } from './presets.js';
-import { definitionObjects, locateSource, objectNames } from './resolve.js';
+import { definitionObjects, locateSource, namespaceOf, objectNames, type SourceCandidate } from './resolve.js';
 import type { ResolvedSource, SourceCatalog } from './resolved.js';
 import { createSchemaMemo, createSchemaReader, memoizedSchemaReader, type SchemaMemo } from './schema.js';
 
@@ -48,6 +48,23 @@ type OrgState = { memo: SchemaMemo; catalogs: Map<string, Promise<SourceCatalog>
 const MAX_CATALOGS_PER_ORG = 8;
 const DRIFT_CODES: ReadonlySet<string> = new Set(['INVALID_FIELD', 'INVALID_TYPE']);
 
+/**
+ * Every source a call can name, in catalog order: the project's, then the built-ins it does not
+ * replace. A project source that reuses a built-in id replaces it.
+ */
+export function sourceCandidates(
+  config: ParsedCustomLogsConfig,
+  presets: readonly BuiltinPreset[]
+): readonly SourceCandidate[] {
+  const replaced = new Set<string>(config.sources.map(source => source.id));
+  return [
+    ...config.sources.map((definition): SourceCandidate => ({ origin: 'config', definition })),
+    ...presets
+      .filter(preset => !replaced.has(preset.definition.id))
+      .map((preset): SourceCandidate => ({ origin: 'builtin', ...preset }))
+  ];
+}
+
 export function createSourceRegistry(presets: readonly BuiltinPreset[]): SourceRegistry {
   const orgs = new Map<string, OrgState>();
 
@@ -57,19 +74,14 @@ export function createSourceRegistry(presets: readonly BuiltinPreset[]): SourceR
     memo: SchemaMemo
   ): Promise<SourceCatalog> => {
     const reader = memoizedSchemaReader(createSchemaReader(ctx.connection), memo);
-    const replaced = new Set<string>(config.sources.map(source => source.id));
-    const kept = presets.filter(preset => !replaced.has(preset.definition.id));
+    const candidates = sourceCandidates(config, presets);
     const mapped = config.sources.flatMap(source => objectNames(definitionObjects(source, '')));
     const configured = new Set(mapped.map(name => name.toLowerCase()));
-    await reader.existingObjects([
-      ...mapped,
-      ...kept.flatMap(preset => objectNames(definitionObjects(preset.definition, preset.namespace)))
-    ]);
+    await reader.existingObjects(
+      candidates.flatMap(candidate => objectNames(definitionObjects(candidate.definition, namespaceOf(candidate))))
+    );
 
-    const entries = await Promise.all([
-      ...config.sources.map(definition => locateSource({ origin: 'config', definition }, reader, configured)),
-      ...kept.map(preset => locateSource({ origin: 'builtin', ...preset }, reader, configured))
-    ]);
+    const entries = await Promise.all(candidates.map(candidate => locateSource(candidate, reader, configured)));
     return { username: ctx.username, entries };
   };
 

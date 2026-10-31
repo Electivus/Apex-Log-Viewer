@@ -10,7 +10,8 @@
  * Nebula ships as two ids, one per distribution: `nebula` (unlocked package or source deploy, no
  * namespace) and `nebula-managed` (`Nebula__`). `--source` therefore names one namespace in every
  * org, and an org with both distributions shows both. Extras, columns and detail keys stay keyed by
- * the unprefixed definition names, so a script reads the same keys from either id.
+ * the unprefixed definition names, so a script reads the same keys from either id. Each also has an
+ * event twin, `nebula-events` and `nebula-events-managed`, over `LogEntryEvent__e`.
  *
  * A project source that reuses one of these ids replaces the preset in that project, for example
  * to map `entry.payload` to `Message__c`.
@@ -92,6 +93,57 @@ const NEBULA_RAW = {
 
 const NEBULA_FINGERPRINT = ['Log__c', 'TransactionEntryNumber__c', 'LoggingLevelOrdinal__c', 'EpochTimestamp__c'];
 
+/**
+ * Nebula's `LogEntryEvent__e`, the platform event it publishes before (or instead of) storing a
+ * `LogEntry__c`. Every field is one the measured describe lists. The event is the entry, so there is
+ * no header: transaction context rides on `TransactionId__c`. Platform events have no formula fields,
+ * so no detail has a `Has*` presence flag; only the `*Truncated__c` flags exist. A preset is never
+ * picked without `--source`, because capturing it spends the org's delivery allocation.
+ */
+const NEBULA_EVENTS_RAW = {
+  id: 'nebula-events',
+  label: 'Nebula Logger events',
+  event: {
+    object: 'LogEntryEvent__e',
+    fields: {
+      time: 'EpochTimestamp__c',
+      order: 'TransactionEntryNumber__c',
+      message: 'Message__c',
+      messageTruncated: 'MessageTruncated__c',
+      level: 'LoggingLevel__c',
+      levelOrdinal: 'LoggingLevelOrdinal__c',
+      origin: 'OriginLocation__c',
+      user: 'LoggedByUsername__c',
+      transactionId: 'TransactionId__c',
+      requestId: 'RequestId__c',
+      exceptionType: 'ExceptionType__c',
+      recordId: 'RecordId__c'
+    },
+    columns: ['OriginType__c', 'SystemMode__c', 'TransactionScenario__c'],
+    details: [
+      'ExceptionMessage__c',
+      'ExceptionStackTrace__c',
+      'StackTrace__c',
+      { field: 'RecordJson__c', truncated: 'RecordJsonTruncated__c' },
+      'HttpRequestEndpointAddress__c',
+      { field: 'HttpRequestBody__c', truncated: 'HttpRequestBodyTruncated__c' },
+      { field: 'HttpResponseBody__c', truncated: 'HttpResponseBodyTruncated__c' },
+      { field: 'RestRequestBody__c', truncated: 'RestRequestBodyTruncated__c' },
+      { field: 'RestResponseBody__c', truncated: 'RestResponseBodyTruncated__c' },
+      'DatabaseResultJson__c',
+      'Tags__c'
+    ],
+    systemMessagePrefix: 'Nebula Logger - '
+  }
+} as const;
+
+const NEBULA_EVENTS_FINGERPRINT = [
+  'TransactionId__c',
+  'TransactionEntryNumber__c',
+  'LoggingLevelOrdinal__c',
+  'EpochTimestamp__c'
+];
+
 function builtin(
   raw: Readonly<Record<string, unknown>>,
   options: Pick<BuiltinPreset, 'namespace'> & { fingerprint: readonly string[] }
@@ -114,8 +166,23 @@ export const NEBULA_MANAGED_PRESET = builtin(
   { namespace: 'Nebula', fingerprint: NEBULA_FINGERPRINT }
 );
 
+export const NEBULA_EVENTS_PRESET = builtin(NEBULA_EVENTS_RAW, {
+  namespace: '',
+  fingerprint: NEBULA_EVENTS_FINGERPRINT
+});
+
+export const NEBULA_EVENTS_MANAGED_PRESET = builtin(
+  { ...NEBULA_EVENTS_RAW, id: 'nebula-events-managed', label: 'Nebula Logger events (managed)' },
+  { namespace: 'Nebula', fingerprint: NEBULA_EVENTS_FINGERPRINT }
+);
+
 /** The registry. Supporting another framework is one entry here (one per distribution). */
-export const BUILTIN_PRESETS: readonly BuiltinPreset[] = [NEBULA_PRESET, NEBULA_MANAGED_PRESET];
+export const BUILTIN_PRESETS: readonly BuiltinPreset[] = [
+  NEBULA_PRESET,
+  NEBULA_MANAGED_PRESET,
+  NEBULA_EVENTS_PRESET,
+  NEBULA_EVENTS_MANAGED_PRESET
+];
 
 const CUSTOM_SUFFIXES: ReadonlySet<string> = new Set(['c', 'r', 'e', 'mdt', 'x', 'b']);
 

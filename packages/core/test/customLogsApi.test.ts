@@ -61,19 +61,22 @@ const entryRecord = (sequence: number, extra: Record<string, unknown> = {}) => (
 const sourceIds = (result: { sources: { id: string; state: string }[] }) =>
   result.sources.map(source => `${source.id}:${source.state}`);
 
+/** An org with no `LogEntryEvent__e` lists both event presets as not installed, after the record presets. */
+const NO_EVENT_PRESETS = ['nebula-events:notInstalled', 'nebula-events-managed:notInstalled'];
+
 test('sources finds unlocked Nebula with zero config in one batched metadata read', async t => {
   const org = await startNebulaOrg(t, { describes: 'unlocked-admin', objects: UNLOCKED });
   const { core, username } = await coreFor(t, org, 'sources-unlocked@example.com');
 
   const result = await core.customLog.sources({ targetOrg: username, projectDir: undefined });
 
-  assert.deepEqual(sourceIds(result), ['nebula:ready', 'nebula-managed:notInstalled']);
+  assert.deepEqual(sourceIds(result), ['nebula:ready', 'nebula-managed:notInstalled', ...NO_EVENT_PRESETS]);
   assert.equal(result.defaultSourceId, 'nebula');
   assert.deepEqual(result.issues, []);
   assert.equal(result.projectFile, undefined);
   assert.equal(result.sources[0]?.hiddenFields.length, 0);
   assert.deepEqual(org.metadataQueries('EntityDefinition'), [
-    "SELECT QualifiedApiName FROM EntityDefinition WHERE QualifiedApiName IN ('Log__c','LogEntry__c','Nebula__Log__c','Nebula__LogEntry__c')"
+    "SELECT QualifiedApiName FROM EntityDefinition WHERE QualifiedApiName IN ('Log__c','LogEntry__c','Nebula__Log__c','Nebula__LogEntry__c','LogEntryEvent__e','Nebula__LogEntryEvent__e')"
   ]);
   assert.equal(org.metadataQueries('FieldDefinition').length, 1);
   assert.deepEqual(org.describeRequests().sort(), ['/sobjects/LogEntry__c/describe', '/sobjects/Log__c/describe']);
@@ -89,7 +92,7 @@ test('sources finds managed Nebula for a LoggerEndUser and reports what describe
 
   const result = await core.customLog.sources({ targetOrg: username, projectDir: undefined });
 
-  assert.deepEqual(sourceIds(result), ['nebula:notInstalled', 'nebula-managed:ready']);
+  assert.deepEqual(sourceIds(result), ['nebula:notInstalled', 'nebula-managed:ready', ...NO_EVENT_PRESETS]);
   assert.equal(result.defaultSourceId, 'nebula-managed');
   const managed = result.sources[1]!;
   assert.equal(managed.namespace, 'Nebula');
@@ -108,7 +111,7 @@ test('an unrelated Log__c is a collision, not Nebula', async t => {
 
   const result = await core.customLog.sources({ targetOrg: username, projectDir: undefined });
 
-  assert.deepEqual(sourceIds(result), ['nebula:notInstalled', 'nebula-managed:notInstalled']);
+  assert.deepEqual(sourceIds(result), ['nebula:notInstalled', 'nebula-managed:notInstalled', ...NO_EVENT_PRESETS]);
   assert.equal(result.sources[0]?.state === 'notInstalled' && result.sources[0].hint, 'collision');
   assert.equal(result.defaultSourceId, undefined);
 });
@@ -121,7 +124,7 @@ test('a refused metadata query makes the sources unavailable and falls back to n
 
   assert.deepEqual(
     result.sources.map(source => source.state === 'unavailable' && source.reason),
-    ['metadataQueryRefused', 'metadataQueryRefused']
+    Array(4).fill('metadataQueryRefused')
   );
   assert.deepEqual(org.describeRequests(), []);
 });
@@ -137,9 +140,19 @@ test('a mapping edit asks Salesforce only about names it has not seen, and refre
   await writeProject(dir, projectWith({ ...appLogSource, id: 'again' }));
   const third = await core.customLog.sources({ targetOrg: username, projectDir: dir });
 
-  assert.deepEqual(sourceIds(first), ['app-log:unavailable', 'nebula:ready', 'nebula-managed:notInstalled']);
+  assert.deepEqual(sourceIds(first), [
+    'app-log:unavailable',
+    'nebula:ready',
+    'nebula-managed:notInstalled',
+    ...NO_EVENT_PRESETS
+  ]);
   assert.equal(second.sources[0]?.label, 'Edited');
-  assert.deepEqual(sourceIds(third), ['again:unavailable', 'nebula:ready', 'nebula-managed:notInstalled']);
+  assert.deepEqual(sourceIds(third), [
+    'again:unavailable',
+    'nebula:ready',
+    'nebula-managed:notInstalled',
+    ...NO_EVENT_PRESETS
+  ]);
   assert.equal(first.sources[0]?.state === 'unavailable' && first.sources[0].reason, 'objectNotFound');
   assert.equal(org.metadataQueries('EntityDefinition').length, 1);
   assert.equal(org.metadataQueries('FieldDefinition').length, 1);
@@ -169,7 +182,12 @@ test('a broken mapping is an issue, not a failure: the other sources and Nebula 
 
   const result = await core.customLog.sources({ targetOrg: username, projectDir: dir });
 
-  assert.deepEqual(sourceIds(result), ['app-log:ready', 'nebula:ready', 'nebula-managed:notInstalled']);
+  assert.deepEqual(sourceIds(result), [
+    'app-log:ready',
+    'nebula:ready',
+    'nebula-managed:notInstalled',
+    ...NO_EVENT_PRESETS
+  ]);
   assert.deepEqual(result.issues.map(issue => `${issue.severity}:${issue.code}`).sort(), [
     'error:missingRequired',
     'warning:unknownKey'

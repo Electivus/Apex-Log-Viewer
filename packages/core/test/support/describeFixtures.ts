@@ -19,6 +19,12 @@ export function logEntryEventDescribe(): ObjectDescribe {
   return toObjectDescribe(JSON.parse(fs.readFileSync(file, 'utf8')) as Parameters<typeof toObjectDescribe>[0]);
 }
 
+/** The describe of the events org's `ALV_Test_Log__e` (`queryable: false`), already in the reduced form. */
+export function alvTestLogDescribe(): ObjectDescribe {
+  const file = path.resolve(__dirname, '../../../../test/fixtures/customLogs/events/describe-alv-test-log.json');
+  return (JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, ObjectDescribe>).ALV_Test_Log__e!;
+}
+
 /** The raw describe bodies a Salesforce double serves for `sobjects/<name>/describe`. */
 export function describeBodies(name: DescribeFixtureName): Record<string, ObjectDescribe> {
   return Object.fromEntries(describeFixture(name));

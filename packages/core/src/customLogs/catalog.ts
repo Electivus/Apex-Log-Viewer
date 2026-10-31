@@ -14,6 +14,7 @@ import {
   isEventSource,
   listedObject,
   type CatalogEntry,
+  type ResolvedEventObject,
   type ResolvedField,
   type ResolvedPayload,
   type ResolvedRecordSource,
@@ -158,6 +159,15 @@ function payloadInfo(payload: ResolvedPayload | undefined): CustomLogPayloadInfo
   return payload?.state === 'readable' ? { field: payload.field.api, columns: [...payload.columns] } : undefined;
 }
 
+/** What an event source can filter on and link: a role it maps, since the store filters in memory. */
+export function eventCapabilities(event: ResolvedEventObject): CustomLogSourceInfo['capabilities'] {
+  return {
+    levelFilter: event.roles.level !== undefined || event.roles.levelOrdinal !== undefined,
+    userFilter: event.roles.user !== undefined,
+    apexLogLink: event.roles.requestId !== undefined
+  };
+}
+
 type ReadyFacts = Pick<CustomLogSourceInfo, 'capabilities' | 'payload'> & { objects: CustomLogSourceObjects };
 
 function readyFacts(shape: ResolvedShape): ReadyFacts {
@@ -189,11 +199,7 @@ function readyFacts(shape: ResolvedShape): ReadyFacts {
       const payload = payloadInfo(event.payload);
       return {
         objects: { event: event.object },
-        capabilities: {
-          levelFilter: event.roles.level !== undefined || event.roles.levelOrdinal !== undefined,
-          userFilter: event.roles.user !== undefined,
-          apexLogLink: event.roles.requestId !== undefined
-        },
+        capabilities: eventCapabilities(event),
         payload: payload ? { entry: payload } : {}
       };
     }
