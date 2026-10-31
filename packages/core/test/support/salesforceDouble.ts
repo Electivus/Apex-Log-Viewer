@@ -48,36 +48,46 @@ export type SalesforceDouble = {
   readonly received: number;
 };
 
+/** Answers one REST request: the version list itself, every other request through `handler` and recorded in `requests`. */
+export function answerRest(
+  request: http.IncomingMessage,
+  response: http.ServerResponse,
+  handler: DoubleHandler,
+  requests: DoubleRequest[]
+): void {
+  const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+  const chunks: Buffer[] = [];
+  request.on('data', chunk => chunks.push(chunk as Buffer));
+  request.on('end', () => {
+    const send = (status: number, body: unknown): void => {
+      response.writeHead(status, { 'content-type': 'application/json' });
+      response.end(JSON.stringify(body));
+    };
+    if (url.pathname === '/services/data') {
+      send(200, [{ label: 'Test', url: '/services/data/v63.0', version: '63.0' }]);
+      return;
+    }
+    const seen: DoubleRequest = {
+      method: request.method ?? 'GET',
+      path: url.pathname.replace(/^\/services\/data\/v[\d.]+/, ''),
+      query: url.searchParams,
+      body: Buffer.concat(chunks).toString('utf8')
+    };
+    requests.push(seen);
+    Promise.resolve(handler(seen)).then(
+      answer => send(answer.status ?? 200, answer.body),
+      (error: unknown) => send(500, [{ message: String(error), errorCode: 'DOUBLE_FAILURE' }])
+    );
+  });
+}
+
 /** A Salesforce REST double: it answers the version list itself and hands every other request to `handler`. */
 export async function startSalesforceDouble(t: test.TestContext, handler: DoubleHandler): Promise<SalesforceDouble> {
   const requests: DoubleRequest[] = [];
   let received = 0;
   const server = http.createServer((request, response) => {
     received++;
-    const url = new URL(request.url ?? '/', 'http://127.0.0.1');
-    const chunks: Buffer[] = [];
-    request.on('data', chunk => chunks.push(chunk as Buffer));
-    request.on('end', () => {
-      const send = (status: number, body: unknown): void => {
-        response.writeHead(status, { 'content-type': 'application/json' });
-        response.end(JSON.stringify(body));
-      };
-      if (url.pathname === '/services/data') {
-        send(200, [{ label: 'Test', url: '/services/data/v63.0', version: '63.0' }]);
-        return;
-      }
-      const seen: DoubleRequest = {
-        method: request.method ?? 'GET',
-        path: url.pathname.replace(/^\/services\/data\/v[\d.]+/, ''),
-        query: url.searchParams,
-        body: Buffer.concat(chunks).toString('utf8')
-      };
-      requests.push(seen);
-      Promise.resolve(handler(seen)).then(
-        answer => send(answer.status ?? 200, answer.body),
-        (error: unknown) => send(500, [{ message: String(error), errorCode: 'DOUBLE_FAILURE' }])
-      );
-    });
+    answerRest(request, response, handler, requests);
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(

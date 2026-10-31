@@ -60,16 +60,23 @@ function describeUnavailable(entry: Exclude<CatalogEntry, { state: 'ready' }>): 
   return entry.hint === 'collision' ? 'not installed (a Log__c exists that is not Nebula Logger)' : 'not installed';
 }
 
+/** The error for an id no source answers to, with the ids that exist. */
+export function unknownSource(sourceId: string, known: readonly string[]): never {
+  throw customLogError(
+    'CUSTOM_LOG_SOURCE_NOT_FOUND',
+    `Unknown log source "${sourceId}". Known sources: ${known.join(', ') || 'none'}.`
+  );
+}
+
 function findEntry(catalog: SourceCatalog, sourceId: string): CatalogEntry {
   const entry = catalog.entries.find(item => item.head.id === sourceId);
-  if (!entry) {
-    const known = catalog.entries.map(item => item.head.id).join(', ');
-    throw customLogError(
-      'CUSTOM_LOG_SOURCE_NOT_FOUND',
-      `Unknown log source "${sourceId}". Known sources: ${known || 'none'}.`
-    );
-  }
-  return entry;
+  return (
+    entry ??
+    unknownSource(
+      sourceId,
+      catalog.entries.map(item => item.head.id)
+    )
+  );
 }
 
 /**

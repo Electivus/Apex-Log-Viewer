@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   salesforceError,
   startSalesforceDouble,
+  type DoubleHandler,
   type DoubleRequest,
   type DoubleResponse,
   type SalesforceDouble
@@ -41,12 +42,12 @@ export const page = (records: unknown[], extra: Record<string, unknown> = {}): D
   body: { totalSize: records.length, done: true, records, ...extra }
 });
 
-/** A Salesforce org double that answers EntityDefinition, FieldDefinition and describe from captured fixtures. */
-export async function startNebulaOrg(t: test.TestContext, options: NebulaOrgOptions): Promise<NebulaOrg> {
+/** The REST answers of an org that serves EntityDefinition, FieldDefinition and describe from captured fixtures. */
+export function nebulaHandler(options: NebulaOrgOptions): DoubleHandler {
   const describes = { ...describeBodies(options.describes), ...options.extraDescribes };
   const fieldSource = { ...describeBodies(options.fieldDefinitions ?? options.describes), ...options.extraDescribes };
   const listed = new Set(options.objects.map(name => name.toLowerCase()));
-  const salesforce = await startSalesforceDouble(t, request => {
+  return request => {
     const soql = request.query.get('q') ?? '';
     if (request.path === '/tooling/query' && /FROM (EntityDefinition|FieldDefinition)\b/.test(soql)) {
       if (options.refuseMetadata)
@@ -72,7 +73,12 @@ export async function startNebulaOrg(t: test.TestContext, options: NebulaOrgOpti
       options.answer?.(soql, request) ??
       salesforceError('NOT_FOUND', `Unexpected ${request.method} ${request.path}`, 404)
     );
-  });
+  };
+}
+
+/** A Salesforce org double that answers EntityDefinition, FieldDefinition and describe from captured fixtures. */
+export async function startNebulaOrg(t: test.TestContext, options: NebulaOrgOptions): Promise<NebulaOrg> {
+  const salesforce = await startSalesforceDouble(t, nebulaHandler(options));
   const queries = (kind: 'data' | 'tooling') =>
     salesforce.requests
       .filter(request => request.path === (kind === 'data' ? '/query' : '/tooling/query'))

@@ -12,7 +12,13 @@ import type { ParsedCustomLogsConfig } from './config.js';
 import type { BuiltinPreset } from './presets.js';
 import { definitionObjects, locateSource, namespaceOf, objectNames, type SourceCandidate } from './resolve.js';
 import type { ResolvedSource, SourceCatalog } from './resolved.js';
-import { createSchemaMemo, createSchemaReader, memoizedSchemaReader, type SchemaMemo } from './schema.js';
+import {
+  createSchemaMemo,
+  createSchemaReader,
+  memoizedSchemaReader,
+  type ObjectDescribe,
+  type SchemaMemo
+} from './schema.js';
 
 /** `orgCall`'s context. The cursor's org binding reads `connection.getAuthInfoFields().orgId`. */
 export type CustomLogContext = { connection: Connection; username: string };
@@ -28,6 +34,11 @@ export type SourceRegistry = {
     config: ParsedCustomLogsConfig,
     options: { refresh?: boolean; signal?: AbortSignal }
   ): Promise<SourceCatalog>;
+  /**
+   * One object's describe through this username's memo, so a capture reads what the catalog already
+   * asked. `undefined` when describe answers NOT_FOUND.
+   */
+  describe(ctx: CustomLogContext, object: string, signal?: AbortSignal): Promise<ObjectDescribe | undefined>;
   /**
    * Run a query against a resolved source. If Salesforce rejects it with INVALID_FIELD or
    * INVALID_TYPE (schema or FLS changed since resolution), drop the username's memo and catalogs,
@@ -113,6 +124,11 @@ export function createSourceRegistry(presets: readonly BuiltinPreset[]): SourceR
 
   return {
     catalog,
+    describe: (ctx, object, signal) => {
+      throwIfAborted(signal);
+      const reader = memoizedSchemaReader(createSchemaReader(ctx.connection), stateOf(ctx.username).memo);
+      return awaitWithAbort(reader.describe(object), signal);
+    },
     async withSource(ctx, config, pick, run, signal) {
       const attempt = async () => run(pick(await catalog(ctx, config, { signal })));
       try {

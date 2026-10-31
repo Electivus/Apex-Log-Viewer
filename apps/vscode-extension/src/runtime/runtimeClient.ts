@@ -204,6 +204,7 @@ export class CoreClient {
     this.core =
       options.core ??
       createApexLogViewerCore({
+        surface: 'vscode',
         instrumentation: {
           onCall: event => {
             const properties: Record<string, string> = {
@@ -457,8 +458,8 @@ export class CoreClient {
     return this.call(signal, () => this.core.customLog.entry(params, { signal }));
   }
 
-  public dispose(): void {
-    this.core.dispose();
+  public dispose(): Promise<void> {
+    return this.core.dispose();
   }
 
   private withWorkspaceRoot<T extends { workspaceRoot?: string }>(params: T): T {

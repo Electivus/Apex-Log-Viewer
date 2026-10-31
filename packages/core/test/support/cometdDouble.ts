@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import type test from 'node:test';
 
-import { saveOrgAuth } from './salesforceDouble.ts';
+import { answerRest, saveOrgAuth, type DoubleHandler, type DoubleRequest } from './salesforceDouble.ts';
 
 /**
  * A local HTTP Bayeux long-poll server that the real Faye client inside `@salesforce/core`'s
@@ -64,6 +64,10 @@ export type BayeuxDouble = {
   readonly disconnects: number;
   /** Long polls the double has not answered yet. */
   readonly heldPolls: number;
+  /** Every REST request the `rest` handler answered, oldest first, version listing excluded. */
+  readonly requests: readonly DoubleRequest[];
+  /** Every HTTP request that reached the server, REST and CometD alike: what a read that must stay offline compares. */
+  readonly received: number;
 };
 
 type BayeuxMessage = {
@@ -84,8 +88,18 @@ const UNKNOWN_CLIENT = {
   advice: { reconnect: 'handshake', interval: 0 }
 };
 
-export async function startBayeuxDouble(t: test.TestContext, script: DoubleScript = {}): Promise<BayeuxDouble> {
+/**
+ * `rest` answers every request outside `/cometd/` (describe, metadata, `/limits`), so one saved org
+ * serves a whole capture: the REST side of the facade and the stream. Without it those are 404.
+ */
+export async function startBayeuxDouble(
+  t: test.TestContext,
+  script: DoubleScript = {},
+  rest: DoubleHandler = () => ({ status: 404, body: [] })
+): Promise<BayeuxDouble> {
   const sessions = new Map<string, Session>();
+  const requests: DoubleRequest[] = [];
+  let received = 0;
   const held = new Map<string, Set<() => void>>();
   const connects = [...(script.connects ?? [])];
   const replays: unknown[] = [];
@@ -183,14 +197,9 @@ export async function startBayeuxDouble(t: test.TestContext, script: DoubleScrip
   }
 
   const server = http.createServer((request, response) => {
-    if (request.method === 'GET' && request.url === '/services/data') {
-      response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify([{ label: 'Test', url: '/services/data/v63.0', version: '63.0' }]));
-      return;
-    }
+    received += 1;
     if (request.method !== 'POST' || !request.url?.startsWith('/cometd/')) {
-      response.writeHead(404, { 'content-type': 'application/json' });
-      response.end('[]');
+      answerRest(request, response, rest, requests);
       return;
     }
     const chunks: Buffer[] = [];
@@ -234,6 +243,10 @@ export async function startBayeuxDouble(t: test.TestContext, script: DoubleScrip
     },
     get heldPolls() {
       return state.heldPolls;
+    },
+    requests,
+    get received() {
+      return received;
     }
   };
 }

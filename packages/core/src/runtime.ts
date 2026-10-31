@@ -42,8 +42,11 @@ import type {
   UserSearchParams,
   UserSearchResult
 } from './contracts.js';
-import { createCustomLogApi, type CustomLogEnv } from './customLogs/api.js';
+import { createCustomLogApi, type CaptureRunEvent, type CustomLogEnv } from './customLogs/api.js';
 import type {
+  CustomLogCaptureParams,
+  CustomLogCaptureResult,
+  CustomLogCaptureUpdate,
   CustomLogEntryParams,
   CustomLogGetParams,
   CustomLogListParams,
@@ -69,6 +72,11 @@ export type CoreCallOptions = {
   signal?: AbortSignal;
 };
 
+export type CaptureCallOptions = CoreCallOptions & {
+  /** Every state change and every durable batch of the capture. */
+  onUpdate?: (update: CustomLogCaptureUpdate) => void;
+};
+
 export type CoreInstrumentation = {
   onCall?: (event: {
     method: string;
@@ -76,6 +84,11 @@ export type CoreInstrumentation = {
     durationMs: number;
     error?: unknown;
   }) => void;
+  /**
+   * One `start` and one `end` per capture run, not per caller. `customLog.capture` lasts as long as
+   * the stream does, so it is not timed as one `onCall`.
+   */
+  onCapture?: (event: CaptureRunEvent) => void;
 };
 
 const DEFAULT_API_VERSION = '63.0';
@@ -1144,26 +1157,37 @@ export function createApexLogViewerCore(
     callOptions: CoreCallOptions | undefined,
     run: (ctx: ConnectionContext, signal?: AbortSignal) => Promise<T>
   ) => call(method, callOptions, signal => connections.use(targetOrg, signal, ctx => run(ctx, signal)));
-  const customLogs = createCustomLogApi();
+  const customLogs = createCustomLogApi({
+    hooks: {
+      onCapture: event => options.instrumentation?.onCapture?.(event),
+      onCallbackError: error =>
+        options.instrumentation?.onCall?.({
+          method: 'customLog.capture.callback',
+          outcome: 'error',
+          durationMs: 0,
+          error
+        })
+    }
+  });
+  const customLogEnv = async (
+    targetOrg: string | undefined,
+    signal: AbortSignal | undefined
+  ): Promise<CustomLogEnv> => {
+    const { username } = await awaitWithAbort(resolveUsername(targetOrg), signal);
+    return {
+      username,
+      surface: options.surface ?? 'cli',
+      use: (use, useSignal = signal) => connections.use(username, useSignal, use),
+      connection: ({ fresh, signal: connectionSignal = signal } = {}) =>
+        connections.connect(username, { fresh, signal: connectionSignal })
+    };
+  };
   const customLogCall = <T>(
     method: string,
     targetOrg: string | undefined,
     callOptions: CoreCallOptions | undefined,
     run: (env: CustomLogEnv, signal?: AbortSignal) => Promise<T>
-  ) =>
-    call(method, callOptions, async signal => {
-      const { username } = await awaitWithAbort(resolveUsername(targetOrg), signal);
-      return run(
-        {
-          username,
-          surface: options.surface ?? 'cli',
-          use: (use, useSignal = signal) => connections.use(username, useSignal, use),
-          connection: ({ fresh, signal: connectionSignal = signal } = {}) =>
-            connections.connect(username, { fresh, signal: connectionSignal })
-        },
-        signal
-      );
-    });
+  ) => call(method, callOptions, async signal => run(await customLogEnv(targetOrg, signal), signal));
   const apexLogRemote = options.apexLogRemote ?? createRuntimeApexLogRemote(connections);
   const rawLogLifecycle = createApexLogLifecycle({ remote: apexLogRemote });
   const lifecycleCall = <T>(
@@ -1417,7 +1441,14 @@ export function createApexLogViewerCore(
       entry: (params: CustomLogEntryParams, callOptions?: CoreCallOptions) =>
         customLogCall('customLog.entry', params.targetOrg, callOptions, (env, signal) =>
           customLogs.entry(env, params, signal)
-        )
+        ),
+      // The username resolves from local files, so it ignores the signal: an aborted capture resolves with
+      // outcome `aborted` from the api, at whatever step it stopped, and never rejects with ABORTED.
+      capture: async (
+        params: CustomLogCaptureParams,
+        callOptions?: CaptureCallOptions
+      ): Promise<CustomLogCaptureResult> =>
+        customLogs.capture(await customLogEnv(params.targetOrg, undefined), params, callOptions)
     },
     user: {
       search: (params: UserSearchParams = {}, callOptions?: CoreCallOptions) =>
@@ -1457,9 +1488,10 @@ export function createApexLogViewerCore(
           connectionRequest(ctx.connection, 'GET', resolveOrgRequestPath(ctx, params.path))
         )
     },
-    dispose: (): void => {
+    /** Ends the capture runs and releases their leases before the connections are cleared. */
+    dispose: async (): Promise<void> => {
+      await customLogs.dispose();
       connections.clear();
-      customLogs.dispose();
       rawLogLifecycle.dispose();
     }
   };

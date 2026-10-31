@@ -33,6 +33,7 @@ import {
   type CustomLogGetResult,
   type CustomLogLevel,
   type CustomLogListResult,
+  type CustomLogPayloadField,
   type CustomLogPayloadView,
   type CustomLogRow,
   type CustomLogSourceRef,
@@ -242,6 +243,37 @@ function levelOf(event: ResolvedEventObject, source: ResolvedEventSource, record
   ).level;
 }
 
+/** The in-memory filters of `list` and of a live capture: both run over decoded rows, so the mapped roles decide what they can do. */
+export type EventRowFilter = { minLevel?: CustomLogLevel; user?: string };
+
+/** CUSTOM_LOG_UNSUPPORTED_FILTER when the filter names a role the mapping leaves out. Checked once, where a call starts. */
+export function requireFilterable(source: ResolvedEventSource, { minLevel, user }: EventRowFilter): void {
+  const can = eventCapabilities(source.shape.event);
+  if (minLevel && !can.levelFilter) unsupported(source, 'level mapping');
+  if (user && !can.userFilter) unsupported(source, 'user mapping');
+}
+
+/** The row of one stored event, or nothing when the filter drops it. `list` and a live capture decode through this alone, so a live row and a listed row cannot differ. */
+function rowOf(source: ResolvedEventSource, stored: StoredEvent, { minLevel, user }: EventRowFilter) {
+  const row = entryRow(source.shape.event, source.levels, stored.record, identityOf(stored));
+  if (minLevel && (row.level === undefined || levelIndex(row.level) < levelIndex(minLevel))) return undefined;
+  if (user && row.user?.toLowerCase() !== user.toLowerCase()) return undefined;
+  return row;
+}
+
+/** What a capture update shows for `events`: the rows that pass the filter and the payload paths they carry. */
+export function decodeEventRows(
+  source: ResolvedEventSource,
+  events: readonly StoredEvent[],
+  view: EventRowFilter & { keep?: ReadonlySet<string> }
+): { rows: CustomLogRow[]; payloadFields: CustomLogPayloadField[] } {
+  const { items, payloadFields } = withPayloadSummary(
+    events.flatMap(stored => rowOf(source, stored, view) ?? []),
+    view.keep
+  );
+  return { rows: items, payloadFields };
+}
+
 /** The mapped transaction id, whole: a row's copy is cut to a cell, and ids are compared uncut. */
 function transactionOf(event: ResolvedEventObject, record: StoredEvent['record']): string | undefined {
   return event.roles.transactionId && text(read(record, event.roles.transactionId.api));
@@ -268,10 +300,7 @@ export async function listEvents(snapshot: EventSnapshot, params: EventListParam
   }
   const { store, source, orgId } = snapshot;
   const event = source.shape.event;
-  const { minLevel, user } = params.given;
-  const can = eventCapabilities(event);
-  if (minLevel && !can.levelFilter) unsupported(source, 'level mapping');
-  if (user && !can.userFilter) unsupported(source, 'user mapping');
+  requireFilterable(source, params.given);
 
   const binding: Binding = { o: orgId, s: source.id, m: source.digest, f: shortHash(params.given) };
   const after = params.cursor ? decodeEventCursor(params.cursor, 'eventList', binding) : undefined;
@@ -286,9 +315,8 @@ export async function listEvents(snapshot: EventSnapshot, params: EventListParam
     ...(window.until ? { untilMs: Date.parse(window.until) } : {})
   });
   for await (const stored of scan) {
-    const row = entryRow(event, source.levels, stored.record, identityOf(stored));
-    if (minLevel && (row.level === undefined || levelIndex(row.level) < levelIndex(minLevel))) continue;
-    if (user && row.user?.toLowerCase() !== user.toLowerCase()) continue;
+    const row = rowOf(source, stored, params.given);
+    if (!row) continue;
     if (rows.length === params.limit) {
       more = true;
       break;

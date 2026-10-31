@@ -27,6 +27,8 @@ export const RECONNECT_BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 30_000, 60_000
 /** After this many consecutive auth rebuilds without a `subscribed`, the run fails (credentials are gone, not stale). */
 export const MAX_AUTH_REBUILDS = 3;
 export const DRAIN_DEFAULT_MS = 120_000;
+/** The longest drain a caller may ask for (`CustomLogCaptureParams.maxDurationMs`). */
+export const DRAIN_MAX_MS = 3_600_000;
 /** Queue bound: one measured response (870 events, 5.7 MB) fits; a 1 MB event fits. */
 export const QUEUE_MAX_EVENTS = 2_000;
 export const QUEUE_MAX_BYTES = 32 * 1024 * 1024;
