@@ -221,9 +221,10 @@ export function createCaptureHub(): CaptureHub {
   return {
     async watch(location, watcher, deps) {
       const store = deps.openStore(location);
-      if (disposed || watcher.signal.aborted) return resultWithoutRun(store, watcher, deps);
       const key = store.eventsRoot;
       for (;;) {
+        // Checked on every pass: `join` never hears an abort that fired while this watcher waited for a closing run.
+        if (disposed || watcher.signal.aborted) return resultWithoutRun(store, watcher, deps);
         const existing = runs.get(key);
         if (!existing) {
           const { run, result } = createRun(store, deps, watcher);

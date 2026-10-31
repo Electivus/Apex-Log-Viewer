@@ -219,6 +219,29 @@ test('a watcher that arrives while the last one is closing the run waits for the
   });
 });
 
+for (const cancel of ['abort', 'dispose'] as const) {
+  test(`a watcher waiting for a closing run starts nothing when ${cancel === 'abort' ? 'its signal fires' : 'the hub is disposed'} during the wait`, async () => {
+    await withProject(async root => {
+      const store = openStore(root);
+      const { transport, deps, hub } = setup(store);
+      const leaving = watcher({ follow: true, initial: 'new' });
+      const leavingDone = hub.watch(store.location, leaving.watcher, deps);
+      (await transport.opened(0)).subscribed();
+
+      leaving.abort();
+      const arriving = watcher({ follow: true, initial: 'new' });
+      const arrivingDone = hub.watch(store.location, arriving.watcher, deps);
+      if (cancel === 'abort') arriving.abort();
+      else await hub.dispose();
+
+      await resultOf(leavingDone);
+      assert.equal((await resultOf(within(arrivingDone, 'the waiting watcher to settle'))).outcome, 'aborted');
+      assert.equal(transport.attempts.length, 1, 'no second subscription');
+      await openWriter(store);
+    });
+  });
+}
+
 test('dispose ends every run now, tells its watchers aborted, and gives the lease back', async () => {
   await withProject(async root => {
     const store = openStore(root);
