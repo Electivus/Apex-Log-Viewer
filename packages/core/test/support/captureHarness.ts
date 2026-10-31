@@ -117,7 +117,15 @@ export const uuidOf = (n: number): EventUuid => {
   return uuid;
 };
 
-export const T0 = Date.parse('2026-10-30T10:00:00.000Z');
+const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+
+/**
+ * Yesterday 10:00 UTC by the clock a `ManualClock` starts from. The store stamps checkpoints with the real clock and a
+ * run purges by `clock.now()`, so seeded events must age with it: 14 to 38 hours old on any date, inside both the
+ * 72 hour replay window and the 30 day retention, and in the same hour partition.
+ */
+export const T0 = Math.floor(Date.now() / DAY) * DAY - DAY + 10 * HOUR;
 
 /** Event `n`: created `n` ms after T0, delivered with replay id 1000 + n unless told otherwise. */
 export function busEvent(
