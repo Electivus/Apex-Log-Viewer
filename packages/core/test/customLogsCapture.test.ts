@@ -7,6 +7,7 @@ import { AlvError } from '../src/errors.ts';
 import type { CustomLogCaptureResult } from '../src/customLogs/contracts.ts';
 import { customLogError } from '../src/customLogs/errors.ts';
 import { createCaptureHub, type CaptureHub } from '../src/customLogs/events/capture.ts';
+import { FLUSH_MAX } from '../src/customLogs/events/captureRules.ts';
 import type { EventStore } from '../src/customLogs/events/store.ts';
 import type { TransportFailure } from '../src/customLogs/events/transport.ts';
 import {
@@ -1119,6 +1120,83 @@ test('a delivery the transport could not read becomes a gap between its neighbou
     const end = deps.calls.runEvents.find(event => event.type === 'end');
     assert.ok(end?.type === 'end');
     assert.deepEqual([end.delivered, end.stored, end.gaps, end.dropped], [3, 2, 1, 1]);
+  });
+});
+
+test('an event delivered after an unreadable one waits for its gap even when a full batch is already scheduled', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+    const after = busEvent(FLUSH_MAX + 2);
+    const advanced: string[] = [];
+    let atPass: Awaited<ReturnType<EventStore['coverage']>> | undefined;
+    const guarded = instrumentStore(store, {
+      advance: async cursor => {
+        if (cursor === after.cursor) atPass = await store.coverage();
+      },
+      advanced: cursor => void advanced.push(cursor)
+    });
+    const { clock, transport, deps, hub } = setup(guarded);
+    const w = watcher({ follow: true, initial: 'new' });
+
+    const done = hub.watch(store.location, w.watcher, deps);
+    const attempt = await transport.opened(0);
+    attempt.subscribed();
+    attempt.events(...Array.from({ length: FLUSH_MAX }, (_, index) => busEvent(index + 1)));
+    attempt.emit({ type: 'malformed' });
+    attempt.events(after);
+    await clock.advance(250);
+    await until(() => advanced.includes(after.cursor), 'the checkpoint at the event after the gap');
+    w.abort();
+    const result = resultOf(await settledOf(done));
+
+    assert.deepEqual(advanced, [cursorOf(FLUSH_MAX), after.cursor], 'the checkpoint only moves forward');
+    assert.deepEqual(
+      atPass?.state === 'captured' ? atPass.gaps.map(gap => [gap.reason, gap.after, gap.before]) : atPass,
+      [['malformedEvent', busEvent(FLUSH_MAX).createdDate, undefined]],
+      'the gap was on disk when the checkpoint passed it'
+    );
+    assert.deepEqual(
+      result.store.state === 'captured' ? result.store.gaps.map(gap => gap.before) : [],
+      [after.createdDate],
+      'the event after the gap closes it'
+    );
+  });
+});
+
+test('bytes waiting behind a held write still count toward the queue bound', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => (release = resolve));
+    let appends = 0;
+    const guarded = instrumentStore(store, {
+      append: async () => {
+        if (appends++ === 0) await gate;
+      }
+    });
+    const { clock, transport, deps, hub } = setup(guarded);
+    const w = watcher({ follow: true, initial: 'new' });
+
+    const done = hub.watch(store.location, w.watcher, deps);
+    const first = await transport.opened(0);
+    first.subscribed();
+    first.events(busEvent(1));
+    await clock.advance(250);
+    await until(() => appends === 1, 'the first write to hold');
+    const megabytes = 20 * 1024 * 1024;
+    first.events(busEvent(2, { bytes: megabytes }));
+    await clock.advance(250);
+    await tick();
+    first.events(busEvent(3, { bytes: megabytes }));
+    await until(() => first.aborted, 'the queue bound to abort the transport while the write is held');
+
+    release();
+    await until(() => w.updates.some(update => update.capture.state === 'reconnecting'), 'the reconnect');
+    await clock.advance(1_000);
+    const second = await transport.opened(1);
+    assert.deepEqual(second.from, { kind: 'after', cursor: cursorOf(3) });
+    w.abort();
+    assert.equal(resultOf(await settledOf(done)).stored, 3);
   });
 });
 

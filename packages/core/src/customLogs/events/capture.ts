@@ -620,6 +620,7 @@ function createRun(
     const deliveredAtStart = delivered;
     const retry = { attempt: 0, auth: 0 };
     let queue: BusEvent[] = [];
+    /** Bytes delivered and not yet handed to `append`: the queue and the batches waiting behind a write. */
     let queueBytes = 0;
     let flushing: Promise<void> = Promise.resolve();
     let cancelFlushTimer: (() => void) | undefined;
@@ -630,13 +631,6 @@ function createRun(
     const coverage = (): { coveredUntil?: string } => {
       const coveredMs = coveredUntilMs(proof, clock.now().getTime());
       return coveredMs === undefined ? {} : { coveredUntil: new Date(coveredMs).toISOString() };
-    };
-
-    const takeQueue = (): BusEvent[] => {
-      const batch = queue;
-      queue = [];
-      queueBytes = 0;
-      return batch;
     };
 
     const flushBatch = async (batch: readonly BusEvent[]): Promise<void> => {
@@ -679,11 +673,25 @@ function createRun(
       if (newlyStored.length > 0) fanOut(newlyStored);
     };
 
+    /**
+     * Chains what is queued now, then `afterWrite`, on the single-flight promise. The batch is taken when it is
+     * scheduled, not when its turn comes, so an event delivered later never overtakes a gap scheduled earlier.
+     */
+    const schedule = (afterWrite?: () => Promise<void>): Promise<void> => {
+      const batch = queue;
+      queue = [];
+      flushing = flushing.then(async () => {
+        queueBytes -= batch.reduce((sum, received) => sum + received.bytes, 0);
+        await flushBatch(batch);
+        await afterWrite?.();
+      });
+      return flushing;
+    };
+
     const flush = (): Promise<void> => {
       cancelFlushTimer?.();
       cancelFlushTimer = undefined;
-      flushing = flushing.then(() => flushBatch(takeQueue()));
-      return flushing;
+      return schedule();
     };
 
     /**
@@ -697,21 +705,18 @@ function createRun(
       waiting.deliveredSinceAck += 1;
       if (state.state === 'catchingUp') armLiveTimer(QUIET_MS);
       const after = lastDelivered ?? last?.lastEvent.createdDate;
-      const before = takeQueue();
-      flushing = flushing
-        .then(() => flushBatch(before))
-        .then(async () => {
-          if (!writable()) return;
-          try {
-            const opened = await writer.openGap({
-              reason: 'malformedEvent',
-              ...(after !== undefined ? { after } : {})
-            });
-            if (opened.created) newGaps.push(storeGapOf(opened.gap));
-          } catch (error) {
-            fail(error);
-          }
-        });
+      void schedule(async () => {
+        if (!writable()) return;
+        try {
+          const opened = await writer.openGap({
+            reason: 'malformedEvent',
+            ...(after !== undefined ? { after } : {})
+          });
+          if (opened.created) newGaps.push(storeGapOf(opened.gap));
+        } catch (error) {
+          fail(error);
+        }
+      });
       if (delivered - deliveredAtStart >= prepared.budget) stop({ kind: 'finish', outcome: 'budget' });
     };
 
