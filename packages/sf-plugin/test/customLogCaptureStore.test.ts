@@ -73,8 +73,13 @@ async function world(t: test.TestContext) {
           : undefined
     })
   );
+  const home = process.cwd();
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-cli-capture-'));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  // Windows will not remove a process's working directory, so the cwd moves back before the directory goes.
+  t.after(async () => {
+    process.chdir(home);
+    await fs.rm(root, { recursive: true, force: true });
+  });
   await fs.writeFile(
     path.join(root, 'sfdx-project.json'),
     JSON.stringify({
@@ -103,9 +108,7 @@ async function world(t: test.TestContext) {
       }
     })
   );
-  const home = process.cwd();
   process.chdir(root);
-  t.after(() => process.chdir(home));
   return { double, org: ['--target-org', double.username, '--source', SOURCE] };
 }
 
