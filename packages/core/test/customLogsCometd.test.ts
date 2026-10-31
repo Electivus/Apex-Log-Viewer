@@ -240,6 +240,10 @@ test('a subscribe refused by Salesforce ends the subscription with a typed failu
     { text: '401::Authentication invalid', expected: { kind: 'authRejected' } },
     { text: '403::Restricted channel', expected: { kind: 'forbidden', message: '403::Restricted channel' } },
     {
+      text: '403:denied_by_security_policy:create_denied',
+      expected: { kind: 'forbidden', message: '403:denied_by_security_policy:create_denied' }
+    },
+    {
       text: '403::Organization total events daily limit exceeded',
       expected: { kind: 'deliveryLimit', message: '403::Organization total events daily limit exceeded' }
     },
@@ -513,6 +517,7 @@ test('classifyFailure maps each Streaming API error text to a failure kind', () 
     ['400::Invalid subscription', 'other'],
     ['401::Authentication invalid', 'authRejected'],
     ['403::Restricted channel', 'forbidden'],
+    ['403:denied_by_security_policy:create_denied', 'forbidden'],
     ['403::Organization total events daily limit exceeded', 'deliveryLimit'],
     ['403::Organization concurrent user limit exceeded', 'clientLimit'],
     ['403::Unknown client', 'other'],

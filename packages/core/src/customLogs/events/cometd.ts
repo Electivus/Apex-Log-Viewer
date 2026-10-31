@@ -202,11 +202,18 @@ function failureOf(message: FayeMessage): TransportFailure | undefined {
   }
 }
 
-/** Streaming API error text, `<code>::<reason>` (measured on `/meta/subscribe`; the `403` strings are documented, not observed). */
+/**
+ * Streaming API error text, Bayeux `<code>:<args>:<message>`. Measured on `alv-events`: the `400::` replay
+ * id refusal, `403:denied_by_security_policy:create_denied` for a user without Read on the event, and
+ * `403::Organization concurrent user limit exceeded` (the handshake's `ext.sfdc.failureReason`). Documented,
+ * not observed: `403::Restricted channel` and the daily delivery limit.
+ */
 export function classifyFailure(text: string): TransportFailure {
   if (/^400::.*replayId/i.test(text)) return { kind: 'cursorRejected' };
   if (/^401::/.test(text)) return { kind: 'authRejected' };
-  if (/^403::Restricted channel/i.test(text)) return { kind: 'forbidden', message: text };
+  if (/^403::Restricted channel/i.test(text) || /^403:denied_by_security_policy:/i.test(text)) {
+    return { kind: 'forbidden', message: text };
+  }
   if (/^403::.*total events daily limit/i.test(text)) return { kind: 'deliveryLimit', message: text };
   if (/^403::.*concurrent.*limit/i.test(text)) return { kind: 'clientLimit', message: text };
   return { kind: 'other', message: text };

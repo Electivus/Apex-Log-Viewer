@@ -546,5 +546,5 @@ export type CustomLogErrorCode =
   | 'CUSTOM_LOG_NOT_EVENT_SOURCE' // `capture` named a record source
   | 'CUSTOM_LOG_DELIVERY_LIMIT' // `403::Organization total events daily limit exceeded`; capture resumes from the stored position once the rolling 24 h usage drops
   | 'CUSTOM_LOG_CLIENT_LIMIT' // `403::Organization concurrent user limit exceeded` (20 CometD clients on Developer Edition)
-  | 'CUSTOM_LOG_SUBSCRIBE_FORBIDDEN' // `403::Restricted channel`: the user lacks Read on the platform event
+  | 'CUSTOM_LOG_SUBSCRIBE_FORBIDDEN' // `403:denied_by_security_policy:create_denied` (measured) or `403::Restricted channel`: the user lacks Read on the platform event
   | 'CUSTOM_LOG_CAPTURE_FAILED'; // capture stopped for a reason with no finer code: auth rebuilds exhausted, a second rejected cursor in one run, or an unclassified transport failure; the message names the cause
