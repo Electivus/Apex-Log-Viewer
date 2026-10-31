@@ -317,7 +317,18 @@ function createOrgConnections(): OrgConnections {
       throwIfAborted(signal);
       if (fresh) byUsername.delete(username);
       const alias = await awaitWithAbort(findAliasForUsername(username), signal);
-      return { ...(await awaitWithAbort(cachedConnection(username), signal)), alias };
+      const ctx = await awaitWithAbort(cachedConnection(username), signal);
+      // `fresh` follows a rejected session. The stored access token is the rejected one, and a streaming
+      // client sends it as is, so refresh it. When the refresh fails, the next handshake is rejected again
+      // and capture asks the user to log in.
+      if (fresh) {
+        try {
+          await awaitWithAbort(ctx.connection.refreshAuth(), signal);
+        } catch {
+          throwIfAborted(signal);
+        }
+      }
+      return { ...ctx, alias };
     },
     clear: () => byUsername.clear()
   };
