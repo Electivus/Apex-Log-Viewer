@@ -63,6 +63,7 @@ import { assertNever, type ResolvedEventSource } from '../resolved.js';
 import type { ObjectDescribe } from '../schema.js';
 import {
   DRAIN_DEFAULT_MS,
+  DRAIN_MAX_MS,
   FLUSH_MAX,
   FLUSH_MS,
   MAX_AUTH_REBUILDS,
@@ -105,8 +106,6 @@ import {
   type TransportSignal
 } from './transport.js';
 
-/** The longest drain a caller may ask for (`CustomLogCaptureParams.maxDurationMs`). */
-const DRAIN_MAX_MS = 3_600_000;
 /** Rows one standby relay sends at most; older ones show on the next list reload. */
 const RELAY_MAX = FLUSH_MAX;
 
