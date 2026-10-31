@@ -9,6 +9,7 @@ import { promises as fs, type Dirent } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 
+import type { CustomLogStoreGap } from '../contracts.js';
 import type { ObjectDescribe } from '../schema.js';
 import {
   EVENT_TIME_LIMIT_MS,
@@ -54,7 +55,8 @@ export type EventCheckpoint = {
   writer: string;
 };
 
-export type GapReason = 'cursorRejected' | 'retentionElapsed' | 'orgChanged';
+/** The contract's gap reasons: the union exists once, in `CustomLogStoreGap`. */
+export type GapReason = CustomLogStoreGap['reason'];
 
 export type GapLine =
   | { v: 1; op: 'open'; id: string; reason: GapReason; after?: string; detectedAt: string }
@@ -75,7 +77,11 @@ const PARTITION_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const PARTITION_FILE = /^(\d{2})\.([0-9a-f]{8})\.ndjson$/;
 const GAP_FILE = /^gaps\.([0-9a-f]{8})\.ndjson$/;
 const CURSOR_TEXT = /^[a-z][a-z0-9]*:[0-9A-Za-z]+$/;
-const GAP_REASONS: ReadonlySet<string> = new Set<GapReason>(['cursorRejected', 'retentionElapsed', 'orgChanged']);
+const GAP_REASON_TABLE = { cursorRejected: true, retentionElapsed: true, orgChanged: true } as const satisfies Record<
+  GapReason,
+  true
+>;
+const GAP_REASONS: ReadonlySet<string> = new Set(Object.keys(GAP_REASON_TABLE));
 
 export const HOUR_MS = 3_600_000;
 export const DAY_MS = 24 * HOUR_MS;
