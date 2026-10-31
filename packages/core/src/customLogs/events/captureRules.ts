@@ -30,8 +30,11 @@ export const MAX_AUTH_REBUILDS = 3;
 export const DRAIN_DEFAULT_MS = CUSTOM_LOG_LIMITS.drainMs.default;
 /** The longest drain a caller may ask for (`CustomLogCaptureParams.maxDurationMs`). */
 export const DRAIN_MAX_MS = CUSTOM_LOG_LIMITS.drainMs.max;
-/** Queue bound: one measured response (870 events, 5.7 MB) fits; a 1 MB event fits. */
-export const QUEUE_MAX_EVENTS = 2_000;
+/**
+ * Queue bound, by size only. Faye hands over a whole HTTP response at once and Salesforce caps one near 15 MB
+ * (measured: 2,600 events of 5.6 KB, 14.6 MB), so the bound holds one response and one 1 MB event. A count bound
+ * would trip on a response of small events long before memory mattered, and each trip aborts the transport.
+ */
 export const QUEUE_MAX_BYTES = 32 * 1024 * 1024;
 /** High-volume platform events are retained 72 h. A stored position older than this may be accepted and still skip expired events. */
 export const PLATFORM_RETENTION_MS = 72 * 60 * 60 * 1000;

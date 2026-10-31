@@ -7,7 +7,6 @@ import { AlvError } from '../src/errors.ts';
 import type { CustomLogCaptureResult } from '../src/customLogs/contracts.ts';
 import { customLogError } from '../src/customLogs/errors.ts';
 import { createCaptureHub, type CaptureHub } from '../src/customLogs/events/capture.ts';
-import { QUEUE_MAX_EVENTS } from '../src/customLogs/events/captureRules.ts';
 import type { EventStore } from '../src/customLogs/events/store.ts';
 import type { TransportFailure } from '../src/customLogs/events/transport.ts';
 import {
@@ -759,38 +758,31 @@ test('a run that spends its budget flushes what it received, stops with outcome 
   });
 });
 
-test('a response past the queue bound aborts the transport, commits everything, and reopens from the committed cursor', async () => {
+test('a replay response of 2,600 events, as measured on a real 10,000-event backlog, is stored without a reconnect', async () => {
   await withProject(async root => {
     const store = openStore(root);
-    const { clock, transport, deps, hub } = setup(store);
+    const { transport, deps, hub } = setup(store);
     const w = watcher({ follow: true, initial: 'retained' });
 
     const done = hub.watch(store.location, w.watcher, deps);
     const first = await transport.opened(0);
     first.subscribed();
-    const count = QUEUE_MAX_EVENTS + 1;
-    first.events(...Array.from({ length: count }, (_, index) => busEvent(index + 1)));
+    const count = 2_600;
+    first.events(...Array.from({ length: count }, (_, index) => busEvent(index + 1, { bytes: 5_600 })));
 
-    await until(() => w.updates.some(update => update.capture.state === 'reconnecting'), 'the reconnect');
-    assert.equal(first.aborted, true);
-    assert.deepEqual(w.updates.find(update => update.capture.state === 'reconnecting')!.capture, {
-      state: 'reconnecting',
-      attempt: 1,
-      cause: 'overflow'
-    });
-    assert.equal(await checkpointCursor(store), cursorOf(count), 'the queue was committed before the reopen');
-    await clock.advance(1_000);
-    const second = await transport.opened(1);
-    assert.deepEqual(second.from, { kind: 'after', cursor: cursorOf(count) });
-    assert.equal(second.durableCursor(), cursorOf(count));
+    await until(async () => (await checkpointCursor(store)) === cursorOf(count), 'the checkpoint at the response tail');
+    assert.equal(first.aborted, false, 'a response under the byte bound never stops the transport');
+    assert.equal(
+      w.updates.some(update => update.capture.state === 'reconnecting'),
+      false
+    );
     assert.equal((await readStored(store)).length, count);
-    second.subscribed();
     w.abort();
     assert.equal(resultOf(await settledOf(done)).delivered, count);
   });
 });
 
-test('a response past the queue byte bound reconnects the same way', async () => {
+test('a response past the queue byte bound aborts the transport, commits everything, and reopens from the committed cursor', async () => {
   await withProject(async root => {
     const store = openStore(root);
     const { clock, transport, deps, hub } = setup(store);

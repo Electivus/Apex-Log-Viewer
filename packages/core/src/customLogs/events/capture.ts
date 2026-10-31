@@ -68,7 +68,6 @@ import {
   FLUSH_MS,
   MAX_AUTH_REBUILDS,
   QUEUE_MAX_BYTES,
-  QUEUE_MAX_EVENTS,
   QUIET_MS,
   RETAINED,
   STANDBY_POLL_MS,
@@ -673,7 +672,7 @@ function createRun(
         queueBytes += received.bytes;
       }
       if (state.state === 'catchingUp') armLiveTimer(QUIET_MS);
-      if (queue.length > QUEUE_MAX_EVENTS || queueBytes > QUEUE_MAX_BYTES) stop({ kind: 'overflow' });
+      if (queueBytes > QUEUE_MAX_BYTES) stop({ kind: 'overflow' });
       else if (queue.length >= FLUSH_MAX) void flush();
       else if (!cancelFlushTimer) {
         cancelFlushTimer = clock.after(FLUSH_MS, () => {
