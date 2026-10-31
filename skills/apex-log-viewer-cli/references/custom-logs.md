@@ -8,9 +8,9 @@
 
 - `ready`: the source can be read.
 - `notInstalled`: the objects of a built-in Nebula source are absent. With `hint: "collision"`, the org's `Log__c` is not Nebula Logger and needs a project source.
-- `unavailable`: `reason` is `objectNotFound`, `objectNotReadable`, `requiredFieldMissing`, `fieldTypeMismatch`, `metadataQueryRefused`, `notQueryable`, or `notAnEvent`, and `message` explains it. `notQueryable` means that a record mapping names a platform event, and `notAnEvent` means that an `event` mapping names a record object. Report the cause. Do not work around permissions.
+- `unavailable`: `reason` is `objectNotFound`, `objectNotReadable`, `requiredFieldMissing`, `fieldTypeMismatch`, `metadataQueryRefused`, `notQueryable`, or `notAnEvent`, and `message` explains it. `notQueryable` means that a record mapping names a platform event, and `notAnEvent` means that an `event` mapping names a record object. Report the cause. Do not work around permissions. A user without Read access to a platform event gets `objectNotReadable`, and `capture` fails with `CUSTOM_LOG_SOURCE_UNAVAILABLE` before it subscribes.
 
-`hiddenFields` lists mapped fields that this user cannot read. An empty value in one of them proves nothing. `capabilities.levelFilter` and `capabilities.userFilter` say whether `--min-level` and `--user` work, and `capabilities.apexLogLink` whether `get` can find the Apex debug log. A source with `shape: "events"` also has a `store` that says what the local history covers. `defaultSourceId` never names an event source. An issue with `severity: "error"` skips its source. Report its `pointer` and `message`.
+`hiddenFields` lists mapped fields that this user cannot read. For an event source, a field is hidden only when the stored describe does not list it, because platform event fields have no field-level security. An empty value in one of them proves nothing. `capabilities.levelFilter` and `capabilities.userFilter` say whether `--min-level` and `--user` work, and `capabilities.apexLogLink` whether `get` can find the Apex debug log. A source with `shape: "events"` also has a `store` that says what the local history covers. `defaultSourceId` never names an event source. An issue with `severity: "error"` skips its source. Report its `pointer` and `message`.
 
 ## List and page
 
@@ -79,7 +79,7 @@ A source whose `shape` is `events` reads a platform event, such as `nebula-event
    sf electivus custom-log capture --source app-events --target-org my-org --json
    ```
 
-   Read `result.outcome`, `delivered`, `stored`, `newGaps`, and `store`. Every delivered event counts against the org's daily allocation, so do not run it in a loop. Use `--follow` only while a person reproduces a bug, and stop it with Ctrl-C, which exits with code 0.
+   Read `result.outcome`, `delivered`, `stored`, `newGaps`, and `store`. `delivered` counts every event Salesforce sent, re-deliveries included, and `stored` counts only the events that were new to the store. Every delivered event counts against the org's daily allocation, so do not run it in a loop. Use `--follow` only while a person reproduces a bug, and stop it with Ctrl-C, which exits with code 0.
 
 2. Search. `store.eventsRoot` names the directory. The store ignores itself, so pass `--no-ignore`:
 
@@ -87,7 +87,7 @@ A source whose `shape` is `events` reads a platform event, such as `nebula-event
    rg --no-ignore -F -g '*.ndjson' -- 'business-id' '/absolute/store.eventsRoot'
    ```
 
-   Each hit is a JSON line. Its `id` is an event id, and its `payload` holds every field Salesforce delivered, including fields that the mapping hides from this user. A message with quotes or line breaks appears in its escaped form.
+   Each hit is a JSON line. Its `id` is an event id, and its `payload` holds every field Salesforce delivered, including fields that the mapping does not use. A message with quotes or line breaks appears in its escaped form.
 
 3. Read. These commands make no request to the org, except for the Apex debug log link in `get`:
 
@@ -108,7 +108,7 @@ On the first run for an org, `--initial retained`, the default, replays up to 72
 - `budget`: the run used about half of the remaining daily allocation. Run `capture` again to continue from the stored position.
 - `capturedElsewhere`: another process holds the capture lease and stores the events. Search the store, or run `capture --follow` to stand by.
 
-`store.gaps` and `newGaps` list the intervals that may be missing. `reason` is `cursorRejected` when Salesforce rejected the stored position, `retentionElapsed` when the last capture was more than 72 hours ago, and `orgChanged` when the username now names another org. `after` and `before` bound the interval, and `before` is absent while the gap is open. Report a gap when you conclude that an event is absent in or near it. Events older than Salesforce keeps are not recoverable. A `store.state` of `notCaptured` means that nothing is stored yet, and `list` returns an empty page.
+`store.gaps` and `newGaps` list the intervals that may be missing. `reason` is `cursorRejected` when Salesforce rejected the stored position (the replay that follows stores each event once), `retentionElapsed` when the last capture was more than 72 hours ago, and `orgChanged` when the username now names another org. `after` and `before` bound the interval, and `before` is absent while the gap is open. Report a gap when you conclude that an event is absent in or near it. Events older than Salesforce keeps are not recoverable. A `store.state` of `notCaptured` means that nothing is stored yet, and `list` returns an empty page.
 
 ## Handle errors
 
@@ -125,8 +125,8 @@ With `--json`, a failed command exits with a non-zero status and has the error c
 | `CUSTOM_LOG_NOT_EVENT_SOURCE`                           | `capture` takes an event source. Pick a source whose `shape` is `events` in `sources`.                                                                                          |
 | `CUSTOM_LOG_STORE_UNAVAILABLE`                          | Run the command inside the Salesforce project. The message names the file or directory that core cannot use.                                                                    |
 | `CUSTOM_LOG_DELIVERY_LIMIT`                             | The org used its daily event allocation. Do not retry now. `capture` resumes from the stored position once the usage drops.                                                     |
-| `CUSTOM_LOG_CLIENT_LIMIT`                               | The org has too many streaming clients. Ask the user to close other subscribers, then run `capture` again.                                                                      |
-| `CUSTOM_LOG_SUBSCRIBE_FORBIDDEN`                        | This user cannot read the platform event. Report it. Do not work around permissions.                                                                                            |
+| `CUSTOM_LOG_CLIENT_LIMIT`                               | Salesforce refused the handshake: the org has too many streaming clients. Ask the user to close other subscribers, then run `capture` again.                                    |
+| `CUSTOM_LOG_SUBSCRIBE_FORBIDDEN`                        | Salesforce refused the subscription for this user (`403:denied_by_security_policy:create_denied`). Report it. Do not work around permissions.                                   |
 | `CUSTOM_LOG_CAPTURE_FAILED`                             | Run `capture` again once. It resumes from the stored position. Report the message if it fails again.                                                                            |
 | `INVALID_ARGUMENT`                                      | Fix the record id, the event id, the `--max-time`, or the `--since` or `--until` value.                                                                                         |
 
