@@ -3,8 +3,9 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { pathToFileURL } from 'node:url';
 
-const PRELOAD = path.resolve(__dirname, '../../../scripts/shift-clock.mjs');
+const PRELOAD = pathToFileURL(path.resolve(__dirname, '../../../scripts/shift-clock.mjs')).href;
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
 
