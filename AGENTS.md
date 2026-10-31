@@ -58,6 +58,7 @@
 - Node-only extension suite: `pnpm run test:extension:node`.
 - Shared package and plugin suites: `pnpm run test:core`, `pnpm run test:protocol`, and `pnpm run test:sf-plugin`.
 - Core public-contract scenarios: `pnpm run test:conformance` (also included in `test:core`).
+- Shifted-clock event suites: `pnpm run test:shifted-clock` (also included in `test:scripts`).
 - E2E utility Jest suite: `pnpm run test:e2e:utils`.
 - Script/security regression suite: `pnpm run test:scripts`.
 - Unit-focused local test suite: `pnpm run test:unit`.

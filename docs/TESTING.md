@@ -27,6 +27,7 @@ Run `pnpm run test:conformance` to execute the v1 scenarios through `createApexL
 - `pnpm run test:webview`: executes the React webview suites under Jest with a jsdom environment (fast, no VS Code host required).
 - `pnpm run test:extension:node`: executes Node-only extension tests under Mocha without launching VS Code.
 - `pnpm run test:conformance`: executes the core behavioral contract scenarios through its public facade.
+- `pnpm run test:shifted-clock`: runs the Custom Logs event suites with the wall clock moved by +45, +400 and -1 days, so a test that depends on today's date fails now and not next month. `node scripts/test-shifted-clock.mjs --days 31,90` picks other shifts and `--all` runs every core and plugin test file. It also runs in `test:scripts`.
 - `pnpm run test:unit`: fast path; runs Jest first and then the VS Code-hosted unit scope.
 - `pnpm run test:integration`: installs dependency extensions if needed and runs integration tests.
 - `pnpm run test:all`: runs the Jest webview suites, the Node-only extension lane, and then both VS Code-hosted scopes.

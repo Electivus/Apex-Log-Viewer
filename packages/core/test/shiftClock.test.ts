@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -91,4 +92,9 @@ test('the preload refuses to run without a finite shift, so an unshifted run is 
     assert.match(child.stderr, /ALV_TEST_CLOCK_SHIFT_DAYS/);
     assert.equal(child.stdout, '');
   }
+});
+
+test('the scripts suite runs the shifted-clock sweep', () => {
+  const rootPackage = JSON.parse(readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf8'));
+  assert.match(rootPackage.scripts['test:scripts'], /node scripts\/test-shifted-clock\.mjs/);
 });
