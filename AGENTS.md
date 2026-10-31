@@ -31,7 +31,7 @@
 - Treat `apexlogs/.alv/sync-state.json` as the shared incremental-sync contract for both surfaces; preserve backward-readable state fields and avoid breaking extension or CLI consumers when evolving it.
 - When a CLI flag overlaps with familiar Salesforce CLI behavior, prefer the `sf`-style spelling such as `--target-org`.
 - Keep the portable `skills/` catalog as the only Agent Skill source. Bundle it in the npm plugin for offline installation through `sf electivus skill install`; keep installation mechanics in the CLI adapter, with explicit agent/destination selection and no network or agent-home writes during npm installation.
-- Debugging workflows synchronize the available log corpus before local content search, then analyze selected transactions. Preserve offline investigation and optional MCP fallback. Keep the agent plugin version independent of the Salesforce CLI release, and reference the official pinned analyzer with anonymous Apex execution disabled.
+- Debugging workflows synchronize the available log corpus, and capture platform event sources with `sf electivus custom-log capture`, before local content search, then analyze selected transactions. Preserve offline investigation and optional MCP fallback. Keep the agent plugin version independent of the Salesforce CLI release, and reference the official pinned analyzer with anonymous Apex execution disabled.
 
 ## Build and Development
 

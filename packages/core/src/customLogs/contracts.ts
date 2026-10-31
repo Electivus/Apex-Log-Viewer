@@ -394,8 +394,8 @@ export type CustomLogApexLogLink =
   | { state: 'notFound' }
   /**
    * `noAccess`: the user cannot read ApexLog in this org (no object access, or the API is off), so absence
-   * says nothing about the request. `offline`: an `events` source read without an org connection, so the
-   * lookup was not attempted.
+   * says nothing about the request. `offline`: an `events` source attempted the lookup and it failed for any
+   * reason but an abort (no connection, an expired login, a refused query). The event stays readable.
    */
   | { state: 'unavailable'; reason: 'noAccess' | 'offline' }
   /** The source maps no `requestId`, FLS hides it, or this record has no value. */
@@ -544,7 +544,7 @@ export type CustomLogErrorCode =
   | 'CUSTOM_LOG_INVALID_CURSOR' // malformed, or produced for another org, source mapping, query or window
   | 'CUSTOM_LOG_STORE_UNAVAILABLE' // the event store cannot be used: no directory, a newer format, an unreadable lease or checkpoint, a symlinked directory, or a failed write (the message names the file)
   | 'CUSTOM_LOG_NOT_EVENT_SOURCE' // `capture` named a record source
-  | 'CUSTOM_LOG_DELIVERY_LIMIT' // `403::Organization total events daily limit exceeded`; capture resumes from the stored position once the rolling 24 h usage drops
-  | 'CUSTOM_LOG_CLIENT_LIMIT' // `403::Organization concurrent user limit exceeded` (20 CometD clients on Developer Edition)
-  | 'CUSTOM_LOG_SUBSCRIBE_FORBIDDEN' // `403:denied_by_security_policy:create_denied` (measured) or `403::Restricted channel`: the user lacks Read on the platform event
+  | 'CUSTOM_LOG_DELIVERY_LIMIT' // `403::Organization total events daily limit exceeded` (the documented text, not yet observed); capture resumes from the stored position once the rolling 24 h usage drops
+  | 'CUSTOM_LOG_CLIENT_LIMIT' // the handshake is refused: `403::Handshake denied`, failure reason `403::Organization concurrent user limit exceeded` (20 CometD clients on Developer Edition)
+  | 'CUSTOM_LOG_SUBSCRIBE_FORBIDDEN' // Salesforce refused the subscribe itself: `403:denied_by_security_policy:create_denied` (measured) or `403::Restricted channel` (documented). A user without Read on the event fails earlier, at describe, with CUSTOM_LOG_SOURCE_UNAVAILABLE
   | 'CUSTOM_LOG_CAPTURE_FAILED'; // capture stopped for a reason with no finer code: auth rebuilds exhausted, a second rejected cursor in one run, or an unclassified transport failure; the message names the cause

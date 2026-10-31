@@ -32,8 +32,9 @@
  * stored data. `last` (a `RunPosition`) is the run's one piece of position state: `last?.cursor` is what
  * the transport's `durableCursor()` answers, and `last` is what the clean end re-sends.
  *
- * Queue bound: Faye hands over one HTTP response synchronously (870 events, 5.7 MB measured), so the
- * bound holds one response. Past it the run aborts the transport, drains and commits the queue, then
+ * Queue bound: bytes only (`QUEUE_MAX_BYTES`). Faye hands over one HTTP response synchronously and Salesforce caps
+ * one near 15 MB (2,600 events, 14.6 MB measured), so the bound holds one response, and a count would trip on
+ * a response of small events. Past it the run aborts the transport, drains and commits the queue, then
  * reopens from `last` with backoff. Nothing is lost: what was dropped is after the committed cursor.
  *
  * "Live": CometD has no end-of-backlog marker, so catchingUp → live{quiet} after QUIET_MS without events
