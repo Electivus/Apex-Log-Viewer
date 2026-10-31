@@ -4,6 +4,18 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 
 import type { RuntimeLogTriageSummary } from './contracts.js';
+import {
+  ensureRealDirectoryPath,
+  ensureRegularFileOrAbsent,
+  ensureWorkspaceLogIgnore,
+  isRealDirectory,
+  isRegularFile,
+  orgDirectory,
+  regularFileExists,
+  safeUsername,
+  writeFileAtomic,
+  writeJsonAtomic
+} from './localStore/workspaceFs.js';
 import { summarizeLogText } from './logTriage.js';
 
 export type ResolvedApexLogOrg = Readonly<{
@@ -296,127 +308,6 @@ type OrgMetadata = Readonly<{
   updatedAt?: string;
 }>;
 
-let gitignoreUpdateQueue: Promise<void> = Promise.resolve();
-
-async function ensureWorkspaceLogIgnore(workspaceRoot: string): Promise<void> {
-  const update = async (): Promise<void> => {
-    const gitignorePath = path.join(workspaceRoot, '.gitignore');
-    const stat = await fs.lstat(gitignorePath).catch(() => undefined);
-    if (!stat?.isFile() || stat.isSymbolicLink()) return;
-    const content = await fs.readFile(gitignorePath, 'utf8');
-    const hasEntry = content
-      .split(/\r?\n/)
-      .map(line => line.trim())
-      .some(line => line === 'apexlogs' || line === 'apexlogs/' || line === '/apexlogs' || line === '/apexlogs/');
-    if (hasEntry) return;
-    const separator = content.length === 0 || content.endsWith('\n') ? '' : '\n';
-    await fs.appendFile(gitignorePath, `${separator}apexlogs/\n`, 'utf8');
-  };
-  const current = gitignoreUpdateQueue.then(update, update);
-  gitignoreUpdateQueue = current.catch(() => undefined);
-  await current.catch(() => undefined);
-}
-
-async function isRegularFile(filePath: string): Promise<boolean> {
-  try {
-    const stat = await fs.lstat(filePath);
-    return stat.isFile() && !stat.isSymbolicLink();
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT' || code === 'ENOTDIR') return false;
-    throw error;
-  }
-}
-
-async function isRealDirectory(directoryPath: string): Promise<boolean> {
-  try {
-    const stat = await fs.lstat(directoryPath);
-    return stat.isDirectory() && !stat.isSymbolicLink();
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT' || code === 'ENOTDIR') return false;
-    throw error;
-  }
-}
-
-async function ensureRealDirectoryPath(
-  workspaceRoot: string,
-  directoryPath: string,
-  createMissing: boolean,
-  treatNonDirectoryAsMissing = false
-): Promise<boolean> {
-  const resolvedRoot = path.resolve(workspaceRoot);
-  const resolvedDirectory = path.resolve(directoryPath);
-  const relative = path.relative(resolvedRoot, resolvedDirectory);
-  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-    throw new Error(`Apex log directory escapes the workspace root: ${resolvedDirectory}`);
-  }
-
-  const segments = relative ? relative.split(path.sep).filter(Boolean) : [];
-  const inspectDirectory = async (current: string, mayCreate: boolean): Promise<boolean> => {
-    let stat: Awaited<ReturnType<typeof fs.lstat>>;
-    try {
-      stat = await fs.lstat(current);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT' || code === 'ENOTDIR') {
-        if (!mayCreate) return false;
-        try {
-          await fs.mkdir(current);
-        } catch (mkdirError) {
-          if ((mkdirError as NodeJS.ErrnoException).code !== 'EEXIST') throw mkdirError;
-        }
-        stat = await fs.lstat(current);
-      } else {
-        throw error;
-      }
-    }
-    if (stat.isSymbolicLink()) {
-      throw new Error(`Apex log directory must be a real directory: ${current}`);
-    }
-    if (!stat.isDirectory()) {
-      if (treatNonDirectoryAsMissing) return false;
-      throw new Error(`Apex log directory must be a real directory: ${current}`);
-    }
-    return true;
-  };
-
-  if (!(await inspectDirectory(resolvedRoot, false))) {
-    throw new Error(`Apex log workspace root does not exist: ${resolvedRoot}`);
-  }
-  let current = resolvedRoot;
-  for (const segment of segments) {
-    current = path.join(current, segment);
-    if (!(await inspectDirectory(current, createMissing))) return false;
-  }
-  return true;
-}
-
-async function ensureRegularFileOrAbsent(filePath: string): Promise<void> {
-  try {
-    const stat = await fs.lstat(filePath);
-    if (!stat.isFile() || stat.isSymbolicLink()) {
-      throw new Error(`Apex log state path must be a regular file: ${filePath}`);
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-  }
-}
-
-async function regularFileExists(filePath: string): Promise<boolean> {
-  let stat: Awaited<ReturnType<typeof fs.lstat>>;
-  try {
-    stat = await fs.lstat(filePath);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
-    throw error;
-  }
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    throw new Error(`Apex log state path must be a regular file: ${filePath}`);
-  }
-  return true;
-}
-
 // Walks the chain fresh before the file check so a hit and a miss both reject a directory another process
 // swapped for a link after the snapshot memoized it, and so the link target is never touched.
 async function verifiedLogFile(workspaceRoot: string, candidate: string): Promise<string | undefined> {
@@ -523,13 +414,6 @@ async function findCanonicalLogPath(
   return indexedDay && indexedDay !== expectedDay ? probe(indexedDay) : undefined;
 }
 
-function safeUsername(value: string | undefined): string {
-  const encoded = String(value || '')
-    .trim()
-    .replace(/[^a-zA-Z0-9_.@-]+/g, '_');
-  return encoded && encoded !== '.' && encoded !== '..' ? encoded : 'default';
-}
-
 function logDay(startTime: string | undefined): string {
   const day = String(startTime || '').slice(0, 10);
   return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : 'unknown-date';
@@ -583,7 +467,7 @@ async function findLocalLogMatches(
 }
 
 function orgMetadataPath(workspaceRoot: string, username: string): string {
-  return path.join(workspaceRoot, 'apexlogs', 'orgs', safeUsername(username), 'org.json');
+  return path.join(orgDirectory(workspaceRoot, username), 'org.json');
 }
 
 async function readOrgMetadata(filePath: string): Promise<OrgMetadata | undefined> {
@@ -673,15 +557,7 @@ async function writeOrgMetadata(workspaceRoot: string, org: ResolvedApexLogOrg):
 }
 
 function canonicalLogPath(workspaceRoot: string, username: string, log: ApexLogRef): string {
-  return path.join(
-    workspaceRoot,
-    'apexlogs',
-    'orgs',
-    safeUsername(username),
-    'logs',
-    logDay(log.startTime),
-    `${log.logId}.log`
-  );
+  return path.join(orgDirectory(workspaceRoot, username), 'logs', logDay(log.startTime), `${log.logId}.log`);
 }
 
 async function writeCanonicalLog(
@@ -930,31 +806,6 @@ async function writeSyncStateDocument(workspaceRoot: string, value: SyncStateDoc
   await writeJsonAtomic(filePath, value);
 }
 
-async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> {
-  await writeFileAtomic(filePath, `${JSON.stringify(value, null, 2)}\n`, false);
-}
-
-async function writeFileAtomic(filePath: string, contents: string, keepExisting: boolean): Promise<boolean> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
-  try {
-    await fs.writeFile(temporaryPath, contents, 'utf8');
-    if (keepExisting) {
-      try {
-        await fs.link(temporaryPath, filePath);
-        return true;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'EEXIST' && (await isRegularFile(filePath))) return false;
-        throw error;
-      }
-    }
-    await fs.rename(temporaryPath, filePath);
-    return true;
-  } finally {
-    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
-  }
-}
-
 async function ensureLifecycleVersionMarker(workspaceRoot: string, versionPath: string): Promise<void> {
   await ensureRealDirectoryPath(workspaceRoot, path.dirname(versionPath), true);
   for (;;) {
@@ -994,7 +845,7 @@ async function ensureLifecycleVersionMarker(workspaceRoot: string, versionPath: 
 async function countLocalLogs(workspaceRoot: string, username: string | undefined): Promise<number> {
   const ids = new Set<string>();
   const collectCanonical = async (orgName: string): Promise<void> => {
-    const logsRoot = path.join(workspaceRoot, 'apexlogs', 'orgs', safeUsername(orgName), 'logs');
+    const logsRoot = path.join(orgDirectory(workspaceRoot, orgName), 'logs');
     if (!(await ensureRealDirectoryPath(workspaceRoot, logsRoot, false, true))) return;
     const days = await readDirectory(logsRoot);
     for (const day of days) {

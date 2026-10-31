@@ -50,6 +50,20 @@ sf electivus custom-log list --source app-log --payload-fields orderId,http.stat
 
 `list` and `get` take `--source` when more than one source is ready, and fail with `CUSTOM_LOG_SOURCE_REQUIRED` rather than guess. `nextCursor` is opaque; pass it back as `--cursor` with the same flags. A JSON payload field mapped on a source comes back as flat dot paths under `payload.values`; `--payload-fields` keeps only the paths you name, and `payloadFields` still lists every path on the page. `get` also returns the Apex debug log of the same request as `apexLog` (`linked`, `notFound`, `unavailable` with `reason: noAccess` when this user cannot read debug logs, or `noRequestId`); open it with `sf electivus log read --log-id <id>`.
 
+### Event sources
+
+A source that maps a platform event (`event` in `sfdx-project.json`, or the built-in `nebula-events`) has no records to query: Salesforce delivers each event once and keeps it for about 72 hours. `capture` subscribes and stores every event it receives under `apexlogs/orgs/<org>/events/<object>/`. After that, `list`, `get` and `entry` read the store and never contact the org, so they work offline. An event source is never chosen implicitly, because capturing spends the org's daily event delivery allocation: pass `--source`.
+
+```bash
+sf electivus custom-log capture --source app-events --target-org my-org --json
+sf electivus custom-log list --source app-events --min-level ERROR --since 2026-10-28 --json
+sf electivus custom-log capture --source app-events --target-org my-org --follow --min-level WARN
+```
+
+By default `capture` drains: it resumes from the stored position and stops when the stream goes quiet (`outcome: quiet`), after about half of the org's remaining daily allocation (`budget`), or after `--max-time` seconds (`timeLimit`, default 120). It prints one JSON result with `delivered`, `stored`, `newGaps` and `store`. A quiet stream does not prove the backlog was complete, but the stored position is exact, so stopping early costs one more run and loses nothing. A drain that hears nothing over a position older than one hour, or on a first run, waits the whole `--max-time`; lower it for a stream you know is quiet. The first run for an org replays what Salesforce still retains (`--initial retained`, the default) or starts with new events (`--initial new`). With `--follow` it keeps capturing, prints each stored row to stdout and state changes to stderr, and ends on Ctrl-C with the same result and exit code 0. A second Ctrl-C quits at once. Events published while nothing captured and older than 72 hours are lost; they show up as `store.gaps` and `newGaps` ("may be missing"), never silently.
+
+Failures exit 1 and name their code in `name`, with next steps in `actions`: `CUSTOM_LOG_SOURCE_NOT_FOUND`, `CUSTOM_LOG_NOT_EVENT_SOURCE`, `CUSTOM_LOG_SOURCE_UNAVAILABLE`, `CUSTOM_LOG_UNSUPPORTED_FILTER`, `CUSTOM_LOG_STORE_UNAVAILABLE`, `CUSTOM_LOG_DELIVERY_LIMIT`, `CUSTOM_LOG_CLIENT_LIMIT`, `CUSTOM_LOG_SUBSCRIBE_FORBIDDEN` and `CUSTOM_LOG_CAPTURE_FAILED`. The stored position survives all of them, so running the command again resumes.
+
 ## Local investigation metadata
 
 `sf electivus log sync --target-org my-org --json` downloads available logs in bulk. Its result includes absolute `apexlogsRoot` and `orgLogsRoot` paths, plus `failures` with stable `logId`/`code` pairs. Search local bodies under those paths rather than downloading candidates individually. `log status` works offline and includes the last sync's `failedCount`; `orgLogsRoot` is present only when a local org identity can be resolved.

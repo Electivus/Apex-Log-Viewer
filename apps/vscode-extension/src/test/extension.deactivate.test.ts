@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { createRequire } from 'module';
 
 suite('extension deactivate', () => {
-  test('disposes logger output channel', () => {
+  test('disposes logger output channel', async () => {
     const req = createRequire(__filename);
     let disposed = false;
     const original = vscode.window.createOutputChannel;
@@ -22,7 +22,7 @@ suite('extension deactivate', () => {
     delete req.cache[modPath];
     const ext = req('../../dist/extension');
 
-    ext.deactivate();
+    await ext.deactivate();
     assert.ok(disposed, 'disposeLogger should be invoked');
 
     (vscode.window as any).createOutputChannel = original;

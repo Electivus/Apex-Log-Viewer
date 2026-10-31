@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <deploymentStatus>Deployed</deploymentStatus>
+    <eventType>HighVolume</eventType>
+    <label>ALV Test Backlog</label>
+    <pluralLabel>ALV Test Backlogs</pluralLabel>
+    <publishBehavior>PublishImmediately</publishBehavior>
+</CustomObject>

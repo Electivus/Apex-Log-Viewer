@@ -1,14 +1,19 @@
 /**
  * The resolved model: a definition checked against this org and this user. A `ready`
  * `CatalogEntry` carries a `ResolvedSource` whose every field is known to exist, to be readable
- * by the running user, and to have a compatible type. Query builders take only `ResolvedSource`,
+ * by the running user, and to have a compatible type. Query builders take only `ResolvedRecordSource`,
  * so a SELECT can only name readable fields (the `LoggerEndUser` FLS gap cannot reach a query)
  * and a filter can only use a capability the source has. Internal; never crosses the package
  * boundary.
  */
 
 import type { ByRole, DescribeFieldType, ENTRY_ROLES, PayloadPath, SourceId, TRANSACTION_ROLES } from './config.js';
-import type { CustomLogSourceOrigin, CustomLogSourceShape, CustomLogSourceState } from './contracts.js';
+import type {
+  CustomLogSourceObjects,
+  CustomLogSourceOrigin,
+  CustomLogSourceShape,
+  CustomLogSourceState
+} from './contracts.js';
 import type { LevelTable } from './levels.js';
 
 /** A field confirmed by describe. `api` is the qualified path to put in SOQL. */
@@ -108,7 +113,26 @@ export type ResolvedTransactionObject = {
   readonly levelPredicate: HeaderLevelPredicate;
 };
 
-export type ResolvedShape =
+/** What the decoders (`decode.ts`) read from an entry object: the parts that do not describe a query. */
+export type DecodableEntryObject = Pick<
+  ResolvedEntryObject,
+  'roles' | 'columns' | 'details' | 'payload' | 'systemMessagePrefix'
+>;
+
+/**
+ * A platform event resolved against a describe, live or stored. It has no `keyPrefix`,
+ * `timeFilter`, `sequence` or `levelPredicate`: those are facts about a SOQL query, and the store
+ * filters and orders in memory. Its field flags `sortable` and `filterable` are always false, so
+ * nothing can mistake a field for one SOQL may filter on. `object` is the describe-cased name,
+ * because the CometD channel is case-sensitive and core lower-cases EntityDefinition names.
+ */
+export type ResolvedEventObject = DecodableEntryObject & {
+  readonly object: string;
+  /** `/event/<describe.name>`. The only place the channel string is built. */
+  readonly channel: string;
+};
+
+export type ResolvedRecordShape =
   | { readonly kind: 'entries'; readonly entry: ResolvedEntryObject }
   | {
       readonly kind: 'transactions';
@@ -116,18 +140,63 @@ export type ResolvedShape =
       readonly entry: ResolvedEntryObject & { readonly parent: ResolvedField };
     };
 
-export type ResolvedSource = {
+export type ResolvedEventShape = { readonly kind: 'events'; readonly event: ResolvedEventObject };
+
+export type ResolvedShape = ResolvedRecordShape | ResolvedEventShape;
+
+/**
+ * Ends every switch over a shape kind, so a kind added to `ResolvedShape` fails `check-types` at
+ * each site. `customLogsShape.test.ts` refuses the two-way comparisons that would bypass it.
+ */
+export function assertNever(value: never, what: string): never {
+  throw new Error(`Unhandled ${what}: ${JSON.stringify(value)}`);
+}
+
+/** The object a list row shows: the header of a `transactions` source, else the entry object. */
+export function listedObject(shape: ResolvedRecordShape): ResolvedTransactionObject | ResolvedEntryObject {
+  switch (shape.kind) {
+    case 'transactions':
+      return shape.transaction;
+    case 'entries':
+      return shape.entry;
+    default:
+      return assertNever(shape, 'record shape');
+  }
+}
+
+/** The header object of a `transactions` source; an `entries` source has none. */
+export function headerObject(shape: ResolvedRecordShape): ResolvedTransactionObject | undefined {
+  switch (shape.kind) {
+    case 'transactions':
+      return shape.transaction;
+    case 'entries':
+      return undefined;
+    default:
+      return assertNever(shape, 'record shape');
+  }
+}
+
+type ResolvedSourceOf<S extends ResolvedShape> = {
   readonly id: SourceId;
   readonly label: string;
   readonly origin: CustomLogSourceOrigin;
   readonly namespace?: string;
   /** `SourceDefinition.digest`. Cursors carry it. */
   readonly digest: string;
-  readonly shape: ResolvedShape;
+  readonly shape: S;
   readonly levels: LevelTable;
   /** Definition paths dropped because describe omits them (FLS or absent). */
   readonly hidden: readonly string[];
 };
+
+/** Query builders take only this, so an event source cannot reach a SOQL query. */
+export type ResolvedRecordSource = ResolvedSourceOf<ResolvedRecordShape>;
+export type ResolvedEventSource = ResolvedSourceOf<ResolvedEventShape>;
+export type ResolvedSource = ResolvedRecordSource | ResolvedEventSource;
+
+export function isEventSource(source: ResolvedSource): source is ResolvedEventSource {
+  return source.shape.kind === 'events';
+}
 
 /** What `sources` says of every source, ready or not: which objects it looks for, and in what shape. */
 export type CatalogHead = {
@@ -136,7 +205,7 @@ export type CatalogHead = {
   readonly origin: CustomLogSourceOrigin;
   readonly shape: CustomLogSourceShape;
   readonly namespace?: string;
-  readonly objects: { readonly transaction?: string; readonly entry: string };
+  readonly objects: CustomLogSourceObjects;
 };
 
 export type CatalogEntry = { readonly head: CatalogHead } & (

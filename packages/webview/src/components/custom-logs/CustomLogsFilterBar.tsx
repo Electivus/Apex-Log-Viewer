@@ -40,6 +40,8 @@ type CustomLogsFilterBarProps = {
   /** Puts text in the input and focuses it, for example when a column menu asks to filter by its field. */
   prefill?: FilterBarPrefill;
   disabled?: boolean;
+  /** The list reads stored events, so a `server` filter runs in core over the store and not in a Salesforce query. */
+  stored?: boolean;
 };
 
 const TYPE_LABEL_KEY = {
@@ -70,7 +72,8 @@ export function CustomLogsFilterBar({
   onSubmit,
   onAddColumn,
   prefill,
-  disabled = false
+  disabled = false,
+  stored = false
 }: CustomLogsFilterBarProps) {
   const listId = useId();
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -207,6 +210,7 @@ export function CustomLogsFilterBar({
             t={t}
             chip={chip}
             disabled={disabled}
+            stored={stored}
             onEdit={editedText => {
               setText(editedText);
               setError(undefined);
@@ -272,7 +276,7 @@ export function CustomLogsFilterBar({
                     <span className="flex-1 truncate font-mono text-xs">{item.path}</span>
                     {item.kind === 'server' ? (
                       <span className="rounded bg-muted px-1.5 font-mono text-[10px] text-muted-foreground">
-                        {t.filter.serverBadge}
+                        {stored ? t.filter.storedBadge : t.filter.serverBadge}
                       </span>
                     ) : (
                       <>
@@ -359,15 +363,18 @@ function FilterChipView({
   t,
   chip,
   disabled,
+  stored,
   onEdit
 }: {
   t: CustomLogsMessages;
   chip: FilterChip;
   disabled: boolean;
+  stored: boolean;
   onEdit: (text: string) => void;
 }) {
   const Icon = chip.scope === 'server' ? Cloud : ListFilter;
-  const scopeTitle = chip.scope === 'server' ? t.filter.serverChip : t.filter.loadedChip;
+  const scopeTitle =
+    chip.scope === 'server' ? (stored ? t.filter.storedChip : t.filter.serverChip) : t.filter.loadedChip;
   const editable = chip.onEdit !== undefined && !disabled;
   return (
     <span

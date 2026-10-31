@@ -649,6 +649,64 @@
         }
       }
     },
+    "customLogs.capture.start": {
+      "description": "A Custom Logs platform event capture run started, once per run however many panels watch it. Carries no object, field or org names.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["started"]
+        },
+        "from": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "values": ["position", "retained", "new", "standby", "none"]
+        }
+      }
+    },
+    "customLogs.capture.end": {
+      "description": "A Custom Logs platform event capture run ended. Counts only: no event payload, id, cursor or org value.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["quiet", "timeLimit", "budget", "aborted", "capturedElsewhere", "needsInitial", "failed"]
+        },
+        "code": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "pattern": "^[A-Z0-9_]+$"
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "delivered": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight"
+        },
+        "stored": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight"
+        },
+        "gaps": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "reconnects": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "dropped": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        }
+      }
+    },
     "customLogs.openApexLog": {
       "description": "The Apex debug log linked to a Custom Logs transaction was requested.",
       "properties": {
@@ -873,6 +931,7 @@
             "custom_log_list",
             "custom_log_get",
             "custom_log_entry",
+            "custom_log_capture_callback",
             "other"
           ]
         },

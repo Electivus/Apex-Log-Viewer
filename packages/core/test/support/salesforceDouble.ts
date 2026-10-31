@@ -44,36 +44,50 @@ export type SalesforceDouble = {
   instanceUrl: string;
   /** Every request the double answered, oldest first, version listing excluded. */
   requests: DoubleRequest[];
+  /** Every HTTP request that reached the server, the version listing included: a connection that lists versions and queries nothing still counts. */
+  readonly received: number;
 };
+
+/** Answers one REST request: the version list itself, every other request through `handler` and recorded in `requests`. */
+export function answerRest(
+  request: http.IncomingMessage,
+  response: http.ServerResponse,
+  handler: DoubleHandler,
+  requests: DoubleRequest[]
+): void {
+  const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+  const chunks: Buffer[] = [];
+  request.on('data', chunk => chunks.push(chunk as Buffer));
+  request.on('end', () => {
+    const send = (status: number, body: unknown): void => {
+      response.writeHead(status, { 'content-type': 'application/json' });
+      response.end(JSON.stringify(body));
+    };
+    if (url.pathname === '/services/data') {
+      send(200, [{ label: 'Test', url: '/services/data/v63.0', version: '63.0' }]);
+      return;
+    }
+    const seen: DoubleRequest = {
+      method: request.method ?? 'GET',
+      path: url.pathname.replace(/^\/services\/data\/v[\d.]+/, ''),
+      query: url.searchParams,
+      body: Buffer.concat(chunks).toString('utf8')
+    };
+    requests.push(seen);
+    Promise.resolve(handler(seen)).then(
+      answer => send(answer.status ?? 200, answer.body),
+      (error: unknown) => send(500, [{ message: String(error), errorCode: 'DOUBLE_FAILURE' }])
+    );
+  });
+}
 
 /** A Salesforce REST double: it answers the version list itself and hands every other request to `handler`. */
 export async function startSalesforceDouble(t: test.TestContext, handler: DoubleHandler): Promise<SalesforceDouble> {
   const requests: DoubleRequest[] = [];
+  let received = 0;
   const server = http.createServer((request, response) => {
-    const url = new URL(request.url ?? '/', 'http://127.0.0.1');
-    const chunks: Buffer[] = [];
-    request.on('data', chunk => chunks.push(chunk as Buffer));
-    request.on('end', () => {
-      const send = (status: number, body: unknown): void => {
-        response.writeHead(status, { 'content-type': 'application/json' });
-        response.end(JSON.stringify(body));
-      };
-      if (url.pathname === '/services/data') {
-        send(200, [{ label: 'Test', url: '/services/data/v63.0', version: '63.0' }]);
-        return;
-      }
-      const seen: DoubleRequest = {
-        method: request.method ?? 'GET',
-        path: url.pathname.replace(/^\/services\/data\/v[\d.]+/, ''),
-        query: url.searchParams,
-        body: Buffer.concat(chunks).toString('utf8')
-      };
-      requests.push(seen);
-      Promise.resolve(handler(seen)).then(
-        answer => send(answer.status ?? 200, answer.body),
-        (error: unknown) => send(500, [{ message: String(error), errorCode: 'DOUBLE_FAILURE' }])
-      );
-    });
+    received++;
+    answerRest(request, response, handler, requests);
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(
@@ -83,7 +97,13 @@ export async function startSalesforceDouble(t: test.TestContext, handler: Double
         server.close(() => resolve());
       })
   );
-  return { instanceUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, requests };
+  return {
+    instanceUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    requests,
+    get received() {
+      return received;
+    }
+  };
 }
 
 export async function saveOrgAuth(username: string, instanceUrl: string, accessToken = 'token-double'): Promise<void> {

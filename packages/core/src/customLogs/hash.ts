@@ -14,7 +14,7 @@ export function stableStringify(value: unknown): string {
   return JSON.stringify(value) ?? 'null';
 }
 
-/** Twelve hex characters of a SHA-1 over the stable JSON of `value`: a fingerprint, not a secret. */
+/** Twelve hex characters of a SHA-256 over the stable JSON of `value`: a fingerprint, not a secret. */
 export function shortHash(value: unknown): string {
-  return createHash('sha1').update(stableStringify(value)).digest('hex').slice(0, 12);
+  return createHash('sha256').update(stableStringify(value)).digest('hex').slice(0, 12);
 }

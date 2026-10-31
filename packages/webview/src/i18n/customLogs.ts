@@ -25,6 +25,8 @@ export type CustomLogsMessages = {
     stageCommit: string;
     noSuggestions: string;
     serverBadge: string;
+    storedChip: string;
+    storedBadge: string;
     inColumns: string;
     rowsCount: string;
     rowCountOne: string;
@@ -114,11 +116,53 @@ export type CustomLogsMessages = {
     rowsLoadedOne: string;
     filtering: string;
     hint: string;
+    hintStored: string;
     skipped: string;
     invalidCount: string;
     textCount: string;
     emptyCount: string;
     hiddenCount: string;
+  };
+  capture: {
+    aria: string;
+    stop: string;
+    start: string;
+    connecting: string;
+    catchingUpPosition: string;
+    catchingUpRetained: string;
+    catchingUpNew: string;
+    live: string;
+    liveHint: string;
+    storedSince: string;
+    nothingStored: string;
+    reconnecting: string;
+    reconnectCause: { transport: string; auth: string; overflow: string };
+    stopped: string;
+    budget: string;
+    budgetNoAllowance: string;
+    elsewhere: string;
+    standby: string;
+    leaseNote: string;
+    surface: { vscode: string; cli: string };
+    firstUse: {
+      empty: string;
+      loadRetained: string;
+      onlyNew: string;
+      note: string;
+      noteNoBudget: string;
+      left: string;
+      leftOnly: string;
+    };
+    failed: string;
+    deliveryLimit: string;
+    gaps: {
+      aria: string;
+      between: string;
+      after: string;
+      before: string;
+      unknown: string;
+      reasons: { cursorRejected: string; retentionElapsed: string; orgChanged: string; malformedEvent: string };
+    };
   };
   empty: {
     noSource: string;
@@ -223,6 +267,8 @@ export const customLogsEn: CustomLogsMessages = {
     stageCommit: 'Enter to add the filter',
     noSuggestions: 'No suggestion: type a value and press Enter',
     serverBadge: 'Salesforce',
+    storedChip: 'Runs over the stored events: changes the list without asking Salesforce',
+    storedBadge: 'Stored',
     inColumns: '✓ column',
     rowsCount: '{count} rows',
     rowCountOne: '1 row'
@@ -314,11 +360,64 @@ export const customLogsEn: CustomLogsMessages = {
     rowsLoadedOne: '1 row loaded',
     filtering: 'Filtering {loaded} loaded rows · {matches} match',
     hint: 'JSON columns, filters and sorts only see rows already loaded (SOQL cannot filter long text).',
+    hintStored: 'JSON columns, filters and sorts only see rows already loaded.',
     skipped: 'skipped by JSON filters',
     invalidCount: '{count} invalid JSON',
     textCount: '{count} plain text',
     emptyCount: '{count} empty',
     hiddenCount: '{count} hidden'
+  },
+  capture: {
+    aria: 'Event capture',
+    stop: 'Stop',
+    start: 'Start',
+    connecting: 'Connecting to {source}…',
+    catchingUpPosition: 'Catching up: loading events Salesforce kept since {since}',
+    catchingUpRetained: 'Loading retained events (up to 72 hours)…',
+    catchingUpNew: 'Waiting for new events…',
+    live: 'Live',
+    liveHint: 'Inferred: no event for 10 s. Salesforce sends no end-of-backlog marker.',
+    storedSince: 'stored since {since}',
+    nothingStored: 'no events stored yet',
+    reconnecting: 'Reconnecting (attempt {attempt}) {cause}…',
+    reconnectCause: {
+      transport: 'after the connection dropped',
+      auth: 'after Salesforce rejected the session',
+      overflow: 'after a burst of events'
+    },
+    stopped: 'Stopped',
+    budget:
+      "Paused: this run spent its delivery budget (about {budget} deliveries of the org's daily allocation). Start to resume from the stored position.",
+    budgetNoAllowance: 'Paused: this run spent its delivery budget. Start to resume from the stored position.',
+    elsewhere: 'Another VS Code window or sf command is capturing these events. Start to check again.',
+    standby: 'Another {surface} (pid {pid} on {host}) is capturing; new events appear here.',
+    leaseNote: 'If no such process exists (the host name may have changed), delete capture.lease in {folder}.',
+    surface: { vscode: 'VS Code window', cli: 'sf command' },
+    firstUse: {
+      empty: 'No events from this org are stored yet.',
+      loadRetained: 'Load retained events',
+      onlyNew: 'Only new events',
+      note: "Salesforce keeps up to 72 hours; each event counts against the org's daily delivery allocation{left}; this run stops after about {budget} deliveries and resumes on the next Start.",
+      noteNoBudget: "Salesforce keeps up to 72 hours; each event counts against the org's daily delivery allocation.",
+      left: ' (about {remaining} of {max} left)',
+      leftOnly: ' (about {remaining} left)'
+    },
+    failed: 'Capture failed: {message}',
+    deliveryLimit:
+      "Salesforce's daily event delivery limit is used up; capture resumes from the stored position later.",
+    gaps: {
+      aria: 'Possible gaps in the stored events',
+      between: 'Events between {after} and {before} may be missing ({reason})',
+      after: 'Events after {after} may be missing ({reason})',
+      before: 'Events before {before} may be missing ({reason})',
+      unknown: 'Some events may be missing ({reason})',
+      reasons: {
+        cursorRejected: 'Salesforce rejected the stored position when capture resumed',
+        retentionElapsed: 'the stored position was older than Salesforce keeps events',
+        orgChanged: 'this username now points to another org',
+        malformedEvent: 'Salesforce delivered an event that capture could not read'
+      }
+    }
   },
   empty: {
     noSource: 'No custom log source is ready in this org.',
@@ -423,6 +522,8 @@ export const customLogsPtBR: CustomLogsMessages = {
     stageCommit: 'Enter para adicionar o filtro',
     noSuggestions: 'Sem sugestões: digite um valor e pressione Enter',
     serverBadge: 'Salesforce',
+    storedChip: 'Roda sobre os eventos armazenados: muda a lista sem consultar o Salesforce',
+    storedBadge: 'Armazenado',
     inColumns: '✓ coluna',
     rowsCount: '{count} linhas',
     rowCountOne: '1 linha'
@@ -515,11 +616,66 @@ export const customLogsPtBR: CustomLogsMessages = {
     rowsLoadedOne: '1 linha carregada',
     filtering: 'Filtrando {loaded} linhas carregadas · {matches} correspondem',
     hint: 'Colunas, filtros e ordenações JSON só enxergam as linhas já carregadas (o SOQL não filtra texto longo).',
+    hintStored: 'Colunas, filtros e ordenações JSON só enxergam as linhas já carregadas.',
     skipped: 'ignoradas pelos filtros JSON',
     invalidCount: '{count} JSON inválido',
     textCount: '{count} texto simples',
     emptyCount: '{count} vazio',
     hiddenCount: '{count} oculto'
+  },
+  capture: {
+    aria: 'Captura de eventos',
+    stop: 'Parar',
+    start: 'Iniciar',
+    connecting: 'Conectando a {source}…',
+    catchingUpPosition: 'Recuperando: carregando os eventos que o Salesforce guardou desde {since}',
+    catchingUpRetained: 'Carregando os eventos retidos (até 72 horas)…',
+    catchingUpNew: 'Aguardando novos eventos…',
+    live: 'Ao vivo',
+    liveHint: 'Inferido: nenhum evento por 10 s. O Salesforce não envia um marcador de fim do backlog.',
+    storedSince: 'armazenados desde {since}',
+    nothingStored: 'nenhum evento armazenado ainda',
+    reconnecting: 'Reconectando (tentativa {attempt}) {cause}…',
+    reconnectCause: {
+      transport: 'após a conexão cair',
+      auth: 'após o Salesforce rejeitar a sessão',
+      overflow: 'após uma rajada de eventos'
+    },
+    stopped: 'Parada',
+    budget:
+      'Pausada: esta execução gastou o orçamento de entregas (cerca de {budget} entregas da cota diária da org). Inicie para continuar da posição armazenada.',
+    budgetNoAllowance:
+      'Pausada: esta execução gastou o orçamento de entregas. Inicie para continuar da posição armazenada.',
+    elsewhere:
+      'Outra janela do VS Code ou outro comando sf está capturando estes eventos. Inicie para verificar de novo.',
+    standby: 'Outro processo ({surface}, pid {pid} em {host}) está capturando; os novos eventos aparecem aqui.',
+    leaseNote: 'Se esse processo não existir (o nome do host pode ter mudado), apague capture.lease em {folder}.',
+    surface: { vscode: 'janela do VS Code', cli: 'comando sf' },
+    firstUse: {
+      empty: 'Ainda não há eventos desta org armazenados.',
+      loadRetained: 'Carregar eventos retidos',
+      onlyNew: 'Só eventos novos',
+      note: 'O Salesforce guarda até 72 horas; cada evento conta na cota diária de entregas da org{left}; esta execução para após cerca de {budget} entregas e continua no próximo Iniciar.',
+      noteNoBudget: 'O Salesforce guarda até 72 horas; cada evento conta na cota diária de entregas da org.',
+      left: ' (cerca de {remaining} de {max} restantes)',
+      leftOnly: ' (cerca de {remaining} restantes)'
+    },
+    failed: 'A captura falhou: {message}',
+    deliveryLimit:
+      'O limite diário de entrega de eventos do Salesforce foi usado; a captura continua da posição armazenada mais tarde.',
+    gaps: {
+      aria: 'Possíveis lacunas nos eventos armazenados',
+      between: 'Podem faltar eventos entre {after} e {before} ({reason})',
+      after: 'Podem faltar eventos depois de {after} ({reason})',
+      before: 'Podem faltar eventos antes de {before} ({reason})',
+      unknown: 'Podem faltar alguns eventos ({reason})',
+      reasons: {
+        cursorRejected: 'o Salesforce rejeitou a posição armazenada quando a captura continuou',
+        retentionElapsed: 'a posição armazenada era mais antiga do que o Salesforce guarda eventos',
+        orgChanged: 'este usuário agora aponta para outra org',
+        malformedEvent: 'o Salesforce entregou um evento que a captura não conseguiu ler'
+      }
+    }
   },
   empty: {
     noSource: 'Nenhuma fonte de logs personalizados está pronta nesta org.',

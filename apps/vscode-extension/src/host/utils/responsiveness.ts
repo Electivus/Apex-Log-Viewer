@@ -97,6 +97,7 @@ const INBOUND_MESSAGE_TYPES: ReadonlySet<string> = new Set(
     customLogsSetPayloadColumns: true,
     customLogsOpenConfig: true,
     customLogsOpenEditor: true,
+    customLogsCapture: true,
     customLogViewerReady: true,
     customLogViewerRefresh: true,
     customLogViewerLoadMoreEntries: true,

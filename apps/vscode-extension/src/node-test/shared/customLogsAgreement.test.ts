@@ -4,8 +4,10 @@ import { parseCustomLogsFromWebviewMessage } from '@alv/protocol/customLogsMessa
 import { parseCustomLogLevel, parseSinceValue } from '@alv/protocol/customLogsRules';
 import {
   CUSTOM_LOG_LEVELS,
+  EVENT_ROW_ID_PATTERN,
+  mergeLiveRows,
   mergePayloadFields,
-  parseCustomLogRecordId,
+  parseCustomLogRowId,
   type CustomLogPayloadField,
   type CustomLogPayloadType,
   type CustomLogPayloadView
@@ -18,7 +20,15 @@ import {
   serverFieldOf
 } from '../../../../../packages/webview/src/utils/customLogs/filterGrammar';
 import { normalizePayloadPath, payloadMatches } from '../../../../../packages/webview/src/utils/customLogs/payloadRows';
-import { coreConfig, coreContracts, coreLevels, corePayload, coreSince, coreSoql } from '../coreInternals';
+import {
+  coreConfig,
+  coreContracts,
+  coreEventIds,
+  coreLevels,
+  corePayload,
+  coreSince,
+  coreSoql
+} from '../coreInternals';
 
 const NOW = Date.parse('2026-10-30T12:00:00Z');
 
@@ -96,7 +106,34 @@ suite('Custom Logs rules agree between core and protocol', () => {
 
     for (const id of recordIds) {
       test(`treats the record id ${JSON.stringify(id)} like core`, () => {
-        assert.equal(parseCustomLogRecordId(id) !== undefined, coreSoql.isSalesforceId(id));
+        assert.equal(parseCustomLogRowId(id) !== undefined, coreSoql.isSalesforceId(id));
+      });
+    }
+
+    const eventIds = [
+      'e-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d',
+      'e-000000000-0000000000-00000000000000000000000000000000',
+      'e-zzzzzzzzz-zzzzzzzzzz-ffffffffffffffffffffffffffffffff',
+      'E-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d',
+      'e-0R5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d',
+      'e-0r5jq8z3k-00000000a1-0A1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d',
+      'e-0r5jq8z3-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d',
+      'e-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4',
+      'e-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d0',
+      'e-0r5jq8z3k-00000000a1-0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d',
+      'e-0r5jq8z3k_00000000a1_0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d',
+      ''
+    ];
+
+    test('keeps the event id pattern identical to core, so a regex edit in one package fails here', () => {
+      assert.equal(EVENT_ROW_ID_PATTERN.source, coreContracts.CUSTOM_LOG_EVENT_ID_PATTERN.source);
+      assert.equal(EVENT_ROW_ID_PATTERN.flags, coreContracts.CUSTOM_LOG_EVENT_ID_PATTERN.flags);
+    });
+
+    for (const id of eventIds) {
+      test(`treats the event id ${JSON.stringify(id)} like core`, () => {
+        const coreAccepts = coreContracts.CUSTOM_LOG_EVENT_ID_PATTERN.test(id) || coreSoql.isSalesforceId(id);
+        assert.equal(parseCustomLogRowId(id) !== undefined, coreAccepts);
       });
     }
 
@@ -112,6 +149,28 @@ suite('Custom Logs rules agree between core and protocol', () => {
         assert.equal(protocolAccepts, !coreRejects);
       });
     }
+  });
+
+  suite('live row order', () => {
+    const eventId = (createdMs: number, seq: number, uuidTail: number) =>
+      `e-${createdMs.toString(36).padStart(9, '0')}-${seq.toString(36).padStart(10, '0')}-${uuidTail.toString(16).padStart(32, '0')}`;
+
+    test('merges event rows into the order core lists them, ties on time, sequence and uuid included', () => {
+      const positions = [0, 1, 2].flatMap(time =>
+        [0, 1].flatMap(seq =>
+          [0, 1].map(tail => coreEventIds.parseEventRowId(eventId(1_790_000_000_000 + time, seq, tail))!)
+        )
+      );
+      const listed = positions
+        .sort(coreEventIds.compareNewestFirst)
+        .map(position => ({ id: coreEventIds.eventRowId(position) }));
+
+      for (const stride of [2, 3, 5]) {
+        const loaded = listed.filter((_, index) => index % stride === 0);
+        const incoming = listed.filter((_, index) => index % stride !== 0).reverse();
+        assert.deepEqual(mergeLiveRows(loaded, incoming, { hasMore: false }), listed, `every ${stride}th row loaded`);
+      }
+    });
   });
 
   suite('payload field summaries', () => {

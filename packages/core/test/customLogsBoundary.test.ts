@@ -29,6 +29,26 @@ test('code outside customLogs/ imports only its api and contracts modules', () =
   assert.deepEqual(violations, []);
 });
 
+const WORKSPACE_FS = path.join(SRC, 'localStore', 'workspaceFs');
+const WORKSPACE_FS_IMPORTERS = new Set([
+  path.join(SRC, 'logLifecycle.ts'),
+  path.join(CUSTOM_LOGS, 'events', 'store.ts')
+]);
+
+test('only logLifecycle.ts and customLogs/events/store.ts import localStore/workspaceFs.ts', () => {
+  const violations = sourceFiles(SRC)
+    .filter(file => !WORKSPACE_FS_IMPORTERS.has(file))
+    .flatMap(file =>
+      [...fs.readFileSync(file, 'utf8').matchAll(SPECIFIER)]
+        .map(match => match[1])
+        .filter(specifier => specifier.startsWith('.'))
+        .map(specifier => path.resolve(path.dirname(file), specifier).replace(/\.(?:js|ts)$/, ''))
+        .filter(target => target === WORKSPACE_FS)
+        .map(() => `${path.relative(SRC, file)} imports localStore/workspaceFs.ts`)
+    );
+  assert.deepEqual(violations, []);
+});
+
 test('every error customLogs/ throws is built by customLogError, so its code is in the contract', () => {
   const builders = sourceFiles(CUSTOM_LOGS)
     .filter(file => file !== path.join(CUSTOM_LOGS, 'errors.ts'))

@@ -50,7 +50,8 @@ export type CustomLogSourcesParams = Omit<CustomLogScope, 'source'> & {
 };
 
 export type CustomLogSourceOrigin = 'builtin' | 'config';
-export type CustomLogSourceShape = 'transactions' | 'entries';
+/** `events`: a platform event whose rows come from the local event store. */
+export type CustomLogSourceShape = 'transactions' | 'entries' | 'events';
 
 export type CustomLogSourceState =
   | { state: 'ready' }
@@ -63,7 +64,9 @@ export type CustomLogUnavailableReason =
   | 'objectNotReadable' // EntityDefinition lists the object, describe answers NOT_FOUND for this user
   | 'requiredFieldMissing' // a required role field is absent or hidden by FLS
   | 'fieldTypeMismatch' // a role, detail flag or payload points at a field of an incompatible type
-  | 'metadataQueryRefused'; // this user cannot run the EntityDefinition/FieldDefinition query; no fallback is tried
+  | 'metadataQueryRefused' // this user cannot run the EntityDefinition/FieldDefinition query; no fallback is tried
+  | 'notQueryable' // a record mapping names an object SOQL cannot read, such as a platform event
+  | 'notAnEvent'; // an `event` mapping names an object that is not a platform event
 
 /** A mapped JSON payload: the qualified field and the team's default columns from the mapping. */
 export type CustomLogPayloadInfo = { field: string; columns: string[] };
@@ -82,7 +85,7 @@ export type CustomLogSourceInfo = {
   /** Namespace prefix applied to the definition, without `__`. Present only for `nebula-managed`. */
   namespace?: string;
   /** Qualified object API names the source reads. For a `notInstalled` built-in, the names that were looked for. */
-  objects: { transaction?: string; entry: string };
+  objects: CustomLogSourceObjects;
   /**
    * Definition paths dropped because describe omits them (FLS or absent): `entry.fields.exceptionType`,
    * `entry.details.StackTrace__c`, `entry.details.RecordJson__c.truncated`, `entry.payload`.
@@ -93,7 +96,71 @@ export type CustomLogSourceInfo = {
   capabilities: { levelFilter: boolean; userFilter: boolean; apexLogLink: boolean };
   /** Payload mapping per level. Empty object when the source maps none. */
   payload: { transaction?: CustomLogPayloadInfo; entry?: CustomLogPayloadInfo };
+  /** Present for an `events` source whose store root is known, whatever its state. */
+  store?: CustomLogStoreInfo;
 } & CustomLogSourceState;
+
+/** The objects of a record source (`transactions`, `entries`) or the platform event of an `events` source. */
+export type CustomLogSourceObjects = { transaction?: string; entry: string } | { event: string };
+
+/**
+ * Event row and entry ids: opaque tokens `e-<9 base36>-<10 base36>-<32 hex>` (55 characters). Two
+ * event ids of one source compare in list order: the larger string is newer. Pass them back to
+ * `get --log-id` and `entry --entry-id` as is. No part of the id is a Salesforce replay id.
+ */
+export const CUSTOM_LOG_EVENT_ID_PATTERN = /^e-[0-9a-z]{9}-[0-9a-z]{10}-[0-9a-f]{32}$/;
+
+// ---------------------------------------------------------------------------------------------
+// the local event store, as every event result reports it
+
+/**
+ * One stretch of time the store cannot vouch for. Times are event `CreatedDate`s. Salesforce never
+ * says whether anything was published in the stretch, so every gap means "may be missing".
+ */
+export type CustomLogStoreGap = {
+  /**
+   * `cursorRejected`: Salesforce rejected the stored position (older than it keeps, or from before a
+   * stream reset), so capture replayed what was still retained. `retentionElapsed`: the stored position
+   * was older than the retention window; Salesforce accepted it, which does not prove the events in
+   * between were still there. `orgChanged`: the username now names another org (sandbox refresh).
+   * `malformedEvent`: Salesforce delivered a message that capture could not read as an event, so it
+   * could not be stored; the gap is the stretch between the events delivered around it.
+   */
+  reason: 'cursorRejected' | 'retentionElapsed' | 'orgChanged' | 'malformedEvent';
+  /** The newest event stored before the gap. Absent when the store held none. */
+  after?: string;
+  /** The first event stored after the gap. Absent while the gap is open: nothing newer than `after` has arrived yet. */
+  before?: string;
+  detectedAt: string;
+};
+
+/**
+ * What the local history of one event object covers. Every event source reports it, in `sources`,
+ * `list`, `get` and `capture`, so an agent knows what a search over it can and cannot find.
+ * `notCaptured`: no position was ever stored for this org and object; `list` returns an empty page,
+ * never an error, and the panel offers the first-use choice.
+ */
+export type CustomLogStoreInfo =
+  | {
+      state: 'notCaptured';
+      /** Absolute directory of this event object's files: `<root>/apexlogs/orgs/<safe-org>/events/<Object__e>`. */
+      eventsRoot: string;
+      retentionDays: number;
+    }
+  | {
+      state: 'captured';
+      /** Search it with `rg --no-ignore -g '*.ndjson'`: the store ignores itself (`events/.gitignore` holds `*`), and ripgrep honors that file, so plain `rg` finds nothing. Lines hold every delivered field. */
+      eventsRoot: string;
+      /** `CreatedDate` of the oldest and newest stored events. Absent when every stored event was purged. */
+      oldest?: string;
+      newest?: string;
+      /** When a capture last wrote the stored position: a stored batch, or the clean end of a run that reached `live`. */
+      lastCaptureAt: string;
+      sizeBytes: number;
+      /** Days of history core keeps (`eventRetentionDays`). */
+      retentionDays: number;
+      gaps: CustomLogStoreGap[];
+    };
 
 export type CustomLogConfigIssueCode =
   | 'invalidJson'
@@ -127,7 +194,7 @@ export type CustomLogConfigIssue = {
 export type CustomLogSourcesResult = {
   /** Absolute path of the `sfdx-project.json` that was read, when one was found. */
   projectFile?: string;
-  /** Present only when exactly one source is ready: the source `list` uses when none is given. */
+  /** Present only when exactly one implicit candidate is ready: the source `list` uses when none is given. An event source never counts, because capturing spends the org's delivery allocation. */
   defaultSourceId?: string;
   /** Config sources in file order, then the built-ins they do not replace. */
   sources: CustomLogSourceInfo[];
@@ -254,6 +321,8 @@ export type CustomLogListResult = {
   payloadFields: CustomLogPayloadField[];
   /** `null` when this was the last page. */
   nextCursor: string | null;
+  /** Present for an `events` source. */
+  store?: CustomLogStoreInfo;
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -310,10 +379,14 @@ export type CustomLogEntry = {
 
 export const CUSTOM_LOG_MESSAGE_PREVIEW_CHARS = 2000;
 
-/** Page sizes: `list` pages rows and `get` pages entries. A `limit` out of range is clamped; none takes the default. */
+/**
+ * Page sizes: `list` pages rows and `get` pages entries. A `limit` out of range is clamped; none takes the default.
+ * `drainMs` bounds a drain's `CustomLogCaptureParams.maxDurationMs`; one out of range is rejected.
+ */
 export const CUSTOM_LOG_LIMITS = {
   list: { default: 50, max: 200 },
-  entries: { default: 200, max: 2000 }
+  entries: { default: 200, max: 2000 },
+  drainMs: { default: 120_000, max: 3_600_000 }
 } as const;
 
 /** Link to the Apex debug log of the same request (`ApexLog.RequestIdentifier` = mapped `requestId`). */
@@ -321,8 +394,12 @@ export type CustomLogApexLogLink =
   | { state: 'linked'; logId: string; startTime?: string; logLength?: number }
   /** The user can read ApexLog, and none matches this request: no trace flag was active, or Salesforce already deleted it. */
   | { state: 'notFound' }
-  /** The user cannot read ApexLog in this org (no object access, or the API is off), so absence says nothing about the request. */
-  | { state: 'unavailable'; reason: 'noAccess' }
+  /**
+   * `noAccess`: the user cannot read ApexLog in this org (no object access, or the API is off), so absence
+   * says nothing about the request. `offline`: an `events` source attempted the lookup and it failed for any
+   * reason but an abort (no connection, an expired login, a refused query). The event stays readable.
+   */
+  | { state: 'unavailable'; reason: 'noAccess' | 'offline' }
   /** The source maps no `requestId`, FLS hides it, or this record has no value. */
   | { state: 'noRequestId' };
 
@@ -337,6 +414,8 @@ export type CustomLogGetResult = {
   payloadFields: CustomLogPayloadField[];
   nextCursor: string | null;
   apexLog: CustomLogApexLogLink;
+  /** Present for an `events` source. */
+  store?: CustomLogStoreInfo;
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -358,13 +437,117 @@ export type CustomLogEntryResult = {
   rawPayload: CustomLogLongValue;
 };
 
+// ---------------------------------------------------------------------------------------------
+// capture
+
+/**
+ * What a run does when the store has no usable position for this org (never captured, or the
+ * username now names another org). `retained` replays everything Salesforce still keeps; `new`
+ * starts with events published from now on; `none` does not subscribe and resolves with outcome
+ * `needsInitial` after preparing the store (describe snapshot, allowance).
+ */
+export type CustomLogCaptureInitial = 'retained' | 'new' | 'none';
+
+export type CustomLogCaptureParams = {
+  targetOrg?: string;
+  projectDir: string | undefined;
+  /** Required: an event source is never chosen implicitly, because capturing spends the org's delivery allocation. */
+  source: string;
+  /**
+   * false (CLI default): stop once the stream has been quiet for 10 s after at least one event
+   * (or, when none arrived, after the first-event wait: 15 s for `new` or a cursor younger than one
+   * hour, else `maxDurationMs` itself, because first-byte latency grows with the backlog, so a drain
+   * that hears nothing from `retained` or an older cursor lasts the whole bound and still ends `quiet`),
+   * at the delivery budget, or at `maxDurationMs` while events keep arriving (`timeLimit`). true: run
+   * until the signal aborts.
+   */
+  follow: boolean;
+  /**
+   * Only used when the store has no usable position (see `CustomLogCaptureInitial`). Default `retained`.
+   * The panel passes `none` when it starts on its own, so the first, largest replay of an org always
+   * follows a click; an explicit `capture` command is that consent already.
+   */
+  initial?: CustomLogCaptureInitial;
+  /** Drain bound. Default 120 000, at most 3 600 000. Ignored with `follow`. */
+  maxDurationMs?: number;
+  /** Rows in updates are decoded through `source` and kept only when they match this filter. */
+  filter?: Pick<CustomLogFilter, 'minLevel' | 'user'>;
+  payloadFields?: string[];
+};
+
+export type CustomLogCaptureState =
+  | { state: 'connecting' }
+  /** Another process (a VS Code window or an `sf` run) holds this event object's capture lease. Rows it stores still arrive here. */
+  | { state: 'standby'; holder: { surface: 'vscode' | 'cli'; pid: number; host: string; since: string } }
+  /** Subscribed; receiving what Salesforce retained since the stored position (or the retained window). */
+  | { state: 'catchingUp'; from: 'position' | 'retained' | 'new' }
+  /**
+   * `quiet`: inferred, CometD has no end-of-backlog marker; the stream was silent for 10 s
+   * after at least one event, or for the first-event wait after the acknowledgement. `signal`: the
+   * transport reported the end of the backlog (Pub/Sub keepalive, later).
+   */
+  | { state: 'live'; basis: 'quiet' | 'signal' }
+  | { state: 'reconnecting'; attempt: number; cause: 'transport' | 'auth' | 'overflow' }
+  | { state: 'stopped'; outcome: CustomLogCaptureOutcome }
+  | { state: 'failed'; code: CustomLogErrorCode; message: string };
+
+/**
+ * `quiet`: a drain ended because the stream went quiet, including one whose first-event wait ran to
+ * `maxDurationMs` without a single event. It is not proof the backlog was complete; an early stop costs
+ * one more capture, which resumes after the exact stored position and records a `retentionElapsed` gap when
+ * the oldest event left behind may have expired.
+ * `timeLimit`: `maxDurationMs` passed while events were still arriving, or before the transport was up.
+ * `budget`: the run spent its delivery budget (see `CustomLogCaptureAllowance.budget`); the next capture resumes.
+ * `aborted`: the caller's signal fired. `capturedElsewhere`: a drain found another process holding the
+ * capture lease. `needsInitial`: `initial` was `none` and the store has no usable position.
+ */
+export type CustomLogCaptureOutcome =
+  'quiet' | 'timeLimit' | 'budget' | 'aborted' | 'capturedElsewhere' | 'needsInitial';
+
+/**
+ * `DailyDeliveredPlatformEvents` from `/limits`, read once when a run prepares (also for `needsInitial`),
+ * shared by every subscriber of the org. `budget` is about what this run will spend: half of `remaining`,
+ * or 5 000 when `/limits` could not be read (then `remaining` and `max` are absent). The check runs
+ * between flushes, so a run can exceed it by one server response.
+ */
+export type CustomLogCaptureAllowance = { remaining?: number; max?: number; budget: number };
+
+/** One update per durable write or state change. `rows` were stored before this update was sent. */
+export type CustomLogCaptureUpdate = {
+  capture: CustomLogCaptureState;
+  store: CustomLogStoreInfo;
+  /** Decoded through `params.source`, filtered by `params.filter`, trimmed by `params.payloadFields`; same DTO as `list` rows. */
+  rows: CustomLogRow[];
+  /** Paths seen in this update's rows, like a `list` page's. */
+  payloadFields: CustomLogPayloadField[];
+  allowance?: CustomLogCaptureAllowance;
+};
+
+export type CustomLogCaptureResult = {
+  source: CustomLogSourceRef;
+  outcome: CustomLogCaptureOutcome;
+  /** Events Salesforce delivered to this run, duplicates included: the allocation this run spent. */
+  delivered: number;
+  /** New events this run stored: duplicates inside the run and re-deliveries of events the store already held are excluded. */
+  stored: number;
+  /** Gaps this run created. An open gap found at start is not repeated here; `store.gaps` lists every gap. */
+  newGaps: CustomLogStoreGap[];
+  store: CustomLogStoreInfo;
+};
+
 /** `AlvError.code` values this namespace throws, in addition to `INVALID_ARGUMENT` and `ABORTED`. */
 export type CustomLogErrorCode =
-  | 'CUSTOM_LOG_NO_SOURCE' // no ready source and none requested
+  | 'CUSTOM_LOG_NO_SOURCE' // no implicit candidate and none requested; the message names the ready event sources and `--source` when the catalog holds any
   | 'CUSTOM_LOG_SOURCE_REQUIRED' // several sources are ready and none was requested; the message lists their ids
   | 'CUSTOM_LOG_SOURCE_NOT_FOUND' // unknown id, or no ready source owns the record id's key prefix
   | 'CUSTOM_LOG_SOURCE_UNAVAILABLE' // the requested source is notInstalled/unavailable; message carries the reason
   | 'CUSTOM_LOG_RECORD_NOT_FOUND' // the id or transaction id is not visible to this user
   | 'CUSTOM_LOG_AMBIGUOUS_TRANSACTION' // several headers carry the requested transaction id; the message lists their ids
   | 'CUSTOM_LOG_UNSUPPORTED_FILTER' // e.g. minLevel on a source with no level mapping, or a transaction id it cannot filter
-  | 'CUSTOM_LOG_INVALID_CURSOR'; // malformed, or produced for another org, source mapping, query or window
+  | 'CUSTOM_LOG_INVALID_CURSOR' // malformed, or produced for another org, source mapping, query or window
+  | 'CUSTOM_LOG_STORE_UNAVAILABLE' // the event store cannot be used: no directory, a newer format, an unreadable lease or checkpoint, a symlinked directory, or a failed write (the message names the file)
+  | 'CUSTOM_LOG_NOT_EVENT_SOURCE' // `capture` named a record source
+  | 'CUSTOM_LOG_DELIVERY_LIMIT' // `403::Organization total events daily limit exceeded` (the documented text, not yet observed); capture resumes from the stored position once the rolling 24 h usage drops
+  | 'CUSTOM_LOG_CLIENT_LIMIT' // the handshake is refused: `403::Handshake denied`, failure reason `403::Organization concurrent user limit exceeded` (20 CometD clients on Developer Edition)
+  | 'CUSTOM_LOG_SUBSCRIBE_FORBIDDEN' // Salesforce refused the subscribe itself: `403:denied_by_security_policy:create_denied` (measured) or `403::Restricted channel` (documented). A user without Read on the event fails earlier, at describe, with CUSTOM_LOG_SOURCE_UNAVAILABLE
+  | 'CUSTOM_LOG_CAPTURE_FAILED'; // capture stopped for a reason with no finer code: auth rebuilds exhausted, a second rejected cursor in one run, or an unclassified transport failure; the message names the cause

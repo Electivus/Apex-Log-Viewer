@@ -52,3 +52,21 @@ Preconditions:
 - The first column of a Nebula list is `Time`, then `Level`, `Title`. A mapped payload column is labelled with its JSON path and a `{}` marker.
 - A source the project file defines first is selected on the first load. A later mapping edit does not move the list off the source on screen.
 - Entries of a transaction page in 200s, and the header payload and entry long text are never sent to a webview, so do not look for them in the DOM. Check the editor tab instead.
+
+## Platform event sources
+
+A source mapped under `event` instead of `entry` shows platform events that no record keeps (Nebula's `LogEntryEvent__e` when it does not persist, or a team's own `App_Log__e`). Core subscribes while the panel shows the source, stores each event whole under `apexlogs/orgs/<org>/events/<object>/`, and the table reads that store, newest first. A strip above the table shows the capture state.
+
+Run these against `alv-events`, never a harness org: publishing `LogEntryEvent__e` into Nebula persists into `Log__c`. Start the session with `node $V start --target-org alv-events` (no lease, no seeding). `docs/TESTING.md#platform-events-org-custom-logs-capture` describes the org and its three events.
+
+- **First use.** An org this workspace never captured shows `No events from this org are stored yet.`, the allowance (`about 21,792 of 25,000 left`), the budget (about half) and two buttons, `Load retained events` and `Only new events`. Nothing subscribes before one is clicked. A project whose only ready source is an event source opens on it by itself, because the Source picker appears only with two ready sources.
+- **Live.** The strip is `[data-testid="custom-logs-capture"]` and `data-state` is its state: `stopped`, `connecting`, `catchingUp`, `live`, `reconnecting`, `failed`, `standby`. `Live` carries the tooltip `Inferred: no event for 10 s` as its `title`, because Salesforce sends no end-of-backlog marker. Rows are `[data-row-id]`.
+- **Gap.** `Events after <time> may be missing (<reason>)` is the list named `Possible gaps in the stored events`. Move `checkpoint.json`'s `cursor` past the bus (`cometd:<id + 1000000>`) while no capture runs, then press `Start`: Salesforce rejects the position and the gap appears. A `-2` replay follows and delivers every event the object retains, so use `ALV_Test_Replay__e`.
+- **Steps.** `events-capture` and `events-gap` do the above and screenshot each state. They share `steps/lib/events.mjs`, which the host imports once per session: after editing it, `stop` and `start` again.
+
+Gotchas:
+
+- Stop answers at once, but the run still writes its last position. A step that edits `checkpoint.json` waits for `capture.lease` to disappear first (`waitForRunToEnd`), or the run overwrites the edit.
+- The bottom panel hides rows from a screenshot. `events-*` maximize it; re-running them does not toggle it back because they check the panel height first.
+- The `Time` column shows the mapped `Logged_At__c` in the machine's time zone, and `stored since` too.
+- `apexlogs/` in the session workspace holds every field of every delivered event, `rg --no-ignore -g '*.ndjson' <text> <eventsRoot>` searches it.

@@ -8,7 +8,13 @@ import {
   replayCustomLogsView,
   type CustomLogsViewState
 } from '../src/customLogsState.ts';
-import type { CustomLogRow, CustomLogSourceView } from '../src/customLogsTypes.ts';
+import {
+  CUSTOM_LOGS_LIVE_ROW_CAP,
+  type CustomLogCaptureView,
+  type CustomLogColumn,
+  type CustomLogRow,
+  type CustomLogSourceView
+} from '../src/customLogsTypes.ts';
 
 const SOURCE: CustomLogSourceView = {
   id: 'nebula',
@@ -162,4 +168,200 @@ test('the reducer never changes the state or the messages it was given', () => {
 
   assert.deepEqual(before, snapshot);
   assert.deepEqual(append, appendSnapshot);
+});
+
+const BASE_MS = 1_790_000_000_000;
+
+function eventRow(offsetMs: number, fields: Partial<CustomLogRow> = {}): CustomLogRow {
+  const id = [
+    'e',
+    (BASE_MS + offsetMs).toString(36).padStart(9, '0'),
+    '0'.repeat(10),
+    offsetMs.toString(16).padStart(32, '0')
+  ].join('-');
+  return { id, time: new Date(BASE_MS + offsetMs).toISOString(), extra: {}, ...fields };
+}
+
+const EVENT_SOURCE: CustomLogSourceView = { ...SOURCE, id: 'app-events', label: 'App events', shape: 'events' };
+
+const LIVE: CustomLogCaptureView = {
+  capture: { state: 'live', basis: 'quiet' },
+  store: {
+    state: 'captured',
+    eventsRoot: '/repo/apexlogs/orgs/dev/events/App_Log__e',
+    lastCaptureAt: '2026-10-30T17:58:52.311Z',
+    sizeBytes: 19_293_184,
+    retentionDays: 30,
+    gaps: []
+  },
+  wanted: true
+};
+
+function eventPage(rows: CustomLogRow[], hasMore = false, columns: CustomLogColumn[] = []): CustomLogsToWebviewMessage {
+  return {
+    type: 'customLogsPage',
+    mode: 'replace',
+    columns,
+    rows,
+    payloadFields: [{ path: 'orderId', types: ['string'], rows: rows.length }],
+    hasMore
+  };
+}
+
+function liveRows(rows: CustomLogRow[]): CustomLogsToWebviewMessage {
+  return {
+    type: 'customLogsLiveRows',
+    rows,
+    payloadFields: [{ path: 'orderId', types: ['string'], rows: rows.length }]
+  };
+}
+
+const idsIn = (state: CustomLogsViewState) => state.page?.rows.map(item => item.id);
+
+test('a capture message sets the strip, and one without a value clears it', () => {
+  const shown = reduceCustomLogsView(initialCustomLogsView, { type: 'customLogsCapture', value: LIVE });
+  assert.deepEqual(shown.capture, LIVE);
+
+  const cleared = reduceCustomLogsView(shown, { type: 'customLogsCapture' });
+  assert.equal(cleared.capture, undefined);
+});
+
+test('live rows join the loaded page newest first, and the payload fields of the batch join its summary', () => {
+  const state = reduceAll([eventPage([eventRow(30), eventRow(10)]), liveRows([eventRow(20), eventRow(40)])]);
+
+  assert.deepEqual(
+    idsIn(state),
+    [eventRow(40), eventRow(30), eventRow(20), eventRow(10)].map(item => item.id)
+  );
+  assert.deepEqual(state.page?.payloadFields, [{ path: 'orderId', types: ['string'], rows: 4 }]);
+});
+
+test('live rows never change the columns, which only a page read sets', () => {
+  const columns = [{ key: 'A__c', label: 'A' }];
+  const state = reduceAll([
+    eventPage([eventRow(10)], false, columns),
+    liveRows([eventRow(20, { extra: { B__c: 'x' } })])
+  ]);
+
+  assert.deepEqual(state.page?.columns, columns);
+});
+
+test('live rows before the first page are dropped, because the page read that follows already has them', () => {
+  const early = reduceCustomLogsView(initialCustomLogsView, liveRows([eventRow(10)]));
+  assert.equal(early, initialCustomLogsView);
+
+  const state = reduceCustomLogsView(early, eventPage([eventRow(10)]));
+  assert.deepEqual(idsIn(state), [eventRow(10).id]);
+});
+
+test('live rows that are already loaded leave the very same state, so nothing rerenders', () => {
+  const loaded = reduceAll([eventPage([eventRow(30), eventRow(20)])]);
+
+  assert.equal(reduceCustomLogsView(loaded, liveRows([eventRow(20), eventRow(30)])), loaded);
+  assert.equal(reduceCustomLogsView(loaded, liveRows([])), loaded);
+});
+
+test('while more pages follow, a live row older than the loaded rows waits for the page that reads it', () => {
+  const firstPage = reduceAll([eventPage([eventRow(30), eventRow(20)], true)]);
+  const afterLive = reduceCustomLogsView(firstPage, liveRows([eventRow(25), eventRow(10)]));
+  assert.deepEqual(
+    idsIn(afterLive),
+    [eventRow(30), eventRow(25), eventRow(20)].map(item => item.id)
+  );
+
+  const next = reduceCustomLogsView(afterLive, {
+    type: 'customLogsPage',
+    mode: 'append',
+    columns: [],
+    rows: [eventRow(15), eventRow(10)],
+    payloadFields: [],
+    hasMore: false
+  });
+  assert.deepEqual(
+    idsIn(next),
+    [eventRow(30), eventRow(25), eventRow(20), eventRow(15), eventRow(10)].map(item => item.id)
+  );
+});
+
+test('on the last page a live row older than the loaded rows is added at the end', () => {
+  const state = reduceAll([eventPage([eventRow(30), eventRow(20)], false), liveRows([eventRow(10)])]);
+
+  assert.deepEqual(
+    idsIn(state),
+    [eventRow(30), eventRow(20), eventRow(10)].map(item => item.id)
+  );
+});
+
+test('the replay holds one page message however many live batches arrived, and replays to the same state', () => {
+  const batches = Array.from({ length: 50 }, (_, index) =>
+    liveRows([eventRow(100 + index * 2), eventRow(101 + index * 2)])
+  );
+  const messages = [{ type: 'customLogsCapture', value: LIVE } as const, eventPage([eventRow(10)]), ...batches];
+  const state = reduceAll(messages);
+
+  const replay = replayCustomLogsView(state);
+  assert.equal(replay.filter(message => message.type === 'customLogsPage').length, 1);
+  assert.equal(replay.filter(message => message.type === 'customLogsLiveRows').length, 0);
+  assert.equal(replay.length, replayCustomLogsView(reduceAll(messages.slice(0, 2))).length);
+  assert.deepEqual(reduceAll(replay), state);
+  assert.equal(state.page?.rows.length, 101);
+});
+
+test('re-delivered live rows do not grow the replay', () => {
+  const batch = liveRows([eventRow(40), eventRow(50)]);
+  const once = reduceAll([eventPage([eventRow(10)]), batch]);
+  const thrice = reduceAll([eventPage([eventRow(10)]), batch, batch, batch]);
+
+  assert.deepEqual(replayCustomLogsView(thrice), replayCustomLogsView(once));
+});
+
+test('past the live row cap the provider reloads the newest page, and a replace page brings the rows back down', () => {
+  const rows = Array.from({ length: CUSTOM_LOGS_LIVE_ROW_CAP + 1 }, (_, index) => eventRow(1_000 + index));
+  const over = reduceAll([eventPage([eventRow(10)], true), liveRows(rows)]);
+  assert.ok((over.page?.rows.length ?? 0) > CUSTOM_LOGS_LIVE_ROW_CAP);
+
+  const reloaded = reduceCustomLogsView(over, eventPage(rows.slice(-50).reverse(), true));
+  assert.equal(reloaded.page?.rows.length, 50);
+  const replayed = replayCustomLogsView(reloaded).find(message => message.type === 'customLogsPage');
+  assert.equal(replayed?.type === 'customLogsPage' ? replayed.rows.length : undefined, 50);
+});
+
+test('the capture strip replays after the page and before the transient state, and only while there is one', () => {
+  const types = (state: CustomLogsViewState) => replayCustomLogsView(state).map(message => message.type);
+  const withStrip = reduceAll([eventPage([eventRow(10)]), { type: 'customLogsCapture', value: LIVE }]);
+
+  assert.deepEqual(types(withStrip).slice(-4), [
+    'customLogsPage',
+    'customLogsCapture',
+    'customLogsLoading',
+    'customLogsError'
+  ]);
+  assert.ok(!types(reduceAll([eventPage([eventRow(10)])])).includes('customLogsCapture'));
+  assert.ok(!types(reduceCustomLogsView(withStrip, { type: 'customLogsCapture' })).includes('customLogsCapture'));
+});
+
+test('replaying any prefix of a capture session gives the same state', () => {
+  const session: CustomLogsToWebviewMessage[] = [
+    { type: 'customLogsSources', data: [EVENT_SOURCE], selected: 'app-events', issues: [] },
+    eventPage([eventRow(10)]),
+    { type: 'customLogsCapture', value: { ...LIVE, capture: { state: 'connecting' } } },
+    liveRows([eventRow(20)]),
+    { type: 'customLogsCapture', value: LIVE },
+    liveRows([eventRow(30), eventRow(25)]),
+    { type: 'customLogsCapture' }
+  ];
+  for (let length = 0; length <= session.length; length++) {
+    const state = reduceAll(session.slice(0, length));
+    assert.deepEqual(reduceAll(replayCustomLogsView(state)), state, `after ${length} messages`);
+  }
+});
+
+test('folding live rows changes neither the state nor the message it was given', () => {
+  const before = reduceAll([eventPage([eventRow(30), eventRow(10)])]);
+  const message = liveRows([eventRow(20), eventRow(40)]);
+  const snapshot = structuredClone({ before, message });
+
+  reduceCustomLogsView(before, message);
+
+  assert.deepEqual({ before, message }, snapshot);
 });

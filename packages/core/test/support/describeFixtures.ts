@@ -1,14 +1,28 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { ObjectDescribe, SchemaReader } from '../../src/customLogs/schema.ts';
+import { toObjectDescribe, type ObjectDescribe, type SchemaReader } from '../../src/customLogs/schema.ts';
 
 export type DescribeFixtureName = 'unlocked-admin' | 'unlocked-enduser' | 'managed-admin' | 'managed-enduser';
 
 /** Describe results captured from the dedicated Nebula scratch orgs by `scripts/custom-logs-smoke.mjs --capture-fixtures`. */
 export function describeFixture(name: DescribeFixtureName): Map<string, ObjectDescribe> {
   const file = path.resolve(__dirname, `../fixtures/customLogs/describe-${name}.json`);
-  return new Map(Object.entries(JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, ObjectDescribe>));
+  const captured = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, Omit<ObjectDescribe, 'queryable'>>;
+  // The capture keeps no `queryable`; every captured object is a record object SOQL reads.
+  return new Map(Object.entries(captured).map(([object, described]) => [object, { ...described, queryable: true }]));
+}
+
+/** The measured describe of Nebula's `LogEntryEvent__e` (`queryable: false`, key prefix `e00`), reduced as the reader does. */
+export function logEntryEventDescribe(): ObjectDescribe {
+  const file = path.resolve(__dirname, '../../../../test/fixtures/customLogs/events/describe-log-entry-event.json');
+  return toObjectDescribe(JSON.parse(fs.readFileSync(file, 'utf8')) as Parameters<typeof toObjectDescribe>[0]);
+}
+
+/** The describe of the events org's `ALV_Test_Log__e` (`queryable: false`), already in the reduced form. */
+export function alvTestLogDescribe(): ObjectDescribe {
+  const file = path.resolve(__dirname, '../../../../test/fixtures/customLogs/events/describe-alv-test-log.json');
+  return (JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, ObjectDescribe>).ALV_Test_Log__e!;
 }
 
 /** The raw describe bodies a Salesforce double serves for `sobjects/<name>/describe`. */

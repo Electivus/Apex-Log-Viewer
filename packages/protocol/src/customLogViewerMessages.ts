@@ -12,7 +12,7 @@
 
 import {
   parseCustomLogPayloadColumns,
-  parseCustomLogRecordId,
+  parseCustomLogRowId,
   type CustomLogApexLogLink,
   type CustomLogColumn,
   type CustomLogEntry,
@@ -90,7 +90,7 @@ function parseFieldTarget(value: unknown): CustomLogViewerFieldTarget | undefine
     return { kind: 'logPayload' };
   }
   if (target.kind === 'entry') {
-    const entryId = parseCustomLogRecordId(target.entryId);
+    const entryId = parseCustomLogRowId(target.entryId);
     const key = typeof target.key === 'string' && FIELD_KEY_PATTERN.test(target.key) ? target.key : undefined;
     return entryId && key ? { kind: 'entry', entryId, key } : undefined;
   }
@@ -110,7 +110,7 @@ export function parseCustomLogViewerFromWebviewMessage(raw: unknown): CustomLogV
     case 'customLogViewerOpenApexLog':
       return { type: message.type };
     case 'customLogViewerOpenEntry': {
-      const entryId = parseCustomLogRecordId(message.entryId);
+      const entryId = parseCustomLogRowId(message.entryId);
       return entryId ? { type: 'customLogViewerOpenEntry', entryId } : undefined;
     }
     case 'customLogViewerOpenField':

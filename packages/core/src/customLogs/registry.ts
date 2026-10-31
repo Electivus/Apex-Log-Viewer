@@ -10,9 +10,15 @@ import type { Connection } from '@salesforce/core';
 import { awaitWithAbort, errorCodeOf, throwIfAborted } from '../errors.js';
 import type { ParsedCustomLogsConfig } from './config.js';
 import type { BuiltinPreset } from './presets.js';
-import { definitionObjects, locateSource, objectNames } from './resolve.js';
+import { definitionObjects, locateSource, namespaceOf, objectNames, type SourceCandidate } from './resolve.js';
 import type { ResolvedSource, SourceCatalog } from './resolved.js';
-import { createSchemaMemo, createSchemaReader, memoizedSchemaReader, type SchemaMemo } from './schema.js';
+import {
+  createSchemaMemo,
+  createSchemaReader,
+  memoizedSchemaReader,
+  type ObjectDescribe,
+  type SchemaMemo
+} from './schema.js';
 
 /** `orgCall`'s context. The cursor's org binding reads `connection.getAuthInfoFields().orgId`. */
 export type CustomLogContext = { connection: Connection; username: string };
@@ -29,15 +35,20 @@ export type SourceRegistry = {
     options: { refresh?: boolean; signal?: AbortSignal }
   ): Promise<SourceCatalog>;
   /**
+   * One object's describe through this username's memo, so a capture reads what the catalog already
+   * asked. `undefined` when describe answers NOT_FOUND.
+   */
+  describe(ctx: CustomLogContext, object: string, signal?: AbortSignal): Promise<ObjectDescribe | undefined>;
+  /**
    * Run a query against a resolved source. If Salesforce rejects it with INVALID_FIELD or
    * INVALID_TYPE (schema or FLS changed since resolution), drop the username's memo and catalogs,
    * re-resolve once and retry. Converges instead of serving a stale catalog until restart.
    */
-  withSource<T>(
+  withSource<S extends ResolvedSource, T>(
     ctx: CustomLogContext,
     config: ParsedCustomLogsConfig,
-    pick: (catalog: SourceCatalog) => ResolvedSource,
-    run: (source: ResolvedSource) => Promise<T>,
+    pick: (catalog: SourceCatalog) => S,
+    run: (source: S) => Promise<T>,
     signal?: AbortSignal
   ): Promise<T>;
   clear(): void;
@@ -48,6 +59,23 @@ type OrgState = { memo: SchemaMemo; catalogs: Map<string, Promise<SourceCatalog>
 const MAX_CATALOGS_PER_ORG = 8;
 const DRIFT_CODES: ReadonlySet<string> = new Set(['INVALID_FIELD', 'INVALID_TYPE']);
 
+/**
+ * Every source a call can name, in catalog order: the project's, then the built-ins it does not
+ * replace. A project source that reuses a built-in id replaces it.
+ */
+export function sourceCandidates(
+  config: ParsedCustomLogsConfig,
+  presets: readonly BuiltinPreset[]
+): readonly SourceCandidate[] {
+  const replaced = new Set<string>(config.sources.map(source => source.id));
+  return [
+    ...config.sources.map((definition): SourceCandidate => ({ origin: 'config', definition })),
+    ...presets
+      .filter(preset => !replaced.has(preset.definition.id))
+      .map((preset): SourceCandidate => ({ origin: 'builtin', ...preset }))
+  ];
+}
+
 export function createSourceRegistry(presets: readonly BuiltinPreset[]): SourceRegistry {
   const orgs = new Map<string, OrgState>();
 
@@ -57,19 +85,14 @@ export function createSourceRegistry(presets: readonly BuiltinPreset[]): SourceR
     memo: SchemaMemo
   ): Promise<SourceCatalog> => {
     const reader = memoizedSchemaReader(createSchemaReader(ctx.connection), memo);
-    const replaced = new Set<string>(config.sources.map(source => source.id));
-    const kept = presets.filter(preset => !replaced.has(preset.definition.id));
+    const candidates = sourceCandidates(config, presets);
     const mapped = config.sources.flatMap(source => objectNames(definitionObjects(source, '')));
     const configured = new Set(mapped.map(name => name.toLowerCase()));
-    await reader.existingObjects([
-      ...mapped,
-      ...kept.flatMap(preset => objectNames(definitionObjects(preset.definition, preset.namespace)))
-    ]);
+    await reader.existingObjects(
+      candidates.flatMap(candidate => objectNames(definitionObjects(candidate.definition, namespaceOf(candidate))))
+    );
 
-    const entries = await Promise.all([
-      ...config.sources.map(definition => locateSource({ origin: 'config', definition }, reader, configured)),
-      ...kept.map(preset => locateSource({ origin: 'builtin', ...preset }, reader, configured))
-    ]);
+    const entries = await Promise.all(candidates.map(candidate => locateSource(candidate, reader, configured)));
     return { username: ctx.username, entries };
   };
 
@@ -101,6 +124,11 @@ export function createSourceRegistry(presets: readonly BuiltinPreset[]): SourceR
 
   return {
     catalog,
+    describe: (ctx, object, signal) => {
+      throwIfAborted(signal);
+      const reader = memoizedSchemaReader(createSchemaReader(ctx.connection), stateOf(ctx.username).memo);
+      return awaitWithAbort(reader.describe(object), signal);
+    },
     async withSource(ctx, config, pick, run, signal) {
       const attempt = async () => run(pick(await catalog(ctx, config, { signal })));
       try {

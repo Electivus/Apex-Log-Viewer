@@ -27,6 +27,7 @@ Run `pnpm run test:conformance` to execute the v1 scenarios through `createApexL
 - `pnpm run test:webview`: executes the React webview suites under Jest with a jsdom environment (fast, no VS Code host required).
 - `pnpm run test:extension:node`: executes Node-only extension tests under Mocha without launching VS Code.
 - `pnpm run test:conformance`: executes the core behavioral contract scenarios through its public facade.
+- `pnpm run test:shifted-clock`: runs the Custom Logs event suites with the wall clock moved by +45, +400 and -1 days, so a test that depends on today's date fails now and not next month. `node scripts/test-shifted-clock.mjs --days 31,90` picks other shifts and `--all` runs every core and plugin test file. It also runs in `test:scripts`.
 - `pnpm run test:unit`: fast path; runs Jest first and then the VS Code-hosted unit scope.
 - `pnpm run test:integration`: installs dependency extensions if needed and runs integration tests.
 - `pnpm run test:all`: runs the Jest webview suites, the Node-only extension lane, and then both VS Code-hosted scopes.
@@ -245,6 +246,77 @@ Troubleshooting:
 
 - CLI artifacts (screenshots/traces/videos and attached command/stdout/stderr files on failure) are written under `output/playwright-cli/`.
 - VS Code Playwright artifacts (screenshots/traces/videos on failure) are written under `output/playwright/`.
+
+### Platform events org (Custom Logs capture)
+
+The Custom Logs platform event source is verified against a real org that no other suite uses: the scratch org `alv-events`, owned by `scripts/events-org.mjs`. Never point these tests at a harness org: publishing `LogEntryEvent__e` into Nebula persists it into `Log__c`.
+
+```bash
+node scripts/events-org.mjs ensure     # once: create or reuse the org, deploy the events, assign the permission set (needs $SF_DEVHUB_ALIAS)
+node scripts/events-org.mjs verify     # before every spec: exits 1 if anything subscribes to an ALV test event or the describe drifted
+node scripts/events-org.mjs limits     # DailyDeliveredPlatformEvents, the allocation every subscriber shares
+node scripts/events-org.mjs publish --count 25 --transaction-id demo [--object ALV_Test_Replay__e]
+node scripts/events-org.mjs measure --object ALV_Test_Backlog__e --replay -2 --max-events 10000   # timing of a replay; spends one delivery per event
+```
+
+The org holds three high-volume events with the same eleven fields and no trigger, flow or process: `ALV_Test_Log__e` for live scenarios, `ALV_Test_Replay__e` for scenarios that replay `-2`, and `ALV_Test_Backlog__e` for the 10,000-event measurement. A `-2` replay delivers every event the channel still retains (72 hours), so a replay-heavy scenario on a shared channel would cost whatever else was published there. Separate events keep each cost at what its own scenario published. `alv-events-restricted` is a user without the permission set. The specs publish through the script only, which refuses every other alias.
+
+Every delivery counts against the org's daily allocation (25,000), shared by every run. The CLI spec reads `/limits` before and after, waits until the counter settles (it lags a delivery by one to three minutes), and fails when the org spent more than its commands reported. In four runs the commands reported 80, 120, 166 and 242 deliveries and `/limits` showed 80, 120, 169 and 245, so a run is off by about three. A capture inside a scenario stays at or under 600 deliveries. Replay scenarios cost what `ALV_Test_Replay__e` retains, which grows by about 30 events per spec run for 72 hours.
+
+| Spec                                                 | Scenarios                                                                                                                                                                                                                                                                                                                                                             |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `test/e2e/cli/specs/customLogEvents.e2e.spec.ts`     | Resume is exact (50 live, 30 while stopped, a drain stores 30); offline `list` and `entry` with an empty Salesforce home; whole-event storage and the documented `rg --no-ignore -g '*.ndjson'` search inside a `git init`ed project; `retentionElapsed` and its fresh-confirmation negative; a rejected cursor; a user without Read; two processes; the client limit |
+| `test/e2e/cli/specs/customLogEventsPoll.e2e.spec.ts` | A followed subscription outlives the 110 s long poll and receives the next event (2.3 min, one delivery)                                                                                                                                                                                                                                                              |
+| `test/e2e/specs/customLogEventsPanel.e2e.spec.ts`    | The panel on an event source: first use shows the allowance and the budget before anything subscribes, then "Only new events" shows five published events newest first and a strip that reaches Live with its tooltip                                                                                                                                                 |
+
+All three skip when `sf org display --target-org alv-events` fails, so pool-only CI and machines without the org are unaffected. Pass the spec path without `--`: pnpm 11 hands a literal `--` to the script, and Playwright then does not read the path as a filter (it ran the whole CLI suite, which creates a scratch org).
+
+```bash
+pnpm run test:e2e:cli specs/customLogEvents.e2e.spec.ts
+pnpm run test:e2e:cli specs/customLogEventsPoll.e2e.spec.ts
+node scripts/run-playwright-e2e.js specs/customLogEventsPanel.e2e.spec.ts   # opens a native VS Code window
+```
+
+The `verify` skill has the same flows as steps for PR evidence: start a session with `--target-org alv-events`, then `run events-capture` and `run events-gap` (screenshots of the first-use strip, the Live strip with its tooltip and a gap line).
+
+What a real org showed that the doubles did not:
+
+- A user without Read on the event never reaches the subscribe: the describe fails first, so `capture` ends `CUSTOM_LOG_SOURCE_UNAVAILABLE` (`objectNotReadable`). The refusal Salesforce sends is `403:denied_by_security_policy:create_denied`, not the documented `403::Restricted channel`; core classifies both as `forbidden`, and the spec proves it through core's transport. A Create-only permission set cannot exist (Create depends on Read), and platform event fields have no field-level security (no `FieldPermissions` rows exist for them), so a field the describe hides cannot be produced on a real org. The `hidden` state is covered by unit tests only.
+- The concurrent client limit is refused at the handshake with `403::Handshake denied` and `ext.sfdc.failureReason` `403::Organization concurrent user limit exceeded`. The first client refused was the 21st, on a Developer Edition scratch org.
+- A rejected cursor reads `400::The replayId {2626120} you provided was invalid...`, and a cursor 1,000,000 ahead of the bus is always rejected. The recovery `-2` replay re-delivers history the store holds, and the writer now drops it before writing.
+- A project whose only ready source is an event source used to show "No custom log source is ready": the Source picker needs two ready sources, and the panel never selected an event source by itself. It does now, and the first-use choice still gates the replay.
+- Event key prefixes are `e00`, `e01` and `e02`, not always `e00`.
+- The process standing by took over 3.2 s after the holder was killed (one run).
+- The daily delivery limit text stays documented and unobserved: seeing it takes the whole day's allocation.
+
+#### Not verified against the real org
+
+- **The budget outcome.** It needs a replay larger than half of the remaining allocation, about 5,700 after the measurement below. `capture --follow --initial retained` over `ALV_Test_Backlog__e` reaches it, at a cost of up to 10,000 deliveries. It was not run: the day's allocation could not also pay for the measurement, the specs and reruns. Run it once the counter has recovered, while the backlog is still retained.
+- **The proxy lab.** `pnpm run test:e2e:proxy-lab` gives its container the Dev Hub JWT identity and nothing else (`node scripts/devhub-local.js verify` confirms the JWT on the maintainer's machine). `alv-events` is a scratch org whose authorization exists only in the operator's own Salesforce home, and the Dev Hub's JWT cannot reach it. Passing a session token taken from a host alias is the alias fallback the lab forbids, so the real-org proxy smoke is **blocked** until the lab has a sanctioned way to authorize `alv-events`. The direct baseline exists: `customLogEventsPoll.e2e.spec.ts` holds a `--follow` subscription for 130 s, past the 110 s poll, publishes one event and receives it with no `Reconnecting` state. Faye honors `https_proxy` and ignores `NO_PROXY`, and that path is still unexercised against the real org.
+
+#### First-event latency of a `-2` replay (measured 2026-10-31)
+
+Claim: for a 10,000-event backlog of 5.6 KB events, the first event of a `-2` replay arrives 6.1 to 6.6 s after the subscribe is sent (5.3 to 5.4 s after Salesforce acknowledges it), and Salesforce then delivers the backlog in responses of up to 2,600 events (14.6 MB).
+
+Method: `publish --count 5000 --transaction-id backlog --object ALV_Test_Backlog__e --message-chars 5000 --level mixed`, twice (10,000 events in 4 min 52 s, 5.6 KB each as delivered). Then `measure --object ALV_Test_Backlog__e --replay -2 --max-events 10000 --quiet-ms 30000` and, from where it stopped, `measure --replay 1630896 --max-events 6000 --quiet-ms 120000`. `measure` is a plain Faye client, the one core uses, on a 15-core Mac (load average 3 to 6) at about 09:40 local time. It stamps the subscribe call, the acknowledgement and the first callback of each HTTP response. Faye hands a response over only when it is whole, so the first event is the end of the first response.
+
+| Run                  | Ack    | Responses (events, size, seconds after subscribe)                                                         | Stopped                        |
+| -------------------- | ------ | --------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| `-2`                 | 1.18 s | 1,600 events 9.0 MB at 6.6 s; 2,600 events 14.6 MB at 13.4 s                                              | 30 s of silence, 4,200 events  |
+| after replay 1630896 | 0.80 s | 2,000 events 11.2 MB at 6.1 s; 2,600 events 14.6 MB at 13.2 s; 400 events at 64.7 s; 800 events at 69.0 s | 120 s of silence, 5,800 events |
+
+Both runs received contiguous replay ids with no duplicate (4,200 and 5,800 distinct uuids, 1626697 to 1636696), so together they are the whole backlog, and `/limits` fell from 21,415 to 11,415, exactly 10,000 deliveries. The product over the same backlog (`capture --follow --initial retained`, interrupted at 25 s) started the replay at 4 s, showed `Reconnecting (attempt 1, cause: overflow)` at 16 s and `Catching up from the stored position` at 18 s, and ended with `Delivered 5,000, stored 5,000` (5,000 distinct, contiguous events on disk). The 2,600-event response was larger than the 2,000-event queue bound, so core drained, committed and reopened from the stored cursor: nothing was lost or stored twice. But `/limits` fell from 11,415 to 3,815 for that run, 7,600 deliveries for 5,000 stored events. The 2,600 extra equal one response. Whether an overflow reopen makes Salesforce send a response again, or a response was in flight when Ctrl-C closed the client, is not settled: the allowance left (3,815) cannot pay for the rerun.
+
+What limits it. The responses arrive at 1.7 to 2.2 MB/s whatever their size (9.0 MB in 5.4 s, 14.6 MB in 6.8 s, 11.2 MB in 5.3 s, 14.6 MB in 7.1 s), about 360 events a second. The same machine downloaded 30 MB from another host at 44 MB/s, 20 times faster, and parsing a 14.6 MB response takes milliseconds, so neither the link nor the client is the limiter. The pace belongs to Salesforce's replay. That is an inference from consistent rates and the comparison, not a server-side profile. It also says why the first event does not wait for a bigger backlog: Salesforce caps a response near 15 MB, so the first event arrives about 6 s after the subscribe for any backlog of 5.6 KB events. The 870-event recording (0.7 KB events) took 4.8 s.
+
+What it means for `firstEventWait`. The 15 s timer (a new subscription or a cursor under an hour old) clears a 10,000-event backlog by 2.3 times, and the 120 s drain bound by 18. No change. Two other numbers matter more:
+
+- **Silence between responses.** In the second run the third response came 51.5 s after the second, and in the first run nothing came for 30 s. A drain ends `quiet` after 10 s without events, so a drain over a backlog this size ends with part of it undelivered; the stored position is exact, and the next drain continues. A reopened subscription continued within 7 s in the product run, so the silence belongs to one long poll, not to the backlog.
+- **Queue bound.** A response of 2,600 events exceeded the bound of 2,000 events, so every large replay showed one `Reconnecting (overflow)` per response. The queue is now bounded by bytes alone (32 MiB holds the 14.6 MB response), and a test replays a 2,600-event response without a reconnect. Rerun the product over the backlog once the allowance allows (it costs about 5,000 deliveries; `capture --follow --initial retained`, Ctrl-C at 25 s) and compare `/limits` with the `Delivered` line: they should now agree, and if they do not, the extra deliveries belong to the interrupt, not to the overflow.
+
+Limits of the number: two raw replays (a third costs 10,000 deliveries, 40 % of a day), one event size, one network path, one time of day. The latency is stated as 6.1 to 6.6 s on n = 2, not as a distribution.
+
+**Retained replays and the 72 hours.** `ALV_Test_Backlog__e` retains these 10,000 events until about 2026-11-03 12:30 UTC. Until then every `-2` replay of that event, from `measure` or from a capture, delivers all 10,000 and spends 10,000 deliveries of the day. The other two events are unaffected, which is why the backlog has its own event. Do not point a source at `ALV_Test_Backlog__e` except to use that backlog. The counter is a rolling 24 hours: after this work (specs, the two replays and the product run) 3,815 of 25,000 were left at 12:45 UTC on 2026-10-31, and it recovers as those deliveries age out.
 
 ### Extension host congestion lab
 

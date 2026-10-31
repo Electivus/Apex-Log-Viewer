@@ -392,7 +392,14 @@ export async function activate(context: vscode.ExtensionContext) {
   };
 }
 
-export function deactivate() {
+export async function deactivate() {
+  // Ends the capture runs while the logger and the telemetry reporter are open, so each flushes, saves its
+  // position and frees its lease.
+  try {
+    await runtimeClient.dispose();
+  } catch (error) {
+    logWarn('Failed to dispose the core ->', getErrorMessage(error));
+  }
   // Flush the last window while the telemetry reporter is still open.
   stopResponsivenessMonitor();
   disposeLogger();

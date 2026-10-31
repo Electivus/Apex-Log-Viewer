@@ -7,7 +7,9 @@
 
 import type { CustomLogsToWebviewMessage } from './customLogsMessages.js';
 import {
+  mergeLiveRows,
   mergePayloadFields,
+  type CustomLogCaptureView,
   type CustomLogColumn,
   type CustomLogConfigIssueView,
   type CustomLogPayloadColumnsView,
@@ -32,6 +34,8 @@ export type CustomLogsViewState = {
   page:
     | { columns: CustomLogColumn[]; rows: CustomLogRow[]; payloadFields: CustomLogPayloadField[]; hasMore: boolean }
     | undefined;
+  /** The capture strip. Undefined while the selected source is not an event source. */
+  capture: CustomLogCaptureView | undefined;
   loading: boolean;
   error: string | undefined;
 };
@@ -44,6 +48,7 @@ export const initialCustomLogsView: CustomLogsViewState = {
   filter: {},
   payloadColumns: { defaults: [], added: [] },
   page: undefined,
+  capture: undefined,
   loading: false,
   error: undefined
 };
@@ -82,6 +87,25 @@ export function reduceCustomLogsView(
         }
       };
     }
+    case 'customLogsCapture':
+      return { ...state, capture: message.value };
+    case 'customLogsLiveRows': {
+      // Rows that arrive before the first page are on disk already, so the page read that follows has them.
+      const page = state.page;
+      if (!page) {
+        return state;
+      }
+      const rows = mergeLiveRows(page.rows, message.rows ?? [], { hasMore: page.hasMore });
+      if (rows.length === page.rows.length) {
+        return state;
+      }
+      // `payloadFields` summarizes the whole batch, so a batch that only partly landed overcounts the
+      // rows of a path until the next page replaces them. Every path is still listed, which is the safe side.
+      return {
+        ...state,
+        page: { ...page, rows, payloadFields: mergePayloadFields(page.payloadFields, message.payloadFields ?? []) }
+      };
+    }
     case 'customLogsError':
       return { ...state, error: message.message };
   }
@@ -110,6 +134,9 @@ export function replayCustomLogsView(state: CustomLogsViewState): CustomLogsToWe
   );
   if (state.page) {
     messages.push({ type: 'customLogsPage', mode: 'replace', ...state.page });
+  }
+  if (state.capture) {
+    messages.push({ type: 'customLogsCapture', value: state.capture });
   }
   messages.push({ type: 'customLogsLoading', value: state.loading }, { type: 'customLogsError', message: state.error });
   return messages;

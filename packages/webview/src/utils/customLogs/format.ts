@@ -13,6 +13,12 @@ export function formatLogTime(iso: string): string {
   return `${day} ${time}`;
 }
 
+/** Local `yyyy-MM-dd HH:mm`, for the capture strip, or the text as received when it is not a date. */
+export function formatMinute(iso: string): string {
+  const formatted = formatLogTime(iso);
+  return formatted === iso ? iso : formatted.slice(0, 16);
+}
+
 /** Local `HH:mm:ss.SSS`, for lists that already sit inside one transaction. */
 export function formatClock(iso: string): string {
   const formatted = formatLogTime(iso);

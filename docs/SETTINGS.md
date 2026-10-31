@@ -25,7 +25,7 @@ All extension settings use the `electivus.apexLogViewer.*` namespace. The previo
 
 ## Custom Logs
 
-- `electivus.apexLogViewer.customLogs.enabled` — boolean, default `false`, tagged experimental; shows the **Electivus Custom Logs** panel and the `Refresh Custom Logs`, `Open Custom Logs in Editor Area`, and `Configure Custom Logs Sources` commands. While it is off, the extension runs none of the Custom Logs code: no `sfdx-project.json` watcher, no Salesforce requests, and no telemetry. Turning it on or off applies without a reload, and turning it off closes an open Custom Logs editor tab and its transaction viewers. The `sf electivus custom-log` commands of the Salesforce CLI plugin do not read this setting. See [Turn on Custom Logs](CUSTOM_LOGS.md#turn-on-custom-logs).
+- `electivus.apexLogViewer.customLogs.enabled` — boolean, default `false`, tagged experimental; shows the **Electivus Custom Logs** panel and the `Refresh Custom Logs`, `Open Custom Logs in Editor Area`, and `Configure Custom Logs Sources` commands. While it is off, the extension runs none of the Custom Logs code: no `sfdx-project.json` watcher, no Salesforce requests, and no telemetry. Turning it on or off applies without a reload, and turning it off closes an open Custom Logs editor tab and its transaction viewers and stops every platform event capture that the panel started. The `sf electivus custom-log` commands of the Salesforce CLI plugin do not read this setting. See [Turn on Custom Logs](CUSTOM_LOGS.md#turn-on-custom-logs).
 
 ## Logging
 

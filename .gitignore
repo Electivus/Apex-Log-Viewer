@@ -26,6 +26,7 @@ packages/sf-plugin/oclif.lock
 *.zip
 coverage/
 output/playwright/
+output/playwright-cli/
 output/lab/
 output/verify/
 __pycache__/

@@ -1,0 +1,22 @@
+{
+  "ALV_Test_Log__e": {
+    "name": "ALV_Test_Log__e", "keyPrefix": "e00", "queryable": false,
+    "fields": [
+      {"name":"ReplayId","label":"Replay ID","type":"string","referenceTo":[],"sortable":false,"filterable":false,"picklistValues":[]},
+      {"name":"CreatedDate","label":"Created Date","type":"datetime","referenceTo":[],"sortable":false,"filterable":false,"picklistValues":[]},
+      {"name":"CreatedById","label":"Created By ID","type":"reference","relationshipName":"CreatedBy","referenceTo":["User"],"sortable":false,"filterable":false,"picklistValues":[]},
+      {"name":"EventUuid","label":"Event UUID","type":"string","referenceTo":[],"sortable":false,"filterable":false,"picklistValues":[]},
+      {"name":"Epoch_Ms__c","label":"Epoch Ms","type":"double","referenceTo":[],"sortable":false,"filterable":false,"picklistValues":[]},
+      {"name":"Has_Stack_Trace__c","label":"Has Stack Trace","type":"boolean","referenceTo":[],"sortable":false,"filterable":false,"picklistValues":[]},
+      {"name":"Level__c","label":"Level","type":"string","referenceTo":[],"sortable":false,"filterable":false,"picklistValues":[]},
+      {"name":"Logged_At__c","label":"Logged At","type":"datetime","referenceTo":[],"sortable":false,"filterable":false,"picklistValues":[]},
+      {"name":"Message__c","label":"Message","type":"textarea","referenceTo":[],"sortable":false,"filterable":false,"picklistValues":[]},
+      {"name":"Payload__c","label":"Payload","type":"textarea","referenceTo":[],"sortable":false,"filterable":false,"picklistValues":[]},
+      {"name":"Request_Id__c","label":"Request Id","type":"string","referenceTo":[],"sortable":false,"filterable":false,"picklistValues":[]},
+      {"name":"Sequence__c","label":"Sequence","type":"double","referenceTo":[],"sortable":false,"filterable":false,"picklistValues":[]},
+      {"name":"Stack_Trace__c","label":"Stack Trace","type":"textarea","referenceTo":[],"sortable":false,"filterable":false,"picklistValues":[]},
+      {"name":"Transaction_Id__c","label":"Transaction Id","type":"string","referenceTo":[],"sortable":false,"filterable":false,"picklistValues":[]},
+      {"name":"Username__c","label":"Username","type":"string","referenceTo":[],"sortable":false,"filterable":false,"picklistValues":[]}
+    ]
+  }
+}

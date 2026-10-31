@@ -42,8 +42,11 @@ import type {
   UserSearchParams,
   UserSearchResult
 } from './contracts.js';
-import { createCustomLogApi } from './customLogs/api.js';
+import { createCustomLogApi, type CaptureRunEvent, type CustomLogEnv } from './customLogs/api.js';
 import type {
+  CustomLogCaptureParams,
+  CustomLogCaptureResult,
+  CustomLogCaptureUpdate,
   CustomLogEntryParams,
   CustomLogGetParams,
   CustomLogListParams,
@@ -69,6 +72,11 @@ export type CoreCallOptions = {
   signal?: AbortSignal;
 };
 
+export type CaptureCallOptions = CoreCallOptions & {
+  /** Every state change and every durable batch of the capture. */
+  onUpdate?: (update: CustomLogCaptureUpdate) => void;
+};
+
 export type CoreInstrumentation = {
   onCall?: (event: {
     method: string;
@@ -76,6 +84,11 @@ export type CoreInstrumentation = {
     durationMs: number;
     error?: unknown;
   }) => void;
+  /**
+   * One `start` and one `end` per capture run, not per caller. `customLog.capture` lasts as long as
+   * the stream does, so it is not timed as one `onCall`.
+   */
+  onCapture?: (event: CaptureRunEvent) => void;
 };
 
 const DEFAULT_API_VERSION = '63.0';
@@ -268,6 +281,8 @@ type OrgConnections = {
     signal: AbortSignal | undefined,
     run: (ctx: ConnectionContext) => Promise<T>
   ): Promise<T>;
+  /** The cached connection of a resolved username. `fresh` drops the cached one first, so the next one re-authenticates. */
+  connect(username: string, options: { fresh?: boolean; signal?: AbortSignal }): Promise<ConnectionContext>;
   clear(): void;
 };
 
@@ -276,7 +291,7 @@ function createOrgConnections(): OrgConnections {
   const evict = (username: string, pending: Promise<OrgConnection>): void => {
     if (byUsername.get(username) === pending) byUsername.delete(username);
   };
-  const connect = (username: string): Promise<OrgConnection> => {
+  const cachedConnection = (username: string): Promise<OrgConnection> => {
     const existing = byUsername.get(username);
     if (existing) return existing;
     const pending = connectOrg(username);
@@ -288,15 +303,32 @@ function createOrgConnections(): OrgConnections {
     async use(targetOrg, signal, run) {
       throwIfAborted(signal);
       const resolved = await awaitWithAbort(resolveUsername(targetOrg), signal);
-      const cached = connect(resolved.username);
+      const cached = cachedConnection(resolved.username);
       const ctx = { ...(await awaitWithAbort(cached, signal)), alias: resolved.alias };
       try {
         return await run(ctx);
       } catch (error) {
         if (!isSessionRejected(error)) throw error;
         evict(resolved.username, cached);
-        return run({ ...(await awaitWithAbort(connect(resolved.username), signal)), alias: resolved.alias });
+        return run({ ...(await awaitWithAbort(cachedConnection(resolved.username), signal)), alias: resolved.alias });
       }
+    },
+    async connect(username, { fresh, signal }) {
+      throwIfAborted(signal);
+      if (fresh) byUsername.delete(username);
+      const alias = await awaitWithAbort(findAliasForUsername(username), signal);
+      const ctx = await awaitWithAbort(cachedConnection(username), signal);
+      // `fresh` follows a rejected session. The stored access token is the rejected one, and a streaming
+      // client sends it as is, so refresh it. When the refresh fails, the next handshake is rejected again
+      // and capture asks the user to log in.
+      if (fresh) {
+        try {
+          await awaitWithAbort(ctx.connection.refreshAuth(), signal);
+        } catch {
+          throwIfAborted(signal);
+        }
+      }
+      return { ...ctx, alias };
     },
     clear: () => byUsername.clear()
   };
@@ -1118,7 +1150,11 @@ function createRuntimeApexLogRemote(connections: OrgConnections): ApexLogRemote 
 }
 
 export function createApexLogViewerCore(
-  options: { instrumentation?: CoreInstrumentation; apexLogRemote?: ApexLogRemote } = {}
+  options: {
+    instrumentation?: CoreInstrumentation;
+    apexLogRemote?: ApexLogRemote;
+    surface?: CustomLogEnv['surface'];
+  } = {}
 ) {
   const call = <T>(
     method: string,
@@ -1132,7 +1168,37 @@ export function createApexLogViewerCore(
     callOptions: CoreCallOptions | undefined,
     run: (ctx: ConnectionContext, signal?: AbortSignal) => Promise<T>
   ) => call(method, callOptions, signal => connections.use(targetOrg, signal, ctx => run(ctx, signal)));
-  const customLogs = createCustomLogApi();
+  const customLogs = createCustomLogApi({
+    hooks: {
+      onCapture: event => options.instrumentation?.onCapture?.(event),
+      onCallbackError: error =>
+        options.instrumentation?.onCall?.({
+          method: 'customLog.capture.callback',
+          outcome: 'error',
+          durationMs: 0,
+          error
+        })
+    }
+  });
+  const customLogEnv = async (
+    targetOrg: string | undefined,
+    signal: AbortSignal | undefined
+  ): Promise<CustomLogEnv> => {
+    const { username } = await awaitWithAbort(resolveUsername(targetOrg), signal);
+    return {
+      username,
+      surface: options.surface ?? 'cli',
+      use: (use, useSignal = signal) => connections.use(username, useSignal, use),
+      connection: ({ fresh, signal: connectionSignal = signal } = {}) =>
+        connections.connect(username, { fresh, signal: connectionSignal })
+    };
+  };
+  const customLogCall = <T>(
+    method: string,
+    targetOrg: string | undefined,
+    callOptions: CoreCallOptions | undefined,
+    run: (env: CustomLogEnv, signal?: AbortSignal) => Promise<T>
+  ) => call(method, callOptions, async signal => run(await customLogEnv(targetOrg, signal), signal));
   const apexLogRemote = options.apexLogRemote ?? createRuntimeApexLogRemote(connections);
   const rawLogLifecycle = createApexLogLifecycle({ remote: apexLogRemote });
   const lifecycleCall = <T>(
@@ -1372,17 +1438,28 @@ export function createApexLogViewerCore(
     },
     customLog: {
       sources: (params: CustomLogSourcesParams, callOptions?: CoreCallOptions) =>
-        orgCall('customLog.sources', params.targetOrg, callOptions, (ctx, signal) =>
-          customLogs.sources(ctx, params, signal)
+        customLogCall('customLog.sources', params.targetOrg, callOptions, (env, signal) =>
+          customLogs.sources(env, params, signal)
         ),
       list: (params: CustomLogListParams, callOptions?: CoreCallOptions) =>
-        orgCall('customLog.list', params.targetOrg, callOptions, (ctx, signal) => customLogs.list(ctx, params, signal)),
+        customLogCall('customLog.list', params.targetOrg, callOptions, (env, signal) =>
+          customLogs.list(env, params, signal)
+        ),
       get: (params: CustomLogGetParams, callOptions?: CoreCallOptions) =>
-        orgCall('customLog.get', params.targetOrg, callOptions, (ctx, signal) => customLogs.get(ctx, params, signal)),
+        customLogCall('customLog.get', params.targetOrg, callOptions, (env, signal) =>
+          customLogs.get(env, params, signal)
+        ),
       entry: (params: CustomLogEntryParams, callOptions?: CoreCallOptions) =>
-        orgCall('customLog.entry', params.targetOrg, callOptions, (ctx, signal) =>
-          customLogs.entry(ctx, params, signal)
-        )
+        customLogCall('customLog.entry', params.targetOrg, callOptions, (env, signal) =>
+          customLogs.entry(env, params, signal)
+        ),
+      // The username resolves from local files, so it ignores the signal: an aborted capture resolves with
+      // outcome `aborted` from the api, at whatever step it stopped, and never rejects with ABORTED.
+      capture: async (
+        params: CustomLogCaptureParams,
+        callOptions?: CaptureCallOptions
+      ): Promise<CustomLogCaptureResult> =>
+        customLogs.capture(await customLogEnv(params.targetOrg, undefined), params, callOptions)
     },
     user: {
       search: (params: UserSearchParams = {}, callOptions?: CoreCallOptions) =>
@@ -1422,9 +1499,10 @@ export function createApexLogViewerCore(
           connectionRequest(ctx.connection, 'GET', resolveOrgRequestPath(ctx, params.path))
         )
     },
-    dispose: (): void => {
+    /** Ends the capture runs and releases their leases before the connections are cleared. */
+    dispose: async (): Promise<void> => {
+      await customLogs.dispose();
       connections.clear();
-      customLogs.dispose();
       rawLogLifecycle.dispose();
     }
   };

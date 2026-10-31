@@ -6,11 +6,13 @@ import { parseCustomLogsFromWebviewMessage } from '../src/customLogsMessages.ts'
 import {
   mergePayloadFields,
   parseCustomLogPayloadColumns,
+  parseCustomLogRowId,
   type CustomLogPayloadField
 } from '../src/customLogsTypes.ts';
 
 const LOG_ID = 'a015g00000Q2xYzAAB';
 const ENTRY_ID = 'a025g00000Hk1AbAAJ';
+const EVENT_ID = 'e-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d';
 
 test('mergePayloadFields unions types in core order, sums rows and keeps first-seen path order', () => {
   const loaded: CustomLogPayloadField[] = [
@@ -71,6 +73,49 @@ test('list parser accepts each webview message and echoes the mount sequence', (
     type: 'customLogsOpenPayload',
     logId: ENTRY_ID
   });
+});
+
+test('a host accepts back a record id or an event id and nothing in between', () => {
+  const accepted = [LOG_ID, ENTRY_ID, 'a015g00000Q2xYz', EVENT_ID];
+  const rejected = [
+    EVENT_ID.slice(1),
+    EVENT_ID.slice(0, -1),
+    `${EVENT_ID}0`,
+    EVENT_ID.toUpperCase(),
+    EVENT_ID.replace(/^e-/, 'x-'),
+    `${EVENT_ID}'`,
+    ' ' + EVENT_ID,
+    'e-' + LOG_ID,
+    '',
+    null,
+    42
+  ];
+
+  for (const id of accepted) assert.equal(parseCustomLogRowId(id), id);
+  for (const id of rejected) assert.equal(parseCustomLogRowId(id), undefined, JSON.stringify(id));
+});
+
+test('every host message that names a row takes an event id', () => {
+  assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsOpenLog', logId: EVENT_ID }), {
+    type: 'customLogsOpenLog',
+    logId: EVENT_ID
+  });
+  assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsOpenPayload', logId: EVENT_ID }), {
+    type: 'customLogsOpenPayload',
+    logId: EVENT_ID
+  });
+  assert.deepEqual(parseCustomLogViewerFromWebviewMessage({ type: 'customLogViewerOpenEntry', entryId: EVENT_ID }), {
+    type: 'customLogViewerOpenEntry',
+    entryId: EVENT_ID
+  });
+  assert.deepEqual(
+    parseCustomLogViewerFromWebviewMessage({
+      type: 'customLogViewerOpenField',
+      target: { kind: 'entry', entryId: EVENT_ID, key: 'message' }
+    }),
+    { type: 'customLogViewerOpenField', target: { kind: 'entry', entryId: EVENT_ID, key: 'message' } }
+  );
+  assert.equal(parseCustomLogsFromWebviewMessage({ type: 'customLogsOpenLog', logId: EVENT_ID.slice(1) }), undefined);
 });
 
 test('list parser reads the server-side filter and drops anything else', () => {
@@ -146,6 +191,62 @@ test('list parser reads the filter typed with a source switch by the same rules,
       undefined
     );
   }
+});
+
+test('capture messages carry a stop, or a start with the first-use choice when there is one', () => {
+  assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsCapture', action: 'stop' }), {
+    type: 'customLogsCapture',
+    action: 'stop'
+  });
+  assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsCapture', action: 'start' }), {
+    type: 'customLogsCapture',
+    action: 'start'
+  });
+  assert.deepEqual(
+    parseCustomLogsFromWebviewMessage({ type: 'customLogsCapture', action: 'start', initial: undefined }),
+    { type: 'customLogsCapture', action: 'start' }
+  );
+  for (const initial of ['retained', 'new'] as const) {
+    assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsCapture', action: 'start', initial }), {
+      type: 'customLogsCapture',
+      action: 'start',
+      initial
+    });
+  }
+});
+
+test('capture messages drop every field outside the contract', () => {
+  assert.deepEqual(
+    parseCustomLogsFromWebviewMessage({
+      type: 'customLogsCapture',
+      action: 'start',
+      initial: 'new',
+      cursor: 'cometd:7'
+    }),
+    { type: 'customLogsCapture', action: 'start', initial: 'new' }
+  );
+  assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsCapture', action: 'stop', force: true }), {
+    type: 'customLogsCapture',
+    action: 'stop'
+  });
+});
+
+test('capture messages reject an unknown action, a choice core reserves for the panel and a choice on stop', () => {
+  const rejected = [
+    { type: 'customLogsCapture' },
+    { type: 'customLogsCapture', action: 'pause' },
+    { type: 'customLogsCapture', action: 'START' },
+    { type: 'customLogsCapture', action: 7 },
+    { type: 'customLogsCapture', action: 'start', initial: 'none' },
+    { type: 'customLogsCapture', action: 'start', initial: 'Retained' },
+    { type: 'customLogsCapture', action: 'start', initial: null },
+    { type: 'customLogsCapture', action: 'start', initial: 1 },
+    { type: 'customLogsCapture', action: 'start', initial: ['new'] },
+    { type: 'customLogsCapture', action: 'stop', initial: 'new' },
+    { type: 'customLogsCapture', action: 'stop', initial: null }
+  ].map(parseCustomLogsFromWebviewMessage);
+
+  assert.deepEqual(rejected, Array(rejected.length).fill(undefined));
 });
 
 test('list parser rejects malformed ids, sources and orgs', () => {

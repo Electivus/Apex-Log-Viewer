@@ -20,6 +20,12 @@
                   "items": {
                     "$ref": "#/definitions/source"
                   }
+                },
+                "eventRetentionDays": {
+                  "type": "integer",
+                  "description": "Days of captured platform events kept on disk per project. Older days are deleted when a capture starts. Default 30.",
+                  "minimum": 1,
+                  "maximum": 365
                 }
               }
             }
@@ -39,6 +45,18 @@
       "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
       "maxLength": 255
     },
+    "eventObjectName": {
+      "type": "string",
+      "description": "A platform event API name, ending in __e.",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]*__e$",
+      "maxLength": 255
+    },
+    "fieldName": {
+      "type": "string",
+      "description": "A field of the platform event itself. Platform events have no relationships, so no Relationship.Field.",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+      "maxLength": 255
+    },
     "level": {
       "enum": ["FINEST", "FINER", "FINE", "DEBUG", "INFO", "WARN", "ERROR"]
     },
@@ -46,6 +64,12 @@
       "type": "array",
       "items": {
         "$ref": "#/definitions/fieldPath"
+      }
+    },
+    "eventFieldList": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/fieldName"
       }
     },
     "detail": {
@@ -101,14 +125,88 @@
         }
       ]
     },
+    "eventDetail": {
+      "description": "A long field of a platform event read on demand, as a field name or as an object that adds the logging framework's checkbox flags.",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/fieldName"
+        },
+        {
+          "type": "object",
+          "description": "Keys other than these are ignored, and the extension reports them as warnings.",
+          "required": ["field"],
+          "properties": {
+            "field": {
+              "$ref": "#/definitions/fieldName"
+            },
+            "presence": {
+              "$ref": "#/definitions/fieldName",
+              "description": "Checkbox that is true when the field has content, for example HasStackTrace__c."
+            },
+            "truncated": {
+              "$ref": "#/definitions/fieldName",
+              "description": "Checkbox that is true when the logging framework cut the value, for example RecordJsonTruncated__c."
+            }
+          }
+        }
+      ]
+    },
+    "eventPayload": {
+      "description": "A long text field of a platform event holding JSON whose keys can become columns. A field name, or an object with the team's default columns.",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/fieldName"
+        },
+        {
+          "type": "object",
+          "description": "Keys other than these are ignored, and the extension reports them as warnings.",
+          "required": ["field"],
+          "properties": {
+            "field": {
+              "$ref": "#/definitions/fieldName"
+            },
+            "columns": {
+              "type": "array",
+              "description": "JSON paths shown as columns by default, with dots for nesting and [n] for array items, for example http.status or lines[0].sku.",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              }
+            }
+          }
+        }
+      ]
+    },
     "source": {
       "type": "object",
-      "description": "Keys other than these are ignored, and the extension reports them as warnings.",
-      "required": ["id", "entry"],
+      "description": "Keys other than these are ignored, and the extension reports them as warnings. A source maps either record objects (entry, with an optional transaction) or one platform event (event).",
+      "required": ["id"],
+      "oneOf": [
+        {
+          "required": ["entry"],
+          "not": {
+            "required": ["event"]
+          }
+        },
+        {
+          "required": ["event"],
+          "not": {
+            "anyOf": [
+              {
+                "required": ["entry"]
+              },
+              {
+                "required": ["transaction"]
+              }
+            ]
+          }
+        }
+      ],
       "properties": {
         "id": {
           "type": "string",
-          "description": "Stable source id used by --source. Reusing a built-in id (nebula, nebula-managed) replaces that built-in in this project.",
+          "description": "Stable source id used by --source. Reusing a built-in id (nebula, nebula-managed, nebula-events, nebula-events-managed) replaces that built-in in this project.",
           "pattern": "^[a-z][a-z0-9-]{0,39}$"
         },
         "label": {
@@ -238,6 +336,76 @@
             }
           }
         },
+        "event": {
+          "type": "object",
+          "description": "A platform event whose captured copies are read from a local store. Keys other than these are ignored, and the extension reports them as warnings.",
+          "required": ["object", "fields"],
+          "properties": {
+            "object": {
+              "$ref": "#/definitions/eventObjectName"
+            },
+            "fields": {
+              "type": "object",
+              "description": "Keys other than these are ignored, and the extension reports them as warnings.",
+              "required": ["time", "message"],
+              "properties": {
+                "time": {
+                  "$ref": "#/definitions/fieldName"
+                },
+                "message": {
+                  "$ref": "#/definitions/fieldName"
+                },
+                "messageTruncated": {
+                  "$ref": "#/definitions/fieldName"
+                },
+                "order": {
+                  "$ref": "#/definitions/fieldName"
+                },
+                "level": {
+                  "$ref": "#/definitions/fieldName"
+                },
+                "levelOrdinal": {
+                  "$ref": "#/definitions/fieldName"
+                },
+                "origin": {
+                  "$ref": "#/definitions/fieldName"
+                },
+                "user": {
+                  "$ref": "#/definitions/fieldName"
+                },
+                "transactionId": {
+                  "$ref": "#/definitions/fieldName"
+                },
+                "requestId": {
+                  "$ref": "#/definitions/fieldName"
+                },
+                "exceptionType": {
+                  "$ref": "#/definitions/fieldName"
+                },
+                "recordId": {
+                  "$ref": "#/definitions/fieldName"
+                }
+              }
+            },
+            "columns": {
+              "$ref": "#/definitions/eventFieldList"
+            },
+            "details": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/eventDetail"
+              }
+            },
+            "payload": {
+              "$ref": "#/definitions/eventPayload"
+            },
+            "systemMessagePrefix": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        },
         "levels": {
           "type": "object",
           "additionalProperties": {
@@ -304,6 +472,21 @@
               "fields": {
                 "time": "${6:CreatedDate}",
                 "message": "${7:Message__c}"
+              }
+            }
+          }
+        },
+        {
+          "label": "Custom log source (platform event)",
+          "body": {
+            "id": "${1:app-events}",
+            "label": "${2:App events}",
+            "event": {
+              "object": "${3:App_Log__e}",
+              "fields": {
+                "time": "${4:Logged_At__c}",
+                "message": "${5:Message__c}",
+                "level": "${6:Level__c}"
               }
             }
           }
