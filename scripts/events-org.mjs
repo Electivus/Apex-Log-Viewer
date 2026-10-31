@@ -727,12 +727,17 @@ const collectOptions = options => ({
   maxMs: options['max-ms']
 });
 
+/** One entry per HTTP response: when it arrived, how many events it held and about how many bytes they were. */
 const batchSummary = (arrivals, received) =>
-  arrivals.map(arrival => ({
-    batch: arrival.batch,
-    events: received.filter(entry => entry.batch === arrival.batch).length,
-    atMs: arrival.atMs
-  }));
+  arrivals.map(arrival => {
+    const events = received.filter(entry => entry.batch === arrival.batch);
+    return {
+      batch: arrival.batch,
+      events: events.length,
+      bytes: events.reduce((total, entry) => total + JSON.stringify(entry.data).length, 0),
+      atMs: arrival.atMs
+    };
+  });
 
 async function record(alias, options) {
   const connection = await connect(alias);
@@ -790,7 +795,9 @@ async function measure(alias, options) {
       responses: batches.length,
       firstResponses: batches.slice(0, 5),
       largestResponse: batches.reduce((most, entry) => Math.max(most, entry.events), 0),
+      totalBytes: batches.reduce((total, entry) => total + entry.bytes, 0),
       replayIds: { first: replayIds[0], last: replayIds.at(-1) },
+      uniqueUuids: new Set(received.map(entry => entry.data.event.EventUuid)).size,
       deliveries: { before: before.remaining, max: before.max }
     })
   );
