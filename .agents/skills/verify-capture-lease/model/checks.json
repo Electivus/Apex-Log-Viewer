@@ -1,0 +1,102 @@
+{
+  "modelChecks": [
+    {
+      "cfg": "Clean.cfg",
+      "module": "CaptureLease.tla",
+      "expect": {
+        "TypeOK": "holds",
+        "OneCapturer": "holds",
+        "NoLiveTheft": "holds"
+      }
+    },
+    {
+      "cfg": "Leftovers.cfg",
+      "module": "CaptureLease.tla",
+      "expect": {
+        "TypeOK": "holds",
+        "OneCapturer": "holds",
+        "NoLiveTheft": "holds"
+      }
+    },
+    {
+      "cfg": "Reach.cfg",
+      "module": "Witness.tla",
+      "witness": true,
+      "expect": {
+        "NeverDeadHolderAndDeadElector": "breaks",
+        "NeverOrphanDeadElector": "breaks"
+      }
+    },
+    {
+      "cfg": "Chain.cfg",
+      "module": "Witness.tla",
+      "witness": true,
+      "expect": {
+        "NeverPassesTwoDeadElectors": "breaks",
+        "NeverFindsLeaseGoneAfterPassing": "breaks"
+      }
+    },
+    {
+      "cfg": "Fence.cfg",
+      "module": "Witness.tla",
+      "witness": true,
+      "expect": {
+        "NeverNoticesLoss": "breaks",
+        "NeverReleasesAfterLoss": "breaks"
+      }
+    }
+  ],
+  "conformance": [
+    {
+      "cfg": "CleanSim.cfg",
+      "module": "CaptureLease.tla",
+      "seed": 1,
+      "traces": 40,
+      "depth": 120
+    },
+    {
+      "cfg": "LeftoversSim.cfg",
+      "module": "CaptureLease.tla",
+      "seed": 2,
+      "traces": 40,
+      "depth": 120
+    }
+  ],
+  "mutants": {
+    "cfg": "Clean.cfg",
+    "module": "CaptureLease.tla",
+    "list": [
+      {
+        "name": "judgeLease reclaims a live holder",
+        "code": "workspaceFs.ts judgeLease: ignore here.pidAlive",
+        "replace": "HolderDead(t) == ~alive[minter[t]]",
+        "with": "HolderDead(t) == TRUE"
+      },
+      {
+        "name": "the lease is published by rename, so it overwrites a holder",
+        "code": "workspaceFs.ts createIfAbsent: writeFileAtomic(..., keepExisting = false)",
+        "replace": "  /\\ IF lease = None\n       THEN /\\ lease' = tok[p]",
+        "with": "  /\\ IF TRUE\n       THEN /\\ lease' = tok[p]"
+      },
+      {
+        "name": "every contender is elected, the marker is not exclusive",
+        "code": "workspaceFs.ts reclaimDeadLease: createIfAbsent(marker) always true",
+        "replace": "  /\\ IF MarkerAt(Name(chain[p])) = None\n       THEN /\\ markers' = WithMarker(Name(chain[p]), tok[p])",
+        "with": "  /\\ IF TRUE\n       THEN /\\ markers' = WithMarker(Name(chain[p]), tok[p])"
+      },
+      {
+        "name": "the elected reclaimer unlinks without reading the lease again",
+        "code": "workspaceFs.ts reclaimDeadLease: drop `=== deadRecord` before unlinkIfPresent(leasePath)",
+        "replace": "Goto(p, IF lease = rec[p] THEN \"electedUnlinkLease\" ELSE AfterElection(p))",
+        "with": "Goto(p, \"electedUnlinkLease\")"
+      },
+      {
+        "name": "a contender unlinks the marker of a dead elector instead of passing it over (F1)",
+        "code": "workspaceFs.ts reclaimDeadLease: unlinkIfPresent(marker) when judgeLease(elector) is 'reclaim'",
+        "cfg": "Leftovers.cfg",
+        "replace": "       THEN /\\ chain' = [chain EXCEPT ![p] = Append(chain[p], mrec[p])]\n            /\\ Goto(p, \"createMarker\")\n       ELSE /\\ UNCHANGED chain\n            /\\ Goto(p, \"waitLease\")\n  /\\ UNCHANGED <<lease, markers, minter, minted, alive, crashes, tok, rec, mrec, done>>",
+        "with": "       THEN /\\ markers' = WithoutMarker(Name(chain[p]))\n            /\\ Goto(p, \"createLease\")\n       ELSE /\\ UNCHANGED markers\n            /\\ Goto(p, \"waitLease\")\n  /\\ UNCHANGED <<lease, chain, minter, minted, alive, crashes, tok, rec, mrec, done>>"
+      }
+    ]
+  }
+}
