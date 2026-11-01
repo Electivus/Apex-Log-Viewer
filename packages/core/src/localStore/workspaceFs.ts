@@ -422,9 +422,16 @@ async function createIfAbsent(filePath: string, contents: string): Promise<boole
 
 // Of several processes that read the same dead holder, only the one whose marker create succeeds unlinks
 // it, and only while the file still carries the content it judged. The marker holds the elector's own
-// owner record, so a marker left by an elector that crashed is recognizable and cleared on sight; a live
-// elector is waited for until the lease changes. 'held' means the lease is still the dead record after
-// that wait, so the caller reports it instead of looping.
+// owner record, so a marker left by an elector that crashed is recognizable; a live elector is waited for
+// until the lease changes. 'held' means the lease is still the dead record after that wait, so the caller
+// reports it instead of looping.
+//
+// No process unlinks a marker it did not create while the dead record may still be the lease: an unlink
+// removes whatever file holds the name, so it could remove the marker of a live elector that replaced
+// the one it judged, and two electors would then both unlink the lease (one of them the new holder's).
+// A crashed elector's marker is passed over instead: the election runs again on
+// `<first marker>-<its token>`, a name no one has used, since an elector's token is in one marker of
+// this dead holder at most. The elector unlinks the passed-over markers once the dead record is gone.
 async function reclaimDeadLease(
   leasePath: string,
   deadRecord: string,
@@ -432,18 +439,22 @@ async function reclaimDeadLease(
   electorRecord: string,
   here: LeaseHost
 ): Promise<'retry' | 'held'> {
-  const marker = `${leasePath}.reclaim-${deadHolder.token}`;
-  if (await createIfAbsent(marker, electorRecord)) {
-    if ((await readSmallFile(leasePath)) === deadRecord) await unlinkIfPresent(leasePath);
-    await unlinkIfPresent(marker);
-    return 'retry';
-  }
-  const markerRecord = await readSmallFile(marker);
-  if (markerRecord === undefined) return 'retry';
-  const elector = parseLeaseOwner(markerRecord);
-  if (elector && judgeLease(elector, here) === 'reclaim') {
-    if ((await readSmallFile(marker)) === markerRecord) await unlinkIfPresent(marker);
-    return 'retry';
+  const firstMarker = `${leasePath}.reclaim-${deadHolder.token}`;
+  const passedOver: string[] = [];
+  let marker = firstMarker;
+  for (;;) {
+    if (await createIfAbsent(marker, electorRecord)) {
+      if ((await readSmallFile(leasePath)) === deadRecord) await unlinkIfPresent(leasePath);
+      for (const settled of passedOver) await unlinkIfPresent(settled);
+      await unlinkIfPresent(marker);
+      return 'retry';
+    }
+    const markerRecord = await readSmallFile(marker);
+    if (markerRecord === undefined) return 'retry';
+    const elector = parseLeaseOwner(markerRecord);
+    if (!elector || judgeLease(elector, here) !== 'reclaim') break;
+    passedOver.push(marker);
+    marker = `${firstMarker}-${elector.token}`;
   }
   const deadline = Date.now() + LEASE_RECLAIM_SETTLE_MS;
   while ((await readSmallFile(leasePath)) === deadRecord) {
