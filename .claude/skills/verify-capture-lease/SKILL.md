@@ -41,7 +41,7 @@ store.ts and capture.ts also change for reasons unrelated to the lease. Look onl
 From the repo root, after `pnpm install --frozen-lockfile`:
 
 ```bash
-node .agents/skills/verify-capture-lease/scripts/check.mjs
+node .claude/skills/verify-capture-lease/scripts/check.mjs
 ```
 
 The check needs Node 24 and Java 11 or later (`java` on `PATH`, or set `JAVA`). The first run downloads tla2tools 1.7.4 to `~/.cache/alv-formal/` and checks its SHA-256. Use `TLA2TOOLS_JAR` to point at a local copy. `--only model|conformance|mutants` runs one part, and `--traces N` changes the number of conformance traces per config. The check runs the TypeScript source through `tsx`, so it needs no build. Model checking uses every core; on fewer than 8 cores it takes longer than two minutes.
@@ -49,7 +49,7 @@ The check needs Node 24 and Java 11 or later (`java` on `PATH`, or set `JAVA`). 
 To replay one trace by hand:
 
 ```bash
-node .agents/skills/verify-capture-lease/scripts/replay.mjs <tlc.out or trace file> [--keep]
+node .claude/skills/verify-capture-lease/scripts/replay.mjs <tlc.out or trace file> [--keep]
 ```
 
 ## Read the result

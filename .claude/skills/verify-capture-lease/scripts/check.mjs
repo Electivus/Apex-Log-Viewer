@@ -1,6 +1,6 @@
 // The capture lease check, in one command from the repo root:
 //
-//   node .agents/skills/verify-capture-lease/scripts/check.mjs [--only model|conformance|mutants] [--traces N]
+//   node .claude/skills/verify-capture-lease/scripts/check.mjs [--only model|conformance|mutants] [--traces N]
 //
 // 1. Model check: TLC checks every rule of model/checks.json on each config and compares the
 //    verdicts with the expected ones. Every counterexample is replayed on the real code.
