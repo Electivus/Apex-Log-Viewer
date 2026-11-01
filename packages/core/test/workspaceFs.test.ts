@@ -340,6 +340,53 @@ test('lease: a dead holder whose election marker was left by a crashed elector i
   });
 });
 
+test('lease: the marker of a crashed elector is never deleted while a live elector runs the next election', async () => {
+  await withWorkspace(async root => {
+    const leasePath = path.join(root, 'apexlogs', 'capture.lease');
+    await fsp.mkdir(path.dirname(leasePath), { recursive: true });
+    const deadPid = await exitedPid();
+    const holder = leaseOwner({ pid: deadPid, token: 'aaaaaaaaaaaaaaaa' });
+    const marker = `${leasePath}.reclaim-${holder.token}`;
+    const markers = {
+      [marker]: JSON.stringify(leaseOwner({ pid: deadPid, token: 'bbbbbbbbbbbbbbbb' })),
+      [`${marker}-bbbbbbbbbbbbbbbb`]: JSON.stringify(leaseOwner({ pid: deadPid, token: 'cccccccccccccccc' })),
+      [`${marker}-cccccccccccccccc`]: JSON.stringify(leaseOwner({ token: 'dddddddddddddddd' }))
+    };
+    await fsp.writeFile(leasePath, JSON.stringify(holder), 'utf8');
+    for (const [file, record] of Object.entries(markers)) await fsp.writeFile(file, record, 'utf8');
+
+    assert.deepEqual(await tryAcquireLease(root, leasePath, 'cli'), { heldBy: holder });
+    for (const [file, record] of Object.entries(markers)) assert.equal(await fsp.readFile(file, 'utf8'), record);
+    assert.deepEqual(JSON.parse(await fsp.readFile(leasePath, 'utf8')), holder);
+  });
+});
+
+test('lease: a dead holder behind a chain of crashed electors is reclaimed, and their markers go with it', async () => {
+  await withWorkspace(async root => {
+    const leasePath = path.join(root, 'apexlogs', 'capture.lease');
+    await fsp.mkdir(path.dirname(leasePath), { recursive: true });
+    const deadPid = await exitedPid();
+    const holder = leaseOwner({ pid: deadPid, token: 'aaaaaaaaaaaaaaaa' });
+    await fsp.writeFile(leasePath, JSON.stringify(holder), 'utf8');
+    await fsp.writeFile(
+      `${leasePath}.reclaim-aaaaaaaaaaaaaaaa`,
+      JSON.stringify(leaseOwner({ pid: deadPid, token: 'bbbbbbbbbbbbbbbb' })),
+      'utf8'
+    );
+    await fsp.writeFile(
+      `${leasePath}.reclaim-aaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb`,
+      JSON.stringify(leaseOwner({ pid: deadPid, token: 'cccccccccccccccc' })),
+      'utf8'
+    );
+
+    const attempt = await tryAcquireLease(root, leasePath, 'cli');
+
+    if (!isAcquired(attempt)) assert.fail(`expected the lease, got ${JSON.stringify(attempt)}`);
+    assert.deepEqual(JSON.parse(await fsp.readFile(leasePath, 'utf8')), attempt.acquired.owner);
+    assert.deepEqual(await fsp.readdir(path.dirname(leasePath)), ['capture.lease']);
+  });
+});
+
 test('lease: a dead holder stays held while its election marker belongs to a live elector', async () => {
   await withWorkspace(async root => {
     const leasePath = path.join(root, 'apexlogs', 'capture.lease');
