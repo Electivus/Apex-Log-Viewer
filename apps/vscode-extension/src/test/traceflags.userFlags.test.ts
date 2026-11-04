@@ -15,6 +15,7 @@ import {
   __resetUserIdCacheForTests,
   createDebugLevel,
   deleteDebugLevel,
+  ensureUserTraceFlag,
   getActiveUserDebugLevel,
   getTraceFlagTargetStatus,
   getUserTraceFlagStatus,
@@ -102,6 +103,11 @@ function isSpecialTargetUserResolutionQuery(soql: string, userType: string): boo
     soql.includes('IsActive = true') &&
     !soql.includes('Name IN (')
   );
+}
+
+/** The other log type's flags, which every available target's status reads in one query. */
+function isOtherLogTypeQuery(soql: string): boolean {
+  return soql.includes('FROM TraceFlag WHERE TracedEntityId IN (');
 }
 
 suite('traceflags user management', () => {
@@ -420,7 +426,7 @@ suite('traceflags user management', () => {
             }
           };
         }
-        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000001AAA' AND LogType = 'USER_DEBUG'")) {
+        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000001AAA' AND LogType = 'DEVELOPER_LOG'")) {
           traceFlagQueryCount++;
           return {
             statusCode: 200,
@@ -479,7 +485,7 @@ suite('traceflags user management', () => {
             }
           };
         }
-        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000001AAA' AND LogType = 'USER_DEBUG'")) {
+        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000001AAA' AND LogType = 'DEVELOPER_LOG'")) {
           traceFlagQueryCount++;
           return {
             statusCode: 200,
@@ -573,7 +579,7 @@ suite('traceflags user management', () => {
             }
           };
         }
-        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000001AAA' AND LogType = 'USER_DEBUG'")) {
+        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000001AAA' AND LogType = 'DEVELOPER_LOG'")) {
           traceFlagQueryCount++;
           return {
             statusCode: 200,
@@ -607,6 +613,7 @@ suite('traceflags user management', () => {
     const before = await getActiveUserDebugLevel(auth);
     await upsertTraceFlag(auth, {
       target: { type: 'platformIntegration' },
+      logType: 'DEVELOPER_LOG',
       debugLevelName: 'ALV_NEW',
       ttlMinutes: 30
     });
@@ -664,7 +671,7 @@ suite('traceflags user management', () => {
             }
           };
         }
-        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000001AAA' AND LogType = 'USER_DEBUG'")) {
+        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000001AAA' AND LogType = 'DEVELOPER_LOG'")) {
           traceFlagQueryCount++;
           return {
             statusCode: 200,
@@ -709,10 +716,11 @@ suite('traceflags user management', () => {
       async () =>
         await upsertTraceFlag(auth, {
           target: { type: 'platformIntegration' },
+          logType: 'DEVELOPER_LOG',
           debugLevelName: 'ALV_NEW',
           ttlMinutes: 30
         }),
-      /Failed to update USER_DEBUG TraceFlag/
+      /Failed to update DEVELOPER_LOG TraceFlag/
     );
     const after = await getActiveUserDebugLevel(auth);
 
@@ -756,7 +764,7 @@ suite('traceflags user management', () => {
             }
           };
         }
-        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000001AAA' AND LogType = 'USER_DEBUG'")) {
+        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000001AAA' AND LogType = 'DEVELOPER_LOG'")) {
           traceFlagQueryCount++;
           return {
             statusCode: 200,
@@ -809,7 +817,7 @@ suite('traceflags user management', () => {
     );
   });
 
-  test('getTraceFlagTargetStatus resolves Automated Process across all active matches and aggregates USER_DEBUG status', async () => {
+  test('getTraceFlagTargetStatus resolves Automated Process across all active matches and aggregates DEVELOPER_LOG status', async () => {
     const calls = installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);
@@ -848,6 +856,9 @@ suite('traceflags user management', () => {
               ]
             }
           };
+        }
+        if (isOtherLogTypeQuery(soql)) {
+          return { statusCode: 200, body: { records: [] } };
         }
       }
       throw new Error(`Unexpected request: ${req.method} ${req.path}`);
@@ -941,6 +952,9 @@ suite('traceflags user management', () => {
             body: { records: [] }
           };
         }
+        if (isOtherLogTypeQuery(soql)) {
+          return { statusCode: 200, body: { records: [] } };
+        }
       }
       throw new Error(`Unexpected request: ${req.method} ${req.path}`);
     });
@@ -998,6 +1012,9 @@ suite('traceflags user management', () => {
             }
           };
         }
+        if (isOtherLogTypeQuery(soql)) {
+          return { statusCode: 200, body: { records: [] } };
+        }
       }
       throw new Error(`Unexpected request: ${req.method} ${req.path}`);
     });
@@ -1053,6 +1070,9 @@ suite('traceflags user management', () => {
               ]
             }
           };
+        }
+        if (isOtherLogTypeQuery(soql)) {
+          return { statusCode: 200, body: { records: [] } };
         }
       }
       throw new Error(`Unexpected request: ${req.method} ${req.path}`);
@@ -1461,7 +1481,7 @@ suite('traceflags user management', () => {
     );
   });
 
-  test('upsertUserTraceFlag updates existing USER_DEBUG flag', async () => {
+  test('upsertUserTraceFlag updates existing DEVELOPER_LOG flag', async () => {
     const calls = installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/tooling/query')) {
         const soql = decodeSoql(req.path);
@@ -1492,7 +1512,7 @@ suite('traceflags user management', () => {
     assert.equal(calls.filter(call => call.method === 'PATCH').length, 1);
   });
 
-  test('upsertUserTraceFlag creates USER_DEBUG flag when none exists', async () => {
+  test('upsertUserTraceFlag creates DEVELOPER_LOG flag when none exists', async () => {
     installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/tooling/query')) {
         const soql = decodeSoql(req.path);
@@ -1506,7 +1526,7 @@ suite('traceflags user management', () => {
       if (req.method === 'POST' && req.path.endsWith('/tooling/sobjects/TraceFlag')) {
         const parsed = JSON.parse(req.body);
         assert.equal(parsed.TracedEntityId, '005000000000001AAA');
-        assert.equal(parsed.LogType, 'USER_DEBUG');
+        assert.equal(parsed.LogType, 'DEVELOPER_LOG');
         return { statusCode: 201, body: { success: true, id: '7tf000000000999AAA' } };
       }
       throw new Error(`Unexpected request: ${req.method} ${req.path}`);
@@ -1521,7 +1541,7 @@ suite('traceflags user management', () => {
     assert.equal(result.traceFlagId, '7tf000000000999AAA');
   });
 
-  test('upsertTraceFlag applies USER_DEBUG flags across all resolved Automated Process targets', async () => {
+  test('upsertTraceFlag applies DEVELOPER_LOG flags across all resolved Automated Process targets', async () => {
     const calls = installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);
@@ -1549,7 +1569,7 @@ suite('traceflags user management', () => {
       if (req.method === 'POST' && req.path.endsWith('/tooling/sobjects/TraceFlag')) {
         const parsed = JSON.parse(req.body);
         assert.equal(parsed.TracedEntityId, '005000000000004AAA');
-        assert.equal(parsed.LogType, 'USER_DEBUG');
+        assert.equal(parsed.LogType, 'DEVELOPER_LOG');
         return { statusCode: 201, body: { success: true, id: '7tf000000000004AAA' } };
       }
       throw new Error(`Unexpected request: ${req.method} ${req.path}`);
@@ -1557,6 +1577,7 @@ suite('traceflags user management', () => {
 
     const result = await upsertTraceFlag(auth, {
       target: { type: 'automatedProcess' },
+      logType: 'DEVELOPER_LOG',
       debugLevelName: 'ALV_E2E',
       ttlMinutes: 30
     });
@@ -1570,7 +1591,7 @@ suite('traceflags user management', () => {
     assert.equal(calls.filter(call => call.method === 'POST').length, 1);
   });
 
-  test('removeUserTraceFlags deletes all USER_DEBUG flags for user', async () => {
+  test('removeUserTraceFlags deletes all DEVELOPER_LOG flags for user', async () => {
     const calls = installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/tooling/query')) {
         return {
@@ -1589,7 +1610,143 @@ suite('traceflags user management', () => {
     assert.equal(calls.filter(call => call.method === 'DELETE').length, 2);
   });
 
-  test('removeTraceFlags deletes USER_DEBUG flags across all resolved Platform Integration targets', async () => {
+  test('trace flag status, apply and removal use DEVELOPER_LOG by default and USER_DEBUG only on request', async () => {
+    const queriedLogTypes: Array<string | undefined> = [];
+    const otherLogTypeQueries: Array<string | undefined> = [];
+    const createdLogTypes: unknown[] = [];
+    installHttpsStub(req => {
+      const soql = decodeSoql(req.path);
+      if (req.method === 'GET' && req.path.includes('/tooling/query') && soql.includes('FROM DebugLevel')) {
+        return { statusCode: 200, body: { records: [{ Id: '7dl000000000001AAA' }] } };
+      }
+      if (req.method === 'GET' && req.path.includes('/tooling/query') && soql.includes('FROM TraceFlag')) {
+        (isOtherLogTypeQuery(soql) ? otherLogTypeQueries : queriedLogTypes).push(soql.match(/LogType = '(\w+)'/)?.[1]);
+        return { statusCode: 200, body: { records: [] } };
+      }
+      if (req.method === 'GET' && soql.includes("FROM User WHERE Username = 'user@example.com'")) {
+        return { statusCode: 200, body: { records: [{ Id: '005000000000001AAA' }] } };
+      }
+      if (req.method === 'POST' && req.path.endsWith('/tooling/sobjects/TraceFlag')) {
+        createdLogTypes.push(JSON.parse(req.body).LogType);
+        return { statusCode: 201, body: { success: true, id: '7tf000000000999AAA' } };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+    const target = { type: 'user', userId: '005000000000001AAA' } as const;
+
+    const statuses = [
+      await getTraceFlagTargetStatus(auth, target),
+      await getTraceFlagTargetStatus(auth, target, 'USER_DEBUG')
+    ];
+    const tailCreated = await ensureUserTraceFlag(auth, 'ALV_E2E');
+    const applied = await upsertTraceFlag(auth, {
+      target,
+      logType: 'USER_DEBUG',
+      debugLevelName: 'ALV_E2E',
+      ttlMinutes: 30
+    });
+    const removals = [await removeTraceFlags(auth, target), await removeTraceFlags(auth, target, 'USER_DEBUG')];
+
+    assert.deepEqual(
+      statuses.map(status => status.logType),
+      ['DEVELOPER_LOG', 'USER_DEBUG']
+    );
+    assert.equal(tailCreated, true);
+    assert.equal(applied.logType, 'USER_DEBUG');
+    assert.deepEqual(createdLogTypes, ['DEVELOPER_LOG', 'USER_DEBUG']);
+    assert.deepEqual(
+      removals.map(removal => removal.logType),
+      ['DEVELOPER_LOG', 'USER_DEBUG']
+    );
+    assert.deepEqual(queriedLogTypes, [
+      'DEVELOPER_LOG',
+      'USER_DEBUG',
+      'DEVELOPER_LOG',
+      'USER_DEBUG',
+      'DEVELOPER_LOG',
+      'USER_DEBUG'
+    ]);
+    assert.deepEqual(otherLogTypeQueries, ['USER_DEBUG', 'DEVELOPER_LOG'], 'each status also reads the other type');
+  });
+
+  function stubUserTraceFlags(flagsByLogType: Partial<Record<'DEVELOPER_LOG' | 'USER_DEBUG', object>>) {
+    return installHttpsStub(req => {
+      const soql = decodeSoql(req.path);
+      if (req.method === 'GET' && req.path.includes('/tooling/query') && soql.includes('FROM TraceFlag')) {
+        const flag = Object.entries(flagsByLogType).find(([logType]) => soql.includes(`LogType = '${logType}'`))?.[1];
+        return { statusCode: 200, body: { records: flag ? [{ TracedEntityId: '005000000000001AAA', ...flag }] : [] } };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+  }
+
+  test('getTraceFlagTargetStatus reports the active DEVELOPER_LOG flag that overrides a USER_DEBUG status', async () => {
+    stubUserTraceFlags({
+      DEVELOPER_LOG: {
+        Id: '7tf000000000001AAA',
+        StartDate: '2026-02-19T16:00:00.000Z',
+        ExpirationDate: '2098-06-01T12:00:00.000Z',
+        DebugLevel: { DeveloperName: 'ALV_DEVELOPER' }
+      },
+      USER_DEBUG: {
+        Id: '7tf000000000002AAA',
+        StartDate: '2026-02-19T16:00:00.000Z',
+        ExpirationDate: '2099-02-19T18:00:00.000Z',
+        DebugLevel: { DeveloperName: 'ALV_USER_DEBUG' }
+      }
+    });
+
+    const status = await getTraceFlagTargetStatus(auth, { type: 'user', userId: '005000000000001AAA' }, 'USER_DEBUG');
+
+    assert.deepEqual(
+      [status.isActive, status.traceFlagId, status.debugLevelName],
+      [true, '7tf000000000002AAA', 'ALV_USER_DEBUG']
+    );
+    assert.deepEqual(status.otherLogType, {
+      logType: 'DEVELOPER_LOG',
+      isActive: true,
+      activeTargetCount: 1,
+      expirationDate: '2098-06-01T12:00:00.000Z'
+    });
+  });
+
+  test('getTraceFlagTargetStatus reports an active USER_DEBUG flag when the DEVELOPER_LOG status has none', async () => {
+    stubUserTraceFlags({
+      USER_DEBUG: {
+        Id: '7tf000000000002AAA',
+        StartDate: '2026-02-19T16:00:00.000Z',
+        ExpirationDate: '2099-02-19T18:00:00.000Z',
+        DebugLevel: { DeveloperName: 'ALV_USER_DEBUG' }
+      }
+    });
+
+    const status = await getTraceFlagTargetStatus(auth, { type: 'user', userId: '005000000000001AAA' });
+
+    assert.deepEqual([status.logType, status.isActive, status.traceFlagId], ['DEVELOPER_LOG', false, undefined]);
+    assert.deepEqual(status.otherLogType, {
+      logType: 'USER_DEBUG',
+      isActive: true,
+      activeTargetCount: 1,
+      expirationDate: '2099-02-19T18:00:00.000Z'
+    });
+  });
+
+  test('getTraceFlagTargetStatus counts an expired flag of the other log type as inactive', async () => {
+    stubUserTraceFlags({
+      USER_DEBUG: {
+        Id: '7tf000000000002AAA',
+        StartDate: '2017-01-01T00:00:00.000Z',
+        ExpirationDate: '2017-01-02T00:00:00.000Z',
+        DebugLevel: { DeveloperName: 'SFDC_DevConsole' }
+      }
+    });
+
+    const status = await getTraceFlagTargetStatus(auth, { type: 'user', userId: '005000000000001AAA' });
+
+    assert.deepEqual(status.otherLogType, { logType: 'USER_DEBUG', isActive: false, activeTargetCount: 0 });
+  });
+
+  test('removeTraceFlags deletes DEVELOPER_LOG flags across all resolved Platform Integration targets', async () => {
     const calls = installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);

@@ -16,6 +16,7 @@ import {
   findRecentApexLogId,
   getDebugLevelByDeveloperName,
   getCurrentUserId,
+  getDebugTraceFlagByTracedEntityId,
   getOrgAuth,
   removeUserDebugTraceFlags,
   resolveSpecialTraceFlagTarget,
@@ -468,6 +469,46 @@ describe('ensureDebugFlagsTestUser', () => {
     await ensureE2eTraceFlag(auth);
 
     expect(calls).toBe(9);
+  });
+
+  test('seeds, reads back and removes trace flags of the log type the Debug Flags panel writes by default', async () => {
+    const auth: OrgAuth = {
+      accessToken: 'token',
+      instanceUrl: 'https://example.my.salesforce.com',
+      username: 'auth.user@example.com',
+      apiVersion: '62.0'
+    };
+    const queriedLogTypes: Array<string | undefined> = [];
+    const createdLogTypes: unknown[] = [];
+
+    globalThis.fetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = String(init?.method || 'GET').toUpperCase();
+      const soql = url.includes('?q=') ? decodeURIComponent(url.slice(url.indexOf('?q=') + 3)) : '';
+
+      if (method === 'GET' && soql.includes("FROM User WHERE Username = 'auth.user@example.com'")) {
+        return responseFrom({ status: 200, body: { records: [{ Id: '005000000000999AAA' }] } });
+      }
+      if (method === 'GET' && soql.includes("FROM DebugLevel WHERE DeveloperName = 'ALV_E2E'")) {
+        return responseFrom({ status: 200, body: { records: [{ Id: '7dl000000000001AAA' }] } });
+      }
+      if (method === 'GET' && soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000999AAA'")) {
+        queriedLogTypes.push(soql.match(/LogType = '(\w+)'/)?.[1]);
+        return responseFrom({ status: 200, body: { records: [] } });
+      }
+      if (method === 'POST' && url.endsWith('/tooling/sobjects/TraceFlag')) {
+        createdLogTypes.push(JSON.parse(String(init?.body)).LogType);
+        return responseFrom({ status: 201, body: { success: true, id: '7tf000000000002AAA' } });
+      }
+      throw new Error(`Unexpected request ${method} ${url}`);
+    });
+
+    await ensureE2eTraceFlag(auth);
+    await getDebugTraceFlagByTracedEntityId(auth, '005000000000999AAA');
+    await removeUserDebugTraceFlags(auth, '005000000000999AAA');
+
+    expect(createdLogTypes).toEqual(['DEVELOPER_LOG']);
+    expect(queriedLogTypes).toEqual(['DEVELOPER_LOG', 'DEVELOPER_LOG', 'DEVELOPER_LOG']);
   });
 
   test('does not slide the fast-path cache forward when it skips the patch branch', async () => {

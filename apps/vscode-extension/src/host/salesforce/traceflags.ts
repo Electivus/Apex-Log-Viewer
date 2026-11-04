@@ -1,11 +1,14 @@
-import type {
-  ApplyTraceFlagTargetInput,
-  ApplyTraceFlagTargetResult,
-  DebugFlagUser,
-  DebugLevelRecord,
-  RemoveTraceFlagsResult,
-  TraceFlagTarget,
-  TraceFlagTargetStatus
+import {
+  DEFAULT_TRACE_FLAG_LOG_TYPE,
+  type ApplyTraceFlagTargetInput,
+  type ApplyTraceFlagTargetResult,
+  type DebugFlagUser,
+  type DebugLevelRecord,
+  type RemoveTraceFlagsResult,
+  type TraceFlagLogType,
+  type TraceFlagOtherLogTypeStatus,
+  type TraceFlagTarget,
+  type TraceFlagTargetStatus
 } from '../../shared/debugFlagsTypes';
 import { DEBUG_LEVEL_PRESETS } from '../../shared/debugLevelPresets';
 import { CacheManager } from '../utils/cacheManager';
@@ -43,6 +46,12 @@ type TraceFlagQueryRecord = {
     DeveloperName?: string;
   };
 };
+
+type OtherLogTypeQueryRecord = Pick<TraceFlagQueryRecord, 'StartDate' | 'ExpirationDate'> & {
+  TracedEntityId?: string;
+};
+
+type ResolvedTraceFlagTarget = { targetLabel: string; tracedEntityIds: string[]; targetAvailable: boolean };
 
 type DebugLevelQueryRecord = {
   Id?: string;
@@ -378,7 +387,14 @@ export async function getActiveUserDebugLevel(auth: OrgAuth): Promise<string | u
   if (!userId) {
     return undefined;
   }
-  const status = await getTraceFlagTargetStatus(auth, { type: 'user', userId });
+  const target = { type: 'user', userId } as const;
+  // Tail reads this on open and needs only the level, so it skips the other log type's query.
+  const status = await getResolvedTraceFlagTargetStatus(
+    auth,
+    target,
+    await resolveTraceFlagTarget(auth, target),
+    DEFAULT_TRACE_FLAG_LOG_TYPE
+  );
   const activeDebugLevel = status.traceFlagId ? status.debugLevelName : undefined;
   if (enabled && ttl > 0) {
     activeUserDebugLevelCache.set(cacheKey, {
@@ -472,10 +488,7 @@ async function getSpecialTraceFlagTargetIds(
   return [...userIds];
 }
 
-async function resolveTraceFlagTarget(
-  auth: OrgAuth,
-  target: TraceFlagTarget
-): Promise<{ targetLabel: string; tracedEntityIds: string[]; targetAvailable: boolean }> {
+async function resolveTraceFlagTarget(auth: OrgAuth, target: TraceFlagTarget): Promise<ResolvedTraceFlagTarget> {
   if (target.type === 'user') {
     const tracedEntityId = isSalesforceId(target.userId) ? target.userId : undefined;
     return {
@@ -566,36 +579,41 @@ export async function deleteDebugLevel(auth: OrgAuth, debugLevelId: string): Pro
 
 async function getLatestTraceFlagRecord(
   auth: OrgAuth,
-  tracedEntityId: string
+  tracedEntityId: string,
+  logType: TraceFlagLogType
 ): Promise<TraceFlagQueryRecord | undefined> {
   if (!isSalesforceId(tracedEntityId)) {
     return undefined;
   }
   const soql =
     `SELECT Id, DebugLevel.DeveloperName, StartDate, ExpirationDate ` +
-    `FROM TraceFlag WHERE TracedEntityId = '${tracedEntityId}' AND LogType = 'USER_DEBUG' ` +
+    `FROM TraceFlag WHERE TracedEntityId = '${tracedEntityId}' AND LogType = '${logType}' ` +
     `ORDER BY CreatedDate DESC LIMIT 1`;
   const json = await queryTooling<TraceFlagQueryRecord>(auth, soql);
   return (json.records || [])[0];
 }
 
-async function getLatestTraceFlagId(auth: OrgAuth, tracedEntityId: string): Promise<string | undefined> {
+async function getLatestTraceFlagId(
+  auth: OrgAuth,
+  tracedEntityId: string,
+  logType: TraceFlagLogType
+): Promise<string | undefined> {
   if (!isSalesforceId(tracedEntityId)) {
     return undefined;
   }
   const soql =
-    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${tracedEntityId}' AND LogType = 'USER_DEBUG' ` +
+    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${tracedEntityId}' AND LogType = '${logType}' ` +
     `ORDER BY CreatedDate DESC LIMIT 1`;
   const json = await queryTooling<{ Id?: string }>(auth, soql);
   return (json.records || [])[0]?.Id;
 }
 
-async function listTraceFlagIds(auth: OrgAuth, tracedEntityId: string): Promise<string[]> {
+async function listTraceFlagIds(auth: OrgAuth, tracedEntityId: string, logType: TraceFlagLogType): Promise<string[]> {
   if (!isSalesforceId(tracedEntityId)) {
     return [];
   }
   const soql =
-    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${tracedEntityId}' AND LogType = 'USER_DEBUG' ` +
+    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${tracedEntityId}' AND LogType = '${logType}' ` +
     `ORDER BY CreatedDate DESC LIMIT 200`;
   const json = await queryTooling<{ Id?: string }>(auth, soql);
   return (json.records || [])
@@ -605,11 +623,12 @@ async function listTraceFlagIds(auth: OrgAuth, tracedEntityId: string): Promise<
 
 async function getLatestTraceFlagRecordsByEntityId(
   auth: OrgAuth,
-  tracedEntityIds: readonly string[]
+  tracedEntityIds: readonly string[],
+  logType: TraceFlagLogType
 ): Promise<Map<string, TraceFlagQueryRecord | undefined>> {
   const entries = await Promise.all(
     tracedEntityIds.map(
-      async tracedEntityId => [tracedEntityId, await getLatestTraceFlagRecord(auth, tracedEntityId)] as const
+      async tracedEntityId => [tracedEntityId, await getLatestTraceFlagRecord(auth, tracedEntityId, logType)] as const
     )
   );
   return new Map(entries);
@@ -619,11 +638,67 @@ function getTraceFlagDebugLevelName(record: TraceFlagQueryRecord | undefined): s
   return typeof record?.DebugLevel?.DeveloperName === 'string' ? record.DebugLevel.DeveloperName : undefined;
 }
 
-export async function getTraceFlagTargetStatus(auth: OrgAuth, target: TraceFlagTarget): Promise<TraceFlagTargetStatus> {
+const OTHER_TRACE_FLAG_LOG_TYPE: Record<TraceFlagLogType, TraceFlagLogType> = {
+  DEVELOPER_LOG: 'USER_DEBUG',
+  USER_DEBUG: 'DEVELOPER_LOG'
+};
+
+function summarizeOtherLogTypeFlags(
+  logType: TraceFlagLogType,
+  records: readonly OtherLogTypeQueryRecord[]
+): TraceFlagOtherLogTypeStatus {
+  const activeExpirationByEntityId = new Map<string, string>();
+  for (const record of records) {
+    const tracedEntityId = record.TracedEntityId;
+    const startDate = typeof record.StartDate === 'string' ? record.StartDate : undefined;
+    const expirationDate = typeof record.ExpirationDate === 'string' ? record.ExpirationDate : undefined;
+    if (
+      !tracedEntityId ||
+      !expirationDate ||
+      activeExpirationByEntityId.has(tracedEntityId) ||
+      !isTraceFlagActive(startDate, expirationDate)
+    ) {
+      continue;
+    }
+    activeExpirationByEntityId.set(tracedEntityId, expirationDate);
+  }
+  let latestExpirationDate: string | undefined;
+  for (const expirationDate of activeExpirationByEntityId.values()) {
+    if (!latestExpirationDate || Date.parse(expirationDate) > Date.parse(latestExpirationDate)) {
+      latestExpirationDate = expirationDate;
+    }
+  }
+  return {
+    logType,
+    isActive: activeExpirationByEntityId.size > 0,
+    activeTargetCount: activeExpirationByEntityId.size,
+    ...(latestExpirationDate ? { expirationDate: latestExpirationDate } : {})
+  };
+}
+
+async function getOtherLogTypeStatus(
+  auth: OrgAuth,
+  tracedEntityIds: readonly string[],
+  logType: TraceFlagLogType
+): Promise<TraceFlagOtherLogTypeStatus> {
+  const idList = tracedEntityIds.map(id => `'${id}'`).join(',');
+  const soql =
+    `SELECT TracedEntityId, StartDate, ExpirationDate FROM TraceFlag ` +
+    `WHERE TracedEntityId IN (${idList}) AND LogType = '${logType}' ORDER BY CreatedDate DESC`;
+  const json = await queryTooling<OtherLogTypeQueryRecord>(auth, soql);
+  return summarizeOtherLogTypeFlags(logType, json.records || []);
+}
+
+export async function getTraceFlagTargetStatus(
+  auth: OrgAuth,
+  target: TraceFlagTarget,
+  logType: TraceFlagLogType = DEFAULT_TRACE_FLAG_LOG_TYPE
+): Promise<TraceFlagTargetStatus> {
   const resolved = await resolveTraceFlagTarget(auth, target);
   if (!resolved.targetAvailable || resolved.tracedEntityIds.length === 0) {
     return {
       target,
+      logType,
       targetLabel: resolved.targetLabel,
       targetAvailable: false,
       resolvedTargetCount: 0,
@@ -632,12 +707,26 @@ export async function getTraceFlagTargetStatus(auth: OrgAuth, target: TraceFlagT
     };
   }
 
+  const [status, otherLogType] = await Promise.all([
+    getResolvedTraceFlagTargetStatus(auth, target, resolved, logType),
+    getOtherLogTypeStatus(auth, resolved.tracedEntityIds, OTHER_TRACE_FLAG_LOG_TYPE[logType])
+  ]);
+  return { ...status, otherLogType };
+}
+
+async function getResolvedTraceFlagTargetStatus(
+  auth: OrgAuth,
+  target: TraceFlagTarget,
+  resolved: ResolvedTraceFlagTarget,
+  logType: TraceFlagLogType
+): Promise<TraceFlagTargetStatus> {
   if (!isSpecialTraceFlagTarget(target)) {
     const tracedEntityId = resolved.tracedEntityIds[0];
-    const record = tracedEntityId ? await getLatestTraceFlagRecord(auth, tracedEntityId) : undefined;
+    const record = tracedEntityId ? await getLatestTraceFlagRecord(auth, tracedEntityId, logType) : undefined;
     if (!record?.Id) {
       return {
         target,
+        logType,
         targetLabel: resolved.targetLabel,
         targetAvailable: true,
         resolvedTargetCount: tracedEntityId ? 1 : 0,
@@ -651,6 +740,7 @@ export async function getTraceFlagTargetStatus(auth: OrgAuth, target: TraceFlagT
     const isActive = isTraceFlagActive(startDate, expirationDate);
     return {
       target,
+      logType,
       targetLabel: resolved.targetLabel,
       targetAvailable: true,
       traceFlagId: String(record.Id),
@@ -663,7 +753,7 @@ export async function getTraceFlagTargetStatus(auth: OrgAuth, target: TraceFlagT
     };
   }
 
-  const recordsByEntityId = await getLatestTraceFlagRecordsByEntityId(auth, resolved.tracedEntityIds);
+  const recordsByEntityId = await getLatestTraceFlagRecordsByEntityId(auth, resolved.tracedEntityIds, logType);
   const resolvedStatuses = resolved.tracedEntityIds.map(tracedEntityId => {
     const record = recordsByEntityId.get(tracedEntityId);
     const startDate = typeof record?.StartDate === 'string' ? record.StartDate : undefined;
@@ -682,6 +772,7 @@ export async function getTraceFlagTargetStatus(auth: OrgAuth, target: TraceFlagT
   if (activeStatuses.length === 0) {
     return {
       target,
+      logType,
       targetLabel: resolved.targetLabel,
       targetAvailable: true,
       resolvedTargetCount: resolved.tracedEntityIds.length,
@@ -703,6 +794,7 @@ export async function getTraceFlagTargetStatus(auth: OrgAuth, target: TraceFlagT
     );
   return {
     target,
+    logType,
     targetLabel: resolved.targetLabel,
     targetAvailable: true,
     debugLevelName: debugLevelMixed ? undefined : [...uniqueDebugLevels][0],
@@ -745,15 +837,16 @@ export async function upsertTraceFlag(
 
   try {
     for (const tracedEntityId of resolved.tracedEntityIds) {
-      const existingId = await getLatestTraceFlagId(auth, tracedEntityId);
+      const existingId = await getLatestTraceFlagId(auth, tracedEntityId, input.logType);
       if (existingId) {
+        // LogType is create-only on TraceFlag, so the update never sends it.
         const updateResult = await updateToolingRecord(auth, apiVersion, 'TraceFlag', existingId, {
           DebugLevelId: debugLevelId,
           StartDate: start,
           ExpirationDate: exp
         });
         if (updateResult?.success === false) {
-          throw new Error('Failed to update USER_DEBUG TraceFlag.');
+          throw new Error(`Failed to update ${input.logType} TraceFlag.`);
         }
         updatedCount += 1;
         traceFlagIds.push(existingId);
@@ -762,14 +855,14 @@ export async function upsertTraceFlag(
 
       const payload = {
         TracedEntityId: tracedEntityId,
-        LogType: 'USER_DEBUG',
+        LogType: input.logType,
         DebugLevelId: debugLevelId,
         StartDate: start,
         ExpirationDate: exp
       };
       const res = await createToolingRecord(auth, apiVersion, 'TraceFlag', payload);
       if (!res || !res.success || !res.id) {
-        throw new Error('Failed to create USER_DEBUG TraceFlag.');
+        throw new Error(`Failed to create ${input.logType} TraceFlag.`);
       }
       createdCount += 1;
       traceFlagIds.push(String(res.id));
@@ -777,6 +870,7 @@ export async function upsertTraceFlag(
 
     const traceFlagId = traceFlagIds.length === 1 ? traceFlagIds[0] : undefined;
     return {
+      logType: input.logType,
       created: resolved.tracedEntityIds.length === 1 ? createdCount === 1 : createdCount > 0 && updatedCount === 0,
       traceFlagId,
       traceFlagIds,
@@ -791,7 +885,11 @@ export async function upsertTraceFlag(
   }
 }
 
-export async function removeTraceFlags(auth: OrgAuth, target: TraceFlagTarget): Promise<RemoveTraceFlagsResult> {
+export async function removeTraceFlags(
+  auth: OrgAuth,
+  target: TraceFlagTarget,
+  logType: TraceFlagLogType = DEFAULT_TRACE_FLAG_LOG_TYPE
+): Promise<RemoveTraceFlagsResult> {
   const resolved = await resolveTraceFlagTarget(auth, target);
   if (!resolved.targetAvailable || resolved.tracedEntityIds.length === 0) {
     throw new Error(`Trace flag target '${resolved.targetLabel}' was not found.`);
@@ -801,17 +899,18 @@ export async function removeTraceFlags(auth: OrgAuth, target: TraceFlagTarget): 
   const apiVersion = getEffectiveApiVersion(auth);
   try {
     for (const tracedEntityId of resolved.tracedEntityIds) {
-      const ids = await listTraceFlagIds(auth, tracedEntityId);
+      const ids = await listTraceFlagIds(auth, tracedEntityId, logType);
       for (const id of ids) {
         const result = await deleteToolingRecord(auth, apiVersion, 'TraceFlag', id);
         if (result?.success === false) {
-          throw new Error(`Failed to delete USER_DEBUG TraceFlag '${id}'.`);
+          throw new Error(`Failed to delete ${logType} TraceFlag '${id}'.`);
         }
         removedCount += 1;
       }
     }
 
     return {
+      logType,
       removedCount,
       resolvedTargetCount: resolved.tracedEntityIds.length
     };
@@ -832,6 +931,7 @@ export async function upsertUserTraceFlag(
 ): Promise<ApplyTraceFlagTargetResult> {
   return upsertTraceFlag(auth, {
     target: { type: 'user', userId: input.userId },
+    logType: DEFAULT_TRACE_FLAG_LOG_TYPE,
     debugLevelName: input.debugLevelName,
     ttlMinutes: input.ttlMinutes
   });
@@ -858,6 +958,7 @@ export async function ensureUserTraceFlag(
     }
     const result = await upsertTraceFlag(auth, {
       target: { type: 'user', userId },
+      logType: DEFAULT_TRACE_FLAG_LOG_TYPE,
       debugLevelName: developerName,
       ttlMinutes
     });

@@ -21,7 +21,7 @@ Search downloaded Salesforce Apex logs inside VS Code, jump straight to the righ
 - Open a dedicated **Apex Log Viewer** with parsed entries, focused filters, and a diagnostics sidebar.
 - Tail live logs, open the selected log, or hand it off to Apex Replay Debugger without leaving VS Code.
 - Read the application logs that Nebula Logger or your own logging framework stores in Salesforce records or publishes as platform events, with JSON payload columns and a link to the matching Apex debug log. Captured events stay on disk after Salesforce drops them.
-- Manage `USER_DEBUG` TraceFlags in a dedicated **Apex Debug Flags** screen with more room than the standard panel view.
+- Manage TraceFlags in a dedicated **Apex Debug Flags** screen with more room than the standard panel view. Flags default to `DEVELOPER_LOG`, the type Apex checkpoints need; choose `USER_DEBUG` from the Log type select when you need it.
 - Switch orgs quickly and keep the workflow centered on the org you are actively investigating.
 
 ## Screenshots
@@ -165,7 +165,9 @@ The extension activates automatically when the workspace contains `sfdx-project.
 
 - Open **Debug Flags** from either the Logs toolbar or the Tail toolbar.
 - Search active users by name or username.
-- Review current `USER_DEBUG` status, level, and expiration.
+- Pick the log type: `DEVELOPER_LOG` by default (Apex checkpoints need it; Salesforce keeps these logs 24 hours) or `USER_DEBUG` (the Setup > Debug Logs type; kept 7 days).
+- Review the current status, level, and expiration for that log type.
+- See when the other log type's flag matters: an active `DEVELOPER_LOG` flag (for example the Developer Console's) sets the level even when you look at `USER_DEBUG`, and a `DEVELOPER_LOG` view with no flag points you to an active `USER_DEBUG` flag.
 - Apply or remove trace flags with a custom TTL.
 - Use the **Debug Level Manager** to create or tune a DebugLevel without leaving the extension.
 

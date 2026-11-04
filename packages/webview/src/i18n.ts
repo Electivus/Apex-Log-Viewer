@@ -94,6 +94,15 @@ export type Messages = {
     selectTargetHint?: string;
     debugLevel: string;
     ttlMinutes: string;
+    logType?: string;
+    logTypeDeveloperLog?: string;
+    logTypeUserDebug?: string;
+    logTypeHelper?: string;
+    otherLogTypeOverridden?: string;
+    otherLogTypeHidden?: string;
+    otherLogTypeOnThisTarget?: string;
+    otherLogTypeOnMatchedTargets?: string;
+    otherLogTypeSwitch?: string;
     apply: string;
     remove: string;
     currentStatus: string;
@@ -212,7 +221,7 @@ const en: Messages = {
     open: 'Debug Flags',
     openTitle: 'Open debug flags editor',
     panelTitle: 'Apex Debug Flags',
-    panelSubtitle: 'Configure USER_DEBUG trace flags for active users and special Salesforce targets.',
+    panelSubtitle: 'Configure trace flags for active users and special Salesforce targets.',
     org: 'Org',
     specialTargets: 'Special targets',
     specialTargetAutomatedProcess: 'Automated Process',
@@ -227,6 +236,17 @@ const en: Messages = {
     selectTargetHint: 'Select a special target or an active user to inspect and configure debug flags.',
     debugLevel: 'Debug level',
     ttlMinutes: 'TTL (minutes)',
+    logType: 'Log type',
+    logTypeDeveloperLog: 'Developer log (DEVELOPER_LOG)',
+    logTypeUserDebug: 'User debug (USER_DEBUG)',
+    logTypeHelper:
+      "Developer logs also capture Apex checkpoints (heap dumps) and are kept for 24 hours. User debug logs are kept for 7 days. When a user has both types active, the developer log's debug level applies. The Developer Console uses the same DEVELOPER_LOG flag, so removing DEVELOPER_LOG here also removes the Console's flag, and the Console creates it again when it opens.",
+    otherLogTypeOverridden:
+      "A DEVELOPER_LOG trace flag is also active {where} until {expiration}. Salesforce writes each transaction's log at that flag's debug level, so this USER_DEBUG level does not apply until then.",
+    otherLogTypeHidden: 'A USER_DEBUG trace flag is active {where} until {expiration}.',
+    otherLogTypeOnThisTarget: 'on this target',
+    otherLogTypeOnMatchedTargets: 'on {active} of {resolved} matched targets',
+    otherLogTypeSwitch: 'Show USER_DEBUG flag',
     apply: 'Apply debug flag',
     remove: 'Remove debug flag',
     currentStatus: 'Current status',
@@ -239,7 +259,7 @@ const en: Messages = {
     statusExpiration: 'Expires',
     statusStart: 'Starts',
     statusMixed: 'Mixed',
-    noStatus: 'No active USER_DEBUG trace flag for this target.',
+    noStatus: 'No active {logType} trace flag for this target.',
     targetUnavailable: 'This trace flag target is not available in this org.',
     noticeCreated: 'Debug flag created successfully.',
     noticeUpdated: 'Debug flag updated successfully.',
@@ -345,7 +365,7 @@ const ptBR: Messages = {
     open: 'Debug Flags',
     openTitle: 'Abrir editor de debug flags',
     panelTitle: 'Apex Debug Flags',
-    panelSubtitle: 'Configure trace flags USER_DEBUG para usuários ativos e alvos especiais do Salesforce.',
+    panelSubtitle: 'Configure trace flags para usuários ativos e alvos especiais do Salesforce.',
     org: 'Org',
     specialTargets: 'Alvos especiais',
     specialTargetAutomatedProcess: 'Automated Process',
@@ -360,6 +380,17 @@ const ptBR: Messages = {
     selectTargetHint: 'Selecione um alvo especial ou um usuário ativo para inspecionar e configurar debug flags.',
     debugLevel: 'Nível de depuração',
     ttlMinutes: 'TTL (minutos)',
+    logType: 'Tipo de log',
+    logTypeDeveloperLog: 'Log de desenvolvedor (DEVELOPER_LOG)',
+    logTypeUserDebug: 'Depuração de usuário (USER_DEBUG)',
+    logTypeHelper:
+      'Logs de desenvolvedor também capturam checkpoints do Apex (heap dumps) e são mantidos por 24 horas. Os logs de depuração de usuário são mantidos por 7 dias. Se o usuário tiver os dois tipos ativos, vale o nível de depuração do log de desenvolvedor. O Developer Console usa a mesma flag DEVELOPER_LOG: remover DEVELOPER_LOG aqui também remove a flag do Console, e o Console a cria de novo ao ser aberto.',
+    otherLogTypeOverridden:
+      'Uma trace flag DEVELOPER_LOG também está ativa {where} até {expiration}. O Salesforce grava o log de cada transação com o nível de depuração dessa flag, então este nível USER_DEBUG não se aplica até lá.',
+    otherLogTypeHidden: 'Uma trace flag USER_DEBUG está ativa {where} até {expiration}.',
+    otherLogTypeOnThisTarget: 'neste alvo',
+    otherLogTypeOnMatchedTargets: 'em {active} de {resolved} alvos correspondentes',
+    otherLogTypeSwitch: 'Mostrar flag USER_DEBUG',
     apply: 'Aplicar debug flag',
     remove: 'Remover debug flag',
     currentStatus: 'Status atual',
@@ -372,7 +403,7 @@ const ptBR: Messages = {
     statusExpiration: 'Expira em',
     statusStart: 'Inicia em',
     statusMixed: 'Misto',
-    noStatus: 'Nenhuma trace flag USER_DEBUG ativa para este alvo.',
+    noStatus: 'Nenhuma trace flag {logType} ativa para este alvo.',
     targetUnavailable: 'Este alvo de trace flag não está disponível nesta org.',
     noticeCreated: 'Debug flag criada com sucesso.',
     noticeUpdated: 'Debug flag atualizada com sucesso.',

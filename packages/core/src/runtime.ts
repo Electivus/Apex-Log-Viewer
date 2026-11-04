@@ -34,14 +34,18 @@ import type {
   ToolingRequestGetParams,
   TraceFlagApplyParams,
   TraceFlagApplyResult,
+  TraceFlagLogType,
+  TraceFlagOtherLogTypeStatus,
   TraceFlagRemoveParams,
   TraceFlagRemoveResult,
+  TraceFlagStatusParams,
   TraceFlagTarget,
   TraceFlagTargetStatus,
   UserRecord,
   UserSearchParams,
   UserSearchResult
 } from './contracts.js';
+import { DEFAULT_TRACE_FLAG_LOG_TYPE, TRACE_FLAG_LOG_TYPES } from './contracts.js';
 import { createCustomLogApi, type CaptureRunEvent, type CustomLogEnv } from './customLogs/api.js';
 import type {
   CustomLogCaptureParams,
@@ -860,23 +864,26 @@ function isTraceActive(record: JsonObject): boolean {
   return (!Number.isFinite(start) || start <= now) && Number.isFinite(expiration) && now <= expiration;
 }
 
-export function summarizeTraceFlagRecords(params: {
-  target: TraceFlagTarget;
-  targetLabel: string;
-  resolvedIds: string[];
-  records: JsonObject[];
-}): TraceFlagTargetStatus {
+/** The first active record of each resolved target, in `resolvedIds` order. */
+function activeRecordPerTarget(resolvedIds: string[], records: JsonObject[]): JsonObject[] {
   const activeByTarget = new Map<string, JsonObject>();
-  for (const record of params.records) {
+  for (const record of records) {
     if (!isTraceActive(record)) continue;
     const tracedEntityId = asString(record.TracedEntityId);
     if (!tracedEntityId || activeByTarget.has(tracedEntityId)) continue;
     activeByTarget.set(tracedEntityId, record);
   }
+  return resolvedIds.map(id => activeByTarget.get(id)).filter((record): record is JsonObject => Boolean(record));
+}
 
-  const activeRecords = params.resolvedIds
-    .map(id => activeByTarget.get(id))
-    .filter((record): record is JsonObject => Boolean(record));
+export function summarizeTraceFlagRecords(params: {
+  target: TraceFlagTarget;
+  logType: TraceFlagLogType;
+  targetLabel: string;
+  resolvedIds: string[];
+  records: JsonObject[];
+}): TraceFlagTargetStatus {
+  const activeRecords = activeRecordPerTarget(params.resolvedIds, params.records);
   const debugLevels = new Set(
     activeRecords.map(record => asString((record.DebugLevel as JsonObject | undefined)?.DeveloperName)).filter(Boolean)
   );
@@ -886,6 +893,7 @@ export function summarizeTraceFlagRecords(params: {
 
   return {
     target: params.target,
+    logType: params.logType,
     targetLabel: params.targetLabel,
     targetAvailable: true,
     isActive: activeRecords.length > 0,
@@ -901,26 +909,82 @@ export function summarizeTraceFlagRecords(params: {
   };
 }
 
+const OTHER_TRACE_FLAG_LOG_TYPE: Record<TraceFlagLogType, TraceFlagLogType> = {
+  DEVELOPER_LOG: 'USER_DEBUG',
+  USER_DEBUG: 'DEVELOPER_LOG'
+};
+
+function summarizeOtherLogTypeRecords(params: {
+  logType: TraceFlagLogType;
+  resolvedIds: string[];
+  records: JsonObject[];
+}): TraceFlagOtherLogTypeStatus {
+  const activeRecords = activeRecordPerTarget(params.resolvedIds, params.records);
+  let expirationDate: string | undefined;
+  for (const record of activeRecords) {
+    const candidate = asString(record.ExpirationDate);
+    if (candidate && (!expirationDate || Date.parse(candidate) > Date.parse(expirationDate))) {
+      expirationDate = candidate;
+    }
+  }
+  return {
+    logType: params.logType,
+    isActive: activeRecords.length > 0,
+    activeTargetCount: activeRecords.length,
+    ...(expirationDate ? { expirationDate } : {})
+  };
+}
+
+/** The log type is interpolated into SOQL, so every trace flag call resolves it here. */
+function resolveTraceFlagLogType(value: unknown): TraceFlagLogType {
+  if (value === undefined) return DEFAULT_TRACE_FLAG_LOG_TYPE;
+  const logType = TRACE_FLAG_LOG_TYPES.find(candidate => candidate === value);
+  if (!logType) {
+    throw new AlvError(
+      'INVALID_ARGUMENT',
+      `Unknown trace flag log type ${JSON.stringify(value)}. Use ${TRACE_FLAG_LOG_TYPES.join(' or ')}.`
+    );
+  }
+  return logType;
+}
+
 async function traceFlagStatusNative(
   ctx: ConnectionContext,
-  params: { target: TraceFlagTarget }
+  params: { target: TraceFlagTarget; logType: TraceFlagLogType }
 ): Promise<TraceFlagTargetStatus> {
   const ids = await resolveTraceTargets(ctx, params.target);
   const label = targetLabel(params.target);
   if (ids.length === 0) {
-    return { target: params.target, targetLabel: label, targetAvailable: false, isActive: false };
+    return {
+      target: params.target,
+      logType: params.logType,
+      targetLabel: label,
+      targetAvailable: false,
+      isActive: false
+    };
   }
   const idList = ids.map(id => `'${escapeSoqlLiteral(id)}'`).join(',');
+  const logTypeList = TRACE_FLAG_LOG_TYPES.map(logType => `'${logType}'`).join(',');
   const result = await toolingQuery<JsonObject>(
     ctx.connection,
-    `SELECT Id, TracedEntityId, StartDate, ExpirationDate, DebugLevel.DeveloperName FROM TraceFlag WHERE TracedEntityId IN (${idList}) AND LogType = 'USER_DEBUG' ORDER BY CreatedDate DESC`
+    `SELECT Id, TracedEntityId, LogType, StartDate, ExpirationDate, DebugLevel.DeveloperName FROM TraceFlag WHERE TracedEntityId IN (${idList}) AND LogType IN (${logTypeList}) ORDER BY CreatedDate DESC`
   );
-  return summarizeTraceFlagRecords({
-    target: params.target,
-    targetLabel: label,
-    resolvedIds: ids,
-    records: result.records || []
-  });
+  const records = result.records || [];
+  const otherLogType = OTHER_TRACE_FLAG_LOG_TYPE[params.logType];
+  return {
+    ...summarizeTraceFlagRecords({
+      target: params.target,
+      logType: params.logType,
+      targetLabel: label,
+      resolvedIds: ids,
+      records: records.filter(record => record.LogType === params.logType)
+    }),
+    otherLogType: summarizeOtherLogTypeRecords({
+      logType: otherLogType,
+      resolvedIds: ids,
+      records: records.filter(record => record.LogType === otherLogType)
+    })
+  };
 }
 
 async function getDebugLevelIdByName(ctx: ConnectionContext, debugLevelName: string): Promise<string> {
@@ -933,25 +997,33 @@ async function getDebugLevelIdByName(ctx: ConnectionContext, debugLevelName: str
   return id;
 }
 
-async function latestTraceFlagId(ctx: ConnectionContext, tracedEntityId: string): Promise<string | undefined> {
+async function latestTraceFlagId(
+  ctx: ConnectionContext,
+  tracedEntityId: string,
+  logType: TraceFlagLogType
+): Promise<string | undefined> {
   const result = await toolingQuery<{ Id?: string }>(
     ctx.connection,
-    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${escapeSoqlLiteral(tracedEntityId)}' AND LogType = 'USER_DEBUG' ORDER BY CreatedDate DESC LIMIT 1`
+    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${escapeSoqlLiteral(tracedEntityId)}' AND LogType = '${logType}' ORDER BY CreatedDate DESC LIMIT 1`
   );
   return asString(result.records?.[0]?.Id);
 }
 
-async function traceFlagIdsForTarget(ctx: ConnectionContext, tracedEntityId: string): Promise<string[]> {
+async function traceFlagIdsForTarget(
+  ctx: ConnectionContext,
+  tracedEntityId: string,
+  logType: TraceFlagLogType
+): Promise<string[]> {
   const result = await toolingQuery<{ Id?: string }>(
     ctx.connection,
-    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${escapeSoqlLiteral(tracedEntityId)}' AND LogType = 'USER_DEBUG' ORDER BY CreatedDate DESC LIMIT 200`
+    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${escapeSoqlLiteral(tracedEntityId)}' AND LogType = '${logType}' ORDER BY CreatedDate DESC LIMIT 200`
   );
   return (result.records || []).map(record => asString(record.Id)).filter((id): id is string => Boolean(id));
 }
 
 async function traceFlagApplyNative(
   ctx: ConnectionContext,
-  params: TraceFlagApplyParams
+  params: TraceFlagApplyParams & { logType: TraceFlagLogType }
 ): Promise<TraceFlagApplyResult> {
   const ids = await resolveTraceTargets(ctx, params.target);
   if (ids.length === 0) {
@@ -963,6 +1035,7 @@ async function traceFlagApplyNative(
   if (params.dryRun || !params.confirmed) {
     return {
       status: 'dry-run',
+      logType: params.logType,
       dryRun: true,
       created: false,
       createdCount: 0,
@@ -975,8 +1048,9 @@ async function traceFlagApplyNative(
   let createdCount = 0;
   let updatedCount = 0;
   for (const tracedEntityId of ids) {
-    const existingId = await latestTraceFlagId(ctx, tracedEntityId);
+    const existingId = await latestTraceFlagId(ctx, tracedEntityId, params.logType);
     if (existingId) {
+      // LogType is create-only on TraceFlag, so the update never sends it.
       await connectionRequest(
         ctx.connection,
         'PATCH',
@@ -993,7 +1067,7 @@ async function traceFlagApplyNative(
     }
     const payload = {
       TracedEntityId: tracedEntityId,
-      LogType: 'USER_DEBUG',
+      LogType: params.logType,
       DebugLevelId: debugLevelId,
       StartDate: startDate,
       ExpirationDate: expirationDate
@@ -1010,6 +1084,7 @@ async function traceFlagApplyNative(
   }
   return {
     status: 'success',
+    logType: params.logType,
     dryRun: false,
     created: createdCount > 0 && updatedCount === 0,
     createdCount,
@@ -1021,16 +1096,19 @@ async function traceFlagApplyNative(
 
 async function traceFlagRemoveNative(
   ctx: ConnectionContext,
-  params: TraceFlagRemoveParams
+  params: TraceFlagRemoveParams & { logType: TraceFlagLogType }
 ): Promise<TraceFlagRemoveResult> {
   const targetIds = await resolveTraceTargets(ctx, params.target);
   if (targetIds.length === 0) {
     throw new Error(`trace flag target '${targetLabel(params.target)}' was not found`);
   }
-  const ids = (await Promise.all(targetIds.map(tracedEntityId => traceFlagIdsForTarget(ctx, tracedEntityId)))).flat();
+  const ids = (
+    await Promise.all(targetIds.map(tracedEntityId => traceFlagIdsForTarget(ctx, tracedEntityId, params.logType)))
+  ).flat();
   if (params.dryRun || !params.confirmed) {
     return {
       status: 'dry-run',
+      logType: params.logType,
       removedCount: 0,
       resolvedTargetCount: targetIds.length,
       traceFlagIds: ids,
@@ -1048,6 +1126,7 @@ async function traceFlagRemoveNative(
   }
   return {
     status: 'success',
+    logType: params.logType,
     removedCount: removed,
     resolvedTargetCount: targetIds.length,
     traceFlagIds: ids,
@@ -1466,17 +1545,28 @@ export function createApexLogViewerCore(
         orgCall('user.search', params.targetOrg, callOptions, ctx => usersSearchNative(ctx, params))
     },
     traceFlag: {
-      status: (params: { targetOrg?: string; target: TraceFlagTarget }, callOptions?: CoreCallOptions) =>
+      status: (params: TraceFlagStatusParams, callOptions?: CoreCallOptions) =>
         orgCall('traceFlag.status', params.targetOrg, callOptions, async ctx =>
-          traceFlagStatusNative(ctx, { target: await normalizeCurrentUserTarget(ctx, params.target) })
+          traceFlagStatusNative(ctx, {
+            logType: resolveTraceFlagLogType(params.logType),
+            target: await normalizeCurrentUserTarget(ctx, params.target)
+          })
         ),
       apply: (params: TraceFlagApplyParams, callOptions?: CoreCallOptions) =>
         orgCall('traceFlag.apply', params.targetOrg, callOptions, async ctx =>
-          traceFlagApplyNative(ctx, { ...params, target: await normalizeCurrentUserTarget(ctx, params.target) })
+          traceFlagApplyNative(ctx, {
+            ...params,
+            logType: resolveTraceFlagLogType(params.logType),
+            target: await normalizeCurrentUserTarget(ctx, params.target)
+          })
         ),
       remove: (params: TraceFlagRemoveParams, callOptions?: CoreCallOptions) =>
         orgCall('traceFlag.remove', params.targetOrg, callOptions, async ctx =>
-          traceFlagRemoveNative(ctx, { ...params, target: await normalizeCurrentUserTarget(ctx, params.target) })
+          traceFlagRemoveNative(ctx, {
+            ...params,
+            logType: resolveTraceFlagLogType(params.logType),
+            target: await normalizeCurrentUserTarget(ctx, params.target)
+          })
         )
     },
     debugLevel: {
