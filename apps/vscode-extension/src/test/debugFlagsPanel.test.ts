@@ -438,4 +438,154 @@ suite('DebugFlagsPanel', () => {
 
     assert.deepEqual(calls, ['create', 'update', 'delete']);
   });
+
+  const traceFlagTarget = { type: 'user', userId: '005000000000001AAA' } as const;
+
+  function panelReceivingMessages(DebugFlagsPanel: unknown) {
+    const posted: any[] = [];
+    const panel = Object.assign(Object.create((DebugFlagsPanel as { prototype: object }).prototype), {
+      disposed: false,
+      selectedOrg: 'user@example.com',
+      statusToken: 0,
+      lastSourceView: 'logs',
+      panel: { webview: { postMessage: async (message: unknown) => posted.push(message) } }
+    });
+    const send = async (message: unknown) => await panel.onMessage(message);
+    return { posted, send };
+  }
+
+  async function selectApplyAndRemove(send: (message: unknown) => Promise<void>) {
+    await send({ type: 'debugFlagsSelectTarget', target: traceFlagTarget, logType: 'USER_DEBUG' });
+    await send({
+      type: 'debugFlagsApply',
+      target: traceFlagTarget,
+      logType: 'USER_DEBUG',
+      debugLevelName: 'ALV_E2E',
+      ttlMinutes: 30
+    });
+    await send({ type: 'debugFlagsRemove', target: traceFlagTarget, logType: 'USER_DEBUG' });
+  }
+
+  const statusFor = (target: unknown, logType: unknown) => ({
+    target,
+    logType,
+    targetLabel: 'User',
+    targetAvailable: true,
+    isActive: false
+  });
+
+  test('the webview log type reaches the runtime trace flag status, apply and remove calls', async () => {
+    const calls: Array<[string, unknown]> = [];
+    const { DebugFlagsPanel } = loadDebugFlagsPanel({
+      telemetry: { safeSendEvent: () => undefined },
+      runtime: {
+        runtimeClient: {
+          getOrgAuth: async () => ({
+            username: 'user@example.com',
+            instanceUrl: 'https://example.com',
+            accessToken: 'x'
+          }),
+          traceFlagStatus: async (params: any) => {
+            calls.push(['status', params.logType]);
+            return statusFor(params.target, params.logType);
+          },
+          traceFlagApply: async (params: any) => {
+            calls.push(['apply', params.logType]);
+            return {
+              status: 'success',
+              logType: params.logType,
+              dryRun: false,
+              created: true,
+              createdCount: 1,
+              updatedCount: 0,
+              resolvedTargetCount: 1
+            };
+          },
+          traceFlagRemove: async (params: any) => {
+            calls.push(['remove', params.logType]);
+            return {
+              status: 'success',
+              logType: params.logType,
+              dryRun: false,
+              removedCount: 0,
+              resolvedTargetCount: 1
+            };
+          }
+        }
+      }
+    });
+    const { posted, send } = panelReceivingMessages(DebugFlagsPanel);
+
+    await selectApplyAndRemove(send);
+
+    assert.deepEqual(calls, [
+      ['status', 'USER_DEBUG'],
+      ['apply', 'USER_DEBUG'],
+      ['status', 'USER_DEBUG'],
+      ['remove', 'USER_DEBUG'],
+      ['status', 'USER_DEBUG']
+    ]);
+    assert.deepEqual(
+      posted.filter(message => message.type === 'debugFlagsTargetStatus').map(message => message.status.logType),
+      ['USER_DEBUG', 'USER_DEBUG', 'USER_DEBUG']
+    );
+    assert.equal(
+      posted.filter(message => message.type === 'debugFlagsNotice').pop()?.message,
+      'No active USER_DEBUG trace flag was found for this target.'
+    );
+  });
+
+  test('the webview log type reaches the TypeScript fallback when the runtime lacks trace flag methods', async () => {
+    const calls: Array<[string, unknown]> = [];
+    const methodNotFound = async () => {
+      throw Object.assign(new Error('Method not found'), { code: -32601 });
+    };
+    const { DebugFlagsPanel } = loadDebugFlagsPanel({
+      telemetry: { safeSendEvent: () => undefined },
+      runtime: {
+        runtimeClient: {
+          getOrgAuth: async () => ({
+            username: 'user@example.com',
+            instanceUrl: 'https://example.com',
+            accessToken: 'x'
+          }),
+          traceFlagStatus: methodNotFound,
+          traceFlagApply: methodNotFound,
+          traceFlagRemove: methodNotFound
+        }
+      },
+      traceflags: {
+        getTraceFlagTargetStatus: async (_auth: unknown, target: unknown, logType: unknown) => {
+          calls.push(['status', logType]);
+          return statusFor(target, logType);
+        },
+        upsertTraceFlag: async (_auth: unknown, input: { logType: unknown }) => {
+          calls.push(['apply', input.logType]);
+          return {
+            logType: input.logType,
+            created: true,
+            traceFlagIds: [],
+            createdCount: 1,
+            updatedCount: 0,
+            resolvedTargetCount: 1
+          };
+        },
+        removeTraceFlags: async (_auth: unknown, _target: unknown, logType: unknown) => {
+          calls.push(['remove', logType]);
+          return { logType, removedCount: 2, resolvedTargetCount: 1 };
+        }
+      }
+    });
+    const { send } = panelReceivingMessages(DebugFlagsPanel);
+
+    await selectApplyAndRemove(send);
+
+    assert.deepEqual(calls, [
+      ['status', 'USER_DEBUG'],
+      ['apply', 'USER_DEBUG'],
+      ['status', 'USER_DEBUG'],
+      ['remove', 'USER_DEBUG'],
+      ['status', 'USER_DEBUG']
+    ]);
+  });
 });

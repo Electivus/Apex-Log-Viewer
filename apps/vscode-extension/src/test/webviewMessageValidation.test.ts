@@ -17,12 +17,14 @@ suite('webview message validation', () => {
     assert.deepEqual(
       parseDebugFlagsFromWebviewMessage({
         type: 'debugFlagsApply',
+        logType: 'DEVELOPER_LOG',
         target: { type: 'user', userId: '005000000000001AAA' },
         debugLevelName: 'SFDC_DevConsole',
         ttlMinutes: 30
       }),
       {
         type: 'debugFlagsApply',
+        logType: 'DEVELOPER_LOG',
         target: { type: 'user', userId: '005000000000001AAA' },
         debugLevelName: 'SFDC_DevConsole',
         ttlMinutes: 30
@@ -31,6 +33,7 @@ suite('webview message validation', () => {
     assert.equal(
       parseDebugFlagsFromWebviewMessage({
         type: 'debugFlagsApply',
+        logType: 'DEVELOPER_LOG',
         target: { type: 'user' },
         debugLevelName: 'SFDC_DevConsole',
         ttlMinutes: 30
@@ -40,6 +43,7 @@ suite('webview message validation', () => {
     assert.equal(
       parseDebugFlagsFromWebviewMessage({
         type: 'debugFlagsApply',
+        logType: 'DEVELOPER_LOG',
         target: { type: 'user', userId: '005000000000001AAA' },
         debugLevelName: 'SFDC_DevConsole',
         ttlMinutes: 0

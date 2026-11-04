@@ -1,4 +1,5 @@
 import { Connection } from '@jsforce/jsforce-node';
+import { DEFAULT_TRACE_FLAG_LOG_TYPE } from '../../../packages/protocol/src/debugFlagsTypes';
 import { runSfJson } from './sfCli';
 import { timeE2eStep } from './timing';
 
@@ -271,7 +272,7 @@ async function queryExistingTraceFlagId(
   debugLevelName: string
 ): Promise<string | undefined> {
   const tfSoql = encodeURIComponent(
-    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${userId}' AND LogType = 'USER_DEBUG' AND DebugLevelId = '${debugLevelId}' ORDER BY CreatedDate DESC LIMIT 1`
+    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${userId}' AND LogType = '${DEFAULT_TRACE_FLAG_LOG_TYPE}' AND DebugLevelId = '${debugLevelId}' ORDER BY CreatedDate DESC LIMIT 1`
   );
   const tfQuery = await timeE2eStep(`tooling.ensureTraceFlag:${debugLevelName}:queryTraceFlag`, async () => {
     return await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/tooling/query?q=${tfSoql}`);
@@ -716,7 +717,7 @@ export async function getDebugTraceFlagByTracedEntityId(
 > {
   const userEsc = escapeSoqlLiteral(tracedEntityId);
   const tfSoql = encodeURIComponent(
-    `SELECT Id, StartDate, ExpirationDate, DebugLevel.DeveloperName FROM TraceFlag WHERE TracedEntityId = '${userEsc}' AND LogType = 'USER_DEBUG' ORDER BY CreatedDate DESC LIMIT 1`
+    `SELECT Id, StartDate, ExpirationDate, DebugLevel.DeveloperName FROM TraceFlag WHERE TracedEntityId = '${userEsc}' AND LogType = '${DEFAULT_TRACE_FLAG_LOG_TYPE}' ORDER BY CreatedDate DESC LIMIT 1`
   );
   const tfRes = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/tooling/query?q=${tfSoql}`);
   const rec = Array.isArray(tfRes?.records) ? tfRes.records[0] : undefined;
@@ -738,7 +739,7 @@ export async function removeUserDebugTraceFlags(auth: OrgAuth, userId: string): 
 async function listDebugTraceFlagIdsByTracedEntityId(auth: OrgAuth, tracedEntityId: string): Promise<string[]> {
   const userEsc = escapeSoqlLiteral(tracedEntityId);
   const tfSoql = encodeURIComponent(
-    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${userEsc}' AND LogType = 'USER_DEBUG' ORDER BY CreatedDate DESC LIMIT 200`
+    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${userEsc}' AND LogType = '${DEFAULT_TRACE_FLAG_LOG_TYPE}' ORDER BY CreatedDate DESC LIMIT 200`
   );
   const tfRes = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/tooling/query?q=${tfSoql}`);
   return (Array.isArray(tfRes?.records) ? tfRes.records : [])
@@ -1068,7 +1069,7 @@ export async function ensureE2eTraceFlag(auth: OrgAuth, options?: { debugLevelNa
     const createTf = await timeE2eStep(`tooling.ensureTraceFlag:${debugLevelName}:createTraceFlag`, async () => {
       return await requestJson(auth, 'POST', `/services/data/v${apiVersion}/tooling/sobjects/TraceFlag`, {
         TracedEntityId: userId,
-        LogType: 'USER_DEBUG',
+        LogType: DEFAULT_TRACE_FLAG_LOG_TYPE,
         DebugLevelId: debugLevelId,
         StartDate: start,
         ExpirationDate: exp

@@ -8,10 +8,14 @@ import {
 } from '@alv/protocol/debugLevelPresets';
 import type { DebugFlagsFromWebviewMessage, DebugFlagsToWebviewMessage } from '@alv/protocol/debugFlagsMessages';
 import {
+  DEFAULT_TRACE_FLAG_LOG_TYPE,
+  TRACE_FLAG_LOG_TYPES,
   getTraceFlagTargetKey,
   type DebugFlagUser,
   type DebugLevelPreset,
   type DebugLevelRecord,
+  type TraceFlagLogType,
+  type TraceFlagOtherLogTypeStatus,
   type TraceFlagTarget,
   type TraceFlagTargetStatus
 } from '@alv/protocol/debugFlagsTypes';
@@ -77,6 +81,23 @@ function formatDate(value: string | undefined, locale: string): string {
   }).format(date);
 }
 
+type OtherLogTypeNote = { kind: 'overridden' | 'hidden'; other: TraceFlagOtherLogTypeStatus };
+
+/** An active flag of the other type either overrides this USER_DEBUG level or is the only flag a DEVELOPER_LOG read misses. */
+function getOtherLogTypeNote(status: TraceFlagTargetStatus | undefined): OtherLogTypeNote | undefined {
+  const other = status?.targetAvailable ? status.otherLogType : undefined;
+  if (!status || !other?.isActive) {
+    return undefined;
+  }
+  if (status.logType === 'USER_DEBUG' && other.logType === 'DEVELOPER_LOG') {
+    return { kind: 'overridden', other };
+  }
+  if (status.logType === 'DEVELOPER_LOG' && !status.isActive && other.logType === 'USER_DEBUG') {
+    return { kind: 'hidden', other };
+  }
+  return undefined;
+}
+
 export function DebugFlagsApp({
   vscode = getDefaultVsCodeApi<DebugFlagsFromWebviewMessage>(),
   messageBus = getDefaultMessageBus()
@@ -88,6 +109,7 @@ export function DebugFlagsApp({
   const [query, setQuery] = useState('');
   const [users, setUsers] = useState<DebugFlagUser[]>([]);
   const [selectedTarget, setSelectedTarget] = useState<TraceFlagTarget | undefined>(undefined);
+  const [logType, setLogType] = useState<TraceFlagLogType>(DEFAULT_TRACE_FLAG_LOG_TYPE);
   const [status, setStatus] = useState<TraceFlagTargetStatus | undefined>(undefined);
   const [debugLevels, setDebugLevels] = useState<string[]>([]);
   const [debugLevel, setDebugLevel] = useState('');
@@ -104,6 +126,7 @@ export function DebugFlagsApp({
   const [initialized, setInitialized] = useState(false);
   const selectedOrgRef = useRef<string | undefined>(undefined);
   const selectedTargetRef = useRef<TraceFlagTarget | undefined>(undefined);
+  const logTypeRef = useRef<TraceFlagLogType>(DEFAULT_TRACE_FLAG_LOG_TYPE);
   const selectedManagerIdRef = useRef<string>('');
   const queryRef = useRef('');
   const [loading, setLoading] = useState<LoadingState>({
@@ -120,6 +143,10 @@ export function DebugFlagsApp({
   useEffect(() => {
     selectedTargetRef.current = selectedTarget;
   }, [selectedTarget]);
+
+  useEffect(() => {
+    logTypeRef.current = logType;
+  }, [logType]);
 
   useEffect(() => {
     queryRef.current = query;
@@ -195,7 +222,11 @@ export function DebugFlagsApp({
           break;
         }
         case 'debugFlagsTargetStatus':
-          if (getTraceFlagTargetKey(msg.target) === getTraceFlagTargetKey(selectedTargetRef.current)) {
+          // A status read for the previous log type can land after the user switched types.
+          if (
+            getTraceFlagTargetKey(msg.target) === getTraceFlagTargetKey(selectedTargetRef.current) &&
+            (!msg.status || msg.status.logType === logTypeRef.current)
+          ) {
             setStatus(msg.status);
           }
           break;
@@ -247,6 +278,23 @@ export function DebugFlagsApp({
   const shouldRenderStatusDetails = Boolean(
     status?.traceFlagId || (specialTargetSelected && specialTargetActiveCount > 0)
   );
+  const otherLogTypeNote = loading.status ? undefined : getOtherLogTypeNote(status);
+  const otherLogTypeNoteTemplates: Record<OtherLogTypeNote['kind'], string> = {
+    overridden:
+      t.debugFlags?.otherLogTypeOverridden ??
+      "A DEVELOPER_LOG trace flag is also active {where} until {expiration}. Salesforce writes each transaction's log at that flag's debug level, so this USER_DEBUG level does not apply until then.",
+    hidden: t.debugFlags?.otherLogTypeHidden ?? 'A USER_DEBUG trace flag is active {where} until {expiration}.'
+  };
+  const otherLogTypeWhere = specialTargetSelected
+    ? (t.debugFlags?.otherLogTypeOnMatchedTargets ?? 'on {active} of {resolved} matched targets')
+        .replace('{active}', String(otherLogTypeNote?.other.activeTargetCount ?? 0))
+        .replace('{resolved}', String(specialTargetResolvedCount))
+    : (t.debugFlags?.otherLogTypeOnThisTarget ?? 'on this target');
+  const otherLogTypeNoteText = otherLogTypeNote
+    ? otherLogTypeNoteTemplates[otherLogTypeNote.kind]
+        .replace('{where}', otherLogTypeWhere)
+        .replace('{expiration}', formatDate(otherLogTypeNote.other.expirationDate, locale))
+    : undefined;
   const managerDraftDirty = !debugLevelDraftEquals(managerDraft, loadedManagerDraft);
 
   const canApply = Boolean(selectedTarget && debugLevel && !loading.action && !loading.orgs && specialTargetReady);
@@ -259,6 +307,10 @@ export function DebugFlagsApp({
     managerDraftDirty
   );
   const canDeleteManager = Boolean(selectedManagerId && !loading.action && !loading.orgs);
+  const logTypeLabels: Record<TraceFlagLogType, string> = {
+    DEVELOPER_LOG: t.debugFlags?.logTypeDeveloperLog ?? 'Developer log (DEVELOPER_LOG)',
+    USER_DEBUG: t.debugFlags?.logTypeUserDebug ?? 'User debug (USER_DEBUG)'
+  };
 
   const handleSelectOrg = (nextOrg: string) => {
     setSelectedOrg(nextOrg);
@@ -275,7 +327,7 @@ export function DebugFlagsApp({
     setStatus(undefined);
     setNotice(undefined);
     setError(undefined);
-    vscode.postMessage({ type: 'debugFlagsSelectTarget', target: { type: 'user', userId } });
+    vscode.postMessage({ type: 'debugFlagsSelectTarget', target: { type: 'user', userId }, logType });
   };
 
   const handleSelectSpecialTarget = (
@@ -285,7 +337,21 @@ export function DebugFlagsApp({
     setStatus(undefined);
     setNotice(undefined);
     setError(undefined);
-    vscode.postMessage({ type: 'debugFlagsSelectTarget', target });
+    vscode.postMessage({ type: 'debugFlagsSelectTarget', target, logType });
+  };
+
+  const handleSelectLogType = (value: string) => {
+    const nextLogType = TRACE_FLAG_LOG_TYPES.find(candidate => candidate === value);
+    if (!nextLogType || nextLogType === logType) {
+      return;
+    }
+    setLogType(nextLogType);
+    setStatus(undefined);
+    setNotice(undefined);
+    setError(undefined);
+    if (selectedTarget) {
+      vscode.postMessage({ type: 'debugFlagsSelectTarget', target: selectedTarget, logType: nextLogType });
+    }
   };
 
   const handleApply = () => {
@@ -302,6 +368,7 @@ export function DebugFlagsApp({
     vscode.postMessage({
       type: 'debugFlagsApply',
       target: selectedTarget,
+      logType,
       debugLevelName: debugLevel,
       ttlMinutes: Math.floor(ttl)
     });
@@ -315,7 +382,8 @@ export function DebugFlagsApp({
     setError(undefined);
     vscode.postMessage({
       type: 'debugFlagsRemove',
-      target: selectedTarget
+      target: selectedTarget,
+      logType
     });
   };
 
@@ -428,7 +496,7 @@ export function DebugFlagsApp({
       <header className="rounded-lg border border-border bg-card/70 p-4 shadow-sm">
         <h1 className="text-lg font-semibold text-foreground">{t.debugFlags?.panelTitle ?? 'Apex Debug Flags'}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {t.debugFlags?.panelSubtitle ?? 'Configure USER_DEBUG trace flags with room to focus.'}
+          {t.debugFlags?.panelSubtitle ?? 'Configure trace flags with room to focus.'}
         </p>
       </header>
 
@@ -654,9 +722,62 @@ export function DebugFlagsApp({
                     </p>
                   </>
                 ) : null}
-                <p>{t.debugFlags?.noStatus ?? 'No active USER_DEBUG trace flag for this target.'}</p>
+                <p>
+                  {(t.debugFlags?.noStatus ?? 'No active {logType} trace flag for this target.').replace(
+                    '{logType}',
+                    logType
+                  )}
+                </p>
               </div>
             )}
+
+            {otherLogTypeNote ? (
+              <div
+                className={cn(
+                  'mt-3 flex items-start gap-2 rounded-md border px-3 py-2',
+                  otherLogTypeNote.kind === 'overridden'
+                    ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                    : 'border-sky-500/30 bg-sky-500/10 text-sky-300'
+                )}
+                data-testid="debug-flags-other-log-type-note"
+              >
+                {otherLogTypeNote.kind === 'overridden' ? (
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                ) : (
+                  <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                )}
+                <div className="space-y-2">
+                  <p>{otherLogTypeNoteText}</p>
+                  {otherLogTypeNote.kind === 'hidden' ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleSelectLogType(otherLogTypeNote.other.logType)}
+                      disabled={loading.orgs || loading.action}
+                      data-testid="debug-flags-other-log-type-switch"
+                    >
+                      {t.debugFlags?.otherLogTypeSwitch ?? 'Show USER_DEBUG flag'}
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <LabeledSelect
+              label={t.debugFlags?.logType ?? 'Log type'}
+              value={logType}
+              onChange={handleSelectLogType}
+              options={TRACE_FLAG_LOG_TYPES.map(value => ({ value, label: logTypeLabels[value] }))}
+              testId="debug-flags-log-type"
+              disabled={loading.orgs || loading.action}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t.debugFlags?.logTypeHelper ??
+                "Developer logs also capture Apex checkpoints (heap dumps) and are kept for 24 hours. User debug logs are kept for 7 days. When a user has both types active, the developer log's debug level applies. The Developer Console uses the same DEVELOPER_LOG flag, so removing DEVELOPER_LOG here also removes the Console's flag, and the Console creates it again when it opens."}
+            </p>
           </div>
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px]">

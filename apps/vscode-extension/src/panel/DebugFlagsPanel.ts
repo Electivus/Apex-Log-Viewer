@@ -20,6 +20,7 @@ import type {
   DebugFlagUser,
   DebugLevelRecord,
   RemoveTraceFlagsResult,
+  TraceFlagLogType,
   TraceFlagTarget,
   TraceFlagTargetStatus
 } from '../shared/debugFlagsTypes';
@@ -151,10 +152,15 @@ export class DebugFlagsPanel {
           return;
         }
         this.selectedTarget = message.target;
-        await this.loadSelectedTargetStatus(message.target);
+        await this.loadSelectedTargetStatus(message.target, message.logType);
         break;
       case 'debugFlagsApply':
-        await this.applyTraceFlag(message.target, message.debugLevelName, message.ttlMinutes);
+        await this.applyTraceFlag({
+          target: message.target,
+          logType: message.logType,
+          debugLevelName: message.debugLevelName,
+          ttlMinutes: message.ttlMinutes
+        });
         break;
       case 'debugFlagsManagerSave':
         await this.saveDebugLevel(message.draft);
@@ -163,7 +169,7 @@ export class DebugFlagsPanel {
         await this.removeDebugLevel(message.debugLevelId);
         break;
       case 'debugFlagsRemove':
-        await this.removeTraceFlag(message.target);
+        await this.removeTraceFlag(message.target, message.logType);
         break;
       case 'debugFlagsClearLogs':
         await this.clearLogs(message.scope === 'mine' ? 'mine' : 'all');
@@ -302,7 +308,7 @@ export class DebugFlagsPanel {
     }
   }
 
-  private async loadSelectedTargetStatus(target: TraceFlagTarget): Promise<void> {
+  private async loadSelectedTargetStatus(target: TraceFlagTarget, logType: TraceFlagLogType): Promise<void> {
     if (!target) {
       return;
     }
@@ -310,7 +316,7 @@ export class DebugFlagsPanel {
     this.post({ type: 'debugFlagsLoading', scope: 'status', value: true });
     try {
       const auth = await this.getSelectedAuth();
-      const status = await this.getTraceFlagTargetStatusWithRuntimeFallback(auth, target);
+      const status = await this.getTraceFlagTargetStatusWithRuntimeFallback(auth, target, logType);
       if (token !== this.statusToken || this.disposed) {
         return;
       }
@@ -346,7 +352,8 @@ export class DebugFlagsPanel {
     }
   }
 
-  private async applyTraceFlag(target: TraceFlagTarget, debugLevelName: string, ttlMinutes: number): Promise<void> {
+  private async applyTraceFlag(input: ApplyTraceFlagTargetInput): Promise<void> {
+    const { target } = input;
     if (!target) {
       return;
     }
@@ -354,12 +361,8 @@ export class DebugFlagsPanel {
     this.post({ type: 'debugFlagsLoading', scope: 'action', value: true });
     try {
       const auth = await this.getSelectedAuth();
-      const result = await this.applyTraceFlagWithRuntimeFallback(auth, {
-        target,
-        debugLevelName,
-        ttlMinutes
-      });
-      await this.loadSelectedTargetStatus(target);
+      const result = await this.applyTraceFlagWithRuntimeFallback(auth, input);
+      await this.loadSelectedTargetStatus(target, input.logType);
       const isAggregatedTarget = target.type !== 'user' && result.resolvedTargetCount > 1;
       this.post({
         type: 'debugFlagsNotice',
@@ -509,7 +512,7 @@ export class DebugFlagsPanel {
     }
   }
 
-  private async removeTraceFlag(target: TraceFlagTarget): Promise<void> {
+  private async removeTraceFlag(target: TraceFlagTarget, logType: TraceFlagLogType): Promise<void> {
     if (!target) {
       return;
     }
@@ -517,8 +520,8 @@ export class DebugFlagsPanel {
     this.post({ type: 'debugFlagsLoading', scope: 'action', value: true });
     try {
       const auth = await this.getSelectedAuth();
-      const result = await this.removeTraceFlagsWithRuntimeFallback(auth, target);
-      await this.loadSelectedTargetStatus(target);
+      const result = await this.removeTraceFlagsWithRuntimeFallback(auth, target, logType);
+      await this.loadSelectedTargetStatus(target, logType);
       const isAggregatedTarget = target.type !== 'user' && result.resolvedTargetCount > 1;
       this.post({
         type: 'debugFlagsNotice',
@@ -527,18 +530,20 @@ export class DebugFlagsPanel {
           ? result.removedCount > 0
             ? localize(
                 'debugFlags.removeSummary',
-                'Removed {0} USER_DEBUG trace flag records across {1} matched targets.',
+                'Removed {0} {1} trace flag records across {2} matched targets.',
                 result.removedCount,
+                result.logType,
                 result.resolvedTargetCount
               )
             : localize(
                 'debugFlags.removeNoneSummary',
-                'No USER_DEBUG trace flags were found across {0} matched targets.',
+                'No {0} trace flags were found across {1} matched targets.',
+                result.logType,
                 result.resolvedTargetCount
               )
           : result.removedCount > 0
             ? localize('debugFlags.removeSuccess', 'Debug flag removed successfully.')
-            : localize('debugFlags.removeNone', 'No active USER_DEBUG trace flag was found for this target.')
+            : localize('debugFlags.removeNone', 'No active {0} trace flag was found for this target.', result.logType)
       });
       safeSendEvent(
         'debugFlags.remove',
@@ -659,19 +664,21 @@ export class DebugFlagsPanel {
 
   private async getTraceFlagTargetStatusWithRuntimeFallback(
     auth: Awaited<ReturnType<DebugFlagsPanel['getSelectedAuth']>>,
-    target: TraceFlagTarget
+    target: TraceFlagTarget,
+    logType: TraceFlagLogType
   ): Promise<TraceFlagTargetStatus> {
     try {
       return await runtimeClient.traceFlagStatus({
         targetOrg: this.getRuntimeTargetOrg(),
-        target
+        target,
+        logType
       });
     } catch (error) {
       if (!this.isRuntimeCapabilityUnavailable(error)) {
         throw error;
       }
       this.logRuntimeFallback('traceFlags/status', error);
-      return getTraceFlagTargetStatus(auth, target);
+      return getTraceFlagTargetStatus(auth, target, logType);
     }
   }
 
@@ -683,12 +690,14 @@ export class DebugFlagsPanel {
       const result = await runtimeClient.traceFlagApply({
         targetOrg: this.getRuntimeTargetOrg(),
         target: input.target,
+        logType: input.logType,
         debugLevelName: input.debugLevelName,
         ttlMinutes: input.ttlMinutes,
         dryRun: false,
         confirmed: true
       });
       return {
+        logType: result.logType,
         created: result.created,
         traceFlagIds: result.traceFlagIds ?? [],
         createdCount: result.createdCount,
@@ -706,16 +715,19 @@ export class DebugFlagsPanel {
 
   private async removeTraceFlagsWithRuntimeFallback(
     auth: Awaited<ReturnType<DebugFlagsPanel['getSelectedAuth']>>,
-    target: TraceFlagTarget
+    target: TraceFlagTarget,
+    logType: TraceFlagLogType
   ): Promise<RemoveTraceFlagsResult> {
     try {
       const result = await runtimeClient.traceFlagRemove({
         targetOrg: this.getRuntimeTargetOrg(),
         target,
+        logType,
         dryRun: false,
         confirmed: true
       });
       return {
+        logType: result.logType,
         removedCount: result.removedCount,
         resolvedTargetCount: result.resolvedTargetCount
       };
@@ -724,7 +736,7 @@ export class DebugFlagsPanel {
         throw error;
       }
       this.logRuntimeFallback('traceFlags/remove', error);
-      return removeTraceFlags(auth, target);
+      return removeTraceFlags(auth, target, logType);
     }
   }
 

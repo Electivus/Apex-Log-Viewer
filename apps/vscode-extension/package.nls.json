@@ -39,7 +39,7 @@
   "debugFlags.applyUpdated": "Debug flag updated successfully.",
   "debugFlags.applyFailed": "Failed to apply debug flag: {0}",
   "debugFlags.removeSuccess": "Debug flag removed successfully.",
-  "debugFlags.removeNone": "No active USER_DEBUG trace flag was found for this target.",
+  "debugFlags.removeNone": "No active {0} trace flag was found for this target.",
   "debugFlags.removeFailed": "Failed to remove debug flag: {0}",
   "debugFlags.targetUnavailable": "The trace flag target \"{0}\" is not available in this org.",
   "debugFlags.noOrg": "No Salesforce org is selected.",
