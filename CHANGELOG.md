@@ -32,7 +32,7 @@
 
 - Log Viewer: keep the status bar fully visible; the entries table now ends above it at any editor size instead of overlapping it with its horizontal scrollbar.
 - Logs: hide logs that matched only the previous search text as soon as you change the search, instead of listing them until the new full-log search finishes.
-- Salesforce: reuse one connection per org instead of rebuilding it for every action, so Logs and Debug Flags stop repeating the API-version request and the auth-file rewrite on each call (every call paid both on pt-BR or de-DE systems), and an `sf electivus` command that makes several calls pays them once; a session Salesforce rejects is rebuilt from the saved login and retried once.
+- Salesforce: reuse one connection per org instead of rebuilding it for every action, so Logs and Debug Flags stop repeating the API-version request and the auth-file rewrite on each call (every call paid both on pt-BR or de-DE systems), and the calls within one `sf electivus` command share one connection; a session Salesforce rejects is rebuilt from the saved login and retried once.
 - Logs, search, sync and triage: locate a saved Apex log by probing its canonical day directory first and index the local store at most once per request, instead of walking every day directory for every log and re-reading already-saved bodies.
 
 ### Performance
@@ -72,14 +72,14 @@ Pre-release of `@electivus/plugin-electivus` on the npm `next` dist-tag, alongsi
 ### Features
 
 - CLI/Plugin: add `sf electivus custom-log sources`, `list`, `get` and `entry` to read the same records from a terminal without the VS Code setting, with `--json` results, cursor paging, `--min-level`, `--user`, `--since`, `--until` and `--payload-fields`.
-- CLI/Plugin: add `sf electivus custom-log capture`, which stores the events of an event source and resumes from the stored position. It drains by default and stops when the stream goes quiet, the run spends about half of the remaining daily allocation, or `--max-time` passes. `--follow` prints each stored row until Ctrl-C. Failures exit 1 with next steps in `actions`. `list` and `entry` then read the store with no request to the org. `get` reads the stored events too. When an event maps a request id, as the Nebula Logger sources do, `get` also looks up the linked Apex log in the org, and reports it as unavailable when the org cannot be reached.
+- CLI/Plugin: add `sf electivus custom-log capture`, which stores the events of an event source and resumes from the stored position. It drains by default and stops when the stream goes quiet, the run reaches its delivery budget, or `--max-time` passes. The budget is about half of what remains of the org's daily allocation, or 5,000 deliveries when Salesforce does not report the allowance. It is checked between responses, so a run can pass it by one response; see `docs/CUSTOM_LOGS.md`. `--follow` prints each stored row until Ctrl-C. Failures exit 1 with next steps in `actions`. `list` and `entry` then read the store with no request to the org. `get` reads the stored events too. When an event maps a request id, as the Nebula Logger sources do, `get` also looks up the linked Apex log in the org, and reports it as unavailable when the org cannot be reached.
 - Custom Logs: read Nebula Logger, unlocked or managed, with no configuration, and map other logging objects in `sfdx-project.json` under `plugins.electivus.customLogs`. Platform-event sources map an `event` object, and the built-in `nebula-events` and `nebula-events-managed` sources cover Nebula Logger's `LogEntryEvent__e`. An event source is never chosen implicitly, because every captured event counts against the org's daily delivery allocation. See `docs/CUSTOM_LOGS.md`.
 - Custom Logs: captured events go to the local event store under `apexlogs/orgs/<safe-org>/events/<object>/`, shared with the VS Code extension through one `capture.lease` per event object. History outlives Salesforce's 72-hour retention, works offline, keeps 30 days by default (`eventRetentionDays`), and records a possibly missing interval as a gap.
 - Agent Skill: the bundled `apex-log-viewer-cli` skill teaches the `custom-log` commands, capture and searching the event store with `rg`, and `apex-debug-investigate` can start from a logging framework's records, capturing event-only logs first.
 
 ### Fixes
 
-- Reuse one Salesforce connection per org within a command, so a command that makes several Salesforce calls requests the API version and rewrites the auth file once instead of on every call. Each `sf electivus` run still opens its own connection. A session Salesforce rejects is rebuilt from the saved login and retried once.
+- Reuse one Salesforce connection per org across the calls a command makes, instead of rebuilding it for each call. Separate `sf electivus` runs do not share a connection. A session Salesforce rejects is rebuilt from the saved login and retried once.
 - Logs, search, sync and triage: locate a saved Apex log by probing its canonical day directory first and index the local store at most once per request.
 
 ### Maintenance
