@@ -18,11 +18,9 @@
 
 - Debug Flags/CLI: trace flags now default to the `DEVELOPER_LOG` log type, which Apex checkpoints (heap dumps) need, instead of `USER_DEBUG`. The Apex Debug Flags panel adds a `Log type` select to read, apply and remove `USER_DEBUG` flags, Tail starts with a `DEVELOPER_LOG` flag, and `sf electivus trace-flag status`, `apply` and `remove` take `--log-type DEVELOPER_LOG|USER_DEBUG` and report the `logType` in `--json`. The two types are separate records, so changing one leaves the other alone. When a user has both active, Salesforce writes one log at the `DEVELOPER_LOG` debug level. The panel's status and `trace-flag status` now also read the other type's flags (`otherLogType` in `--json`) and say when an active `DEVELOPER_LOG` flag overrides the `USER_DEBUG` level, or when a target has no `DEVELOPER_LOG` flag but an active `USER_DEBUG` one, with a button in the panel to switch to it. `trace-flag remove --help` explains that removal deletes every flag of the chosen type, expired ones included, and that the Developer Console's `DEVELOPER_LOG` flag is the same record. Salesforce keeps `DEVELOPER_LOG` logs for 24 hours and `USER_DEBUG` logs for 7 days.
 - Custom Logs: add an experimental Custom Logs panel next to Logs and Tail, off by default until `electivus.apexLogViewer.customLogs.enabled` is turned on, that reads the application logs a logging framework stores in Salesforce records. Nebula Logger, unlocked or managed, needs no configuration, and other objects map in `sfdx-project.json` under `plugins.electivus.customLogs`. Level, user and time filters run in Salesforce. JSON payload keys become columns and filters over the loaded rows. Each transaction opens with its entries, long fields and the linked Apex debug log. See `docs/CUSTOM_LOGS.md`.
-- CLI/Plugin: add `sf electivus custom-log sources`, `list`, `get` and `entry` to read the same records from a terminal without the VS Code setting, with `--json` results, cursor paging, `--min-level`, `--user`, `--since`, `--until` and `--payload-fields`.
 - Custom Logs: read application logs that exist only as Salesforce platform events, such as Nebula Logger's `LogEntryEvent__e`, behind the same experimental setting. A project source maps an `event` object, and the built-in `nebula-events` and `nebula-events-managed` sources cover Nebula Logger. An event source is never chosen implicitly, because every captured event counts against the org's daily delivery allocation. A record mapping of a platform event now reports `notQueryable` and says to map it under `event`, and an `event` mapping of a record object reports `notAnEvent`.
 - Custom Logs: keep the events a capture receives in a local event store under `apexlogs/orgs/<safe-org>/events/<object>/`, so history outlives the 72 hours that Salesforce retains, works offline, and is searchable with `rg --no-ignore -g '*.ndjson'`. The store keeps each whole delivered event, shows a mapped field that the capturing user's describe omits as `hidden`, keeps 30 days by default (`eventRetentionDays`, 1 to 365), and records an interval that may be missing as a gap. Events lost while nothing captured are not recovered.
 - Custom Logs: capture platform events from the panel while an event source is open. The panel resumes from the stored position by itself, asks once on first use whether to load the retained events or only new ones and shows the daily allocation and the run's budget, shows whether the capture is catching up, live, reconnecting, stopped, or standing by for another VS Code window or `sf` command, and lists each gap. Hiding the panel keeps capturing, and closing it stops.
-- CLI/Plugin: add `sf electivus custom-log capture`, which stores the events of an event source and resumes from the stored position. It drains by default and stops when the stream goes quiet, the run spends about half of the remaining daily allocation, or `--max-time` passes. `--follow` prints each stored row until Ctrl-C. Failures exit 1 with next steps in `actions`. `list`, `get`, and `entry` then read the store with no request to the org.
 - Agent Skill: teach `apex-log-viewer-cli` the `custom-log` commands, and let `apex-debug-investigate` start from a logging framework's records and follow the linked Apex debug log into the local corpus.
 - Agent Skill: teach `apex-log-viewer-cli` to capture platform event logs and search the event store with `rg`, and let `apex-debug-investigate` capture event-only logs before it searches.
 - Dev Hub: add explicit certificate rotation with private recovery copies, fresh JWT verification, ordered Actions and Dependabot Secret replacement, and resumable forward/rollback recovery across partial deliveries without changing runtime grants.
@@ -62,6 +60,31 @@
 
 - Scratch Org Pool: authenticate maintenance and consumers through the shared Dev Hub JWT policy, preserve PlatformCLI scratch authorization, renew lease calls after expired sessions, and validate an isolated pool with an independent runner.
 - Core: preserve the versioned behavioral contract corpus with real temporary workspaces and strict process/HTTP doubles for the TypeScript core shared by VS Code and the Salesforce CLI.
+
+## [SF Plugin 0.5.0-next.0](https://github.com/Electivus/Apex-Log-Viewer/compare/sf-plugin-v0.4.0...sf-plugin-v0.5.0-next.0) (2026-11-04)
+
+Pre-release of `@electivus/plugin-electivus` on the npm `next` dist-tag, alongside VS Code extension pre-release 0.55.7. Install it with `sf plugins install @electivus/plugin-electivus@next`. `latest` stays on 0.4.0.
+
+### Behavior Changes
+
+- `sf electivus trace-flag apply` now creates `DEVELOPER_LOG` trace flags by default, instead of `USER_DEBUG`, because Apex checkpoints (heap dumps) need them. `trace-flag status`, `apply` and `remove` take `--log-type DEVELOPER_LOG|USER_DEBUG` and report the `logType` in `--json`. `status` also reads the other type's flags (`otherLogType`) and says when an active `DEVELOPER_LOG` flag overrides the `USER_DEBUG` level. `remove` deletes every flag of the chosen type, expired ones included. Pass `--log-type USER_DEBUG` to keep the previous behavior.
+
+### Features
+
+- CLI/Plugin: add `sf electivus custom-log sources`, `list`, `get` and `entry` to read the same records from a terminal without the VS Code setting, with `--json` results, cursor paging, `--min-level`, `--user`, `--since`, `--until` and `--payload-fields`.
+- CLI/Plugin: add `sf electivus custom-log capture`, which stores the events of an event source and resumes from the stored position. It drains by default and stops when the stream goes quiet, the run spends about half of the remaining daily allocation, or `--max-time` passes. `--follow` prints each stored row until Ctrl-C. Failures exit 1 with next steps in `actions`. `list`, `get`, and `entry` then read the store with no request to the org.
+- Custom Logs: read Nebula Logger, unlocked or managed, with no configuration, and map other logging objects in `sfdx-project.json` under `plugins.electivus.customLogs`. Platform-event sources map an `event` object, and the built-in `nebula-events` and `nebula-events-managed` sources cover Nebula Logger's `LogEntryEvent__e`. An event source is never chosen implicitly, because every captured event counts against the org's daily delivery allocation. See `docs/CUSTOM_LOGS.md`.
+- Custom Logs: captured events go to the local event store under `apexlogs/orgs/<safe-org>/events/<object>/`, shared with the VS Code extension through one `capture.lease` per event object. History outlives Salesforce's 72-hour retention, works offline, keeps 30 days by default (`eventRetentionDays`), and records a possibly missing interval as a gap.
+- Agent Skill: the bundled `apex-log-viewer-cli` skill teaches the `custom-log` commands, capture and searching the event store with `rg`, and `apex-debug-investigate` can start from a logging framework's records, capturing event-only logs first.
+
+### Fixes
+
+- Reuse one Salesforce connection per org instead of rebuilding it for every command, so `sf electivus` stops repeating the API-version request and the auth-file rewrite on each call; a session Salesforce rejects is rebuilt from the saved login and retried once.
+- Logs, search, sync and triage: locate a saved Apex log by probing its canonical day directory first and index the local store at most once per request.
+
+### Maintenance
+
+- Update `@salesforce/core` to 9.2.0.
 
 ## [SF Plugin 0.4.0](https://github.com/Electivus/Apex-Log-Viewer/compare/sf-plugin-v0.3.0...sf-plugin-v0.4.0) (2026-09-21)
 
