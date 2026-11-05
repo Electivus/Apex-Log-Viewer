@@ -4,6 +4,8 @@
 
 ### Maintenance
 
+- Custom Logs: say a platform event is kept for at least 72 hours, in the panel's first-use note and catching-up text and in the docs, because Salesforce may purge later and a `-2` replay can cost more than the docs said; warn against a `-2` replay of `ALV_Test_Backlog__e`.
+- Custom Logs: remove the `Captured elsewhere` strip state, which the panel could never reach because it always follows; `capturedElsewhere` stays a CLI drain outcome.
 - Discontinue the IntelliJ product initiative and remove its plugin, build tooling, CI/E2E lanes, and release workflow; retain useful TypeScript core regression coverage.
 - Refresh JSforce, oclif 4, YAML, CSS and TypeScript tooling; align the YAML override with its runtime update.
 - Refresh Salesforce, React, test, packaging, and CI dependencies; keep Playwright packages aligned and validate Agent Skill distribution against the exact installed CLI release.
@@ -34,6 +36,7 @@
 
 - Custom Logs: keep the stored position's `lastEvent` at the newest event after a replay that ends in events the store already holds. In a store with no open gap, the next gap could name an older time, and a retention gap could open early.
 - Custom Logs: show a possible gap on the capture strip as soon as capture records it. A gap from a rejected position, an unreadable delivery, a start past the 72-hour retention, or another org now shows at once. Before, it stayed off the strip until a later event was stored, so a replay of events the store already held left the strip on `Live` with no warning.
+- CLI: `sf electivus debug-level create` and `update` no longer fail without `--language`. `create` defaults the language to `en_US`. `update` now changes only the fields you pass, instead of resetting every other category and the label, and no longer needs `--developer-name`. Without `--yes`, both commands check the picklist values against the org, so the preview fails on a value the real call would reject; a preview now needs a reachable org, and `create` without `--developer-name` exits 2.
 - Custom Logs: stop two VS Code windows or `sf electivus custom-log capture` runs from both capturing one event object after a previous holder and a reclaimer of its `capture.lease` have both died. Every event delivered in that overlap counted twice against the org's daily allocation. The fix holds when every process on the workspace runs it.
 - Log Viewer: keep the status bar fully visible; the entries table now ends above it at any editor size instead of overlapping it with its horizontal scrollbar.
 - Logs: hide logs that matched only the previous search text as soon as you change the search, instead of listing them until the new full-log search finishes.
