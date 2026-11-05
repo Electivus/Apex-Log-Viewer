@@ -183,7 +183,7 @@ describe('capture strip', () => {
       expect(stripStatus()).toHaveTextContent('No events from this org are stored yet.');
       expect(within(strip()).queryByRole('button', { name: 'Start' })).toBeNull();
       expect(within(strip()).getByRole('button', { name: 'Load retained events' })).toHaveAccessibleDescription(
-        "Salesforce keeps up to 72 hours; each event counts against the org's daily delivery allocation (about 8,412 of 10,000 left); this run stops after about 4,206 deliveries and resumes on the next Start."
+        "Salesforce keeps at least 72 hours; each event counts against the org's daily delivery allocation (about 8,412 of 10,000 left); this run stops after about 4,206 deliveries and resumes on the next Start."
       );
     });
 

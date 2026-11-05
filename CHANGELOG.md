@@ -4,10 +4,13 @@
 
 ### Maintenance
 
+- Custom Logs: say a platform event is kept for at least 72 hours, in the panel's first-use note and catching-up text and in the docs, because Salesforce may purge later and a `-2` replay can cost more than the docs said; warn against a `-2` replay of `ALV_Test_Backlog__e`.
+- Custom Logs: remove the `Captured elsewhere` strip state, which the panel could never reach because it always follows; `capturedElsewhere` stays a CLI drain outcome.
 - Discontinue the IntelliJ product initiative and remove its plugin, build tooling, CI/E2E lanes, and release workflow; retain useful TypeScript core regression coverage.
 - Refresh JSforce, oclif 4, YAML, CSS and TypeScript tooling; align the YAML override with its runtime update.
 - Refresh Salesforce, React, test, packaging, and CI dependencies; keep Playwright packages aligned and validate Agent Skill distribution against the exact installed CLI release.
 - Reduce Dependabot churn with coordinated dependency families, bounded weekly batches, and separate security updates; defer incompatible TypeScript 7 and oclif runtime 5 updates.
+- Refresh React, React Window, Radix Slot, Mocha, Prettier, typescript-eslint, undici, Playwright and pinned CI action dependencies; group `react` with `react-dom` in Dependabot so they update together.
 - CI/Pre-release: run the pre-release workflow only on manual dispatch; scheduled nightly runs waited on the Marketplace approval and cancelled each other.
 
 ### Breaking Changes
@@ -33,6 +36,7 @@
 
 - Tail/Debug Flags: Tail, and the Apex Debug Flags editor opened from it, now start on the workspace's `target-org` when they open before the Logs panel. They used the `target-org` of the extension host's working directory or the global one, so Start and Apply could write a trace flag to another org ([#1224](https://github.com/Electivus/Apex-Log-Viewer/issues/1224)).
 - Tail: `Stop` now appears only after Salesforce acknowledges the log subscription, and Tail lists and shows any log written since Start. A log written right after Start was never shown ([#1225](https://github.com/Electivus/Apex-Log-Viewer/issues/1225)).
+- CLI: `sf electivus debug-level create` and `update` no longer fail without `--language`. `create` defaults the language to `en_US`. `update` now changes only the fields you pass, instead of resetting every other category and the label, and no longer needs `--developer-name`. Without `--yes`, both commands check the picklist values against the org, so the preview fails on a value the real call would reject; a preview now needs a reachable org, and `create` without `--developer-name` exits 2.
 - Custom Logs: stop two VS Code windows or `sf electivus custom-log capture` runs from both capturing one event object after a previous holder and a reclaimer of its `capture.lease` have both died. Every event delivered in that overlap counted twice against the org's daily allocation. The fix holds when every process on the workspace runs it.
 - Log Viewer: keep the status bar fully visible; the entries table now ends above it at any editor size instead of overlapping it with its horizontal scrollbar.
 - Logs: hide logs that matched only the previous search text as soon as you change the search, instead of listing them until the new full-log search finishes.

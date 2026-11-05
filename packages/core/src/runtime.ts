@@ -5,10 +5,12 @@ import path from 'node:path';
 import { AuthInfo, ConfigAggregator, Connection, OrgConfigProperties, StateAggregator } from '@salesforce/core';
 
 import type {
+  DebugLevelCreateParams,
   DebugLevelDeleteParams,
+  DebugLevelFields,
   DebugLevelGetParams,
   DebugLevelListParams,
-  DebugLevelWriteParams,
+  DebugLevelUpdateParams,
   DebugLevelWriteResult,
   DoctorParams,
   DoctorResult,
@@ -100,6 +102,36 @@ const APEX_LOG_ID_REGEX = /^07L[a-zA-Z0-9]{12}(?:[a-zA-Z0-9]{3})?$/;
 const DEBUG_LEVEL_FIELDS =
   'Id, DeveloperName, Language, MasterLabel, Workflow, Validation, Callout, ApexCode, ApexProfiling, ' +
   'Visualforce, System, Database, Wave, Nba, DataAccess';
+const DEBUG_LEVEL_API_FIELDS: Record<keyof DebugLevelFields, string> = {
+  developerName: 'DeveloperName',
+  masterLabel: 'MasterLabel',
+  language: 'Language',
+  workflow: 'Workflow',
+  validation: 'Validation',
+  callout: 'Callout',
+  apexCode: 'ApexCode',
+  apexProfiling: 'ApexProfiling',
+  visualforce: 'Visualforce',
+  system: 'System',
+  database: 'Database',
+  wave: 'Wave',
+  nba: 'Nba',
+  dataAccess: 'DataAccess'
+};
+const DEBUG_LEVEL_CREATE_DEFAULTS = {
+  language: 'en_US',
+  workflow: 'INFO',
+  validation: 'INFO',
+  callout: 'INFO',
+  apexCode: 'DEBUG',
+  apexProfiling: 'INFO',
+  visualforce: 'INFO',
+  system: 'DEBUG',
+  database: 'INFO',
+  wave: 'INFO',
+  nba: 'INFO',
+  dataAccess: 'INFO'
+};
 const AUTOMATED_PROCESS_USER_TYPE = 'AutomatedProcess';
 const PLATFORM_INTEGRATION_USER_TYPE = 'CloudIntegrationUser';
 
@@ -704,6 +736,13 @@ async function logsDeleteNative(
   };
 }
 
+type DebugLevelDescribeField = {
+  name: string;
+  label: string;
+  restrictedPicklist: boolean;
+  picklistValues: Array<{ value: string; active: boolean }>;
+};
+
 function mapDebugLevel(record: JsonObject): RuntimeDebugLevelRecord {
   return {
     id: asString(record.Id),
@@ -724,23 +763,40 @@ function mapDebugLevel(record: JsonObject): RuntimeDebugLevelRecord {
   };
 }
 
-function debugLevelPayload(input: Partial<RuntimeDebugLevelRecord>): JsonObject {
-  return {
-    DeveloperName: asString(input.developerName) || '',
-    MasterLabel: asString(input.masterLabel) || asString(input.developerName) || '',
-    Language: asString(input.language) || 'None',
-    Workflow: asString(input.workflow) || 'INFO',
-    Validation: asString(input.validation) || 'INFO',
-    Callout: asString(input.callout) || 'INFO',
-    ApexCode: asString(input.apexCode) || 'DEBUG',
-    ApexProfiling: asString(input.apexProfiling) || 'INFO',
-    Visualforce: asString(input.visualforce) || 'INFO',
-    System: asString(input.system) || 'DEBUG',
-    Database: asString(input.database) || 'INFO',
-    Wave: asString(input.wave) || 'INFO',
-    Nba: asString(input.nba) || 'INFO',
-    DataAccess: asString(input.dataAccess) || 'INFO'
-  };
+function passedDebugLevelFields(fields: Partial<DebugLevelFields>): Partial<DebugLevelFields> {
+  const passed: Partial<DebugLevelFields> = {};
+  for (const key of Object.keys(DEBUG_LEVEL_API_FIELDS) as Array<keyof DebugLevelFields>) {
+    const value = asString(fields[key]);
+    if (value) passed[key] = value;
+  }
+  return passed;
+}
+
+function debugLevelPayload(fields: Partial<DebugLevelFields>): JsonObject {
+  const payload: JsonObject = {};
+  for (const key of Object.keys(DEBUG_LEVEL_API_FIELDS) as Array<keyof DebugLevelFields>) {
+    if (fields[key] !== undefined) payload[DEBUG_LEVEL_API_FIELDS[key]] = fields[key];
+  }
+  return payload;
+}
+
+async function assertDebugLevelPicklistValues(ctx: ConnectionContext, payload: JsonObject): Promise<void> {
+  const describe = await connectionRequest<{ fields: DebugLevelDescribeField[] }>(
+    ctx.connection,
+    'GET',
+    `/services/data/v${apiVersion(ctx.connection)}/tooling/sobjects/DebugLevel/describe`
+  );
+  const problems = describe.fields.flatMap(field => {
+    const value = asString(payload[field.name]);
+    if (!value || !field.restrictedPicklist) return [];
+    const allowed = field.picklistValues.filter(option => option.active).map(option => option.value);
+    // DebugLevel accepted `fine` and `EN_us` on a scratch org and stored FINE and en_US, so match in any case.
+    if (allowed.some(option => option.toLowerCase() === value.toLowerCase())) return [];
+    return [
+      `${field.label}: bad value for restricted picklist field: ${value}. Allowed values: ${allowed.join(', ')}.`
+    ];
+  });
+  if (problems.length > 0) throw new Error(problems.join(' '));
 }
 
 async function debugLevelsListNative(ctx: ConnectionContext): Promise<RuntimeDebugLevelRecord[]> {
@@ -768,39 +824,53 @@ async function debugLevelGetNative(
 
 async function debugLevelCreateNative(
   ctx: ConnectionContext,
-  params: DebugLevelWriteParams
+  params: DebugLevelCreateParams
 ): Promise<DebugLevelWriteResult> {
-  const record = params.record;
-  if (params.dryRun || !params.confirmed) return { status: 'success', dryRun: true, record };
+  const passed = passedDebugLevelFields(params.record);
+  if (!passed.developerName) throw new Error('Debug level developer name is required.');
+  const record: RuntimeDebugLevelRecord = {
+    developerName: passed.developerName,
+    masterLabel: passed.developerName,
+    ...DEBUG_LEVEL_CREATE_DEFAULTS,
+    ...passed
+  };
+  const payload = debugLevelPayload(record);
+  if (params.dryRun || !params.confirmed) {
+    await assertDebugLevelPicklistValues(ctx, payload);
+    return { status: 'success', dryRun: true, record };
+  }
   const result = await connectionRequest<{ id?: string }>(
     ctx.connection,
     'POST',
     `/services/data/v${apiVersion(ctx.connection)}/tooling/sobjects/DebugLevel`,
-    debugLevelPayload(record)
+    payload
   );
-  return {
-    status: 'success',
-    id: asString(result.id),
-    dryRun: false,
-    record: { ...record, id: asString(result.id) ?? record.id }
-  };
+  const id = asString(result.id);
+  return { status: 'success', id, dryRun: false, record: { id, ...record } };
 }
 
 async function debugLevelUpdateNative(
   ctx: ConnectionContext,
-  params: DebugLevelWriteParams
+  params: DebugLevelUpdateParams
 ): Promise<DebugLevelWriteResult> {
-  const record = params.record;
-  const id = params.id || record.id || (await debugLevelGetNative(ctx, { developerName: record.developerName }))?.id;
-  if (!id) throw new Error('Debug level was not found.');
-  if (params.dryRun || !params.confirmed) return { status: 'success', id, dryRun: true, record: { ...record, id } };
+  const { id } = params;
+  const changes = passedDebugLevelFields(params.changes);
+  const payload = debugLevelPayload(changes);
+  if (Object.keys(payload).length === 0) throw new Error('Debug level update has no fields to change.');
+  const current = await debugLevelGetNative(ctx, { id });
+  if (!current) throw new Error(`Debug level ${id} was not found.`);
+  const record = { ...current, ...changes, id };
+  if (params.dryRun || !params.confirmed) {
+    await assertDebugLevelPicklistValues(ctx, payload);
+    return { status: 'success', id, dryRun: true, record };
+  }
   await connectionRequest(
     ctx.connection,
     'PATCH',
     `/services/data/v${apiVersion(ctx.connection)}/tooling/sobjects/DebugLevel/${id}`,
-    debugLevelPayload(record)
+    payload
   );
-  return { status: 'success', id, dryRun: false, record: { ...record, id } };
+  return { status: 'success', id, dryRun: false, record };
 }
 
 async function debugLevelDeleteNative(
@@ -1585,9 +1655,9 @@ export function createApexLogViewerCore(
         orgCall('debugLevel.list', params.targetOrg, callOptions, ctx => debugLevelsListNative(ctx)),
       get: (params: DebugLevelGetParams = {}, callOptions?: CoreCallOptions) =>
         orgCall('debugLevel.get', params.targetOrg, callOptions, ctx => debugLevelGetNative(ctx, params)),
-      create: (params: DebugLevelWriteParams, callOptions?: CoreCallOptions) =>
+      create: (params: DebugLevelCreateParams, callOptions?: CoreCallOptions) =>
         orgCall('debugLevel.create', params.targetOrg, callOptions, ctx => debugLevelCreateNative(ctx, params)),
-      update: (params: DebugLevelWriteParams, callOptions?: CoreCallOptions) =>
+      update: (params: DebugLevelUpdateParams, callOptions?: CoreCallOptions) =>
         orgCall('debugLevel.update', params.targetOrg, callOptions, ctx => debugLevelUpdateNative(ctx, params)),
       delete: (params: DebugLevelDeleteParams, callOptions?: CoreCallOptions) =>
         orgCall('debugLevel.delete', params.targetOrg, callOptions, ctx => debugLevelDeleteNative(ctx, params))

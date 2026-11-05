@@ -22,7 +22,7 @@ async function readDependabotUpdates(): Promise<ParsedDependabotUpdate[]> {
 }
 
 suite('dependabot config', () => {
-  test('groups only the Playwright packages that must share one version range', async () => {
+  test('groups only the package families that must share one version', async () => {
     const updates = await readDependabotUpdates();
 
     assert.deepEqual(
@@ -33,10 +33,15 @@ suite('dependabot config', () => {
     assert.deepEqual(
       updates.find(update => update['package-ecosystem'] === 'npm')?.groups,
       {
+        react: {
+          'applies-to': 'version-updates',
+          patterns: ['react', 'react-dom', '@types/react', '@types/react-dom']
+        },
+        'react-security': { 'applies-to': 'security-updates', patterns: ['react', 'react-dom'] },
         playwright: { 'applies-to': 'version-updates', patterns: ['playwright', '@playwright/test'] },
         'playwright-security': { 'applies-to': 'security-updates', patterns: ['playwright', '@playwright/test'] }
       },
-      'playwright and @playwright/test must update together because run-playwright-e2e.test.js requires equal ranges'
+      'react with react-dom, and playwright with @playwright/test, must update together: react-dom throws on a react version mismatch and run-playwright-e2e.test.js requires equal ranges'
     );
   });
 

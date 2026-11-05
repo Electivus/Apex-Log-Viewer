@@ -21,7 +21,8 @@ import type {
   DebugLevelDeleteParams,
   DebugLevelGetParams,
   DebugLevelListParams,
-  DebugLevelWriteParams,
+  DebugLevelCreateParams,
+  DebugLevelUpdateParams,
   DebugLevelWriteResult,
   DoctorParams,
   DoctorResult,
@@ -469,13 +470,13 @@ export class CoreClient {
     return this.call(signal, () => this.core.debugLevel.get(params, { signal }));
   }
 
-  public debugLevelCreate(params: DebugLevelWriteParams, signal?: AbortSignal): Promise<DebugLevelWriteResult> {
+  public debugLevelCreate(params: DebugLevelCreateParams, signal?: AbortSignal): Promise<DebugLevelWriteResult> {
     return this.call(signal, () =>
       this.core.debugLevel.create({ ...params, confirmed: params.confirmed ?? true }, { signal })
     );
   }
 
-  public debugLevelUpdate(params: DebugLevelWriteParams, signal?: AbortSignal): Promise<DebugLevelWriteResult> {
+  public debugLevelUpdate(params: DebugLevelUpdateParams, signal?: AbortSignal): Promise<DebugLevelWriteResult> {
     return this.call(signal, () =>
       this.core.debugLevel.update({ ...params, confirmed: params.confirmed ?? true }, { signal })
     );
