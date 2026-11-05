@@ -63,6 +63,7 @@ import {
   type DurableAppender,
   type Lease
 } from '../../localStore/workspaceFs.js';
+import type { CustomLogLeaseHolder } from '../contracts.js';
 import { customLogError } from '../errors.js';
 import type { ObjectDescribe } from '../schema.js';
 import { isCaptureSeq, type CaptureSeq, type EventPosition, type EventUuid, type ReplayCursor } from './ids.js';
@@ -141,8 +142,6 @@ export type StoreCoverage =
       gaps: { reason: GapReason; after?: string; before?: string; detectedAt: string }[];
     };
 
-export type LeaseHolder = { surface: 'vscode' | 'cli'; pid: number; host: string; since: string };
-
 export type EventStore = StoreScan & {
   readonly location: EventStoreLocation;
   readonly eventsRoot: string;
@@ -157,7 +156,7 @@ export type EventStore = StoreScan & {
    * (every data file when there is no checkpoint), so no seq is reused. A re-delivery of a stored event
    * (crash, takeover or `-2` replay) is dropped by `append`, which looks the uuid up in the stored hour.
    */
-  openWriter(surface: 'vscode' | 'cli'): Promise<{ writer: EventStoreWriter } | { heldBy: LeaseHolder }>;
+  openWriter(surface: 'vscode' | 'cli'): Promise<{ writer: EventStoreWriter } | { heldBy: CustomLogLeaseHolder }>;
 };
 
 export type AppendResult = {
