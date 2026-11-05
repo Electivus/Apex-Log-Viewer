@@ -481,10 +481,13 @@ export type CustomLogCaptureParams = {
   payloadFields?: string[];
 };
 
+/** The process that holds an event object's capture lease. `since` is when it took the lease. */
+export type CustomLogLeaseHolder = { surface: 'vscode' | 'cli'; pid: number; host: string; since: string };
+
 export type CustomLogCaptureState =
   | { state: 'connecting' }
   /** Another process (a VS Code window or an `sf` run) holds this event object's capture lease. Rows it stores still arrive here. */
-  | { state: 'standby'; holder: { surface: 'vscode' | 'cli'; pid: number; host: string; since: string } }
+  | { state: 'standby'; holder: CustomLogLeaseHolder }
   /** Subscribed; receiving what Salesforce retained since the stored position (or the retained window). */
   | { state: 'catchingUp'; from: 'position' | 'retained' | 'new' }
   /**
@@ -511,8 +514,8 @@ export type CustomLogCaptureOutcome =
   'quiet' | 'timeLimit' | 'budget' | 'aborted' | 'capturedElsewhere' | 'needsInitial';
 
 /**
- * `DailyDeliveredPlatformEvents` from `/limits`, read once when a run prepares (also for `needsInitial`),
- * shared by every subscriber of the org. `budget` is about what this run will spend: half of `remaining`,
+ * `DailyDeliveredPlatformEvents` from `/limits`, read when a run prepares, once per lease (also for `needsInitial`),
+ * shared by every subscriber of the org. `budget` is about what this run will spend on that lease: half of `remaining`,
  * or 5 000 when `/limits` could not be read (then `remaining` and `max` are absent). The check runs
  * between flushes, so a run can exceed it by one server response.
  */
@@ -529,9 +532,13 @@ export type CustomLogCaptureUpdate = {
   allowance?: CustomLogCaptureAllowance;
 };
 
-export type CustomLogCaptureResult = {
+/** Why a capture ended for one caller. */
+export type CustomLogCaptureEnding =
+  | { outcome: Exclude<CustomLogCaptureOutcome, 'capturedElsewhere'> }
+  | { outcome: 'capturedElsewhere'; holder: CustomLogLeaseHolder };
+
+export type CustomLogCaptureResult = CustomLogCaptureEnding & {
   source: CustomLogSourceRef;
-  outcome: CustomLogCaptureOutcome;
   /** Events Salesforce delivered to this run, duplicates included: the allocation this run spent. */
   delivered: number;
   /** New events this run stored: duplicates inside the run and re-deliveries of events the store already held are excluded. */
@@ -539,6 +546,14 @@ export type CustomLogCaptureResult = {
   /** Gaps this run created. An open gap found at start is not repeated here; `store.gaps` lists every gap. */
   newGaps: CustomLogStoreGap[];
   store: CustomLogStoreInfo;
+  /**
+   * What the run first read from `/limits`, before any delivery. A run that wins a lost lease back reads again for its
+   * updates and its new budget; this keeps the first read. `remaining - delivered` estimates what the org has left for
+   * a caller present from the start of the run. A caller that joined later counts `delivered` from its join, so the
+   * estimate misses the deliveries before that. Absent when the run ended before that read: another process held the
+   * lease the whole time (a drain's `capturedElsewhere`), or the caller aborted or the drain's time limit ran out first.
+   */
+  allowance?: CustomLogCaptureAllowance;
 };
 
 /** `AlvError.code` values this namespace throws, in addition to `INVALID_ARGUMENT` and `ABORTED`. */

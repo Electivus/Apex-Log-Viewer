@@ -191,9 +191,12 @@ export type CustomLogStoreView =
 export type CustomLogCaptureOutcomeView =
   'quiet' | 'timeLimit' | 'budget' | 'aborted' | 'capturedElsewhere' | 'needsInitial';
 
+/** The process that holds the capture lease; `since` is when it took the lease. */
+export type CustomLogLeaseHolderView = { surface: 'vscode' | 'cli'; pid: number; host: string; since: string };
+
 export type CustomLogCaptureStateView =
   | { state: 'connecting' }
-  | { state: 'standby'; holder: { surface: 'vscode' | 'cli'; pid: number; host: string; since: string } }
+  | { state: 'standby'; holder: CustomLogLeaseHolderView }
   | { state: 'catchingUp'; from: 'position' | 'retained' | 'new' }
   /** `quiet` renders a tooltip: inferred from 10 s without events, not a server signal. */
   | { state: 'live'; basis: 'quiet' | 'signal' }

@@ -137,6 +137,7 @@ export type CustomLogDtoProof = [
   Holds<Same<ui.CustomLogStoreGapView, core.CustomLogStoreGap>>,
   Holds<Same<ui.CustomLogCaptureOutcomeView, core.CustomLogCaptureOutcome>>,
   Holds<Same<ui.CustomLogCaptureAllowanceView, core.CustomLogCaptureAllowance>>,
+  Holds<Same<ui.CustomLogLeaseHolderView, core.CustomLogLeaseHolder>>,
   // The view's `failed.code` is a plain string, so the other states are pinned both ways and `failed` one way.
   AssignsTo<ui.CustomLogCaptureStateView, core.CustomLogCaptureState>,
   Holds<
