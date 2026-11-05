@@ -1,15 +1,3 @@
-// The capture lease check, in one command from the repo root:
-//
-//   node .agents/skills/verify-capture-lease/scripts/check.mjs [--only model|conformance|mutants] [--traces N]
-//
-// 1. Model check: TLC checks every rule of model/checks.json on each config and compares the
-//    verdicts with the expected ones. Every counterexample is replayed on the real code.
-// 2. Conformance: TLC draws random behaviors of the model; each one is replayed on the real store
-//    code (replay.mjs), which fails at the first step where the code and the model disagree.
-// 3. Mutants: each broken copy of the model must break a rule, so the rules can fail.
-//
-// Exit 0 when every verdict matches model/checks.json, every replay follows the model and every
-// mutant is caught. TLC outputs stay in the printed work directory for /pstack:statechart.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -39,14 +27,9 @@ const runs = part => only === undefined || only === part;
 const checks = JSON.parse(fs.readFileSync(path.join(MODEL, 'checks.json'), 'utf8'));
 const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-capture-lease-'));
 const problems = [];
-/** Model branches that some replay took on the real code. */
 const covered = new Set();
-/** Replays that did not follow the model: reported once each part ends, with the first one in full. */
 let diverged = 0;
 const say = line => console.log(line);
-
-// ---------------------------------------------------------------------------------------------
-// Tools
 
 function javaCommand() {
   const java = process.env.JAVA ?? 'java';
@@ -86,7 +69,6 @@ async function tla2toolsJar() {
 
 let runCount = 0;
 /**
- * Runs TLC in its own directory under workDir on a copy of the model. Returns the output text and its file.
  * Model checking uses every core: a verdict does not depend on the worker count. Simulation passes
  * `workers: 1`, so a seed draws the same traces on every machine.
  */
@@ -119,7 +101,6 @@ function tlc(tools, { module, cfgText, extra = [], label, moduleText, workers = 
   return { text, outFile, dir };
 }
 
-// A rule is an INVARIANT or a PROPERTY (an action property, [][A]_vars) on one line of the cfg.
 const RULE_LINE = /^(INVARIANTS?|PROPERTY|PROPERTIES)\s+/;
 
 const rulesOf = cfgText =>
@@ -144,10 +125,6 @@ const withRules = (cfgText, rules) => {
   return lines.join('\n');
 };
 
-/**
- * TLC's verdict on each rule of a config: it drops a broken rule and runs again, until the rest hold.
- * `firstBreak` stops at the first broken rule (mutants only need one).
- */
 function verdicts(tools, { cfg, module, moduleText, label, firstBreak = false }) {
   const cfgText = fs.readFileSync(path.join(MODEL, cfg), 'utf8');
   let remaining = rulesOf(cfgText);
@@ -185,9 +162,6 @@ async function replayFile(file, label) {
     };
   }
 }
-
-// ---------------------------------------------------------------------------------------------
-// The three parts
 
 async function modelChecks(tools) {
   say('\n== Model check (TLC, every behavior within the bounds of each config)');
@@ -328,8 +302,6 @@ function mutants(tools) {
       problems.push(`Mutant "${mutant.name}" breaks no rule: the rules are too weak to catch it.`);
   }
 }
-
-// ---------------------------------------------------------------------------------------------
 
 try {
   const tools = { java: javaCommand(), jar: await tla2toolsJar() };

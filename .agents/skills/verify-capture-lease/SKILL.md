@@ -70,27 +70,43 @@ Read every TLC result with **`/pstack:statechart`**. Each run folder holds the c
 
 ## Update the model after an intended change
 
-Each action in `CaptureLease.tla` is one awaited file-system call, or one `process.kill(pid, 0)`, in the code. Another process can act between any two of them. A change that adds, removes, merges or reorders such calls must make the same change to the actions, and to `GATES` and `BRANCHES` in `scripts/replay.mjs` when a program counter is added or removed. A change to how reclaim markers are named must change `Name` in the model and the marker name check in `replay.mjs`.
+Each action in `CaptureLease.tla` is one awaited file-system call, or one `process.kill(pid, 0)`, in the code. Another process can act between any two of them. A change that adds, removes, merges or reorders such calls must make the same change to the actions, and to `GATES` and `BRANCHES` in `scripts/replay.mjs` when a program counter is added or removed. A change to how reclaim markers are named must change `MarkerName` in the model and the marker name check in `replay.mjs`.
 
-| Action                           | Code (workspaceFs.ts unless named)                                                                                                                                               |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `StartAttempt`                   | capture.ts `acquire` → store.ts `openWriter` → `tryAcquireLease` mints `owner.token` (each standby poll mints a new one)                                                         |
-| `CreateLease`                    | `createIfAbsent(leasePath, serialized)`: the `fs.link` in `writeFileAtomic`                                                                                                      |
-| `ReadLease`                      | `readSmallFile(leasePath)` in `tryAcquireLease`; `undefined` → `continue`                                                                                                        |
-| `JudgeHolder`                    | `judgeLease(holder, here)` → `pidLiveness` (`process.kill(pid, 0)`); `held` → `{ heldBy }` → standby; `reclaim` → `reclaimDeadLease` on `firstMarker`                            |
-| `CreateMarker`                   | `createIfAbsent(marker, electorRecord)` in `reclaimDeadLease`                                                                                                                    |
-| `ElectedReadLease`               | `(await readSmallFile(leasePath)) === deadRecord`                                                                                                                                |
-| `ElectedUnlinkLease`             | `unlinkIfPresent(leasePath)` after that check                                                                                                                                    |
-| `UnlinkPassedMarker`             | `for (const settled of passedOver) await unlinkIfPresent(settled)`, one step per marker                                                                                          |
-| `UnlinkOwnMarker`                | `unlinkIfPresent(marker); return 'retry'` after the election                                                                                                                     |
-| `ReadMarker`                     | `readSmallFile(marker)`; `undefined` → `'retry'`                                                                                                                                 |
-| `JudgeElector`                   | `judgeLease(elector, here)`; alive (or unreadable) → `break` to the wait; dead → `passedOver.push(marker)`, `marker = ${firstMarker}-${elector.token}`, next loop turn           |
-| `WaitSeesChange`, `WaitTimesOut` | the `while ((await readSmallFile(leasePath)) === deadRecord)` loop; `LEASE_RECLAIM_SETTLE_MS` is abstracted, so a wait can time out at any read that still finds the dead record |
-| `FenceSeesLoss`                  | store.ts `advance` → `lease.stillHeld()` false → `LeaseLostError` → capture.ts `epoch` → `writer.release()` → standby                                                            |
-| `Finish`                         | capture.ts `epoch` → `writer.release()` at the end of a run                                                                                                                      |
-| `ReleaseRead`, `ReleaseUnlink`   | `Lease.release`: `(await tokenOnDisk()) === owner.token` then `unlinkIfPresent(leasePath)`                                                                                       |
-| `Crash`                          | the process dies anywhere (window closed, SIGKILL, SIGTERM on `--follow`); its files stay                                                                                        |
-| `UserDeletesLease`               | the user deletes `capture.lease` by hand, as docs/CUSTOM_LOGS.md tells them to when its holder is gone (only `Fence.cfg` enables it)                                             |
+| Action                           | Code (workspaceFs.ts unless named)                                                                                                                                                                            |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `StartAttempt`                   | capture.ts `acquire` → store.ts `openWriter` → `tryAcquireLease` mints `owner.token` (each standby poll mints a new one)                                                                                      |
+| `CreateLease`                    | `createIfAbsent(leasePath, serialized)`: the `fs.link` in `writeFileAtomic`                                                                                                                                   |
+| `ReadLease`                      | `readSmallFile(leasePath)` in `tryAcquireLease`; `undefined` → `continue`                                                                                                                                     |
+| `JudgeHolder`                    | `judgeLease(holder, here)` → `pidLiveness` (`process.kill(pid, 0)`); `held` → `{ heldBy }` → standby; `reclaim` → `reclaimDeadLease` on `firstMarker`                                                         |
+| `CreateMarker`                   | `createIfAbsent(marker, electorRecord)` in `reclaimDeadLease`                                                                                                                                                 |
+| `ElectedReadLease`               | `(await readSmallFile(leasePath)) === deadRecord`                                                                                                                                                             |
+| `ElectedUnlinkLease`             | `unlinkIfPresent(leasePath)` after that check                                                                                                                                                                 |
+| `UnlinkPassedMarker`             | `for (const settled of passedOver) await unlinkIfPresent(settled)`, one step per marker                                                                                                                       |
+| `UnlinkOwnMarker`                | `unlinkIfPresent(marker); return 'retry'` after the election                                                                                                                                                  |
+| `ReadMarker`                     | `readSmallFile(marker)`; `undefined` → `'retry'`                                                                                                                                                              |
+| `JudgeElector`                   | `judgeLease(elector, here)`; alive (or unreadable) → `break` to the wait; dead → `passedOver.push(marker)`, `marker = ${firstMarker}-${elector.token}`, next loop turn                                        |
+| `WaitSeesChange`, `WaitTimesOut` | the `while ((await readSmallFile(leasePath)) === deadRecord)` loop; `LEASE_RECLAIM_SETTLE_MS` is abstracted, so a wait can time out at any read that still finds the dead record                              |
+| `FenceSeesLoss`                  | store.ts `advance` → `lease.stillHeld()` false → `LeaseLostError` → capture.ts `epoch` → `writer.release()` → standby. An advance that finds its own token changes nothing, so only the losing read is a step |
+| `Finish`                         | capture.ts `epoch` → `writer.release()` at the end of a run                                                                                                                                                   |
+| `ReleaseRead`, `ReleaseUnlink`   | `Lease.release`: `(await tokenOnDisk()) === owner.token` then `unlinkIfPresent(leasePath)`                                                                                                                    |
+| `Crash`                          | the process dies anywhere (window closed, SIGKILL, SIGTERM on `--follow`); its files stay                                                                                                                     |
+| `UserDeletesLease`               | the user deletes `capture.lease` by hand, as docs/CUSTOM_LOGS.md tells them to when its holder is gone (only `Fence.cfg` enables it)                                                                          |
+
+The model's state maps to the code like this. A token stands for the whole lease record: tokens are random and unique, so two records are equal exactly when their tokens are.
+
+| Variable  | Code                                                                                                                                                     |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lease`   | the token `capture.lease` names; `None` when the file is absent                                                                                          |
+| `markers` | pairs `<<name, elector>>`: `capture.lease.reclaim-<name>` names token `elector`. Name `<<t>>` is the file `reclaim-<t>`, `<<t, e>>` is `reclaim-<t>-<e>` |
+| `minter`  | `minter[t]`: the process whose `tryAcquireLease` call minted token `t`                                                                                   |
+| `minted`  | how many tokens exist; `MaxTokens` bounds the `tryAcquireLease` calls in the whole run                                                                   |
+| `alive`   | `alive[p]`: `pidLiveness` finds `p` alive                                                                                                                |
+| `pc`      | where each process is in the code                                                                                                                        |
+| `tok`     | `tok[p]`: `owner.token` of `p`'s current `tryAcquireLease` call                                                                                          |
+| `rec`     | `rec[p]`: the lease record `p` judged (`record`, `deadRecord`)                                                                                           |
+| `mrec`    | `mrec[p]`: the marker record `p` read (`markerRecord`)                                                                                                   |
+| `chain`   | `chain[p]`: the dead holder, then each dead elector `p` passed over. `MarkerName(chain[p])` is `marker`, and each prefix names a `passedOver` marker     |
+| `done`    | `done[p]`: how many passed-over markers `p` has unlinked                                                                                                 |
 
 `model/checks.json` holds the expected verdict of every rule per config, the conformance seeds and the mutants. A rule that held before an intended change and breaks after it is a finding. Fixing the model to hide it is not allowed.
 

@@ -429,9 +429,6 @@ async function createIfAbsent(filePath: string, contents: string): Promise<boole
 // No process unlinks a marker it did not create while the dead record may still be the lease: an unlink
 // removes whatever file holds the name, so it could remove the marker of a live elector that replaced
 // the one it judged, and two electors would then both unlink the lease (one of them the new holder's).
-// A crashed elector's marker is passed over instead: the election runs again on
-// `<first marker>-<its token>`, a name no one has used, since an elector's token is in one marker of
-// this dead holder at most. The elector unlinks the passed-over markers once the dead record is gone.
 async function reclaimDeadLease(
   leasePath: string,
   deadRecord: string,

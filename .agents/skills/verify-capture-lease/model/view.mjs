@@ -1,5 +1,3 @@
-// The view module /pstack:statechart takes for CaptureLease.tla: one region per process and one
-// for the files on disk, in the words of someone who runs two VS Code windows on one project.
 const DEAD_HOLDER = 98;
 const DEAD_ELECTOR = 99;
 
@@ -31,8 +29,6 @@ function ownerName(vars, token) {
   return `window ${pid}${vars.alive[pid] ? '' : ' (dead)'}`;
 }
 
-// A marker is <<name, elector>>; name <<t>> is the first marker of a dead holder, <<t, e>> the
-// marker of the election that passed over the dead reclaimer e.
 const markerLabel = (vars, marker) =>
   `${Object.keys(marker[1]).length === 1 ? 'Reclaim marker' : 'Next reclaim marker'} names ${ownerName(vars, marker[2])}`;
 
@@ -78,8 +74,8 @@ const STEP = {
   ReadMarker: p => `window ${p} reads the reclaim marker`,
   JudgeElector: (p, from, to) => {
     if (from.alive[from.minter[from.mrec[p]]]) return `window ${p} sees the reclaimer alive`;
-    // A model where this step deletes the marker (the F1 mutant) reads as what it does.
-    return to.markers.length < from.markers.length
+    const deletedMarker = to.markers.length < from.markers.length;
+    return deletedMarker
       ? `window ${p} sees the reclaimer dead and deletes the reclaim marker`
       : `window ${p} sees the reclaimer dead and moves to the next marker`;
   },

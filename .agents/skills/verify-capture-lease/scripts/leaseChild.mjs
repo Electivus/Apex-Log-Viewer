@@ -1,14 +1,8 @@
-// One model process, run as a real OS process over the real store code. replay.mjs forks it with
-// `--import tsx` from packages/core. Every lease file system call (link, lstat, unlink of
-// capture.lease or capture.lease.reclaim-<name>) and every process.kill(pid, 0) stops at a gate
-// until the driver lets it run, so the driver can impose any interleaving that TLC found.
-//
-// Channel: the driver writes in-<n>.json (a command when idle, `go` at a gate) and this process
-// writes out-<n>.json (ready, gate, result, error). Gates block synchronously, because
-// pidLiveness() calls process.kill synchronously and cannot await.
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+
+import { LEASE, MARKER_OF_ANY_CHAIN_LENGTH } from './replay.mjs';
 
 const [channelDir, root, username, object] = process.argv.slice(2);
 const storeModule = pathToFileURL(
@@ -42,25 +36,20 @@ async function takeAsync() {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
-// WaitTimesOut: the driver moves this clock past LEASE_RECLAIM_SETTLE_MS instead of sleeping.
 let skewMs = 0;
 const realNow = Date.now;
 Date.now = () => realNow() + skewMs;
 
 let phase = 'idle';
-const LEASE = 'capture.lease';
-// capture.lease.reclaim-<dead holder>[-<dead elector>...]: markerOf is the name after `reclaim-`.
-const MARKER = /^capture\.lease\.reclaim-([0-9a-f]{16}(?:-[0-9a-f]{16})*)$/;
 const KNOWN_CALLERS = ['reclaimDeadLease', 'tryAcquireLease'];
 
 function targetOf(file) {
   const base = path.basename(String(file));
   if (base === LEASE) return { target: 'lease' };
-  const marker = MARKER.exec(base);
+  const marker = MARKER_OF_ANY_CHAIN_LENGTH.exec(base);
   return marker ? { target: 'marker', markerOf: marker[1] } : undefined;
 }
 
-/** The innermost lease function on the stack, so the driver can tell a holder read from a reclaim read. */
 function callerOf(stack) {
   for (const line of String(stack).split('\n')) {
     const name = KNOWN_CALLERS.find(candidate => line.includes(` ${candidate} `) || line.includes(`.${candidate} `));
@@ -69,6 +58,7 @@ function callerOf(stack) {
   return undefined;
 }
 
+// Gates block synchronously, because pidLiveness() calls process.kill synchronously and cannot await.
 function gate(info) {
   emit({ type: 'gate', phase, caller: callerOf(new Error().stack), ...info });
   const message = takeSync();
@@ -78,8 +68,7 @@ function gate(info) {
 
 const promises = fs.promises;
 const original = { link: promises.link, lstat: promises.lstat, unlink: promises.unlink };
-/** writeFileAtomic's isRegularFile() after a failed link belongs to the link step, not to a read step. */
-let linkContinuation;
+let lstatAfterFailedLink;
 
 promises.link = async (source, destination) => {
   const target = targetOf(destination);
@@ -89,15 +78,15 @@ promises.link = async (source, destination) => {
   try {
     return await original.link(source, destination);
   } catch (error) {
-    if (error?.code === 'EEXIST') linkContinuation = String(destination);
+    if (error?.code === 'EEXIST') lstatAfterFailedLink = String(destination);
     throw error;
   }
 };
 
 promises.lstat = async (file, ...rest) => {
   const target = targetOf(file);
-  if (target && linkContinuation === String(file)) {
-    linkContinuation = undefined;
+  if (target && lstatAfterFailedLink === String(file)) {
+    lstatAfterFailedLink = undefined;
   } else if (target) {
     gate({ op: 'lstat', ...target });
   }
@@ -132,7 +121,6 @@ async function main() {
   for (;;) {
     const message = await takeAsync();
     if (message.cmd === 'acquire') {
-      // capture.ts acquire(): one store.openWriter call per attempt and per standby poll.
       phase = 'acquire';
       const attempt = await store.openWriter('cli');
       if ('writer' in attempt) {
@@ -142,7 +130,6 @@ async function main() {
         emit({ type: 'result', kind: 'heldBy', pid: attempt.heldBy.pid });
       }
     } else if (message.cmd === 'fence') {
-      // capture.ts flushBatch(): writer.advance; LeaseLostError -> epoch() -> writer.release() -> standby.
       phase = 'fence';
       try {
         await writer.advance(CHECKPOINT);
@@ -157,7 +144,6 @@ async function main() {
       writer = undefined;
       emit({ type: 'result', kind: 'released', after: 'leaseLost' });
     } else if (message.cmd === 'release') {
-      // capture.ts epoch(): the run ends and gives the lease back.
       phase = 'release';
       await writer.release();
       writer = undefined;
