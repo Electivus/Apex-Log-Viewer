@@ -146,7 +146,12 @@ test('capture stores a recorded event through the real CometD adapter, and list 
   const { core, double, scope } = await world(t, { events: 'single' });
   const updates: CustomLogCaptureUpdate[] = [];
 
-  const result = await core.customLog.capture({ ...scope, ...DRAIN }, { onUpdate: update => updates.push(update) });
+  // The only drain here that needs its row streamed before the bound. The run counts an event as stored before
+  // it finishes the write (cursor, gap check, coverage) and streams the row, so this bound covers the whole write.
+  const result = await core.customLog.capture(
+    { ...scope, ...DRAIN, maxDurationMs: 6_000 },
+    { onUpdate: update => updates.push(update) }
+  );
 
   assert.equal(result.source.id, SOURCE);
   assert.equal(result.outcome, 'timeLimit', 'the event was still being caught up when the bound passed');
