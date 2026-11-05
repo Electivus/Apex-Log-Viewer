@@ -101,6 +101,7 @@ import {
   type EventStore,
   type EventStoreLocation,
   type EventStoreWriter,
+  type GapReason,
   type StoreCoverage,
   type StoredEvent
 } from './store.js';
@@ -411,6 +412,17 @@ function createRun(
     storeInfo = deps.storeInfo(await store.coverage());
   };
 
+  const openAndShowGap = async (
+    writer: EventStoreWriter,
+    gap: { reason: GapReason; after?: string }
+  ): Promise<void> => {
+    const opened = await writer.openGap(gap);
+    if (!opened.created) return;
+    newGaps.push(storeGapOf(opened.gap));
+    await refreshStoreInfo();
+    broadcast();
+  };
+
   const report = (runEvent: CaptureRunEvent): void => {
     try {
       deps.onRunEvent?.(runEvent);
@@ -596,10 +608,7 @@ function createRun(
       initial,
       now: clock.now()
     });
-    if (decision.gap) {
-      const opened = await writer.openGap(decision.gap);
-      if (opened.created) newGaps.push(storeGapOf(opened.gap));
-    }
+    if (decision.gap) await openAndShowGap(writer, decision.gap);
     reportStart(
       decision.kind === 'needsInitial' ? 'none' : decision.start.kind === 'after' ? 'position' : decision.start.kind
     );
@@ -708,11 +717,7 @@ function createRun(
       void schedule(async () => {
         if (!writable()) return;
         try {
-          const opened = await writer.openGap({
-            reason: 'malformedEvent',
-            ...(after !== undefined ? { after } : {})
-          });
-          if (opened.created) newGaps.push(storeGapOf(opened.gap));
+          await openAndShowGap(writer, { reason: 'malformedEvent', ...(after !== undefined ? { after } : {}) });
         } catch (error) {
           fail(error);
         }
@@ -828,8 +833,7 @@ function createRun(
             return;
           }
           const after = last?.lastEvent.createdDate;
-          const opened = await writer.openGap({ reason: 'cursorRejected', ...(after !== undefined ? { after } : {}) });
-          if (opened.created) newGaps.push(storeGapOf(opened.gap));
+          await openAndShowGap(writer, { reason: 'cursorRejected', ...(after !== undefined ? { after } : {}) });
           last = undefined;
           activeStart = RETAINED;
           await reconnect('transport', false);
