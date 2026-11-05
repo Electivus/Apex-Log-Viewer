@@ -398,7 +398,8 @@ $ sf electivus custom-log capture --source app-events --target-org my-org --json
       "sizeBytes": 2097152,
       "retentionDays": 14,
       "gaps": []
-    }
+    },
+    "allowance": { "remaining": 22000, "max": 25000, "budget": 11000 }
   },
   "warnings": []
 }
@@ -670,11 +671,15 @@ By default `capture` drains. It resumes from the stored position and stops when 
 
 The result is the JSON shown in [A platform event](#a-platform-event). `delivered` is the number of events Salesforce delivered to the run, duplicates included, which is the allocation the run spent. `stored` counts the new events the run wrote, without re-deliveries of events the store already held. `newGaps` lists the gaps the run created. An open gap found at the start is not repeated there, and `store.gaps` lists every gap.
 
+`allowance` is the org's daily delivery allocation as Salesforce reported it when the run started. `remaining` and `max` count `DailyDeliveredPlatformEvents` for the whole org, and they are absent when Salesforce does not report them. `budget` is what this run may spend. Capture reads the allowance once, before it subscribes, so `remaining` minus `delivered` estimates what the org has left, apart from other subscribers. `allowance` is present in every result of a run that connected, including a `budget` stop before any delivery. It is absent when the run never connected, as for a drain that finds the lease held from the start.
+
+A `capturedElsewhere` result names the process that holds the lease in `holder`: the `surface` (`vscode` or `cli`), the `pid`, the `host`, and `since`, the time it took the lease. A VS Code window captures while it shows an event source, also in a hidden panel, so close that panel or the window to free the lease.
+
 A drain waits for the first event before it can call the stream quiet. After a new start, or over a stored position that is younger than one hour, it waits 15 seconds. After a first run with `--initial retained`, or over a position older than one hour, it waits the whole `--max-time` (120 seconds by default), because the first event of a large backlog can take that long. A drain that hears nothing in that time still ends `quiet`. Lower `--max-time` for a stream that you know is quiet. A drain over a young position with `--max-time` under 15 seconds ends `timeLimit`, not `quiet`.
 
 `quiet` does not prove that the backlog was complete. An early stop costs one more run, because the stored position is exact and the next run resumes after it. If that run starts when the oldest event the early stop left behind is more than 72 hours old, Salesforce may have expired it, and the run records a `retentionElapsed` gap.
 
-With `--follow`, `capture` keeps running. It prints each stored row to stdout as `<time> <level> <user> <title>`, with `-` for a missing level or user. It prints state changes and the allowance to stderr. Ctrl-C ends the run with `Delivered <n>, stored <m>. Store: <eventsRoot>` and a line for each gap the run created, and exits with code 0. A second Ctrl-C quits at once with exit code 130. A closed stdout, as in `| head -1`, ends the run like Ctrl-C. With `--json`, `--follow` prints nothing until the run ends and then prints the result. SIGTERM and SIGHUP exit with code 130 and no summary. The stored position and the lease reclaim cover that case.
+With `--follow`, `capture` keeps running. It prints each stored row to stdout as `<time> <level> <user> <title>`, with `-` for a missing level or user. It prints state changes and the allowance to stderr. Ctrl-C ends the run with `Delivered <n>, stored <m>. Store: <eventsRoot>`, then `The budget of this run was about <b> deliveries; the org had <r> of <max> daily event deliveries left when it started.` when the run connected, and a line for each gap the run created, and exits with code 0. A second Ctrl-C quits at once with exit code 130. A closed stdout, as in `| head -1`, ends the run like Ctrl-C. With `--json`, `--follow` prints nothing until the run ends and then prints the result. SIGTERM and SIGHUP exit with code 130 and no summary. The stored position and the lease reclaim cover that case.
 
 Every finished outcome exits with code 0, including `budget` and `capturedElsewhere`. A failure exits with code 1 and carries its code in `code` and `name`. `actions` lists what to try next, except for `INVALID_ARGUMENT`. See [Error codes](#error-codes).
 

@@ -366,23 +366,56 @@ test('a process that finds the lease held stands by, relays what the holder stor
   });
 });
 
-test('a drain that finds the lease held ends at once with capturedElsewhere', async () => {
+test('a drain that finds the lease held ends at once with capturedElsewhere and names the holder', async () => {
   await withProject(async root => {
     const store = openStore(root);
+    const tookLeaseAfter = Date.now();
     const holder = await openWriter(openStore(root), 'vscode');
+    const tookLeaseBefore = Date.now();
     try {
       const { transport, deps, hub } = setup(store);
       const w = watcher({ follow: false });
 
       const result = await resultOf(hub.watch(store.location, w.watcher, deps));
 
-      assert.equal(result.outcome, 'capturedElsewhere');
+      assert.ok(result.outcome === 'capturedElsewhere', `outcome ${result.outcome}`);
+      const { since, ...who } = result.holder;
+      assert.deepEqual(who, { surface: 'vscode', pid: process.pid, host: os.hostname() });
+      assert.ok(
+        Date.parse(since) >= tookLeaseAfter && Date.parse(since) <= tookLeaseBefore,
+        `since ${since} is when the holder took the lease`
+      );
+      assert.equal(result.allowance, undefined, 'a drain that never held the lease never read /limits');
+      assert.equal(deps.calls.allowances, 0);
       assert.equal(transport.attempts.length, 0);
       assert.equal(result.delivered, 0);
       assert.deepEqual(w.states(), ['connecting', 'standby']);
     } finally {
       await holder.release();
     }
+  });
+});
+
+test('a drain that joins a standby run ends at once with capturedElsewhere and names the holder', async () => {
+  await withProject(async root => {
+    const real = openStore(root);
+    const heldBy = { surface: 'cli' as const, pid: 4242, host: 'build-7', since: '2026-10-30T10:00:00.000Z' };
+    const store: EventStore = { ...real, openWriter: async () => ({ heldBy }) };
+    const { clock, deps, hub } = setup(store);
+    const follower = watcher({ follow: true });
+    const following = hub.watch(store.location, follower.watcher, deps);
+    await until(() => standbyUpdate(follower) !== undefined && clock.pending > 0, 'the standby state');
+
+    const drain = watcher({ follow: false });
+    const result = await resultOf(hub.watch(store.location, drain.watcher, deps));
+
+    assert.deepEqual(
+      { outcome: result.outcome, holder: 'holder' in result ? result.holder : undefined },
+      { outcome: 'capturedElsewhere', holder: heldBy }
+    );
+    follower.abort();
+    await within(following, 'the standby run to stop');
+    await hub.dispose();
   });
 });
 

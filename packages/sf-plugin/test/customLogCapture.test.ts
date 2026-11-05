@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 import { AlvError, type CaptureCallOptions } from '@alv/core';
 import type {
+  CustomLogCaptureEnding,
+  CustomLogCaptureOutcome,
   CustomLogCaptureParams,
   CustomLogCaptureResult,
   CustomLogCaptureState,
@@ -15,6 +17,7 @@ import { Config } from '@oclif/core';
 
 import CustomLogCapture from '../src/commands/electivus/custom-log/capture.ts';
 import { core } from '../src/core.ts';
+import { finishLines } from '../src/customLogCapture.ts';
 import { until, withStreams } from './support/streams.ts';
 
 const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -26,15 +29,23 @@ const STORE = {
   retentionDays: 30
 } as const;
 
-const resultOf = (over: Partial<CustomLogCaptureResult> = {}): CustomLogCaptureResult => ({
+const resultOf = (
+  over: Partial<Omit<CustomLogCaptureResult, 'outcome'>> = {},
+  ending: CustomLogCaptureEnding = { outcome: 'quiet' }
+): CustomLogCaptureResult => ({
   source: { id: 'app-events', label: 'App events', shape: 'events' },
-  outcome: 'quiet',
   delivered: 0,
   stored: 0,
   newGaps: [],
   store: STORE,
-  ...over
+  ...over,
+  ...ending
 });
+
+const HOLDER = { surface: 'vscode', pid: 4242, host: 'laptop', since: '2026-10-30T10:00:00.000Z' } as const;
+
+const endingOf = (outcome: CustomLogCaptureOutcome): CustomLogCaptureEnding =>
+  outcome === 'capturedElsewhere' ? { outcome, holder: HOLDER } : { outcome };
 
 const rowOf = (over: Partial<CustomLogRow>): CustomLogRow => ({
   id: 'e-0000000000-0000000000-00000000000000000000000000000000',
@@ -73,7 +84,7 @@ const untilAborted =
   async ({ options }: Call): Promise<CustomLogCaptureResult> => {
     updates.forEach(update => options.onUpdate?.(update));
     await new Promise<void>(resolve => options.signal?.addEventListener('abort', () => resolve(), { once: true }));
-    return resultOf({ outcome: 'aborted', ...over });
+    return resultOf(over, { outcome: 'aborted' });
   };
 
 const command = (...argv: string[]) => new CustomLogCapture(['--source', 'app-events', ...argv], config);
@@ -151,7 +162,7 @@ test('values the contract does not allow are refused before core is called', asy
 // drain output
 
 test('--json prints one document, the result, and nothing on stderr', async () => {
-  const result = resultOf({ outcome: 'quiet', delivered: 412, stored: 412 });
+  const result = resultOf({ delivered: 412, stored: 412 }, { outcome: 'quiet' });
   fakeCore(async () => result);
 
   const { out, err } = await withStreams(() => command('--json')._run());
@@ -161,7 +172,7 @@ test('--json prints one document, the result, and nothing on stderr', async () =
 });
 
 test('without --json a drain prints the result once on stdout', async () => {
-  const result = resultOf({ outcome: 'budget', delivered: 5_003, stored: 4_980 });
+  const result = resultOf({ delivered: 5_003, stored: 4_980 }, { outcome: 'budget' });
   fakeCore(async () => result);
 
   const { value, out, err } = await withStreams(() => command().run());
@@ -173,7 +184,7 @@ test('without --json a drain prints the result once on stdout', async () => {
 
 test('every outcome of a finished run exits 0', async () => {
   for (const outcome of ['quiet', 'timeLimit', 'budget', 'aborted', 'capturedElsewhere', 'needsInitial'] as const) {
-    fakeCore(async () => resultOf({ outcome }));
+    fakeCore(async () => resultOf({}, endingOf(outcome)));
 
     const { out } = await withStreams(() => command('--json')._run());
 
@@ -210,7 +221,7 @@ test('--follow prints stored rows to stdout and everything else to stderr', asyn
         }),
         updateOf(live)
       ],
-      { delivered: 3, stored: 3 }
+      { delivered: 3, stored: 3, allowance }
     )
   );
 
@@ -237,9 +248,17 @@ test('--follow prints stored rows to stdout and everything else to stderr', asyn
     'Live. The stream went quiet, so the backlog is probably done; Salesforce sends no end marker.',
     'Stopping. Press Ctrl-C again to quit now.',
     `Delivered 3, stored 3. Store: ${STORE.eventsRoot}`,
+    'The budget of this run was about 11000 deliveries; the org had 22000 of 25000 daily event deliveries left when it started.',
     ''
   ]);
   assert.equal(calls[0]!.params.follow, true);
+});
+
+test('the summary of a run names the budget alone when Salesforce did not report the allowance', () => {
+  assert.deepEqual(finishLines(resultOf({ delivered: 2, stored: 2, allowance: { budget: 5_000 } })), [
+    `Delivered 2, stored 2. Store: ${STORE.eventsRoot}`,
+    'The budget of this run was about 5000 deliveries.'
+  ]);
 });
 
 test('--follow with --json keeps stdout and stderr for the result alone', async () => {
@@ -324,7 +343,7 @@ test('SIGINT aborts the run and ends with the aborted result, exit 0, instead of
   });
 
   assert.equal(calls[0]!.options.signal?.aborted, true);
-  assert.deepEqual(JSON.parse(out).result, resultOf({ outcome: 'aborted', delivered: 7, stored: 7 }));
+  assert.deepEqual(JSON.parse(out).result, resultOf({ delivered: 7, stored: 7 }, { outcome: 'aborted' }));
   assert.equal(process.exitCode ?? 0, 0);
 });
 

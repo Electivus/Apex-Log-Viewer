@@ -475,10 +475,13 @@ export type CustomLogCaptureParams = {
   payloadFields?: string[];
 };
 
+/** The process that holds an event object's capture lease, as `capture.lease` names it. `since` is when it took the lease. */
+export type CustomLogLeaseHolder = { surface: 'vscode' | 'cli'; pid: number; host: string; since: string };
+
 export type CustomLogCaptureState =
   | { state: 'connecting' }
   /** Another process (a VS Code window or an `sf` run) holds this event object's capture lease. Rows it stores still arrive here. */
-  | { state: 'standby'; holder: { surface: 'vscode' | 'cli'; pid: number; host: string; since: string } }
+  | { state: 'standby'; holder: CustomLogLeaseHolder }
   /** Subscribed; receiving what Salesforce retained since the stored position (or the retained window). */
   | { state: 'catchingUp'; from: 'position' | 'retained' | 'new' }
   /**
@@ -523,9 +526,13 @@ export type CustomLogCaptureUpdate = {
   allowance?: CustomLogCaptureAllowance;
 };
 
-export type CustomLogCaptureResult = {
+/** Why a capture ended for one caller. A `capturedElsewhere` end names the process that held the lease. */
+export type CustomLogCaptureEnding =
+  | { outcome: Exclude<CustomLogCaptureOutcome, 'capturedElsewhere'> }
+  | { outcome: 'capturedElsewhere'; holder: CustomLogLeaseHolder };
+
+export type CustomLogCaptureResult = CustomLogCaptureEnding & {
   source: CustomLogSourceRef;
-  outcome: CustomLogCaptureOutcome;
   /** Events Salesforce delivered to this run, duplicates included: the allocation this run spent. */
   delivered: number;
   /** New events this run stored: duplicates inside the run and re-deliveries of events the store already held are excluded. */
@@ -533,6 +540,11 @@ export type CustomLogCaptureResult = {
   /** Gaps this run created. An open gap found at start is not repeated here; `store.gaps` lists every gap. */
   newGaps: CustomLogStoreGap[];
   store: CustomLogStoreInfo;
+  /**
+   * What the run read from `/limits` when it prepared, as its updates carry it. Absent when the run never
+   * prepared: another process held the lease the whole time (a drain's `capturedElsewhere`), or the caller aborted first.
+   */
+  allowance?: CustomLogCaptureAllowance;
 };
 
 /** `AlvError.code` values this namespace throws, in addition to `INVALID_ARGUMENT` and `ABORTED`. */
