@@ -16,7 +16,7 @@ The promise is in docs/CUSTOM_LOGS.md, "Standby and the capture lease". The chec
 
 1. **Model check.** `model/CaptureLease.tla` describes the lease protocol, and TLC checks every order of every process's file-system calls within the bounds below.
 2. **Conformance.** `scripts/replay.mjs` replays model behaviors on the real code. Each model process runs as a real Node process over `openEventStore(...).openWriter()`, and each lease `link`, `lstat`, `unlink` and `process.kill(pid, 0)` waits at a gate until the replay lets it run. After every step, the replay checks that each real process is stopped at the call where the model says it is, and that `capture.lease` and the reclaim markers on disk hold the tokens the model says.
-3. **Mutants.** Five broken copies of the model, each one a plausible code mistake, must each break a rule. This proves that the rules can fail. The fifth restores bug F1 (below).
+3. **Mutants.** Five broken copies of the model, each one a plausible code mistake, must each break a rule. This proves that the rules can fail. The fifth deletes a dead elector's marker, the mistake behind bug F1 (below).
 
 ## Does my change touch the verified code?
 
@@ -112,7 +112,7 @@ The model's state maps to the code like this. A token stands for the whole lease
 
 ## Findings
 
-**F1 (fixed in #1215): two live processes could both take the lease when the previous holder and a reclaimer of its lease had both died.** The fifth mutant in `checks.json` restores the old step, and `check.mjs` must report it caught on `Leftovers.cfg`.
+**F1 (fixed in #1215): two live processes could both take the lease when the previous holder and a reclaimer of its lease had both died.** The fifth mutant in `checks.json` deletes a dead elector's marker as the old code did, and `check.mjs` must report it caught on `Leftovers.cfg`. It leaves out the old code's second read of the marker, which did not close the race, so its trace does not replay on the old code.
 
 Start: `capture.lease` names a dead process D. `capture.lease.reclaim-<D's token>` names a process E, which died inside `reclaimDeadLease` between creating the marker and deleting it. `Reach.cfg` shows that two crashes from clean files lead here. In the old code, two windows, 1 and 2, start a capture:
 
