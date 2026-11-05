@@ -93,6 +93,35 @@ describe('TailList', () => {
     (performance as any).now = originalNow;
   });
 
+  it('wraps a line that has no spaces instead of clipping it', () => {
+    const header =
+      'APEX_CODE,DEBUG;APEX_PROFILING,ERROR;CALLOUT,ERROR;DB,INFO;NBA,ERROR;SYSTEM,DEBUG;VISUALFORCE,ERROR;WAVE,INFO';
+    for (const colorize of [false, true]) {
+      const view = render(
+        <TailList
+          lines={[header]}
+          filteredIndexes={[0]}
+          selectedIndex={undefined}
+          onSelectIndex={() => {}}
+          colorize={colorize}
+          running
+          listRef={React.createRef()}
+          t={t as any}
+          virtualListComponent={
+            function RowsList({ rowComponent: Row }: any) {
+              return <Row index={0} style={{}} />;
+            } as any
+          }
+        />
+      );
+      const line = view.getByRole('row').firstElementChild as HTMLDivElement;
+      expect(line.textContent).toBe(header);
+      expect(line.style.whiteSpace).toBe('pre-wrap');
+      expect(line.style.overflowWrap).toBe('anywhere');
+      view.unmount();
+    }
+  });
+
   it('notifies when the list enters and leaves the bottom threshold', async () => {
     const lines = Array.from({ length: 10 }, (_, i) => `Line ${i}`);
     const filtered = lines.map((_, i) => i);
