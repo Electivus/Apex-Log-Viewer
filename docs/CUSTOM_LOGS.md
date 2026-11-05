@@ -736,7 +736,7 @@ Pick an event source in the **Source** list. The table shows the stored history 
 
 - **A source with a stored position resumes by itself.** Opening it, or opening the panel again, starts capture from the stored position. The strip shows **Catching up** and then **Live**.
 - **A source with no stored position asks once.** The strip says that no events from this org are stored, and nothing subscribes. **Load retained events** replays what Salesforce still keeps, at least 72 hours. **Only new events** starts with the events published from now on. The strip shows how many deliveries of the org's daily allocation remain and how many this run may use. After your choice, opening the source resumes by itself. A session that receives no event stores no position, so the strip asks again next time.
-- **A run has a delivery budget.** It may use about half of what remains of the org's daily allocation, or 5,000 deliveries when Salesforce does not report the allowance. The check runs between flushes, and Salesforce hands over a whole response at a time, so a run can pass the budget by one response. A run that reaches it stores what it has and stops. **Start** resumes from the stored position.
+- **A run has a delivery budget.** It may use about half of what remains of the org's daily allocation, or 5,000 deliveries when Salesforce does not report the allowance. The check runs between responses, and Salesforce hands over a whole response at a time, so a run can pass the budget by one response. A run that reaches it stores what it has and stops. **Start** resumes from the stored position.
 - **Stop and Start.** **Stop** ends capture for the selected org and source. It stays stopped until you press **Start** or pick another org or source. **Start** runs capture again.
 - **What keeps and what stops capture.** Refresh, a change of `since`, and hiding the panel keep capture running. A change of org or source, or of the level or user filter, restarts it. Closing the Custom Logs view or its editor tab stops the capture that surface started, and so does turning off `electivus.apexLogViewer.customLogs.enabled`. The view and the editor tab watch one capture run, and so do two sources over one event object. The run ends when its last watcher leaves.
 
@@ -777,6 +777,8 @@ sf electivus custom-log capture --source app-events --target-org my-org --follow
 | `--max-time`              | Seconds, from 1 to 3,600. The default is 120. Stop after this long, even while events keep arriving. It cannot combine with `--follow`.                              |
 | `--initial retained\|new` | For an org that this project never captured. `retained`, the default, replays the events Salesforce still keeps. `new` starts with the events published from now on. |
 | `--min-level`, `--user`   | Need `--follow`. Print only the rows at or above the level, or logged by the user. The store keeps every event either way.                                           |
+
+A first capture cannot start at the last N events or since a time. Salesforce replays only from the newest event, from the earliest retained event, or from a known replay id, so any partial window still delivers from the start of the backlog. `--initial new` is the cheap start, and the run budget caps a `retained` run.
 
 By default `capture` drains. It resumes from the stored position and stops when the first of these happens:
 
