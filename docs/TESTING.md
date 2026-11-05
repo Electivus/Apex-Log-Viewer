@@ -130,6 +130,8 @@ $env:SF_DEVHUB_ALIAS = 'MyDevHub'
 pnpm run test:e2e
 ```
 
+To run one spec, pass its path after `--`, for example `pnpm run test:e2e -- test/e2e/specs/openLogViewer.e2e.spec.ts` or `pnpm run test:e2e:cli -- test/e2e/cli/specs/logs.e2e.spec.ts`. pnpm hands the script the `--` itself, and Playwright ignores every path after a `--`, so both runners drop a leading `--` before they start Playwright. Check a filter with `--list` first when a full run would be costly: the suite includes `customLogEventsPanel.e2e.spec.ts`, which publishes platform events to `alv-events` when this machine has it authenticated.
+
 The first run creates a scratch org under `SF_SCRATCH_ALIAS` (default `ALV_E2E_Scratch`); later runs reuse it while it is active. Local runs keep the scratch org by default; set `SF_TEST_KEEP_ORG=0` to delete it after the run. The scratch is created in your normal Salesforce CLI state, so no JWT key or operator configuration is involved, and no pool lease unless you also set `SF_SCRATCH_POOL_NAME`. `SF_DEVHUB_ALIAS` also skips the automatic Linux/macOS JWT setup from [DEVHUB_LOCAL.md](DEVHUB_LOCAL.md).
 
 Any JWT input takes precedence over the alias, so a partial JWT configuration fails instead of falling back to it. CI, the proxy lab and the scratch-org pool administrative commands always require JWT.

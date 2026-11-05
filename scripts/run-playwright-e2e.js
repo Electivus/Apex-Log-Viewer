@@ -123,7 +123,16 @@ async function ensureBuildArtifacts(repoRoot, options = {}) {
   }
 }
 
-function resolvePlaywrightInvocation(extraArgs) {
+/**
+ * `pnpm run test:e2e -- <spec>` hands the script a literal leading `--`, and Playwright ignores every
+ * path after `--`, so the run would ignore the filter and take the whole suite.
+ */
+function withoutLeadingArgSeparator(args = []) {
+  return args[0] === '--' ? args.slice(1) : args;
+}
+
+function resolvePlaywrightInvocation(rawExtraArgs) {
+  const extraArgs = withoutLeadingArgSeparator(rawExtraArgs);
   const rawRetries = String(process.env.PLAYWRIGHT_RETRIES ?? '').trim();
   const configuredRetries = rawRetries === '' ? DEFAULT_PLAYWRIGHT_RETRIES : rawRetries;
   if (!/^\d+$/.test(configuredRetries)) {
@@ -214,5 +223,6 @@ module.exports = {
   resolveBuildInvocation,
   resolvePlaywrightEnv,
   resolvePlaywrightShardArgs,
-  resolvePlaywrightInvocation
+  resolvePlaywrightInvocation,
+  withoutLeadingArgSeparator
 };
