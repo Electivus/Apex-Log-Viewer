@@ -8,6 +8,8 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 
 export const SOURCE_ID = 'alv-events';
+/** scripts/events-org.mjs publishes only to this alias. */
+const EVENTS_ORG_ALIAS = 'alv-events';
 /** The event for scenarios that may replay `-2`: its retained backlog is only what the specs and steps published. */
 export const DEFAULT_OBJECT = 'ALV_Test_Replay__e';
 
@@ -97,6 +99,12 @@ export async function waitForRunToEnd(root, timeoutMs = 30_000) {
 
 /** Opens the Custom Logs panel on the event source and tall enough to show rows. */
 export async function openEventsPanel({ h, session, expect }, object) {
+  if (session.org.alias !== EVENTS_ORG_ALIAS) {
+    // Publishing always goes to alv-events, so on any other org the rows could never appear.
+    throw new Error(
+      `The events-* steps need a session started with --target-org ${EVENTS_ORG_ALIAS}; this one runs on ${session.org.alias}.`
+    );
+  }
   await mapEventSource(session, object);
   await h.setWorkspaceSetting('electivus.apexLogViewer.customLogs.enabled', true);
   await h.runCommandWhenAvailable('Electivus Custom Logs: Focus on Electivus Custom Logs View');
