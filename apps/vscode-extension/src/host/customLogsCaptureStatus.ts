@@ -1,14 +1,12 @@
 import { localize } from './utils/localize';
 import type { CustomLogCaptureStateView } from '../shared/customLogsTypes';
 
-/** A capture this window runs: the source it follows and the state core last reported for it. */
 export type CustomLogsCaptureStatus = { sourceLabel: string; capture: CustomLogCaptureStateView };
 
 export type CustomLogsStatusBarPresentation = { visible: false } | { visible: true; text: string; tooltip: string };
 
 const HIDDEN: CustomLogsStatusBarPresentation = { visible: false };
 
-/** What the status bar item shows for a capture. A capture that stopped or failed has no item. */
 export function presentCaptureStatus(status: CustomLogsCaptureStatus | undefined): CustomLogsStatusBarPresentation {
   if (!status) {
     return HIDDEN;

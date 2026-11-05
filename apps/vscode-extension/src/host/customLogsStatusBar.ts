@@ -9,10 +9,6 @@ export interface CaptureStatusSource {
   stopByUser(): void;
 }
 
-/**
- * One click command serves both actions, so a quick pick offers them: a click on a status item that stops
- * a capture by itself would be too easy to hit, and one that only reveals would leave no way to stop it.
- */
 export function registerCaptureStatusBar(source: CaptureStatusSource, reveal: () => Promise<void>): vscode.Disposable {
   const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
   item.command = CAPTURE_STATUS_COMMAND;

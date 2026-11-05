@@ -436,7 +436,6 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     this.ensureCapture(await findCustomLogsProjectDir(), 'start');
   }
 
-  /** Stop for the capture strip's button and the status bar item alike, so both leave the same state behind. */
   public stopByUser(): void {
     this.captureIntent = { ...this.captureIntent, wanted: false };
     this.stopCapture();
@@ -449,7 +448,6 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     }
   }
 
-  /** The capture this window runs, whether or not a webview is mounted. Undefined once it ended or was stopped. */
   public getCaptureStatus(): CustomLogsCaptureStatus | undefined {
     const run = this.capture;
     if (!run || run.ended) {
