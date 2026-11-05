@@ -30,6 +30,7 @@
 
 ### Fixes
 
+- Custom Logs: stop two VS Code windows or `sf electivus custom-log capture` runs from both capturing one event object after a previous holder and a reclaimer of its `capture.lease` have both died. Every event delivered in that overlap counted twice against the org's daily allocation. The fix holds when every process on the workspace runs it.
 - Log Viewer: keep the status bar fully visible; the entries table now ends above it at any editor size instead of overlapping it with its horizontal scrollbar.
 - Logs: hide logs that matched only the previous search text as soon as you change the search, instead of listing them until the new full-log search finishes.
 - Salesforce: reuse one connection per org instead of rebuilding it for every action, so Logs and Debug Flags stop repeating the API-version request and the auth-file rewrite on each call (every call paid both on pt-BR or de-DE systems), and the calls within one `sf electivus` command share one connection; a session Salesforce rejects is rebuilt from the saved login and retried once.
