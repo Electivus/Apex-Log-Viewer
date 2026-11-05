@@ -173,10 +173,14 @@ class ObjectResolver {
   }
 
   /** Every mapped role. A required one missing or hidden fails the source; a hidden optional one is dropped. */
-  roles<R extends Record<string, RoleSpec>>(specs: R, paths: ByRole<R, string>, at: string): ByRole<R, ResolvedField> {
+  roles<R extends Record<string, RoleSpec>>(
+    specs: R,
+    paths: Readonly<Partial<Record<string, string>>>,
+    at: string
+  ): ByRole<R, ResolvedField> {
     const resolved: Record<string, ResolvedField> = {};
     for (const [role, spec] of Object.entries(specs)) {
-      const path = (paths as Partial<Record<string, string>>)[role];
+      const path = paths[role];
       if (path === undefined) continue;
       const what = `${at}.fields.${role}`;
       const field = spec.required ? this.required(path, spec.types, what) : this.optional(path, spec.types, what);
@@ -304,14 +308,18 @@ function resolveEventObject(
 ): { object: ResolvedEventObject; hidden: string[] } {
   if (!described.name.endsWith('__e') || described.queryable) throw new Fail(notAnEvent(described));
   const resolver = new ObjectResolver(described, new Map([[described.name, described]]), namespace, true);
-  const roles = resolver.roles(ENTRY_ROLES, event.fields, 'event');
+  // Until path roles resolve, only field roles and a document payload reach the resolver.
+  const fieldRoles: Partial<Record<string, string>> = {};
+  for (const [role, value] of Object.entries(event.fields)) if (typeof value === 'string') fieldRoles[role] = value;
+  const roles = resolver.roles(ENTRY_ROLES, fieldRoles, 'event');
+  const payload = event.payload && 'field' in event.payload ? event.payload : undefined;
   const object: ResolvedEventObject = {
     object: described.name,
     channel: `/event/${described.name}`,
     roles: { ...roles, time: timeFieldOf(roles.time) },
     columns: resolver.columns(event.columns, 'event'),
     details: resolver.details(event.details, 'event'),
-    ...(event.payload ? { payload: resolver.payload(event.payload, 'event.payload') } : {}),
+    ...(payload ? { payload: resolver.payload(payload, 'event.payload') } : {}),
     ...(event.systemMessagePrefix ? { systemMessagePrefix: event.systemMessagePrefix } : {})
   };
   return { object, hidden: resolver.hidden };
