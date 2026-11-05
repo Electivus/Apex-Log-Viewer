@@ -1,7 +1,8 @@
 /**
- * Record → DTO decoders. They read a plain `Record<string, unknown>` through `ResolvedField.api`
- * and know nothing about where the record came from. Identity and the CreatedDate fallback come
- * in as a `RowIdentity`, so a SOQL record and any other record with the same mapping decode
+ * Subject → DTO decoders. A `Subject` is one row as the decoders see it: a plain record read
+ * through `ResolvedField.api`, its identity and CreatedDate fallback, and the row's decoded
+ * payload. A role reads a field of the record or a path of the payload; `valueOf` is the one
+ * place that switches on which. A SOQL record and an event entry with the same mapping decode
  * through one function and produce the same DTO, `CUSTOM_LOG_CELL_CHARS` clipping included.
  */
 
@@ -11,18 +12,18 @@ import {
   CUSTOM_LOG_MESSAGE_PREVIEW_CHARS,
   type CustomLogDetail,
   type CustomLogEntry,
+  type CustomLogLevel,
   type CustomLogLongValue,
-  type CustomLogPayloadView,
   type CustomLogRow,
   type CustomLogScalar
 } from './contracts.js';
 import { normalizeLevel, type LevelTable } from './levels.js';
-import { decodePayload, toLongValue } from './payload.js';
+import { HIDDEN_DOC, docOfText, toLongValue, type PayloadDoc } from './payload.js';
 import type {
   DecodableEntryObject,
+  DecodableRoles,
   ResolvedField,
   ResolvedLongField,
-  ResolvedPayload,
   ResolvedTransactionObject,
   RoleSource,
   TimeSource
@@ -30,6 +31,31 @@ import type {
 
 /** What a row is called and when it was created, as the record's own source knows them. */
 export type RowIdentity = { readonly id: string; readonly createdDate: string };
+
+/** One row to decode: the record, its identity, and its payload doc (undefined when the object maps none). */
+export type Subject = {
+  readonly record: Readonly<Record<string, unknown>>;
+  readonly identity: RowIdentity;
+  readonly payload: PayloadDoc | undefined;
+};
+
+const NONE: ReadonlySet<string> = new Set();
+
+/** A record's subject: its mapped payload field decoded once, hidden when describe hides it. */
+export function recordSubject(
+  payload: ResolvedLongField | undefined,
+  record: Readonly<Record<string, unknown>>,
+  identity: RowIdentity,
+  pick: ReadonlySet<string> = NONE
+): Subject {
+  const doc =
+    payload === undefined
+      ? undefined
+      : payload.state === 'readable'
+        ? docOfText(read(record, payload.field.api), pick)
+        : HIDDEN_DOC;
+  return { record, identity, payload: doc };
+}
 
 export function read(record: Readonly<Record<string, unknown>>, api: string): unknown {
   let value: unknown = record;
@@ -40,12 +66,41 @@ export function read(record: Readonly<Record<string, unknown>>, api: string): un
   return value;
 }
 
+/** The single switch on where a role's value comes from. */
+function valueOf(subject: Subject, source: RoleSource | undefined): unknown {
+  switch (source?.from) {
+    case undefined:
+      return undefined;
+    case 'field':
+      return read(subject.record, source.api);
+    case 'path':
+      return subject.payload?.picked.get(source.path);
+    default:
+      return unreachable(source);
+  }
+}
+
+function unreachable(value: never): never {
+  throw new Error(`Unhandled role source ${JSON.stringify(value)}`);
+}
+
 export const text = (value: unknown): string | undefined =>
   typeof value === 'string' && value !== '' ? value : undefined;
-/** A string bound for a row or entry cell. Long text stays whole only in `entry` and the long values. */
-const cell = (value: unknown): string | undefined => text(value)?.slice(0, CUSTOM_LOG_CELL_CHARS);
 export const count = (value: unknown): number | undefined =>
   typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+
+/** A role's text, whole: a non-empty string, or a finite number as its decimal text. */
+export function roleText(subject: Subject, source: RoleSource | undefined): string | undefined {
+  const value = valueOf(subject, source);
+  return text(value) ?? (count(value) === undefined ? undefined : String(value));
+}
+
+export function roleNumber(subject: Subject, source: RoleSource | undefined): number | undefined {
+  return count(valueOf(subject, source));
+}
+
+/** A string bound for a row or entry cell. Long text stays whole only in `entry` and the long values. */
+const cell = (value: string | undefined): string | undefined => value?.slice(0, CUSTOM_LOG_CELL_CHARS);
 const scalar = (value: unknown): CustomLogScalar =>
   typeof value === 'string'
     ? value.slice(0, CUSTOM_LOG_CELL_CHARS)
@@ -53,17 +108,41 @@ const scalar = (value: unknown): CustomLogScalar =>
       ? value
       : null;
 
-/** The display time as ISO: the mapped field, or the record's CreatedDate when it is empty. */
-function displayTime(source: TimeSource, record: Readonly<Record<string, unknown>>, createdDate: string): string {
-  if (source.from === 'path') return createdDate;
-  const value = read(record, source.api);
+const isEpochMillis = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 8.64e15;
+
+/**
+ * The display time as ISO: the mapped field by its encoding, or a path value by what it is (a
+ * finite number is epoch milliseconds, a string a datetime literal), else the row's CreatedDate.
+ */
+function displayTime(source: TimeSource, subject: Subject): string {
+  const value = valueOf(subject, source);
   const mapped =
-    source.encoding === 'epochMillis'
-      ? typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 8.64e15
+    source.from === 'path'
+      ? isEpochMillis(value)
         ? new Date(value).toISOString()
-        : undefined
-      : normalizeSoqlDateTimeLiteral(value);
-  return mapped ?? createdDate;
+        : normalizeSoqlDateTimeLiteral(value)
+      : source.encoding === 'epochMillis'
+        ? isEpochMillis(value)
+          ? new Date(value).toISOString()
+          : undefined
+        : normalizeSoqlDateTimeLiteral(value);
+  return mapped ?? subject.identity.createdDate;
+}
+
+/**
+ * The message, whole. A path message that reads nothing on a parsed doc falls back to the doc's
+ * compact JSON, so an element without the mapped key still shows what it holds.
+ */
+function messageOf(roles: DecodableRoles, subject: Subject): string | undefined {
+  const mapped = roleText(subject, roles.message);
+  if (mapped !== undefined || roles.message.from !== 'path') return mapped;
+  return subject.payload?.compact();
+}
+
+export function levelOf(entry: DecodableEntryObject, levels: LevelTable, subject: Subject): CustomLogLevel | undefined {
+  const { roles } = entry;
+  return normalizeLevel(levels, valueOf(subject, roles.level), valueOf(subject, roles.levelOrdinal)).level;
 }
 
 /** Drops `undefined` members, so a DTO carries only the keys it has. */
@@ -84,13 +163,6 @@ export function longValueOf(long: ResolvedLongField, record: Readonly<Record<str
   return readLong(long, record, toLongValue);
 }
 
-function payloadView(
-  payload: ResolvedPayload | undefined,
-  record: Readonly<Record<string, unknown>>
-): CustomLogPayloadView | undefined {
-  return payload && readLong(payload, record, decodePayload);
-}
-
 function extras(
   columns: readonly ResolvedField[],
   record: Readonly<Record<string, unknown>>
@@ -98,104 +170,96 @@ function extras(
   return Object.fromEntries(columns.map(column => [column.key, scalar(read(record, column.api))]));
 }
 
-export function valueOf(record: Readonly<Record<string, unknown>>, source: RoleSource | undefined): unknown {
-  return source?.from === 'field' ? read(record, source.api) : undefined;
-}
-
-export function entryRow(
-  entry: DecodableEntryObject,
-  levels: LevelTable,
-  record: Readonly<Record<string, unknown>>,
-  identity: RowIdentity
-): CustomLogRow {
-  const message = text(valueOf(record, entry.roles.message));
+export function entryRow(entry: DecodableEntryObject, levels: LevelTable, subject: Subject): CustomLogRow {
+  const { roles } = entry;
   return defined({
-    id: identity.id,
-    time: displayTime(entry.roles.time, record, identity.createdDate),
-    title: cell(message),
-    user: cell(valueOf(record, entry.roles.user)),
-    level: normalizeLevel(levels, valueOf(record, entry.roles.level), valueOf(record, entry.roles.levelOrdinal)).level,
-    transactionId: cell(valueOf(record, entry.roles.transactionId)),
-    requestId: cell(valueOf(record, entry.roles.requestId)),
-    extra: extras(entry.columns, record),
-    payload: payloadView(entry.payload, record)
+    id: subject.identity.id,
+    time: displayTime(roles.time, subject),
+    title: cell(messageOf(roles, subject)),
+    user: cell(roleText(subject, roles.user)),
+    level: levelOf(entry, levels, subject),
+    transactionId: cell(roleText(subject, roles.transactionId)),
+    requestId: cell(roleText(subject, roles.requestId)),
+    extra: extras(entry.columns, subject.record),
+    payload: subject.payload?.view
   });
 }
 
 export function transactionRow(
   transaction: ResolvedTransactionObject,
   levels: LevelTable,
-  record: Readonly<Record<string, unknown>>,
-  identity: RowIdentity
+  subject: Subject
 ): CustomLogRow {
   const { roles } = transaction;
   const counts = defined({
-    entries: count(valueOf(record, roles.entryCount)),
-    errors: count(valueOf(record, roles.errorCount)),
-    warnings: count(valueOf(record, roles.warningCount))
+    entries: roleNumber(subject, roles.entryCount),
+    errors: roleNumber(subject, roles.errorCount),
+    warnings: roleNumber(subject, roles.warningCount)
   });
-  const ordinal = valueOf(record, roles.maxLevelOrdinal);
+  const ordinal = valueOf(subject, roles.maxLevelOrdinal);
   return defined({
-    id: identity.id,
-    time: displayTime(roles.startTime, record, identity.createdDate),
-    title: cell(valueOf(record, roles.name)),
-    user: cell(valueOf(record, roles.user)),
+    id: subject.identity.id,
+    time: displayTime(roles.startTime, subject),
+    title: cell(roleText(subject, roles.name)),
+    user: cell(roleText(subject, roles.user)),
     level: ordinal === undefined ? undefined : normalizeLevel(levels, undefined, ordinal).level,
     counts: Object.keys(counts).length > 0 ? counts : undefined,
-    transactionId: cell(valueOf(record, roles.transactionId)),
-    requestId: cell(valueOf(record, roles.requestId)),
-    extra: extras(transaction.columns, record),
-    payload: payloadView(transaction.payload, record)
+    transactionId: cell(roleText(subject, roles.transactionId)),
+    requestId: cell(roleText(subject, roles.requestId)),
+    extra: extras(transaction.columns, subject.record),
+    payload: subject.payload?.view
   });
 }
 
 export function entryDto(
   entry: DecodableEntryObject,
   levels: LevelTable,
-  record: Readonly<Record<string, unknown>>,
-  identity: RowIdentity,
+  subject: Subject,
   position: number,
   clip: boolean
 ): CustomLogEntry {
   const { roles } = entry;
-  const full = text(valueOf(record, roles.message)) ?? '';
+  const full = messageOf(roles, subject) ?? '';
   const clipped = clip && full.length > CUSTOM_LOG_MESSAGE_PREVIEW_CHARS;
-  const { level, rawLevel } = normalizeLevel(levels, valueOf(record, roles.level), valueOf(record, roles.levelOrdinal));
-  const truncated = valueOf(record, roles.messageTruncated);
+  const { level, rawLevel } = normalizeLevel(
+    levels,
+    valueOf(subject, roles.level),
+    valueOf(subject, roles.levelOrdinal)
+  );
+  const truncated = valueOf(subject, roles.messageTruncated);
   return defined({
-    id: identity.id,
-    sequence: count(valueOf(record, roles.order)) ?? position,
-    time: displayTime(roles.time, record, identity.createdDate),
+    id: subject.identity.id,
+    sequence: roleNumber(subject, roles.order) ?? position,
+    time: displayTime(roles.time, subject),
     level,
     rawLevel,
     message: clipped ? full.slice(0, CUSTOM_LOG_MESSAGE_PREVIEW_CHARS) : full,
     previewClipped: clipped,
     messageTruncated: typeof truncated === 'boolean' ? truncated : undefined,
-    origin: cell(valueOf(record, roles.origin)),
-    user: cell(valueOf(record, roles.user)),
-    exceptionType: cell(valueOf(record, roles.exceptionType)),
-    recordId: cell(valueOf(record, roles.recordId)),
+    origin: cell(roleText(subject, roles.origin)),
+    user: cell(roleText(subject, roles.user)),
+    exceptionType: cell(roleText(subject, roles.exceptionType)),
+    recordId: cell(roleText(subject, roles.recordId)),
     system: entry.systemMessagePrefix !== undefined && full.startsWith(entry.systemMessagePrefix),
-    presentDetails: entry.details.filter(detail => valueOf(record, detail.presence) === true).map(detail => detail.key),
-    extra: extras(entry.columns, record),
-    payload: payloadView(entry.payload, record)
+    presentDetails: entry.details
+      .filter(detail => valueOf(subject, detail.presence) === true)
+      .map(detail => detail.key),
+    extra: extras(entry.columns, subject.record),
+    payload: subject.payload?.view
   });
 }
 
 /** Every mapped detail with its state and its `truncated` flag, in definition order. */
-export function detailsOf(entry: DecodableEntryObject, record: Readonly<Record<string, unknown>>): CustomLogDetail[] {
+export function detailsOf(entry: DecodableEntryObject, subject: Subject): CustomLogDetail[] {
   return entry.details.map((detail): CustomLogDetail => {
     const label = detail.state === 'readable' ? detail.field.label : detail.label;
-    const flag = valueOf(record, detail.truncated);
+    const flag = valueOf(subject, detail.truncated);
     const truncated = typeof flag === 'boolean' ? { truncated: flag } : {};
-    return { key: detail.key, label, ...readLong(detail, record, raw => toLongValue(raw, truncated)) };
+    return { key: detail.key, label, ...readLong(detail, subject.record, raw => toLongValue(raw, truncated)) };
   });
 }
 
-/** The entry's full payload text; `unmapped` when the object maps none. */
-export function rawPayloadOf(
-  entry: DecodableEntryObject,
-  record: Readonly<Record<string, unknown>>
-): CustomLogLongValue {
-  return entry.payload ? longValueOf(entry.payload, record) : { state: 'unmapped' };
+/** The row's full payload text; `unmapped` when the object maps none. */
+export function rawPayloadOf(subject: Subject): CustomLogLongValue {
+  return subject.payload?.text() ?? { state: 'unmapped' };
 }

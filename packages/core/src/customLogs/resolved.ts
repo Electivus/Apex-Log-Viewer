@@ -150,12 +150,11 @@ export type ResolvedTransactionObject = {
   readonly levelPredicate: HeaderLevelPredicate;
 };
 
-/** What the decoders (`decode.ts`) read from an entry object: the parts that do not describe a query. */
+/** What the decoders (`decode.ts`) read from an entry object: the parts that do not describe a query. The payload belongs to the row (`Subject`). */
 export type DecodableEntryObject = {
   readonly roles: DecodableRoles;
   readonly columns: readonly ResolvedField[];
   readonly details: readonly ResolvedDetail[];
-  readonly payload?: ResolvedPayload;
   readonly systemMessagePrefix?: string;
 };
 
@@ -166,7 +165,7 @@ export type DecodableEntryObject = {
  * nothing can mistake a field for one SOQL may filter on. `object` is the describe-cased name,
  * because the CometD channel is case-sensitive and core lower-cases EntityDefinition names.
  */
-export type ResolvedEventObject = Omit<DecodableEntryObject, 'payload'> & {
+export type ResolvedEventObject = DecodableEntryObject & {
   readonly object: string;
   /** `/event/<describe.name>`. The only place the channel string is built. */
   readonly channel: string;
