@@ -50,7 +50,7 @@ Org selection comes from the environment, the same as for `test:e2e`:
 node $V doctor     # read-only; exit 0 = session ready to drive, 1 = something failed, 2 = preflight ok but no session
 ```
 
-Run it first whenever anything looks off. **Preflight** checks Node against `.nvmrc`, `sf` on PATH, `xvfb-run` on Linux without a `DISPLAY`, installed dependencies, build artifacts, and the Dev Hub/pool configuration (parsed with `scripts/devhub-auth.js`, no network). **Session** checks the following: phase is `ready`; the host pid is alive and was started from this checkout's bundle; the VS Code window and workbench are alive; the pool lease heartbeat is healthy; the build on disk matches the build that was loaded; `session.ts` has not changed since start; `sf org display` still authenticates the org. If a session check says "stop and start again", do exactly that, because the window is running stale code. Once a session exists, exit 0 no longer reflects preflight failures, so read the preflight lines too. `doctor` also resets the host's idle timer.
+Run it first whenever anything looks off. **Preflight** checks Node against `.nvmrc`, `sf` on PATH, `xvfb-run` on Linux (unless `ALV_E2E_SHOW_VSCODE=1` and a `DISPLAY` show the window), installed dependencies, build artifacts, and the Dev Hub/pool configuration (parsed with `scripts/devhub-auth.js`, no network). **Session** checks the following: phase is `ready`; the host pid is alive and was started from this checkout's bundle; the VS Code window and workbench are alive; the pool lease heartbeat is healthy; the build on disk matches the build that was loaded; `session.ts` has not changed since start; `sf org display` still authenticates the org. If a session check says "stop and start again", do exactly that, because the window is running stale code. Once a session exists, exit 0 no longer reflects preflight failures, so read the preflight lines too. `doctor` also resets the host's idle timer.
 
 ## Drive
 
@@ -120,6 +120,7 @@ Controls in `steps/` check the harness itself. Rerun them after changing `sessio
 
 - `debug-flags-from-tail-control`: intercepts every click on Tail's Debug Flags button and requires `h.openDebugFlagsFromTail()` to fail instead of returning the editor that was already open, then opens it normally. Takes about 100 s, because the helper exhausts its retries.
 - `tail-flag-cleanup-control`: does to the session user's `DEVELOPER_LOG` flags what Tail's Start does (moves the seed to another level, adds a flag the user did not have), runs `tail-live`'s restore from `steps/lib/traceFlags.mjs`, and requires the flags to equal the snapshot, with the added flag deleted. A live Start creates a flag only for a user with none, which a harness scratch never has, because the seed flag cannot be retyped or moved to another user.
+- `events-entries`: on an `alv-events` session, maps `ALV_Test_Log__e` with payload paths (`msg`, `level`, `traceId`) over `Payload__c` and `Stack_Trace__c`, publishes `count` events with `payloadEntries` JSON-array items each (`scripts/events-org.mjs publish --payload-entries`), and asserts one row per array item, the row id shape and suffixes, the titles, the metric item's JSON title and the `INFO` badge of the `Stack_Trace__c` item; run it once per `start`.
 - `events-gap-control`: on an `alv-events` session after `events-gap`, runs `events-gap` with its Start button wrapped so that the step's cursor edit is undone before Salesforce sees it, and requires the step to fail for want of a gap of its own. Rerun it after changing `events-gap.mjs` too, which the host caches like `steps/lib/` because the control imports it. Takes about 2 minutes and publishes one event when a gap is open.
 
 Per-feature recipes, entry points and traps are in [features/README.md](features/README.md). Check every entry point the map lists for a feature, not only the convenient one.
@@ -159,7 +160,7 @@ Stale state, where `session.json` exists but the host is dead, is cleared by the
 
 ## Isolation
 
-You can run one session per checkout, because state lives in `output/verify/session/` and `start` refuses to start a second one while a host is alive. Each session gets its own pool slot, temporary workspace, VS Code profile and Xvfb display. For two sessions side by side, use separate git worktrees. Never attach to or drive a VS Code window the session did not start.
+You can run one session per checkout, because state lives in `output/verify/session/` and `start` refuses to start a second one while a host is alive. Each session gets its own pool slot, temporary workspace, VS Code profile and Xvfb display on Linux. The VS Code window stays hidden: on Linux it runs on that Xvfb display, and on macOS and Windows it is transparent and click-through. Set `ALV_E2E_SHOW_VSCODE=1` before `start` to watch it. For two sessions side by side, use separate git worktrees. Never attach to or drive a VS Code window the session did not start.
 
 ## Gotchas
 

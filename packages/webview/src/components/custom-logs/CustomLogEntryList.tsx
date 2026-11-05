@@ -11,6 +11,7 @@ import { CustomLogsColumnsHeader, columnGrid } from './CustomLogsColumnsHeader';
 import { ExtraCell } from './ExtraCell';
 import { LevelBadge } from './LevelBadge';
 import { PayloadCell } from './PayloadCell';
+import { SCROLLBAR_GUTTER } from '../table/useVirtualListElement';
 import { useGridList } from './useGridList';
 
 const DEFAULT_ROW_HEIGHT = 26;
@@ -177,7 +178,7 @@ export function CustomLogEntryList({
   virtualListComponent
 }: CustomLogEntryListProps) {
   const VirtualList = virtualListComponent ?? List;
-  const { listRef, headerRef, onKeyDown } = useGridList(entries, selectedId, onSelect);
+  const { setListRef, headerRef, onKeyDown } = useGridList(entries, selectedId, onSelect);
   const rowHeightsRef = useRef<Record<number, number>>({});
   const rafRef = useRef<number | null>(null);
   const [, forceRender] = useState(0);
@@ -235,7 +236,8 @@ export function CustomLogEntryList({
       />
       <div className="relative min-h-0 flex-1">
         <VirtualList
-          listRef={listRef}
+          listRef={setListRef}
+          className={SCROLLBAR_GUTTER}
           style={{ height: '100%', width: '100%' }}
           rowCount={entries.length}
           rowHeight={(index: number) => rowHeightsRef.current[index] ?? DEFAULT_ROW_HEIGHT}

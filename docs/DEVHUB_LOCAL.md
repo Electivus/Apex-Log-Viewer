@@ -69,7 +69,7 @@ npm run test:e2e
 npm run test:e2e:cli
 ```
 
-The package commands load the configuration, verify the durable identity with a fresh JWT login, then start the requested runner. Credentials are passed only to child processes; the interactive shell receives no JWT secrets. UI runs use native macOS Electron, with the operator's browser endpoint removed. CI, explicit credential inputs, custom Playwright configs and help/list commands retain their existing behavior. Remove or rename `e2e-macos.sh` to disable automatic setup while retaining the durable credentials. The repository launcher runs in the current checkout; it does not depend on a user-wide `npm` alias or shell wrapper.
+The package commands load the configuration, verify the durable identity with a fresh JWT login, then start the requested runner. Credentials are passed only to child processes; the interactive shell receives no JWT secrets. UI runs use native macOS Electron, with the operator's browser endpoint removed. The VS Code window stays transparent and click-through unless `ALV_E2E_SHOW_VSCODE=1` is set for the run. CI, explicit credential inputs, custom Playwright configs and help/list commands retain their existing behavior. Remove or rename `e2e-macos.sh` to disable automatic setup while retaining the durable credentials. The repository launcher runs in the current checkout; it does not depend on a user-wide `npm` alias or shell wrapper.
 
 ## WSL and containers
 

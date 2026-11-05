@@ -130,6 +130,8 @@ $env:SF_DEVHUB_ALIAS = 'MyDevHub'
 pnpm run test:e2e
 ```
 
+To run one spec, pass its path after `--`, for example `pnpm run test:e2e -- test/e2e/specs/openLogViewer.e2e.spec.ts` or `pnpm run test:e2e:cli -- test/e2e/cli/specs/logs.e2e.spec.ts`. pnpm hands the script the `--` itself, and Playwright ignores every path after a `--`, so both runners drop a leading `--` before they start Playwright. Check a filter with `--list` first when a full run would be costly: the suite includes `customLogEventsPanel.e2e.spec.ts`, which publishes platform events to `alv-events` when this machine has it authenticated.
+
 The first run creates a scratch org under `SF_SCRATCH_ALIAS` (default `ALV_E2E_Scratch`); later runs reuse it while it is active. Local runs keep the scratch org by default; set `SF_TEST_KEEP_ORG=0` to delete it after the run. The scratch is created in your normal Salesforce CLI state, so no JWT key or operator configuration is involved, and no pool lease unless you also set `SF_SCRATCH_POOL_NAME`. `SF_DEVHUB_ALIAS` also skips the automatic Linux/macOS JWT setup from [DEVHUB_LOCAL.md](DEVHUB_LOCAL.md).
 
 Any JWT input takes precedence over the alias, so a partial JWT configuration fails instead of falling back to it. CI, the proxy lab and the scratch-org pool administrative commands always require JWT.
@@ -157,6 +159,7 @@ Useful env vars:
 - `SF_TEST_KEEP_ORG=1`: Keep the scratch org after the run (recommended while iterating).
 - `SF_E2E_DEBUG_FLAGS_USERNAME`: Optional username for the Debug Flags E2E user. If unset, tests auto-manage `alv.debugflags.<orgid>@example.com` (create if missing, reuse if present). If the org has no spare Salesforce licenses, tests fall back to the authenticated user.
 - `ALV_E2E_TIMING=1`: Prints per-step harness timings for scratch-org setup, VS Code startup, command-palette activation, and webview discovery.
+- `ALV_E2E_SHOW_VSCODE=1`: Shows the VS Code window so you can watch a run. By default it stays hidden: on Linux, `pnpm run test:e2e` (and the docs, lab and telemetry runs built on it) re-executes under `xvfb-run` even when a `DISPLAY` exists. On macOS and Windows, which have no virtual display, the harness makes the native window transparent, click-through, unfocusable and absent from the taskbar while Playwright keeps driving it. VS Code may still take focus for a moment when it starts; click any window to get it back. On Linux the flag needs a `DISPLAY`; without one the run still uses Xvfb.
 - `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`: Primary corporate-proxy configuration path, for example `HTTP_PROXY=http://username:pwd@proxy.company.com:8080`. These are honored by the Node-side E2E helpers, scratch-org pool REST calls, Salesforce CLI, VS Code download step, the VS Code extension host with its in-process core, and the standalone plugin. The Playwright configs enable `NODE_USE_ENV_PROXY=1` automatically when one of these proxy vars is present.
 - `ALV_E2E_PROXY_SERVER`: Optional E2E-only shorthand for ad-hoc local runs when you do not want to export the standard proxy vars globally. Prefer `HTTP_PROXY` / `HTTPS_PROXY` for corporate parity.
 - `ALV_E2E_PROXY_BYPASS`: Optional E2E-only shorthand for proxy bypass entries (same semantics as `NO_PROXY`).
@@ -274,7 +277,7 @@ All three skip when `sf org display --target-org alv-events` fails, so pool-only
 ```bash
 pnpm run test:e2e:cli specs/customLogEvents.e2e.spec.ts
 pnpm run test:e2e:cli specs/customLogEventsPoll.e2e.spec.ts
-node scripts/run-playwright-e2e.js specs/customLogEventsPanel.e2e.spec.ts   # opens a native VS Code window
+node scripts/run-playwright-e2e.js specs/customLogEventsPanel.e2e.spec.ts   # set ALV_E2E_SHOW_VSCODE=1 to watch VS Code
 ```
 
 The `verify-apex-log-viewer` skill has the same flows as steps for PR evidence: start a session with `--target-org alv-events`, then `run events-capture` and `run events-gap` (screenshots of the first-use strip, the Live strip with its tooltip and a gap line).

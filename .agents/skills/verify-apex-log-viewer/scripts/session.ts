@@ -1,6 +1,6 @@
 /**
  * Verification session host. verify.mjs bundles this file with esbuild and starts it detached
- * (under xvfb-run on headless Linux). It holds one real Salesforce org, one temporary workspace and
+ * (under xvfb-run on Linux unless ALV_E2E_SHOW_VSCODE=1). It holds one real Salesforce org, one temporary workspace and
  * one VS Code window running the extension under development, and serves step modules over a Unix
  * socket so an agent can drive the UI in small increments. Do not run it directly.
  */

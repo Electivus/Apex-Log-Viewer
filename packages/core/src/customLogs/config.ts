@@ -116,7 +116,7 @@ export type ByRole<R extends Record<string, RoleSpec>, V> = {
   readonly [K in keyof R as R[K]['required'] extends true ? never : K]?: V;
 };
 
-type RoleMap<R extends Record<string, RoleSpec>, P extends string = FieldPath> = ByRole<R, P>;
+type RoleMap<R extends Record<string, RoleSpec>, V = FieldPath> = ByRole<R, V>;
 
 /**
  * A long field fetched only by `entry`. Written as a bare field path, or as an object that adds
@@ -131,6 +131,20 @@ export type DetailDefinition<P extends string = FieldPath> = { field: P; presenc
  * the host's workspace state and never reach this file.
  */
 export type PayloadDefinition<P extends string = FieldPath> = { field: P; columns: readonly PayloadPath[] };
+
+/** A role read from the payload at this path instead of from a field. The object form is the tag; nothing is sniffed. */
+export type PathRef = { readonly path: PayloadPath };
+/** A role value as written: a field name, or `{ "path" }` on an event source. */
+export type RoleRef<P extends string> = P | PathRef;
+
+/**
+ * An event's payload: one JSON document per event (`field`), or `entries`, fields that each hold a
+ * complete JSON array whose elements are the event's rows. Columns are paths relative to the same
+ * root as the roles: the document, or the element.
+ */
+export type EventPayloadDefinition =
+  | PayloadDefinition<EventFieldName>
+  | { readonly entries: readonly [EventFieldName, ...EventFieldName[]]; readonly columns: readonly PayloadPath[] };
 
 export type TransactionDefinition = {
   object: ObjectName;
@@ -152,15 +166,16 @@ export type EntryDefinition = {
 
 /**
  * A platform event read from the local event store. It takes the entry's roles and keys minus
- * `parent`, because an event carries the same kind of fields; every path is a plain field name,
- * because an event has no relationships to hop.
+ * `parent`, because an event carries the same kind of fields; every field is a plain field name,
+ * because an event has no relationships to hop. Every role may instead name a payload path, kept
+ * as written so the digest of a mapping without one does not change.
  */
 export type EventDefinition = {
   object: EventObjectName;
-  fields: RoleMap<typeof ENTRY_ROLES, EventFieldName>;
+  fields: RoleMap<typeof ENTRY_ROLES, RoleRef<EventFieldName>>;
   columns: readonly EventFieldName[];
   details: readonly DetailDefinition<EventFieldName>[];
-  payload?: PayloadDefinition<EventFieldName>;
+  payload?: EventPayloadDefinition;
   systemMessagePrefix?: string;
 };
 
@@ -221,6 +236,10 @@ export const ENTRY_KEYS = [
 export const EVENT_KEYS = ['object', 'fields', 'columns', 'details', 'payload', 'systemMessagePrefix'] as const;
 export const DETAIL_KEYS = ['field', 'presence', 'truncated'] as const;
 export const PAYLOAD_KEYS = ['field', 'columns'] as const;
+export const EVENT_PAYLOAD_KEYS = ['field', 'entries', 'columns'] as const;
+export const ROLE_PATH_KEYS = ['path'] as const;
+/** Fields one `entries` list may name. Far above the two the motivating case needs; documented in CUSTOM_LOGS.md. */
+export const MAX_ENTRY_FIELDS = 8;
 
 export const SOURCE_ID_PATTERN = /^[a-z][a-z0-9-]{0,39}$/;
 export const FIELD_PATH_PATTERN = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)?$/;
@@ -283,15 +302,42 @@ function readName<T extends string>(
 
 type Reader<T> = (value: unknown, pointer: string, report: Report) => T | undefined;
 
-/** The names a mapping may use. A record allows one relationship hop; a platform event allows none. */
-type Vocabulary<O extends string, P extends string> = { object: Reader<O>; path: Reader<P> };
-
-const RECORD_NAMES: Vocabulary<ObjectName, FieldPath> = {
-  object: (value, pointer, report) => readName<ObjectName>(value, OBJECT_NAME_PATTERN, 'An object', pointer, report),
-  path: (value, pointer, report) => readName<FieldPath>(value, FIELD_PATH_PATTERN, 'A field', pointer, report)
+/**
+ * The names a mapping may use. A record allows one relationship hop; a platform event allows none.
+ * `role` reads one role value and `payload` the payload mapping, because only an event source
+ * takes a `{ "path" }` role or an `entries` payload.
+ */
+type Vocabulary<O extends string, P extends string, R extends P | PathRef, L> = {
+  object: Reader<O>;
+  path: Reader<P>;
+  role: Reader<R>;
+  payload: Reader<L>;
 };
 
-const EVENT_NAMES: Vocabulary<EventObjectName, EventFieldName> = {
+const RECORD_NAMES: Vocabulary<ObjectName, FieldPath, FieldPath, PayloadDefinition<FieldPath>> = {
+  object: (value, pointer, report) => readName<ObjectName>(value, OBJECT_NAME_PATTERN, 'An object', pointer, report),
+  path: (value, pointer, report) => readName<FieldPath>(value, FIELD_PATH_PATTERN, 'A field', pointer, report),
+  role: (value, pointer, report) => {
+    if (isRecord(value)) {
+      report('invalidValue', pointer, 'A payload path is available on an event source only. Map a field name here.');
+      return undefined;
+    }
+    return RECORD_NAMES.path(value, pointer, report);
+  },
+  payload: (value, pointer, report) => {
+    if (isRecord(value) && value.entries !== undefined) {
+      report(
+        'invalidValue',
+        `${pointer}/entries`,
+        '"entries" is available on an event source only. Map the payload field with "field" here.'
+      );
+      return undefined;
+    }
+    return readPayload(value, pointer, report, RECORD_NAMES.path);
+  }
+};
+
+const EVENT_NAMES: Vocabulary<EventObjectName, EventFieldName, RoleRef<EventFieldName>, EventPayloadDefinition> = {
   object: (value, pointer, report) => {
     if (typeof value === 'string' && value.length <= MAX_NAME_LENGTH && EVENT_OBJECT_PATTERN.test(value)) {
       return value as EventObjectName;
@@ -313,8 +359,100 @@ const EVENT_NAMES: Vocabulary<EventObjectName, EventFieldName> = {
       return undefined;
     }
     return readName<EventFieldName>(value, FIELD_NAME_PATTERN, 'A field', pointer, report);
-  }
+  },
+  role: (value, pointer, report) => readEventRole(value, pointer, report),
+  payload: (value, pointer, report) => readEventPayload(value, pointer, report)
 };
+
+const isPayloadPath = (value: unknown): value is PayloadPath =>
+  typeof value === 'string' && value.length >= 1 && value.length <= MAX_NAME_LENGTH;
+
+/** A string is always a field of the event; `{ "path" }` is always a payload path. */
+function readEventRole(value: unknown, pointer: string, report: Report): RoleRef<EventFieldName> | undefined {
+  if (typeof value === 'string') {
+    if (value.includes('.') || value.includes('[')) {
+      report(
+        'invalidValue',
+        pointer,
+        `Platform events have no relationships, so "${value}" cannot be read as a field. Map a field of the event itself, such as LoggedByUsername__c, or read it from the payload as { "path": "${value}" }.`
+      );
+      return undefined;
+    }
+    return EVENT_NAMES.path(value, pointer, report);
+  }
+  if (!isRecord(value)) {
+    report(
+      'invalidValue',
+      pointer,
+      `A role is a field name or { "path": "<payload path>" }, got ${describeKind(value)}.`
+    );
+    return undefined;
+  }
+  warnUnknownKeys(value, ROLE_PATH_KEYS, pointer, report);
+  const path = readRequired(value, 'path', pointer, report, (item, at) => {
+    if (isPayloadPath(item)) return item;
+    report(
+      'invalidValue',
+      at,
+      'A payload path is a string of 1 to 255 characters, such as traceId or metrics[0].name.'
+    );
+    return undefined;
+  });
+  return path && { path };
+}
+
+function readEntryFields(
+  value: unknown,
+  pointer: string,
+  report: Report
+): readonly [EventFieldName, ...EventFieldName[]] | undefined {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_ENTRY_FIELDS) {
+    const got = Array.isArray(value) ? `an array of ${value.length}` : describeKind(value);
+    report(
+      'invalidValue',
+      pointer,
+      `"entries" lists 1 to ${MAX_ENTRY_FIELDS} fields that each hold a JSON array, got ${got}.`
+    );
+    return undefined;
+  }
+  const fields: EventFieldName[] = [];
+  let valid = true;
+  for (const [index, item] of value.entries()) {
+    const field = EVENT_NAMES.path(item, `${pointer}/${index}`, report);
+    if (!field) valid = false;
+    else if (fields.includes(field)) {
+      report('invalidValue', `${pointer}/${index}`, `"${field}" is already listed in "entries".`);
+      valid = false;
+    } else fields.push(field);
+  }
+  const [first, ...rest] = fields;
+  return valid && first ? [first, ...rest] : undefined;
+}
+
+/** A field name, `{ "field", "columns" }` as a record payload, or `{ "entries", "columns" }`; never `field` and `entries` together. */
+function readEventPayload(value: unknown, pointer: string, report: Report): EventPayloadDefinition | undefined {
+  if (typeof value === 'string') {
+    const field = EVENT_NAMES.path(value, pointer, report);
+    return field && { field, columns: [] };
+  }
+  if (!isRecord(value)) {
+    report('invalidValue', pointer, `"payload" is a field name or an object, got ${describeKind(value)}.`);
+    return undefined;
+  }
+  warnUnknownKeys(value, EVENT_PAYLOAD_KEYS, pointer, report);
+  if (value.entries === undefined) {
+    const field = readRequired(value, 'field', pointer, report, (item, at) => EVENT_NAMES.path(item, at, report));
+    const columns = readPayloadColumns(value.columns, `${pointer}/columns`, report);
+    return field && columns && { field, columns };
+  }
+  if (value.field !== undefined) {
+    report('invalidValue', `${pointer}/entries`, '"entries" and "field" cannot both be set. Use one or the other.');
+    return undefined;
+  }
+  const entries = readEntryFields(value.entries, `${pointer}/entries`, report);
+  const columns = readPayloadColumns(value.columns, `${pointer}/columns`, report);
+  return entries && columns && { entries, columns };
+}
 
 function readRequired<T>(
   value: Record<string, unknown>,
@@ -345,30 +483,30 @@ function readFieldList<P extends string>(
   return fields.every(field => field !== undefined) ? (fields as P[]) : undefined;
 }
 
-function readRoleFields<P extends string>(
+function readRoleFields<R>(
   value: unknown,
   roles: Record<string, RoleSpec>,
   pointer: string,
   report: Report,
-  path: Reader<P>
-): Record<string, P> | undefined {
+  role: Reader<R>
+): Record<string, R> | undefined {
   if (!isRecord(value)) {
     report('notAnObject', pointer, `"fields" must be an object, got ${describeKind(value)}.`);
     return undefined;
   }
   warnUnknownKeys(value, Object.keys(roles), pointer, report);
-  const fields: Record<string, P> = {};
+  const fields: Record<string, R> = {};
   let valid = true;
-  for (const [role, spec] of Object.entries(roles)) {
-    if (value[role] === undefined) {
+  for (const [name, spec] of Object.entries(roles)) {
+    if (value[name] === undefined) {
       if (spec.required) {
-        report('missingRequired', `${pointer}/${role}`, `The "${role}" role is required.`);
+        report('missingRequired', `${pointer}/${name}`, `The "${name}" role is required.`);
         valid = false;
       }
       continue;
     }
-    const field = path(value[role], `${pointer}/${role}`, report);
-    if (field) fields[role] = field;
+    const field = role(value[name], `${pointer}/${name}`, report);
+    if (field) fields[name] = field;
     else valid = false;
   }
   return valid ? fields : undefined;
@@ -449,16 +587,16 @@ function readPayload<P extends string>(
 }
 
 /** Shared by header, entry and event objects: `payload`, `columns` and the `object` name, each read independently. */
-function readObjectParts<O extends string, P extends string>(
+function readObjectParts<O extends string, P extends string, R extends P | PathRef, L>(
   value: Record<string, unknown>,
   pointer: string,
   report: Report,
-  names: Vocabulary<O, P>
+  names: Vocabulary<O, P, R, L>
 ) {
   return {
     object: readRequired(value, 'object', pointer, report, (item, at) => names.object(item, at, report)),
     columns: readFieldList(value.columns, `${pointer}/columns`, report, names.path),
-    payload: value.payload === undefined ? null : readPayload(value.payload, `${pointer}/payload`, report, names.path)
+    payload: value.payload === undefined ? null : names.payload(value.payload, `${pointer}/payload`, report)
   };
 }
 
@@ -483,7 +621,7 @@ function readTransaction(value: unknown, pointer: string, report: Report): Trans
   warnUnknownKeys(value, TRANSACTION_KEYS, pointer, report);
   const { object, columns, payload } = readObjectParts(value, pointer, report, RECORD_NAMES);
   const fields = readRequired(value, 'fields', pointer, report, (item, at) =>
-    readRoleFields(item, TRANSACTION_ROLES, at, report, RECORD_NAMES.path)
+    readRoleFields(item, TRANSACTION_ROLES, at, report, RECORD_NAMES.role)
   );
   if (!object || !columns || !fields || payload === undefined) return undefined;
   return {
@@ -507,7 +645,7 @@ function readEntry(
   warnUnknownKeys(value, ENTRY_KEYS, pointer, report);
   const { object, columns, payload } = readObjectParts(value, pointer, report, RECORD_NAMES);
   const fields = readRequired(value, 'fields', pointer, report, (item, at) =>
-    readRoleFields(item, ENTRY_ROLES, at, report, RECORD_NAMES.path)
+    readRoleFields(item, ENTRY_ROLES, at, report, RECORD_NAMES.role)
   );
   const details = readDetails(value.details, `${pointer}/details`, report, RECORD_NAMES.path);
   let parent: FieldPath | undefined;
@@ -553,11 +691,15 @@ function readEvent(value: unknown, pointer: string, report: Report): EventDefini
   warnUnknownKeys(value, EVENT_KEYS, pointer, report);
   const { object, columns, payload } = readObjectParts(value, pointer, report, EVENT_NAMES);
   const fields = readRequired(value, 'fields', pointer, report, (item, at) =>
-    readRoleFields(item, ENTRY_ROLES, at, report, EVENT_NAMES.path)
+    readRoleFields(item, ENTRY_ROLES, at, report, EVENT_NAMES.role)
   );
   const details = readDetails(value.details, `${pointer}/details`, report, EVENT_NAMES.path);
   const systemMessagePrefix = readSystemMessagePrefix(value, pointer, report);
   if (!object || !columns || !fields || !details || payload === undefined || systemMessagePrefix === undefined) {
+    return undefined;
+  }
+  if (payload === null && Object.values(fields).some(field => typeof field !== 'string')) {
+    report('missingRequired', `${pointer}/payload`, 'A payload path needs a payload to read from.');
     return undefined;
   }
   return {
