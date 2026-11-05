@@ -4,6 +4,7 @@
 
 ### Maintenance
 
+- E2E: `pnpm run test:e2e -- <spec>` and `pnpm run test:e2e:cli -- <spec>` run only that spec again; the runners drop the `--` that pnpm forwards, which made Playwright ignore the filter and run the whole suite.
 - E2E: keep VS Code hidden during Playwright runs by default. Linux runs use Xvfb even when a `DISPLAY` exists, and macOS and Windows make the native window transparent and click-through. Set `ALV_E2E_SHOW_VSCODE=1` to watch a run.
 - Custom Logs: say a platform event is kept for at least 72 hours, in the panel's first-use note and catching-up text and in the docs, because Salesforce may purge later and a `-2` replay can cost more than the docs said; warn against a `-2` replay of `ALV_Test_Backlog__e`.
 - Custom Logs: remove the `Captured elsewhere` strip state, which the panel could never reach because it always follows; `capturedElsewhere` stays a CLI drain outcome.
@@ -37,6 +38,7 @@
 
 ### Fixes
 
+- Logs and Custom Logs: the column headers scroll with the rows again. The table attached its scroll sync before the virtual list had an element, so the headers stayed put and sat over the wrong columns. Both tables now also reserve the scrollbar's width in the header, so a vertical scrollbar no longer shifts the columns after the flexible one left of their headers.
 - Tail: wrap a line that has no spaces, such as the log's category header (`APEX_CODE,DEBUG;APEX_PROFILING,ERROR;...`), instead of cutting it off at the panel's right edge.
 - Custom Logs: keep the stored position's `lastEvent` at the newest event after a replay that ends in events the store already holds. In a store with no open gap, the next gap could name an older time, and a retention gap could open early.
 - Custom Logs: show a possible gap on the capture strip as soon as capture records it. A gap from a rejected position, an unreadable delivery, a start past the 72-hour retention, or another org now shows at once. Before, it stayed off the strip until a later event was stored, so a replay of events the store already held left the strip on `Live` with no warning.
