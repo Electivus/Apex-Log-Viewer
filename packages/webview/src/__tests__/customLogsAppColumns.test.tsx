@@ -40,9 +40,8 @@ jest.mock('react-window', () => {
         )
       );
       const api = { element: null, scrollToRow: () => {} };
-      if (listRef && 'current' in listRef) {
-        (listRef as { current: unknown }).current = api;
-      }
+      // Like react-window's List: the handle reaches object and callback refs alike.
+      React.useImperativeHandle(listRef, () => api, []);
       return React.createElement('div', { 'data-testid': 'virtual-list', style, className }, items);
     }
   };

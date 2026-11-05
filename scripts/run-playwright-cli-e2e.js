@@ -193,7 +193,16 @@ async function ensureSfPluginBuildArtifacts(repoRoot, options = {}) {
   }
 }
 
-function resolvePlaywrightInvocation(extraArgs, options = {}) {
+/**
+ * `pnpm run test:e2e -- <spec>` hands the script a literal leading `--`, and Playwright ignores every
+ * path after `--`, so the run would ignore the filter and take the whole suite.
+ */
+function withoutLeadingArgSeparator(args = []) {
+  return args[0] === '--' ? args.slice(1) : args;
+}
+
+function resolvePlaywrightInvocation(rawExtraArgs, options = {}) {
+  const extraArgs = withoutLeadingArgSeparator(rawExtraArgs);
   const configArg = '--config=playwright.cli.config.ts';
   const cliPath = require.resolve('@playwright/test/cli');
   const repoRoot = options.repoRoot || path.join(__dirname, '..');
@@ -277,5 +286,6 @@ module.exports = {
   resolvePlaywrightShardArgs,
   resolvePlaywrightEnv,
   resolvePlaywrightInvocation,
+  withoutLeadingArgSeparator,
   resolveSalesforceCliPath
 };
