@@ -4,6 +4,7 @@
 
 ### Maintenance
 
+- Custom Logs: say a platform event is kept for at least 72 hours, in the panel's first-use note and catching-up text and in the docs, because Salesforce may purge later and a `-2` replay can cost more than the docs said; warn against a `-2` replay of `ALV_Test_Backlog__e`.
 - Custom Logs: remove the `Captured elsewhere` strip state, which the panel could never reach because it always follows; `capturedElsewhere` stays a CLI drain outcome.
 - Discontinue the IntelliJ product initiative and remove its plugin, build tooling, CI/E2E lanes, and release workflow; retain useful TypeScript core regression coverage.
 - Refresh JSforce, oclif 4, YAML, CSS and TypeScript tooling; align the YAML override with its runtime update.

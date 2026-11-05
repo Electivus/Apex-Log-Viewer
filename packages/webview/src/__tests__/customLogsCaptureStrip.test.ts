@@ -111,7 +111,7 @@ describe('capture strip text', () => {
         { state: 'catchingUp', from: 'position' },
         `Catching up: loading events Salesforce kept since ${formatMinute(CAPTURED.lastCaptureAt)}`
       ],
-      [{ state: 'catchingUp', from: 'retained' }, 'Loading retained events (up to 72 hours)…'],
+      [{ state: 'catchingUp', from: 'retained' }, 'Loading retained events (at least 72 hours)…'],
       [{ state: 'catchingUp', from: 'new' }, 'Waiting for new events…']
     ] as const)('says where %j starts', (capture, text) => {
       expect(stripViewOf(viewOf(capture), en).text).toBe(text);
@@ -197,7 +197,7 @@ describe('capture strip text', () => {
       );
 
       expect(view.detail).toBe(
-        "Salesforce keeps up to 72 hours; each event counts against the org's daily delivery allocation (about 8,412 of 10,000 left); this run stops after about 4,206 deliveries and resumes on the next Start."
+        "Salesforce keeps at least 72 hours; each event counts against the org's daily delivery allocation (about 8,412 of 10,000 left); this run stops after about 4,206 deliveries and resumes on the next Start."
       );
     });
 
@@ -210,7 +210,7 @@ describe('capture strip text', () => {
       );
       expect(detail({ budget: 5_000 })).toContain('delivery allocation; this run stops after about 5,000 deliveries');
       expect(detail(undefined)).toBe(
-        "Salesforce keeps up to 72 hours; each event counts against the org's daily delivery allocation."
+        "Salesforce keeps at least 72 hours; each event counts against the org's daily delivery allocation."
       );
     });
 
