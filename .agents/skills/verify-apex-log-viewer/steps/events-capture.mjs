@@ -1,14 +1,20 @@
 // Custom Logs event source, live: open it, take the first-use choice, publish events and watch the rows and the
-// strip. Needs a session started on the events org: `start --target-org alv-events`.
+// strip. Needs a session started on the events org: `start --target-org alv-events`. First use shows only in a
+// workspace that never stored a position for the object, so run it once per `start`.
 // args: { object?: 'ALV_Test_Replay__e' | 'ALV_Test_Log__e', count?: 5, initial?: 'new' | 'retained' }
 //   initial 'retained' replays every event the object still holds, so keep it on the default replay object.
 import path from 'node:path';
-import { DEFAULT_OBJECT, eventsRoot, openEventsPanel, publishEvents } from './lib/events.mjs';
+import { DEFAULT_OBJECT, eventsRoot, hasStoredPosition, openEventsPanel, publishEvents } from './lib/events.mjs';
 
 export default async function ({ h, expect, session, args }) {
   const object = args.object ?? DEFAULT_OBJECT;
   const count = args.count ?? 5;
   const initial = args.initial ?? 'new';
+  if (await hasStoredPosition(session, object)) {
+    throw new Error(
+      `This session already stored a position for ${object}, so the panel resumes instead of asking the first-use question. Run stop and start for a fresh workspace.`
+    );
+  }
   const { logs, strip } = await openEventsPanel({ h, session, expect }, object);
 
   await expect(strip).toHaveAttribute('data-state', 'stopped', { timeout: 120_000 });
