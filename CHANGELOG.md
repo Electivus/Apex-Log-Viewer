@@ -34,6 +34,7 @@
 
 ### Fixes
 
+- Logs and Custom Logs: the column headers scroll with the rows again. The table attached its scroll sync before the virtual list had an element, so the headers stayed put and sat over the wrong columns. Both tables now also reserve the scrollbar's width in the header, so a vertical scrollbar no longer shifts the columns after the flexible one left of their headers.
 - CLI: `sf electivus debug-level create` and `update` no longer fail without `--language`. `create` defaults the language to `en_US`. `update` now changes only the fields you pass, instead of resetting every other category and the label, and no longer needs `--developer-name`. Without `--yes`, both commands check the picklist values against the org, so the preview fails on a value the real call would reject; a preview now needs a reachable org, and `create` without `--developer-name` exits 2.
 - Custom Logs: stop two VS Code windows or `sf electivus custom-log capture` runs from both capturing one event object after a previous holder and a reclaimer of its `capture.lease` have both died. Every event delivered in that overlap counted twice against the org's daily allocation. The fix holds when every process on the workspace runs it.
 - Log Viewer: keep the status bar fully visible; the entries table now ends above it at any editor size instead of overlapping it with its horizontal scrollbar.
