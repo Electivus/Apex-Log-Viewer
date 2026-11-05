@@ -46,7 +46,7 @@ import { normalizeLevel } from '../levels.js';
 import { selectPayloadPaths, summarizePayloadFields } from '../payload.js';
 import type { ResolvedEventObject, ResolvedEventSource } from '../resolved.js';
 import type { ObjectDescribe } from '../schema.js';
-import { compareNewestFirst, eventRowId, parseEventRowId, type EventPosition } from './ids.js';
+import { compareNewestFirst, entryRowId, parseEntryRowId, type EntryPosition } from './ids.js';
 import type { EventStore, StoreCoverage, StoredEvent } from './store.js';
 
 /** Nebula transactions publish in one call; an hour each way covers long async chains without scanning the whole store. */
@@ -178,7 +178,7 @@ function decodeEventCursor<K extends PageKind>(
     typeof cursor.s === 'string' &&
     typeof cursor.m === 'string' &&
     typeof cursor.f === 'string' &&
-    parseEventRowId(cursor.id) !== undefined &&
+    parseEntryRowId(cursor.id) !== undefined &&
     (cursor.k === 'eventList'
       ? window === undefined ||
         (typeof window === 'object' &&
@@ -310,7 +310,7 @@ export async function listEvents(snapshot: EventSnapshot, params: EventListParam
   let last: StoredEvent | undefined;
   let more = false;
   const scan = store.newestFirst({
-    ...(after ? { before: parseEventRowId(after.id) } : {}),
+    ...(after ? { before: parseEntryRowId(after.id)!.event } : {}),
     ...(window.since ? { sinceMs: Date.parse(window.since) } : {}),
     ...(window.until ? { untilMs: Date.parse(window.until) } : {})
   });
@@ -348,7 +348,7 @@ export type EventGetParams = {
   minLevel?: CustomLogLevel;
   cursor?: string;
   keep?: ReadonlySet<string>;
-  anchor: { logId: EventPosition } | { transactionId: string };
+  anchor: { logId: EntryPosition } | { transactionId: string };
 };
 
 /** Looks the link up from the anchor row's request id. Only this lookup may need the org. */
@@ -360,7 +360,8 @@ async function anchorOf(
   anchor: EventGetParams['anchor']
 ): Promise<StoredEvent> {
   if ('logId' in anchor) {
-    return (await store.find(anchor.logId)) ?? notFound(`Event ${eventRowId(anchor.logId)}`);
+    const found = anchor.logId.ordinal === 0 ? await store.find(anchor.logId.event) : undefined;
+    return found ?? notFound(`Event ${entryRowId(anchor.logId)}`);
   }
   const event = source.shape.event;
   if (!event.roles.transactionId) unsupported(source, 'transaction id mapping');
@@ -397,7 +398,7 @@ export async function getEvent(
   if (snapshot.state === 'notCaptured') {
     return notFound(
       'logId' in params.anchor
-        ? `Event ${eventRowId(params.anchor.logId)}`
+        ? `Event ${entryRowId(params.anchor.logId)}`
         : `Transaction ${params.anchor.transactionId}`
     );
   }
@@ -406,12 +407,12 @@ export async function getEvent(
   const { minLevel } = params;
   if (minLevel && !eventCapabilities(event).levelFilter) unsupported(source, 'level mapping');
 
-  const scope = 'logId' in params.anchor ? { logId: eventRowId(params.anchor.logId) } : params.anchor;
+  const scope = 'logId' in params.anchor ? { logId: entryRowId(params.anchor.logId) } : params.anchor;
   const binding: Binding = { o: orgId, s: source.id, m: source.digest, f: shortHash({ scope, minLevel }) };
   const after = params.cursor ? decodeEventCursor(params.cursor, 'eventEntries', binding) : undefined;
 
   // A later page continues the window of the first: a newer occurrence of the transaction id must not move it.
-  const continued = after ? parseEventRowId(after.id) : undefined;
+  const continued = after ? parseEntryRowId(after.id) : undefined;
   const anchor = await anchorOf(store, source, continued ? { logId: continued } : params.anchor);
   const members = (await transactionOfAnchor(store, event, anchor)).filter(stored => {
     if (!minLevel) return true;
@@ -445,12 +446,12 @@ export async function getEvent(
 // ---------------------------------------------------------------------------------------------
 // entry
 
-export async function entryEvent(snapshot: EventSnapshot, entryId: EventPosition): Promise<CustomLogEntryResult> {
-  const missing = `Entry ${eventRowId(entryId)}`;
+export async function entryEvent(snapshot: EventSnapshot, entryId: EntryPosition): Promise<CustomLogEntryResult> {
+  const missing = `Entry ${entryRowId(entryId)}`;
   if (snapshot.state === 'notCaptured') return notFound(missing);
   const { store, source, ref } = snapshot;
   const event = source.shape.event;
-  const found = (await store.find(entryId)) ?? notFound(missing);
+  const found = (entryId.ordinal === 0 ? await store.find(entryId.event) : undefined) ?? notFound(missing);
   return {
     source: ref,
     logId: found.id,

@@ -104,11 +104,13 @@ export type CustomLogSourceInfo = {
 export type CustomLogSourceObjects = { transaction?: string; entry: string } | { event: string };
 
 /**
- * Event row and entry ids: opaque tokens `e-<9 base36>-<10 base36>-<32 hex>` (55 characters). Two
- * event ids of one source compare in list order: the larger string is newer. Pass them back to
- * `get --log-id` and `entry --entry-id` as is. No part of the id is a Salesforce replay id.
+ * Event row and entry ids: opaque tokens `e-<9 base36>-<10 base36>-<32 hex>`, 55 characters for an
+ * event's first or only entry, 60 for a later entry of an event whose payload lists several (the
+ * event id plus `-<ordinal, 4 base36>`; `-0000` is never issued). Two ids of one source compare in
+ * list order: the larger string is newer. Pass them back to `get --log-id` and `entry --entry-id`
+ * as is. No part of the id is a Salesforce replay id.
  */
-export const CUSTOM_LOG_EVENT_ID_PATTERN = /^e-[0-9a-z]{9}-[0-9a-z]{10}-[0-9a-f]{32}$/;
+export const CUSTOM_LOG_EVENT_ID_PATTERN = /^e-[0-9a-z]{9}-[0-9a-z]{10}-[0-9a-f]{32}(?:-(?!0000)[0-9a-z]{4})?$/;
 
 // ---------------------------------------------------------------------------------------------
 // the local event store, as every event result reports it
