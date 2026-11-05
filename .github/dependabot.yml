@@ -12,6 +12,19 @@ updates:
     cooldown:
       default-days: 3
     groups:
+      # react and react-dom must share one version; react-dom throws on a mismatch.
+      react:
+        applies-to: version-updates
+        patterns:
+          - 'react'
+          - 'react-dom'
+          - '@types/react'
+          - '@types/react-dom'
+      react-security:
+        applies-to: security-updates
+        patterns:
+          - 'react'
+          - 'react-dom'
       # scripts/run-playwright-e2e.test.js requires both ranges to stay identical.
       playwright:
         applies-to: version-updates
