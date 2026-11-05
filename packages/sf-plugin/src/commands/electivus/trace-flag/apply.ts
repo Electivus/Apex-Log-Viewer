@@ -2,7 +2,7 @@ import type { TraceFlagApplyResult } from '@alv/core/contracts';
 import { Flags } from '@salesforce/sf-plugins-core';
 import { AlvCommand } from '../../../command.js';
 import { core } from '../../../core.js';
-import { dryRunFlag, targetOrgFlag, yesFlag } from '../../../flags.js';
+import { dryRunFlag, targetOrgFlag, traceFlagLogTypeFlag, yesFlag } from '../../../flags.js';
 import { traceTarget } from '../../../traceTarget.js';
 
 export default class TraceFlagApply extends AlvCommand<TraceFlagApplyResult> {
@@ -12,6 +12,7 @@ export default class TraceFlagApply extends AlvCommand<TraceFlagApplyResult> {
     'current-user': Flags.boolean({ default: false, summary: 'Target the current org user.' }),
     'debug-level': Flags.string({ required: true, summary: 'Debug level developer name.' }),
     'dry-run': dryRunFlag,
+    'log-type': traceFlagLogTypeFlag,
     'platform-integration': Flags.boolean({ default: false, summary: 'Target Platform Integration.' }),
     'target-org': targetOrgFlag,
     'ttl-minutes': Flags.integer({ min: 1, summary: 'Trace flag lifetime in minutes.' }),
@@ -26,6 +27,7 @@ export default class TraceFlagApply extends AlvCommand<TraceFlagApplyResult> {
         confirmed: flags.yes,
         debugLevelName: flags['debug-level'],
         dryRun: flags['dry-run'],
+        logType: flags['log-type'],
         target: traceTarget(flags),
         targetOrg: flags['target-org'],
         ttlMinutes: flags['ttl-minutes']

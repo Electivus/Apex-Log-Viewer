@@ -101,7 +101,7 @@ export class TailService {
       logInfo('Tail: acquired auth for', auth.username || '(default)', 'at', auth.instanceUrl);
 
       try {
-        // Ensure TraceFlag using USER_DEBUG and update existing if present
+        // Ensure a TraceFlag of the default log type (DEVELOPER_LOG), updating the existing one if present
         const created = await ensureUserTraceFlag(auth, debugLevel);
         if (created) {
           logInfo('Tail: TraceFlag created for user with level', debugLevel);

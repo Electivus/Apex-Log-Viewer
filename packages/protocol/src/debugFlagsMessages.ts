@@ -1,21 +1,29 @@
 import type { OrgItem } from './types.js';
-import type {
-  DebugFlagUser,
-  DebugLevelPreset,
-  DebugLevelRecord,
-  TraceFlagTarget,
-  TraceFlagTargetStatus
+import {
+  TRACE_FLAG_LOG_TYPES,
+  type DebugFlagUser,
+  type DebugLevelPreset,
+  type DebugLevelRecord,
+  type TraceFlagLogType,
+  type TraceFlagTarget,
+  type TraceFlagTargetStatus
 } from './debugFlagsTypes.js';
 
 export type DebugFlagsFromWebviewMessage =
   | { type: 'debugFlagsReady' }
   | { type: 'debugFlagsSelectOrg'; target: string }
   | { type: 'debugFlagsSearchUsers'; query: string }
-  | { type: 'debugFlagsSelectTarget'; target: TraceFlagTarget }
-  | { type: 'debugFlagsApply'; target: TraceFlagTarget; debugLevelName: string; ttlMinutes: number }
+  | { type: 'debugFlagsSelectTarget'; target: TraceFlagTarget; logType: TraceFlagLogType }
+  | {
+      type: 'debugFlagsApply';
+      target: TraceFlagTarget;
+      logType: TraceFlagLogType;
+      debugLevelName: string;
+      ttlMinutes: number;
+    }
   | { type: 'debugFlagsManagerSave'; draft: DebugLevelRecord }
   | { type: 'debugFlagsManagerDelete'; debugLevelId: string }
-  | { type: 'debugFlagsRemove'; target: TraceFlagTarget }
+  | { type: 'debugFlagsRemove'; target: TraceFlagTarget; logType: TraceFlagLogType }
   | { type: 'debugFlagsClearLogs'; scope: 'all' | 'mine' };
 
 export type DebugFlagsToWebviewMessage =
@@ -67,6 +75,10 @@ function parseTraceFlagTarget(value: unknown): TraceFlagTarget | undefined {
     return userId ? { type: 'user', userId } : undefined;
   }
   return undefined;
+}
+
+function parseTraceFlagLogType(value: unknown): TraceFlagLogType | undefined {
+  return TRACE_FLAG_LOG_TYPES.find(logType => logType === value);
 }
 
 function parseIntegerInRange(value: unknown, min: number, max: number): number | undefined {
@@ -135,14 +147,16 @@ export function parseDebugFlagsFromWebviewMessage(raw: unknown): DebugFlagsFromW
     }
     case 'debugFlagsSelectTarget': {
       const target = parseTraceFlagTarget(message.target);
-      return target ? { type: 'debugFlagsSelectTarget', target } : undefined;
+      const logType = parseTraceFlagLogType(message.logType);
+      return target && logType ? { type: 'debugFlagsSelectTarget', target, logType } : undefined;
     }
     case 'debugFlagsApply': {
       const target = parseTraceFlagTarget(message.target);
+      const logType = parseTraceFlagLogType(message.logType);
       const debugLevelName = parseTrimmedString(message.debugLevelName, MAX_DEBUG_LEVEL_NAME_LENGTH);
       const ttlMinutes = parseIntegerInRange(message.ttlMinutes, 1, 1440);
-      return target && debugLevelName && ttlMinutes
-        ? { type: 'debugFlagsApply', target, debugLevelName, ttlMinutes }
+      return target && logType && debugLevelName && ttlMinutes
+        ? { type: 'debugFlagsApply', target, logType, debugLevelName, ttlMinutes }
         : undefined;
     }
     case 'debugFlagsManagerSave': {
@@ -155,7 +169,8 @@ export function parseDebugFlagsFromWebviewMessage(raw: unknown): DebugFlagsFromW
     }
     case 'debugFlagsRemove': {
       const target = parseTraceFlagTarget(message.target);
-      return target ? { type: 'debugFlagsRemove', target } : undefined;
+      const logType = parseTraceFlagLogType(message.logType);
+      return target && logType ? { type: 'debugFlagsRemove', target, logType } : undefined;
     }
     case 'debugFlagsClearLogs':
       if (message.scope === 'all' || message.scope === 'mine') {

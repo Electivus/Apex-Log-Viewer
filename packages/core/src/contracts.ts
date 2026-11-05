@@ -224,9 +224,16 @@ export type UserSearchResult = {
 export type TraceFlagTarget =
   { type: 'user'; userId: string } | { type: 'automatedProcess' } | { type: 'platformIntegration' };
 
+/** Salesforce `TraceFlag.LogType` values. Apex checkpoints need `DEVELOPER_LOG`. */
+export const TRACE_FLAG_LOG_TYPES = ['DEVELOPER_LOG', 'USER_DEBUG'] as const;
+export type TraceFlagLogType = (typeof TRACE_FLAG_LOG_TYPES)[number];
+export const DEFAULT_TRACE_FLAG_LOG_TYPE: TraceFlagLogType = 'DEVELOPER_LOG';
+
 export type TraceFlagStatusParams = {
   targetOrg?: string;
   target: TraceFlagTarget;
+  /** Omitted means `DEFAULT_TRACE_FLAG_LOG_TYPE`. */
+  logType?: TraceFlagLogType;
 };
 
 export type TraceFlagApplyParams = TraceFlagStatusParams & {
@@ -241,8 +248,18 @@ export type TraceFlagRemoveParams = TraceFlagStatusParams & {
   confirmed?: boolean;
 };
 
+/** The other log type's flags on the same target, read with the status. */
+export type TraceFlagOtherLogTypeStatus = {
+  logType: TraceFlagLogType;
+  isActive: boolean;
+  activeTargetCount: number;
+  /** Latest ExpirationDate among the active flags of this type; absent when none is active. */
+  expirationDate?: string;
+};
+
 export type TraceFlagTargetStatus = {
   target: TraceFlagTarget;
+  logType: TraceFlagLogType;
   targetLabel: string;
   targetAvailable: boolean;
   isActive: boolean;
@@ -254,10 +271,13 @@ export type TraceFlagTargetStatus = {
   activeTargetCount?: number;
   startDate?: string;
   expirationDate?: string;
+  /** Set whenever the target is available. */
+  otherLogType?: TraceFlagOtherLogTypeStatus;
 };
 
 export type TraceFlagApplyResult = {
   status: string;
+  logType: TraceFlagLogType;
   dryRun: boolean;
   created: boolean;
   createdCount: number;
@@ -268,6 +288,7 @@ export type TraceFlagApplyResult = {
 
 export type TraceFlagRemoveResult = {
   status: string;
+  logType: TraceFlagLogType;
   dryRun: boolean;
   removedCount: number;
   resolvedTargetCount: number;

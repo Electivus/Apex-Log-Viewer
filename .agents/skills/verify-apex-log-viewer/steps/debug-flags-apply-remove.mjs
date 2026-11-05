@@ -1,4 +1,4 @@
-// Logs panel "Debug Flags" button → Apex Debug Flags editor → apply a USER_DEBUG trace flag to the
+// Logs panel "Debug Flags" button → Apex Debug Flags editor → apply a DEVELOPER_LOG trace flag to the
 // E2E test user → confirm it exists in the org → remove it → confirm it is gone.
 // args: { ttlMinutes?: number, currentUser?: boolean } — TTL defaults to 45. currentUser targets the
 // authenticated user, which is also the fallback when the org has no spare license for the E2E user.

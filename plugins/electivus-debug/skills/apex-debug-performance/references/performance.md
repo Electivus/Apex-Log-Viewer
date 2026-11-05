@@ -6,7 +6,7 @@ Stay within the selected org. Include root-level legacy `<safeTargetOrg>_<logId>
 
 Check file scope and sync health before interpreting an empty search. Retention and insufficient categories can remove evidence. An incremental checkpoint is not proof of complete history.
 
-For authorized recapture inspect `debug-level list` and `trace-flag status`, choose actual execution identity and a bounded TTL (30 minutes by default). Use public help for category flags; preview writes with `--dry-run` before `--yes`. Reuse adequate active traces and avoid incidental removal. Reproduction/deployment/anonymous Apex must be within authorization.
+For authorized recapture inspect `debug-level list` and `trace-flag status`, choose actual execution identity and a bounded TTL (30 minutes by default). Trace flags default to DEVELOPER_LOG, whose logs Salesforce keeps only 24 hours, so sync promptly; `--log-type USER_DEBUG` selects the independent Setup > Debug Logs type. Use public help for category flags; preview writes with `--dry-run` before `--yes`. Reuse adequate active traces and avoid incidental removal. Reproduction/deployment/anonymous Apex must be within authorization.
 
 ## Interpret Certinia measurements
 

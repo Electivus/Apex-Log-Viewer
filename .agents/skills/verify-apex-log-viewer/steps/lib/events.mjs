@@ -8,6 +8,8 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 
 export const SOURCE_ID = 'alv-events';
+/** scripts/events-org.mjs publishes only to this alias. */
+const EVENTS_ORG_ALIAS = 'alv-events';
 /** The event for scenarios that may replay `-2`: its retained backlog is only what the specs and steps published. */
 export const DEFAULT_OBJECT = 'ALV_Test_Replay__e';
 
@@ -80,6 +82,32 @@ export async function eventsRoot(session, object) {
   throw new Error(`No event store for ${object} under ${orgs}`);
 }
 
+/** Whether a capture stored a position for `object` here. The panel then resumes instead of asking the first-use question. */
+export async function hasStoredPosition(session, object) {
+  try {
+    await readFile(path.join(await eventsRoot(session, object), 'checkpoint.json'), 'utf8');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The store's gaps by id, folded from every writer's `gaps.<writer>.ndjson`; `before` is set once a close line names the gap. */
+export async function readGaps(root) {
+  const files = (await readdir(root)).filter(name => name.startsWith('gaps.') && name.endsWith('.ndjson'));
+  const lines = (await Promise.all(files.map(name => readFile(path.join(root, name), 'utf8'))))
+    .flatMap(text => text.split('\n'))
+    .filter(Boolean)
+    .map(line => JSON.parse(line));
+  const gaps = new Map(lines.filter(line => line.op === 'open').map(line => [line.id, { ...line }]));
+  for (const line of lines.filter(line => line.op === 'close')) {
+    if (gaps.has(line.id)) gaps.get(line.id).before = line.before;
+  }
+  return gaps;
+}
+
+export const openGaps = async root => [...(await readGaps(root)).values()].filter(gap => gap.before === undefined);
+
 /** Stop answers at once, but the run still writes its last position; the lease file goes when the run is over. */
 export async function waitForRunToEnd(root, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
@@ -97,6 +125,12 @@ export async function waitForRunToEnd(root, timeoutMs = 30_000) {
 
 /** Opens the Custom Logs panel on the event source and tall enough to show rows. */
 export async function openEventsPanel({ h, session, expect }, object) {
+  if (session.org.alias !== EVENTS_ORG_ALIAS) {
+    // Publishing always goes to alv-events, so on any other org the rows could never appear.
+    throw new Error(
+      `The events-* steps need a session started with --target-org ${EVENTS_ORG_ALIAS}; this one runs on ${session.org.alias}.`
+    );
+  }
   await mapEventSource(session, object);
   await h.setWorkspaceSetting('electivus.apexLogViewer.customLogs.enabled', true);
   await h.runCommandWhenAvailable('Electivus Custom Logs: Focus on Electivus Custom Logs View');

@@ -33,7 +33,7 @@ import {
   resolveExtensionDevelopmentPath
 } from '../../../../test/e2e/utils/vscode';
 import { waitForWebviewFrame } from '../../../../test/e2e/utils/webviews';
-import { openDebugFlagsFromLogs, openDebugFlagsFromTail } from '../../../../test/e2e/specs/debugFlagsPanel.shared';
+import { openDebugFlagsFromLogs } from '../../../../test/e2e/specs/debugFlagsPanel.shared';
 
 type Phase = 'starting' | 'ready' | 'stopping' | 'stopped' | 'failed';
 
@@ -152,6 +152,120 @@ async function frameWith(selector: string, timeoutMs = 120_000): Promise<Frame> 
   });
 }
 
+const DEBUG_FLAGS_FRAME = '[data-testid="debug-flags-user-search"]';
+
+async function countFramesWith(selector: string): Promise<number> {
+  let count = 0;
+  for (const frame of requirePage().frames()) {
+    if (
+      (await frame
+        .locator(selector)
+        .count()
+        .catch(() => 0)) > 0
+    ) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+/**
+ * The Apex Debug Flags editor is a singleton, so an open one would satisfy the wait after a click that never reached
+ * the host. Close it first: the only Debug Flags frame the helpers can then find is the one their own click opened.
+ * A middle-click closes just that tab; `View: Close Editor` through the palette can run a broader close command,
+ * because the palette matches by words and Enter takes its first row.
+ */
+async function closeDebugFlagsEditor(): Promise<void> {
+  const vscodePage = requirePage();
+  const tab = vscodePage.locator('.tabs-container .tab[aria-label^="Apex Debug Flags"]');
+  if ((await tab.count()) > 0) {
+    if (!(await vscodePage.locator('.part.editor').isVisible())) {
+      // A maximized panel hides the editor area, where the Debug Flags editor opens.
+      await runCommand(vscodePage, 'View: Toggle Maximized Panel');
+    }
+    await tab.first().click({ button: 'middle' });
+    await expect(tab).toHaveCount(0, { timeout: 30_000 });
+  }
+  await expect
+    .poll(() => countFramesWith(DEBUG_FLAGS_FRAME), {
+      message: 'no Apex Debug Flags frame is left before the click',
+      timeout: 30_000
+    })
+    .toBe(0);
+}
+
+async function openDebugFlagsFromLogsAfterClosing(): Promise<Frame> {
+  await closeDebugFlagsEditor();
+  return await openDebugFlagsFromLogs(requirePage());
+}
+
+/**
+ * Right after `Tail Logs` reveals the panel, a forced click on the Tail toolbar is lost (seen twice in a row),
+ * so click with Playwright's actionability checks first, then fall back to Enter and a DOM click.
+ * Tail opened before the Logs panel picks its org without the workspace target-org, and the Debug Flags editor
+ * inherits it, so pin the session org first and refuse to return an editor that targets another org.
+ */
+async function openDebugFlagsFromTailWithRetry(): Promise<Frame> {
+  const vscodePage = requirePage();
+  const alias = state.org?.alias;
+  await closeDebugFlagsEditor();
+  await runCommand(vscodePage, 'Electivus Apex Logs: Tail Logs');
+  const tail = await frameWith('[data-testid="tail-open-debug-flags"]', 180_000);
+  const button = tail.locator('[data-testid="tail-open-debug-flags"]').first();
+  await expect(button).toBeEnabled({ timeout: 180_000 });
+  await dismissAllNotifications(vscodePage);
+  await closeQuickInputIfOpen(vscodePage);
+  const org = tail.getByRole('combobox').first();
+  if (alias && ((await org.textContent()) || '').trim() !== alias) {
+    await org.click();
+    await tail
+      .locator('[role="listbox"]')
+      .last()
+      .getByRole('option', { name: alias, exact: true })
+      .first()
+      .click({ timeout: 30_000 });
+    await expect(org).toHaveText(alias, { timeout: 30_000 });
+    await expect(tail.getByRole('status')).toHaveCount(0, { timeout: 60_000 });
+  }
+  const attempts = [
+    () => button.click({ timeout: 15_000 }),
+    async () => {
+      await button.focus();
+      await button.press('Enter');
+    },
+    () => button.evaluate((element: HTMLButtonElement) => element.click())
+  ];
+  let frame: Frame | undefined;
+  for (const attempt of attempts) {
+    await attempt().catch(() => {});
+    frame = await frameWith(DEBUG_FLAGS_FRAME, 10_000).catch(() => undefined);
+    if (frame) {
+      break;
+    }
+  }
+  frame ??= await frameWith(DEBUG_FLAGS_FRAME, 60_000);
+  if (alias) {
+    const orgSelect = frame.getByTestId('debug-flags-org-select');
+    await expect(orgSelect, `Apex Debug Flags must target the session org '${alias}'`).toHaveText(alias, {
+      timeout: 30_000
+    });
+  }
+  return frame;
+}
+
+/**
+ * VS Code draws modal confirmations (Download all logs, Clear logs) as native dialogs by default, which
+ * Playwright cannot click. With `window.dialogStyle: custom` they render in the workbench as `.monaco-dialog-box`.
+ * VS Code reads the setting each time it opens a dialog, so writing it after launch is enough.
+ */
+async function useCustomDialogs(userDataDir: string): Promise<void> {
+  const file = path.join(userDataDir, 'User', 'settings.json');
+  await mkdir(path.dirname(file), { recursive: true });
+  const settings = JSON.parse(await readFile(file, 'utf8').catch(() => '{}')) as Record<string, unknown>;
+  settings['window.dialogStyle'] = 'custom';
+  await writeFile(file, JSON.stringify(settings, null, 2), 'utf8');
+}
+
 const CUSTOM_LOGS_SETTING = 'electivus.apexLogViewer.customLogs.enabled';
 
 function workspaceSettingsFile(): string {
@@ -207,7 +321,7 @@ function createHelpers() {
     logsFrame: (timeoutMs?: number) => frameWith('[data-testid="logs-open-debug-flags"]', timeoutMs),
     tailFrame: (timeoutMs?: number) => frameWith('[data-testid="tail-open-debug-flags"]', timeoutMs),
     viewerFrame: (timeoutMs?: number) => frameWith('text=Apex Log Viewer', timeoutMs),
-    debugFlagsFrame: (timeoutMs?: number) => frameWith('[data-testid="debug-flags-user-search"]', timeoutMs),
+    debugFlagsFrame: (timeoutMs?: number) => frameWith(DEBUG_FLAGS_FRAME, timeoutMs),
     setWorkspaceSetting,
     customLogsFrame: async (timeoutMs?: number) => {
       await assertCustomLogsEnabled();
@@ -221,9 +335,10 @@ function createHelpers() {
           : '[data-testid="custom-log-viewer-root"]',
         timeoutMs
       ),
-    // Clicks into a webview can be swallowed while it takes focus; these retry with keyboard and DOM clicks.
-    openDebugFlagsFromLogs: () => openDebugFlagsFromLogs(requirePage()),
-    openDebugFlagsFromTail: () => openDebugFlagsFromTail(requirePage()),
+    // Clicks into a webview can be swallowed while it takes focus; these retry with keyboard and DOM clicks, and
+    // close an open Debug Flags editor first so the frame they return is the one their click opened.
+    openDebugFlagsFromLogs: openDebugFlagsFromLogsAfterClosing,
+    openDebugFlagsFromTail: openDebugFlagsFromTailWithRetry,
     shot,
     saveEvidence: async (name: string, content: unknown): Promise<string> => {
       const isText = typeof content === 'string';
@@ -539,6 +654,7 @@ async function start(): Promise<void> {
   vscodeAlive = true;
   state.userDataDir = launch.userDataDir;
   state.vscodePid = app.process().pid;
+  await useCustomDialogs(launch.userDataDir);
   // Outside the Playwright runner actions have no timeout; a hung step would hold the lease (idle stop skips running steps).
   app.context().setDefaultTimeout(60_000);
   app.on('close', () => {
