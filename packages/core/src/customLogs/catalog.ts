@@ -13,8 +13,11 @@ import {
   headerObject,
   isEventSource,
   listedObject,
+  expandedPayloadFields,
+  readablePayloadFields,
   type CatalogEntry,
   type ResolvedEventObject,
+  type ResolvedEventPayload,
   type ResolvedField,
   type ResolvedPayload,
   type ResolvedRecordSource,
@@ -167,6 +170,19 @@ function payloadInfo(payload: ResolvedPayload | undefined): CustomLogPayloadInfo
   return payload?.state === 'readable' ? { field: payload.field.api, columns: [...payload.columns] } : undefined;
 }
 
+/** `field` is the first readable field; `entries` lists every readable one when the mapping expands elements into rows. */
+function eventPayloadInfo(payload: ResolvedEventPayload | undefined): CustomLogPayloadInfo | undefined {
+  if (!payload) return undefined;
+  const [first] = readablePayloadFields(payload);
+  if (!first) return undefined;
+  const expanded = expandedPayloadFields(payload);
+  return {
+    field: first.api,
+    columns: [...payload.columns],
+    ...(expanded ? { entries: expanded.map(field => field.api) } : {})
+  };
+}
+
 /** What an event source can filter on and link: a role it maps, since the store filters in memory. */
 export function eventCapabilities(event: ResolvedEventObject): CustomLogSourceInfo['capabilities'] {
   return {
@@ -204,7 +220,7 @@ function readyFacts(shape: ResolvedShape): ReadyFacts {
     }
     case 'events': {
       const { event } = shape;
-      const payload = payloadInfo(event.payload);
+      const payload = eventPayloadInfo(event.payload);
       return {
         objects: { event: event.object },
         capabilities: eventCapabilities(event),

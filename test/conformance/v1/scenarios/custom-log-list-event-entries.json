@@ -1,0 +1,196 @@
+{
+  "schemaVersion": "1.0",
+  "id": "custom-log-list-event-entries",
+  "description": "An event source that reads JSON array payloads lists one row per array element, newest event first and later entries first, with roles taken from payload paths; a minimum level keeps only entries that carry that level.",
+  "operation": "customLog.list",
+  "request": {
+    "targetOrg": "demo@example.com",
+    "projectDir": "<workspace>",
+    "source": "app-events",
+    "limit": 10,
+    "filter": {
+      "minLevel": "INFO"
+    }
+  },
+  "workspace": {
+    "before": [
+      {
+        "path": "sfdx-project.json",
+        "content": "{\n  \"packageDirectories\": [\n    {\n      \"path\": \"force-app\",\n      \"default\": true\n    }\n  ],\n  \"plugins\": {\n    \"electivus\": {\n      \"customLogs\": {\n        \"sources\": [\n          {\n            \"id\": \"app-events\",\n            \"label\": \"App events\",\n            \"event\": {\n              \"object\": \"App_Log__e\",\n              \"fields\": {\n                \"time\": {\n                  \"path\": \"timestamp\"\n                },\n                \"message\": {\n                  \"path\": \"msg\"\n                },\n                \"level\": {\n                  \"path\": \"level\"\n                },\n                \"user\": {\n                  \"path\": \"username\"\n                },\n                \"transactionId\": {\n                  \"path\": \"traceId\"\n                },\n                \"origin\": {\n                  \"path\": \"caller\"\n                }\n              },\n              \"payload\": {\n                \"entries\": [\n                  \"Payload__c\",\n                  \"Payload2__c\"\n                ],\n                \"columns\": [\n                  \"traceId\",\n                  \"level\",\n                  \"msg\"\n                ]\n              }\n            }\n          }\n        ]\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": "apexlogs/orgs/demo@example.com/events/.gitignore",
+        "content": "*\n"
+      },
+      {
+        "path": "apexlogs/orgs/demo@example.com/events/format.json",
+        "content": "{\"version\":1}\n"
+      },
+      {
+        "path": "apexlogs/orgs/demo@example.com/events/app_log__e/checkpoint.json",
+        "content": "{\"version\":1,\"orgId\":\"00D000000000001AAA\",\"transport\":\"cometd\",\"channel\":\"/event/App_Log__e\",\"cursor\":\"cometd:1002\",\"lastEvent\":{\"createdDate\":\"2026-10-30T10:00:05.000Z\",\"uuid\":\"00000000-0000-4000-8000-000000000002\"},\"nextSeq\":2,\"updatedAt\":\"2026-10-30T10:00:05.000Z\",\"writer\":\"a1b2c3d4\"}\n"
+      },
+      {
+        "path": "apexlogs/orgs/demo@example.com/events/app_log__e/describe.json",
+        "content": "{\"name\":\"App_Log__e\",\"keyPrefix\":\"e00\",\"queryable\":false,\"fields\":[{\"name\":\"ReplayId\",\"label\":\"ReplayId\",\"type\":\"string\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]},{\"name\":\"CreatedDate\",\"label\":\"CreatedDate\",\"type\":\"datetime\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]},{\"name\":\"EventUuid\",\"label\":\"EventUuid\",\"type\":\"string\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]},{\"name\":\"Logged_At__c\",\"label\":\"Logged_At__c\",\"type\":\"datetime\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]},{\"name\":\"Message__c\",\"label\":\"Message__c\",\"type\":\"textarea\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]},{\"name\":\"Level__c\",\"label\":\"Level__c\",\"type\":\"string\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]},{\"name\":\"Username__c\",\"label\":\"Username__c\",\"type\":\"string\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]},{\"name\":\"Transaction_Id__c\",\"label\":\"Transaction_Id__c\",\"type\":\"string\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]},{\"name\":\"Payload__c\",\"label\":\"Payload__c\",\"type\":\"textarea\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]},{\"name\":\"Payload2__c\",\"label\":\"Payload2__c\",\"type\":\"textarea\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]}]}\n"
+      },
+      {
+        "path": "apexlogs/orgs/demo@example.com/events/app_log__e/2026-10-30/10.a1b2c3d4.ndjson",
+        "content": "{\"v\":1,\"id\":\"e-0mvuswn40-0000000000-00000000000040008000000000000001\",\"uuid\":\"00000000-0000-4000-8000-000000000001\",\"seq\":0,\"replayId\":\"cometd:1001\",\"createdDate\":\"2026-10-30T10:00:00.000Z\",\"receivedAt\":\"2026-10-30T10:00:00.000Z\",\"payload\":{\"CreatedDate\":\"2026-10-30T10:00:00.000Z\",\"Payload__c\":\"[{\\\"traceId\\\":\\\"t-1\\\",\\\"level\\\":\\\"INFO\\\",\\\"msg\\\":\\\"Gateway metric\\\",\\\"username\\\":\\\"user@example.com\\\",\\\"timestamp\\\":\\\"2026-10-30T10:00:00.100Z\\\"},{\\\"traceId\\\":\\\"t-1\\\",\\\"type\\\":\\\"gauge\\\",\\\"name\\\":\\\"latency\\\",\\\"metrics\\\":[{\\\"name\\\":\\\"p99\\\",\\\"type\\\":\\\"ms\\\",\\\"value\\\":12}],\\\"timestamp\\\":\\\"2026-10-30T10:00:00.200Z\\\"}]\",\"Payload2__c\":\"[{\\\"traceId\\\":\\\"t-2\\\",\\\"level\\\":\\\"INFO\\\",\\\"msg\\\":\\\"Execution resume\\\",\\\"cpuTime\\\":5,\\\"heapSize\\\":1024,\\\"timestamp\\\":\\\"2026-10-30T10:00:00.300Z\\\"}]\"}}\n{\"v\":1,\"id\":\"e-0mvuswqyw-0000000001-00000000000040008000000000000002\",\"uuid\":\"00000000-0000-4000-8000-000000000002\",\"seq\":1,\"replayId\":\"cometd:1002\",\"createdDate\":\"2026-10-30T10:00:05.000Z\",\"receivedAt\":\"2026-10-30T10:00:05.000Z\",\"payload\":{\"CreatedDate\":\"2026-10-30T10:00:05.000Z\",\"Payload__c\":\"[{\\\"traceId\\\":\\\"t-1\\\",\\\"level\\\":\\\"ERROR\\\",\\\"msg\\\":\\\"Boom\\\",\\\"username\\\":\\\"user@example.com\\\",\\\"timestamp\\\":\\\"2026-10-30T10:00:05.100Z\\\"}]\",\"Payload2__c\":\"\"}}\n"
+      }
+    ],
+    "after": [
+      {
+        "path": "sfdx-project.json",
+        "content": "{\n  \"packageDirectories\": [\n    {\n      \"path\": \"force-app\",\n      \"default\": true\n    }\n  ],\n  \"plugins\": {\n    \"electivus\": {\n      \"customLogs\": {\n        \"sources\": [\n          {\n            \"id\": \"app-events\",\n            \"label\": \"App events\",\n            \"event\": {\n              \"object\": \"App_Log__e\",\n              \"fields\": {\n                \"time\": {\n                  \"path\": \"timestamp\"\n                },\n                \"message\": {\n                  \"path\": \"msg\"\n                },\n                \"level\": {\n                  \"path\": \"level\"\n                },\n                \"user\": {\n                  \"path\": \"username\"\n                },\n                \"transactionId\": {\n                  \"path\": \"traceId\"\n                },\n                \"origin\": {\n                  \"path\": \"caller\"\n                }\n              },\n              \"payload\": {\n                \"entries\": [\n                  \"Payload__c\",\n                  \"Payload2__c\"\n                ],\n                \"columns\": [\n                  \"traceId\",\n                  \"level\",\n                  \"msg\"\n                ]\n              }\n            }\n          }\n        ]\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": "apexlogs/orgs/demo@example.com/events/.gitignore",
+        "content": "*\n"
+      },
+      {
+        "path": "apexlogs/orgs/demo@example.com/events/format.json",
+        "content": "{\"version\":1}\n"
+      },
+      {
+        "path": "apexlogs/orgs/demo@example.com/events/app_log__e/checkpoint.json",
+        "content": "{\"version\":1,\"orgId\":\"00D000000000001AAA\",\"transport\":\"cometd\",\"channel\":\"/event/App_Log__e\",\"cursor\":\"cometd:1002\",\"lastEvent\":{\"createdDate\":\"2026-10-30T10:00:05.000Z\",\"uuid\":\"00000000-0000-4000-8000-000000000002\"},\"nextSeq\":2,\"updatedAt\":\"2026-10-30T10:00:05.000Z\",\"writer\":\"a1b2c3d4\"}\n"
+      },
+      {
+        "path": "apexlogs/orgs/demo@example.com/events/app_log__e/describe.json",
+        "content": "{\"name\":\"App_Log__e\",\"keyPrefix\":\"e00\",\"queryable\":false,\"fields\":[{\"name\":\"ReplayId\",\"label\":\"ReplayId\",\"type\":\"string\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]},{\"name\":\"CreatedDate\",\"label\":\"CreatedDate\",\"type\":\"datetime\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]},{\"name\":\"EventUuid\",\"label\":\"EventUuid\",\"type\":\"string\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]},{\"name\":\"Logged_At__c\",\"label\":\"Logged_At__c\",\"type\":\"datetime\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]},{\"name\":\"Message__c\",\"label\":\"Message__c\",\"type\":\"textarea\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]},{\"name\":\"Level__c\",\"label\":\"Level__c\",\"type\":\"string\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]},{\"name\":\"Username__c\",\"label\":\"Username__c\",\"type\":\"string\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]},{\"name\":\"Transaction_Id__c\",\"label\":\"Transaction_Id__c\",\"type\":\"string\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]},{\"name\":\"Payload__c\",\"label\":\"Payload__c\",\"type\":\"textarea\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]},{\"name\":\"Payload2__c\",\"label\":\"Payload2__c\",\"type\":\"textarea\",\"referenceTo\":[],\"sortable\":false,\"filterable\":false,\"picklistValues\":[]}]}\n"
+      },
+      {
+        "path": "apexlogs/orgs/demo@example.com/events/app_log__e/2026-10-30/10.a1b2c3d4.ndjson",
+        "content": "{\"v\":1,\"id\":\"e-0mvuswn40-0000000000-00000000000040008000000000000001\",\"uuid\":\"00000000-0000-4000-8000-000000000001\",\"seq\":0,\"replayId\":\"cometd:1001\",\"createdDate\":\"2026-10-30T10:00:00.000Z\",\"receivedAt\":\"2026-10-30T10:00:00.000Z\",\"payload\":{\"CreatedDate\":\"2026-10-30T10:00:00.000Z\",\"Payload__c\":\"[{\\\"traceId\\\":\\\"t-1\\\",\\\"level\\\":\\\"INFO\\\",\\\"msg\\\":\\\"Gateway metric\\\",\\\"username\\\":\\\"user@example.com\\\",\\\"timestamp\\\":\\\"2026-10-30T10:00:00.100Z\\\"},{\\\"traceId\\\":\\\"t-1\\\",\\\"type\\\":\\\"gauge\\\",\\\"name\\\":\\\"latency\\\",\\\"metrics\\\":[{\\\"name\\\":\\\"p99\\\",\\\"type\\\":\\\"ms\\\",\\\"value\\\":12}],\\\"timestamp\\\":\\\"2026-10-30T10:00:00.200Z\\\"}]\",\"Payload2__c\":\"[{\\\"traceId\\\":\\\"t-2\\\",\\\"level\\\":\\\"INFO\\\",\\\"msg\\\":\\\"Execution resume\\\",\\\"cpuTime\\\":5,\\\"heapSize\\\":1024,\\\"timestamp\\\":\\\"2026-10-30T10:00:00.300Z\\\"}]\"}}\n{\"v\":1,\"id\":\"e-0mvuswqyw-0000000001-00000000000040008000000000000002\",\"uuid\":\"00000000-0000-4000-8000-000000000002\",\"seq\":1,\"replayId\":\"cometd:1002\",\"createdDate\":\"2026-10-30T10:00:05.000Z\",\"receivedAt\":\"2026-10-30T10:00:05.000Z\",\"payload\":{\"CreatedDate\":\"2026-10-30T10:00:05.000Z\",\"Payload__c\":\"[{\\\"traceId\\\":\\\"t-1\\\",\\\"level\\\":\\\"ERROR\\\",\\\"msg\\\":\\\"Boom\\\",\\\"username\\\":\\\"user@example.com\\\",\\\"timestamp\\\":\\\"2026-10-30T10:00:05.100Z\\\"}]\",\"Payload2__c\":\"\"}}\n"
+      }
+    ]
+  },
+  "doubles": {
+    "process": [],
+    "http": []
+  },
+  "expected": {
+    "result": {
+      "source": {
+        "id": "app-events",
+        "label": "App events",
+        "shape": "events"
+      },
+      "columns": [],
+      "rows": [
+        {
+          "id": "e-0mvuswqyw-0000000001-00000000000040008000000000000002",
+          "time": "2026-10-30T10:00:05.100Z",
+          "title": "Boom",
+          "user": "user@example.com",
+          "level": "ERROR",
+          "transactionId": "t-1",
+          "extra": {},
+          "payload": {
+            "state": "parsed",
+            "values": {
+              "traceId": "t-1",
+              "level": "ERROR",
+              "msg": "Boom",
+              "username": "user@example.com",
+              "timestamp": "2026-10-30T10:00:05.100Z"
+            },
+            "droppedPaths": 0,
+            "cutValues": []
+          }
+        },
+        {
+          "id": "e-0mvuswn40-0000000000-00000000000040008000000000000001-0002",
+          "time": "2026-10-30T10:00:00.300Z",
+          "title": "Execution resume",
+          "level": "INFO",
+          "transactionId": "t-2",
+          "extra": {},
+          "payload": {
+            "state": "parsed",
+            "values": {
+              "traceId": "t-2",
+              "level": "INFO",
+              "msg": "Execution resume",
+              "cpuTime": 5,
+              "heapSize": 1024,
+              "timestamp": "2026-10-30T10:00:00.300Z"
+            },
+            "droppedPaths": 0,
+            "cutValues": []
+          }
+        },
+        {
+          "id": "e-0mvuswn40-0000000000-00000000000040008000000000000001",
+          "time": "2026-10-30T10:00:00.100Z",
+          "title": "Gateway metric",
+          "user": "user@example.com",
+          "level": "INFO",
+          "transactionId": "t-1",
+          "extra": {},
+          "payload": {
+            "state": "parsed",
+            "values": {
+              "traceId": "t-1",
+              "level": "INFO",
+              "msg": "Gateway metric",
+              "username": "user@example.com",
+              "timestamp": "2026-10-30T10:00:00.100Z"
+            },
+            "droppedPaths": 0,
+            "cutValues": []
+          }
+        }
+      ],
+      "payloadFields": [
+        {
+          "path": "traceId",
+          "types": ["string"],
+          "rows": 3
+        },
+        {
+          "path": "level",
+          "types": ["string"],
+          "rows": 3
+        },
+        {
+          "path": "msg",
+          "types": ["string"],
+          "rows": 3
+        },
+        {
+          "path": "username",
+          "types": ["string"],
+          "rows": 2
+        },
+        {
+          "path": "timestamp",
+          "types": ["string"],
+          "rows": 3
+        },
+        {
+          "path": "cpuTime",
+          "types": ["number"],
+          "rows": 1
+        },
+        {
+          "path": "heapSize",
+          "types": ["number"],
+          "rows": 1
+        }
+      ],
+      "nextCursor": null,
+      "store": {
+        "state": "captured",
+        "eventsRoot": "<workspace>/apexlogs/orgs/demo@example.com/events/app_log__e",
+        "oldest": "2026-10-30T10:00:00.000Z",
+        "newest": "2026-10-30T10:00:05.000Z",
+        "lastCaptureAt": "2026-10-30T10:00:05.000Z",
+        "sizeBytes": 1230,
+        "retentionDays": 30,
+        "gaps": []
+      }
+    }
+  }
+}

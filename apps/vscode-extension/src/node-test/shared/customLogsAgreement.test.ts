@@ -122,6 +122,14 @@ suite('Custom Logs rules agree between core and protocol', () => {
       'e-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d0',
       'e-0r5jq8z3k-00000000a1-0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d',
       'e-0r5jq8z3k_00000000a1_0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d',
+      'e-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d-0001',
+      'e-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d-zzzz',
+      'e-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d-0000',
+      'e-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d-001',
+      'e-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d-00001',
+      'e-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d-000A',
+      'e-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d-0001x',
+      'e-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d-',
       ''
     ];
 
@@ -155,15 +163,20 @@ suite('Custom Logs rules agree between core and protocol', () => {
     const eventId = (createdMs: number, seq: number, uuidTail: number) =>
       `e-${createdMs.toString(36).padStart(9, '0')}-${seq.toString(36).padStart(10, '0')}-${uuidTail.toString(16).padStart(32, '0')}`;
 
-    test('merges event rows into the order core lists them, ties on time, sequence and uuid included', () => {
+    test('merges event rows into the order core lists them, ties on time, sequence, uuid and entry ordinal included', () => {
       const positions = [0, 1, 2].flatMap(time =>
         [0, 1].flatMap(seq =>
-          [0, 1].map(tail => coreEventIds.parseEventRowId(eventId(1_790_000_000_000 + time, seq, tail))!)
+          [0, 1].flatMap(tail =>
+            [0, 1, 2].map(ordinal => ({
+              ...coreEventIds.parseEntryRowId(eventId(1_790_000_000_000 + time, seq, tail))!,
+              ordinal
+            }))
+          )
         )
       );
       const listed = positions
-        .sort(coreEventIds.compareNewestFirst)
-        .map(position => ({ id: coreEventIds.eventRowId(position) }));
+        .sort(coreEventIds.compareEntriesNewestFirst)
+        .map(position => ({ id: coreEventIds.entryRowId(position) }));
 
       for (const stride of [2, 3, 5]) {
         const loaded = listed.filter((_, index) => index % stride === 0);

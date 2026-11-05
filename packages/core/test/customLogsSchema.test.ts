@@ -13,12 +13,15 @@ import {
   ENTRY_ROLES,
   EVENT_KEYS,
   EVENT_OBJECT_PATTERN,
+  EVENT_PAYLOAD_KEYS,
   FIELD_NAME_PATTERN,
   FIELD_PATH_PATTERN,
+  MAX_ENTRY_FIELDS,
   MAX_EVENT_RETENTION_DAYS,
   MIN_EVENT_RETENTION_DAYS,
   OBJECT_NAME_PATTERN,
   PAYLOAD_KEYS,
+  ROLE_PATH_KEYS,
   SOURCE_ID_PATTERN,
   SOURCE_KEYS,
   TRANSACTION_KEYS,
@@ -32,8 +35,11 @@ import {
 } from '../src/customLogs/contracts.ts';
 import { NEBULA_PRESET } from '../src/customLogs/presets.ts';
 import {
+  appEntriesSource,
   appEventSource,
   appLogSource,
+  entriesRole,
+  entriesSource,
   entrySource,
   eventSource,
   headerFields,
@@ -120,7 +126,53 @@ const fixtures: [CustomLogConfigIssueCode, string, Json][] = [
   ],
   ['invalidValue', 'relationship path in an event column', eventSource({ columns: ['CreatedBy.Name'] })],
   ['invalidValue', 'relationship path in an event detail', eventSource({ details: ['Owner.Name'] })],
-  ['invalidValue', 'relationship path in an event payload', eventSource({ payload: 'Owner.Json' })]
+  ['invalidValue', 'relationship path in an event payload', eventSource({ payload: 'Owner.Json' })],
+  ['unknownKey', 'role object with an extra key', entriesRole('level', { path: 'level', ...unknown })],
+  ['missingRequired', 'role object without path', entriesRole('level', { paht: 'level' })],
+  ['invalidValue', 'path that is not a string', entriesRole('level', { path: 7 })],
+  ['invalidValue', 'empty path', entriesRole('level', { path: '' })],
+  ['invalidValue', 'path over 255 characters', entriesRole('level', { path: 'x'.repeat(256) })],
+  ['invalidValue', 'role that is a number', entriesRole('level', 7)],
+  ['invalidValue', 'role that is an array', entriesRole('level', ['Level__c'])],
+  ['invalidValue', 'role string with a bracket', entriesRole('level', 'levels[0]')],
+  [
+    'missingRequired',
+    'path role without a payload',
+    eventSource({ fields: { time: 'Logged_At__c', message: { path: 'msg' } }, payload: undefined })
+  ],
+  [
+    'invalidValue',
+    'field and entries together',
+    entriesSource({ payload: { field: 'Payload__c', entries: ['Payload__c'] } })
+  ],
+  ['missingRequired', 'payload object with neither field nor entries', entriesSource({ payload: { columns: ['a'] } })],
+  ['invalidValue', 'entries that is a string', entriesSource({ payload: { entries: 'Payload__c' } })],
+  ['invalidValue', 'empty entries', entriesSource({ payload: { entries: [] } })],
+  [
+    'invalidValue',
+    'entries past the limit',
+    entriesSource({ payload: { entries: Array.from({ length: MAX_ENTRY_FIELDS + 1 }, (_, i) => `F${i}__c`) } })
+  ],
+  ['invalidValue', 'entries item that is not a field name', entriesSource({ payload: { entries: ['Owner.Json'] } })],
+  ['invalidValue', 'entries item that is a number', entriesSource({ payload: { entries: [1] } })],
+  [
+    'invalidValue',
+    'the same entries field twice',
+    entriesSource({ payload: { entries: ['Payload__c', 'Payload__c'] } })
+  ],
+  [
+    'unknownKey',
+    'unknown key on an entries payload',
+    entriesSource({ payload: { entries: ['Payload__c'], ...unknown } })
+  ],
+  [
+    'invalidValue',
+    'path role on a record entry',
+    entrySource({ fields: { time: 'CreatedDate', message: { path: 'msg' } } })
+  ],
+  ['invalidValue', 'path role on a record header', headerSource({ fields: { startTime: { path: 'start' } } })],
+  ['invalidValue', 'entries payload on a record entry', entrySource({ payload: { entries: ['Payload__c'] } })],
+  ['invalidValue', 'entries payload on a record header', headerSource({ payload: { entries: ['Body__c'] } })]
 ];
 
 const valid: [string, Json][] = [
@@ -144,6 +196,20 @@ const valid: [string, Json][] = [
   ['an event payload object with columns', eventSource({ payload: { field: 'Payload__c', columns: ['orderId'] } })],
   ['an event with only the required roles', eventSource({ fields: { time: 'Logged_At__c', message: 'Message__c' } })],
   ['an event source with levels', { ...appEventSource, levels: { Critical: 'ERROR' } }],
+  ['the entries mapping of issue #1240', appEntriesSource],
+  ['a bare entries payload', entriesSource({ payload: { entries: ['Payload__c'] } })],
+  [
+    'entries at the limit',
+    entriesSource({ payload: { entries: Array.from({ length: MAX_ENTRY_FIELDS }, (_, i) => `F${i}__c`) } })
+  ],
+  [
+    'path roles over a document payload',
+    eventSource({ fields: { time: 'Logged_At__c', message: { path: 'msg' }, messageTruncated: { path: 'cut' } } })
+  ],
+  [
+    'an entries field spelled twice in two cases',
+    entriesSource({ payload: { entries: ['Payload__c', 'payload__c'] } })
+  ],
   ['a source that replaces a built-in id', { ...appLogSource, id: 'nebula' }],
   ['the nebula preset', NEBULA_PRESET.raw as Json],
   [
@@ -223,7 +289,13 @@ test('the parser knows exactly the keys and name patterns the schema declares', 
   assert.deepEqual(keys(definitions.source.properties.entry), [...ENTRY_KEYS].sort());
   assert.deepEqual(keys(definitions.source.properties.event), [...EVENT_KEYS].sort());
   assert.deepEqual(keys(objectForm(definitions.eventDetail)), [...DETAIL_KEYS].sort());
-  assert.deepEqual(keys(objectForm(definitions.eventPayload)), [...PAYLOAD_KEYS].sort());
+  const objectForms = (definition: any) => definition.oneOf.filter((member: any) => member.type === 'object');
+  assert.deepEqual(
+    [...new Set(objectForms(definitions.eventPayload).flatMap(keys))].sort(),
+    [...EVENT_PAYLOAD_KEYS].sort()
+  );
+  assert.equal(objectForms(definitions.eventPayload).at(-1).properties.entries.maxItems, MAX_ENTRY_FIELDS);
+  assert.deepEqual(keys(objectForm(definitions.eventRole)), [...ROLE_PATH_KEYS].sort());
   assert.deepEqual(keys(objectForm(definitions.detail)), [...DETAIL_KEYS].sort());
   assert.deepEqual(keys(objectForm(definitions.payload)), [...PAYLOAD_KEYS].sort());
   assert.equal(definitions.source.properties.id.pattern, SOURCE_ID_PATTERN.source);
@@ -249,6 +321,14 @@ test('the schema lists exactly the roles of the roles tables and the canonical l
   assert.deepEqual(required(schema.definitions.source.properties.entry), requiredRoles(ENTRY_ROLES));
   assert.deepEqual(required(schema.definitions.source.properties.event), requiredRoles(ENTRY_ROLES));
   assert.deepEqual(required(schema.definitions.source.properties.transaction), requiredRoles(TRANSACTION_ROLES));
+
+  const event = schema.definitions.source.properties.event;
+  for (const role of Object.keys(ENTRY_ROLES)) {
+    assert.deepEqual(event.properties.fields.properties[role], { $ref: '#/definitions/eventRole' }, role);
+  }
+  const pathRoles = event.if.properties.fields.anyOf.map((member: any) => member.required[0]).sort();
+  assert.deepEqual(pathRoles, Object.keys(ENTRY_ROLES).sort(), 'a path in any role requires a payload');
+  assert.deepEqual(event.then, { required: ['payload'] });
 });
 
 test('the schema and the parser give the same verdict on eventRetentionDays', () => {

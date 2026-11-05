@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os';
 import {
   closeVsCodeApp,
+  concealVsCodeWindows,
   createMissingSupportExtensionsError,
   redactPreservedVsCodeUserData,
   resolveCachedSupportExtensionsDir,
@@ -14,7 +15,8 @@ import {
   resolveWindowSizeArg,
   resolveSupportExtensionIds,
   resolveVsCodeAuthLaunch,
-  resolveVsCodeCompositingLaunchArgs
+  resolveVsCodeCompositingLaunchArgs,
+  shouldConcealVsCodeWindow
 } from '../vscode';
 
 describe('macOS CI authentication homes', () => {
@@ -175,34 +177,24 @@ describe('missing support extensions', () => {
 
 describe('resolveCliSpawnInvocation', () => {
   test('keeps direct CLI execution on non-Windows platforms', () => {
-    expect(resolveCliSpawnInvocation('/usr/local/bin/code', ['--install-extension', 'publisher.extension'], 'linux')).toEqual(
-      {
-        command: '/usr/local/bin/code',
-        args: ['--install-extension', 'publisher.extension']
-      }
-    );
+    expect(
+      resolveCliSpawnInvocation('/usr/local/bin/code', ['--install-extension', 'publisher.extension'], 'linux')
+    ).toEqual({
+      command: '/usr/local/bin/code',
+      args: ['--install-extension', 'publisher.extension']
+    });
   });
 
   test('keeps Windows .cmd CLIs as direct cross-spawn invocations', () => {
     expect(
       resolveCliSpawnInvocation(
         'C:\\VS Code\\bin\\code.cmd',
-        [
-          '--extensions-dir',
-          'C:\\Temp\\support extensions & cache',
-          '--install-extension',
-          'publisher.extension'
-        ],
+        ['--extensions-dir', 'C:\\Temp\\support extensions & cache', '--install-extension', 'publisher.extension'],
         'win32'
       )
     ).toEqual({
       command: 'C:\\VS Code\\bin\\code.cmd',
-      args: [
-        '--extensions-dir',
-        'C:\\Temp\\support extensions & cache',
-        '--install-extension',
-        'publisher.extension'
-      ]
+      args: ['--extensions-dir', 'C:\\Temp\\support extensions & cache', '--install-extension', 'publisher.extension']
     });
   });
 });
@@ -217,7 +209,9 @@ describe('VS Code cache paths', () => {
   test('defaults the VS Code cache path to the monorepo root .vscode-test directory', () => {
     delete process.env.VSCODE_TEST_CACHE_PATH;
 
-    expect(resolveVscodeCachePath('/workspace/alv/apps/vscode-extension')).toBe(path.join('/workspace/alv', '.vscode-test'));
+    expect(resolveVscodeCachePath('/workspace/alv/apps/vscode-extension')).toBe(
+      path.join('/workspace/alv', '.vscode-test')
+    );
   });
 
   test('honors VSCODE_TEST_CACHE_PATH when set', () => {
@@ -298,7 +292,9 @@ describe('resolveVscodeDownloadTimeoutMs', () => {
 
 describe('extension development path', () => {
   test('resolves the extension manifest from the monorepo app package', () => {
-    expect(resolveExtensionDevelopmentPath('/workspace/alv')).toBe(path.join('/workspace/alv', 'apps', 'vscode-extension'));
+    expect(resolveExtensionDevelopmentPath('/workspace/alv')).toBe(
+      path.join('/workspace/alv', 'apps', 'vscode-extension')
+    );
   });
 });
 
@@ -322,5 +318,69 @@ describe('resolveVsCodeCompositingLaunchArgs', () => {
   test('leaves the native compositor on other platforms', () => {
     expect(resolveVsCodeCompositingLaunchArgs('darwin')).toEqual([]);
     expect(resolveVsCodeCompositingLaunchArgs('win32')).toEqual([]);
+  });
+});
+
+describe('hidden VS Code window', () => {
+  test('conceals the native window on macOS and Windows unless ALV_E2E_SHOW_VSCODE opts in', () => {
+    for (const platform of ['darwin', 'win32'] as const) {
+      expect(shouldConcealVsCodeWindow({}, platform)).toBe(true);
+      expect(shouldConcealVsCodeWindow({ ALV_E2E_SHOW_VSCODE: '0' }, platform)).toBe(true);
+      expect(shouldConcealVsCodeWindow({ ALV_E2E_SHOW_VSCODE: '1' }, platform)).toBe(false);
+      expect(shouldConcealVsCodeWindow({ ALV_E2E_SHOW_VSCODE: 'TRUE' }, platform)).toBe(false);
+    }
+  });
+
+  test('leaves Linux to the Xvfb display chosen by the runner', () => {
+    expect(shouldConcealVsCodeWindow({}, 'linux')).toBe(false);
+  });
+
+  test('conceals existing windows and every window VS Code creates later', async () => {
+    const createWindow = () => {
+      const calls: string[] = [];
+      return {
+        calls,
+        isDestroyed: () => false,
+        setOpacity: (value: number) => calls.push(`opacity:${value}`),
+        setIgnoreMouseEvents: (value: boolean) => calls.push(`ignoreMouse:${value}`),
+        setFocusable: (value: boolean) => calls.push(`focusable:${value}`),
+        setSkipTaskbar: (value: boolean) => calls.push(`skipTaskbar:${value}`)
+      };
+    };
+    const existing = createWindow();
+    const destroyed = { ...createWindow(), isDestroyed: () => true };
+    const listeners: Array<(event: unknown, win: unknown) => void> = [];
+    const electronModule = {
+      app: { on: (_event: string, listener: (event: unknown, win: unknown) => void) => listeners.push(listener) },
+      BrowserWindow: { getAllWindows: () => [existing, destroyed] }
+    };
+    const app = {
+      evaluate: jest.fn(async (fn: (electron: unknown) => unknown) => fn(electronModule))
+    };
+
+    await concealVsCodeWindows(app as never);
+
+    const concealed = ['opacity:0', 'ignoreMouse:true', 'focusable:false', 'skipTaskbar:true'];
+    expect(existing.calls).toEqual(concealed);
+    expect(destroyed.calls).toEqual([]);
+    expect(listeners).toHaveLength(1);
+    const created = createWindow();
+    listeners[0]?.({}, created);
+    expect(created.calls).toEqual(concealed);
+  });
+
+  test('retries an evaluation the starting main process dropped', async () => {
+    const app = {
+      evaluate: jest
+        .fn()
+        .mockRejectedValueOnce(new Error('Resulting promise was garbage collected'))
+        .mockResolvedValueOnce(undefined)
+    };
+    await concealVsCodeWindows(app as never);
+    expect(app.evaluate).toHaveBeenCalledTimes(2);
+
+    const failing = { evaluate: jest.fn().mockRejectedValue(new Error('closed')) };
+    await expect(concealVsCodeWindows(failing as never)).rejects.toThrow('closed');
+    expect(failing.evaluate).toHaveBeenCalledTimes(3);
   });
 });
