@@ -8,13 +8,16 @@
 //       $SF_DEVHUB_ALIAS; the default org and the default Dev Hub are never changed), deploy
 //       test/e2e/fixtures/events-org/, assign ALV_Test_Events to the admin, create the restricted
 //       user without it (alias alv-events-restricted), then run `verify`.
-//   node scripts/events-org.mjs publish --count N --transaction-id T [--level L|mixed] [--run-tag R] [--message-chars C]
+//   node scripts/events-org.mjs publish --count N --transaction-id T [--level L|mixed] [--run-tag R] [--message-chars C] [--payload-entries N]
 //                                        [--object ALV_Test_Log__e|ALV_Test_Replay__e|ALV_Test_Backlog__e]
 //       Publish N synthetic events over REST in batches of 25. Transaction_Id__c is `<T>-<run tag>`, so
 //       assertions that filter by it never see another run's events. --message-chars pads Message__c to C
 //       characters (up to the field's 131072) for large-event scenarios. Scenarios that replay `-2` use
 //       ALV_Test_Replay__e, and the 10,000-event backlog uses ALV_Test_Backlog__e, so the retained backlog
 //       of ALV_Test_Log__e (what every `-2` replay of it delivers for 72 hours) stays small.
+//       --payload-entries N (1-50) writes Payload__c as a JSON array of N entries plus one metric item, and
+//       Stack_Trace__c as a JSON array holding one entry of another transaction, for event sources that
+//       read each item of an array payload as its own entry.
 //   node scripts/events-org.mjs limits
 //       Print the platform event and streaming allocations from /limits.
 //   node scripts/events-org.mjs verify  [--capture-describe]
@@ -120,6 +123,7 @@ const COMMANDS = {
       level: oneOf([...LEVELS, 'mixed']),
       'run-tag': matching(/^[A-Za-z0-9]{4,12}$/, 'letters and digits (4-12)'),
       'message-chars': integer(1, MESSAGE_MAX_CHARS),
+      'payload-entries': integer(1, 50),
       object: oneOf(EVENT_OBJECTS)
     },
     required: ['count', 'transaction-id'],
@@ -196,7 +200,7 @@ export function parseArgs(argv) {
 }
 
 /** Bodies for /composite/sobjects. Every value is invented here; nothing is read from an org. */
-export function buildSyntheticEvents({ count, transactionId, runTag, level, now, messageChars }) {
+export function buildSyntheticEvents({ count, transactionId, runTag, level, now, messageChars, payloadEntries }) {
   const transaction = `${transactionId}-${runTag}`;
   return Array.from({ length: count }, (_, index) => {
     const sequence = index + 1;
@@ -204,6 +208,52 @@ export function buildSyntheticEvents({ count, transactionId, runTag, level, now,
     const failing = entryLevel === 'ERROR';
     const loggedAt = now + index;
     const message = `Synthetic ${entryLevel} entry ${sequence} of ${count} (${runTag})`;
+    if (payloadEntries !== undefined) {
+      const stamp = offset => new Date(now + sequence + offset).toISOString();
+      const entries = Array.from({ length: payloadEntries }, (_, item) => {
+        const number = item + 1;
+        const itemLevel = level === 'mixed' ? MIXED_LEVELS[item % MIXED_LEVELS.length] : level;
+        return {
+          traceId: transaction,
+          flowId: `f-${sequence}`,
+          username: SYNTHETIC_USERNAME,
+          level: itemLevel,
+          msg: `Synthetic ${itemLevel} entry ${number} of ${payloadEntries} in event ${sequence} (${runTag})`,
+          caller: `Class.Synthetic.run: line ${number}`,
+          timestamp: stamp(number)
+        };
+      });
+      entries.push({
+        traceId: transaction,
+        type: 'metric',
+        name: 'inbound_requests',
+        metrics: [{ name: 'duration', type: 'TIMING', value: 433 }],
+        timestamp: stamp(payloadEntries + 1)
+      });
+      const resumed = [
+        {
+          traceId: `${transaction}-2`,
+          level: 'INFO',
+          msg: `Execution resume (${runTag})`,
+          cpuTime: 134,
+          heapSize: 26804,
+          timestamp: stamp(payloadEntries + 2)
+        }
+      ];
+      return {
+        Message__c: message,
+        Level__c: entryLevel,
+        Logged_At__c: new Date(loggedAt).toISOString(),
+        Epoch_Ms__c: loggedAt,
+        Transaction_Id__c: transaction,
+        Sequence__c: sequence,
+        Username__c: SYNTHETIC_USERNAME,
+        Request_Id__c: `${runTag}-request`,
+        Payload__c: JSON.stringify(entries),
+        Stack_Trace__c: JSON.stringify(resumed),
+        Has_Stack_Trace__c: true
+      };
+    }
     return {
       Message__c: messageChars === undefined ? message : message.padEnd(messageChars, ' filler').slice(0, messageChars),
       Level__c: entryLevel,
@@ -417,7 +467,8 @@ async function publish(alias, options) {
     runTag,
     level: options.level,
     now: Date.now(),
-    messageChars: options['message-chars']
+    messageChars: options['message-chars'],
+    payloadEntries: options['payload-entries']
   });
   const batchSize = publishBatchSize(options['message-chars']);
   const url = `/services/data/v${connection.getApiVersion()}/composite/sobjects`;

@@ -83,6 +83,7 @@ function stoppedView(
     case 'quiet':
     case 'timeLimit':
     case 'aborted':
+    case 'capturedElsewhere':
       return { tone: 'idle', label: t.capture.stopped, text: storedText(store, context), actions: ['start'] };
     case 'budget':
       return {
@@ -90,13 +91,6 @@ function stoppedView(
         text: allowance
           ? fillTemplate(t.capture.budget, { budget: formatCount(allowance.budget, locale) })
           : t.capture.budgetNoAllowance,
-        actions: ['start']
-      };
-    case 'capturedElsewhere':
-      return {
-        tone: 'attention',
-        text: t.capture.elsewhere,
-        detail: leaseNote(store, context),
         actions: ['start']
       };
     case 'needsInitial':

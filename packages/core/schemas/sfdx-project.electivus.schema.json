@@ -57,6 +57,27 @@
       "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
       "maxLength": 255
     },
+    "eventRole": {
+      "description": "A role of the event: a field name, or { \"path\": \"<payload path>\" } to read the value from the mapped payload (the document, or each element of an entries field).",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/fieldName"
+        },
+        {
+          "type": "object",
+          "description": "Keys other than path are ignored, and the extension reports them as warnings.",
+          "required": ["path"],
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "A JSON path into the payload, with dots for nesting and [n] for array items, for example traceId or metrics[0].name.",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        }
+      ]
+    },
     "level": {
       "enum": ["FINEST", "FINER", "FINE", "DEBUG", "INFO", "WARN", "ERROR"]
     },
@@ -152,18 +173,50 @@
       ]
     },
     "eventPayload": {
-      "description": "A long text field of a platform event holding JSON whose keys can become columns. A field name, or an object with the team's default columns.",
+      "description": "The JSON the event carries. A field name or { \"field\" } maps one JSON document per event. { \"entries\" } maps fields that each hold a complete JSON array: every element becomes one row, with the roles written as { \"path\" } read from it.",
       "oneOf": [
         {
           "$ref": "#/definitions/fieldName"
         },
         {
           "type": "object",
-          "description": "Keys other than these are ignored, and the extension reports them as warnings.",
+          "description": "One JSON document per event. Keys other than these are ignored, and the extension reports them as warnings.",
           "required": ["field"],
+          "not": {
+            "required": ["entries"]
+          },
           "properties": {
             "field": {
               "$ref": "#/definitions/fieldName"
+            },
+            "columns": {
+              "type": "array",
+              "description": "JSON paths shown as columns by default, with dots for nesting and [n] for array items, for example http.status or lines[0].sku.",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "Fields that each hold a complete JSON array, read in this order; every element is one row. Keys other than these are ignored, and the extension reports them as warnings.",
+          "required": ["entries"],
+          "not": {
+            "required": ["field"]
+          },
+          "properties": {
+            "entries": {
+              "type": "array",
+              "description": "Fields of the event that each hold a JSON array, in the order their elements are listed. At most 8.",
+              "minItems": 1,
+              "maxItems": 8,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/definitions/fieldName"
+              }
             },
             "columns": {
               "type": "array",
@@ -350,40 +403,40 @@
               "required": ["time", "message"],
               "properties": {
                 "time": {
-                  "$ref": "#/definitions/fieldName"
+                  "$ref": "#/definitions/eventRole"
                 },
                 "message": {
-                  "$ref": "#/definitions/fieldName"
+                  "$ref": "#/definitions/eventRole"
                 },
                 "messageTruncated": {
-                  "$ref": "#/definitions/fieldName"
+                  "$ref": "#/definitions/eventRole"
                 },
                 "order": {
-                  "$ref": "#/definitions/fieldName"
+                  "$ref": "#/definitions/eventRole"
                 },
                 "level": {
-                  "$ref": "#/definitions/fieldName"
+                  "$ref": "#/definitions/eventRole"
                 },
                 "levelOrdinal": {
-                  "$ref": "#/definitions/fieldName"
+                  "$ref": "#/definitions/eventRole"
                 },
                 "origin": {
-                  "$ref": "#/definitions/fieldName"
+                  "$ref": "#/definitions/eventRole"
                 },
                 "user": {
-                  "$ref": "#/definitions/fieldName"
+                  "$ref": "#/definitions/eventRole"
                 },
                 "transactionId": {
-                  "$ref": "#/definitions/fieldName"
+                  "$ref": "#/definitions/eventRole"
                 },
                 "requestId": {
-                  "$ref": "#/definitions/fieldName"
+                  "$ref": "#/definitions/eventRole"
                 },
                 "exceptionType": {
-                  "$ref": "#/definitions/fieldName"
+                  "$ref": "#/definitions/eventRole"
                 },
                 "recordId": {
-                  "$ref": "#/definitions/fieldName"
+                  "$ref": "#/definitions/eventRole"
                 }
               }
             },
@@ -404,6 +457,115 @@
               "minLength": 1,
               "maxLength": 255
             }
+          },
+          "if": {
+            "required": ["fields"],
+            "properties": {
+              "fields": {
+                "type": "object",
+                "anyOf": [
+                  {
+                    "required": ["time"],
+                    "properties": {
+                      "time": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  {
+                    "required": ["message"],
+                    "properties": {
+                      "message": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  {
+                    "required": ["messageTruncated"],
+                    "properties": {
+                      "messageTruncated": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  {
+                    "required": ["order"],
+                    "properties": {
+                      "order": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  {
+                    "required": ["level"],
+                    "properties": {
+                      "level": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  {
+                    "required": ["levelOrdinal"],
+                    "properties": {
+                      "levelOrdinal": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  {
+                    "required": ["origin"],
+                    "properties": {
+                      "origin": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  {
+                    "required": ["user"],
+                    "properties": {
+                      "user": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  {
+                    "required": ["transactionId"],
+                    "properties": {
+                      "transactionId": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  {
+                    "required": ["requestId"],
+                    "properties": {
+                      "requestId": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  {
+                    "required": ["exceptionType"],
+                    "properties": {
+                      "exceptionType": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  {
+                    "required": ["recordId"],
+                    "properties": {
+                      "recordId": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": ["payload"]
           }
         },
         "levels": {

@@ -52,6 +52,17 @@ export type Allowance = { remaining: number; max: number };
  */
 export type RunPosition = { readonly cursor: ReplayCursor; readonly lastEvent: EventCheckpoint['lastEvent'] };
 
+export function newestHeldEvent(
+  position: EventCheckpoint['lastEvent'],
+  held: readonly EventCheckpoint['lastEvent'][]
+): EventCheckpoint['lastEvent'] {
+  const { createdDate, uuid } = held.reduce(
+    (newest, event) => (timeOf(event.createdDate) >= timeOf(newest.createdDate) ? event : newest),
+    position
+  );
+  return { createdDate, uuid };
+}
+
 /** Where a subscription begins. An `after` start always carries the position it resumes from. */
 export type Start =
   { readonly kind: 'new' } | { readonly kind: 'retained' } | { readonly kind: 'after'; readonly position: RunPosition };
