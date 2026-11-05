@@ -658,6 +658,8 @@ sf electivus custom-log capture --source app-events --target-org my-org --follow
 | `--initial retained\|new` | For an org that this project never captured. `retained`, the default, replays the events Salesforce still keeps. `new` starts with the events published from now on. |
 | `--min-level`, `--user`   | Need `--follow`. Print only the rows at or above the level, or logged by the user. The store keeps every event either way.                                           |
 
+A first capture cannot start at the last N events or since a time. Salesforce replays only from the newest event, from the earliest retained event, or from a known replay id, so any partial window still delivers from the start of the backlog. `--initial new` is the cheap start, and the run budget caps a `retained` run.
+
 By default `capture` drains. It resumes from the stored position and stops when the first of these happens:
 
 | `outcome`           | The run stopped because                                                                                                                         |

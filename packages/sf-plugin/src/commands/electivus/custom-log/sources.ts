@@ -1,11 +1,15 @@
 import type { CustomLogSourcesResult, PrintsAsJson } from '@alv/core/contracts';
 import { AlvCommand } from '../../../command.js';
 import { core } from '../../../core.js';
+import { CUSTOM_LOG_REFERENCE_NOTE } from '../../../customLogReference.js';
 import { targetOrgFlag } from '../../../flags.js';
 
 export default class CustomLogSources extends AlvCommand<PrintsAsJson<CustomLogSourcesResult>> {
   public static override readonly summary =
     'List the application log sources found in an org: built-in Nebula Logger detection and sfdx-project.json mappings.';
+  public static override readonly description =
+    'Each source\'s payload.<level>.columns in --json lists its default payload columns; pass them as --payload-fields to "custom-log list" to keep rows small.\n\n' +
+    CUSTOM_LOG_REFERENCE_NOTE;
   public static override readonly flags = {
     'target-org': targetOrgFlag
   };

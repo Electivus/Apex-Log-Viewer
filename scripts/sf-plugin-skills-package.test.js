@@ -63,6 +63,16 @@ test(
         await fs.readFile(path.join(repoRoot, 'skills', file))
       );
     }
+    for (const [from, to] of [
+      ['docs/CUSTOM_LOGS.md', 'reference/CUSTOM_LOGS.md'],
+      ['packages/core/schemas/sfdx-project.electivus.schema.json', 'reference/sfdx-project.electivus.schema.json']
+    ]) {
+      assert.ok(
+        packed.files.some(entry => entry.path === to),
+        to
+      );
+      assert.deepEqual(await fs.readFile(path.join(extracted, to)), await fs.readFile(path.join(repoRoot, from)));
+    }
     // Resolve external runtime dependencies from the frozen workspace install, not a registry.
     // The plugin code, manifest, core bundle and skills themselves must come from the tarball.
     for (const [target, source] of [
@@ -116,6 +126,22 @@ require('node:module').syncBuiltinESMExports();
     for (const installation of result.result.installations) {
       assert.equal(installation.status, 'installed');
       await fs.access(path.join(installation.destination, 'agents/openai.yaml'));
+    }
+    for (const command of ['capture', 'sources', 'list']) {
+      const help = run(
+        process.execPath,
+        ['--require', guard, path.join(extracted, 'bin/run.js'), 'electivus', 'custom-log', command, '--help'],
+        {
+          cwd: workspace,
+          env: { ...env, OCLIF_COLUMNS: '2000' }
+        }
+      );
+      const named = /(\S+)[\\/]CUSTOM_LOGS\.md/.exec(help);
+      assert.ok(named, help);
+      if (command === 'capture') assert.match(help, /5,000 deliveries[\s\S]*by one response/);
+      assert.equal(await fs.realpath(named[1]), await fs.realpath(path.join(extracted, 'reference')));
+      await fs.access(path.join(named[1], 'CUSTOM_LOGS.md'));
+      await fs.access(path.join(named[1], 'sfdx-project.electivus.schema.json'));
     }
     const noSelection = spawn.sync(process.execPath, [...args, '--json'], {
       cwd: workspace,
@@ -173,4 +199,21 @@ test('rebuilding skill artifacts removes stale files and includes supporting res
   assert.deepEqual(await files(output), ['apex-log-viewer-cli/SKILL.md', 'apex-log-viewer-cli/references/example.md']);
   await fs.rm(path.join(source, 'SKILL.md'));
   await assert.rejects(copySfPluginSkills(temporary), /ENOENT/);
+});
+
+test('rebuilding the reference replaces stale files and fails when a source is missing', async t => {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-reference-copy-'));
+  t.after(() => fs.rm(temporary, { recursive: true, force: true }));
+  await fs.mkdir(path.join(temporary, 'docs'));
+  await fs.mkdir(path.join(temporary, 'packages/core/schemas'), { recursive: true });
+  await fs.writeFile(path.join(temporary, 'docs/CUSTOM_LOGS.md'), 'doc');
+  await fs.writeFile(path.join(temporary, 'packages/core/schemas/sfdx-project.electivus.schema.json'), '{}');
+  const { copySfPluginReference } = await import(pathToFileURL(path.join(__dirname, 'copy-sf-plugin-skills.mjs')).href);
+  await copySfPluginReference(temporary);
+  const output = path.join(temporary, 'packages/sf-plugin/reference');
+  await fs.writeFile(path.join(output, 'stale.md'), 'stale');
+  await copySfPluginReference(temporary);
+  assert.deepEqual(await files(output), ['CUSTOM_LOGS.md', 'sfdx-project.electivus.schema.json']);
+  await fs.rm(path.join(temporary, 'docs/CUSTOM_LOGS.md'));
+  await assert.rejects(copySfPluginReference(temporary), /ENOENT/);
 });

@@ -11,6 +11,7 @@
     "/bin",
     "/lib",
     "/messages",
+    "/reference",
     "/skills",
     "/README.md",
     "/LICENSE",
@@ -20,7 +21,7 @@
   "scripts": {
     "build": "node ../../scripts/copy-sf-plugin-skills.mjs && tsc -p tsconfig.json && oclif manifest",
     "check-types": "tsc --noEmit -p tsconfig.json",
-    "clean": "node -e \"const fs=require('fs');const del=d=>{try{fs.rmSync(d,{recursive:true,force:true})}catch{}};del('lib');del('skills');for(const f of ['oclif.manifest.json','oclif.lock']){try{fs.unlinkSync(f)}catch{}}\"",
+    "clean": "node -e \"const fs=require('fs');const del=d=>{try{fs.rmSync(d,{recursive:true,force:true})}catch{}};del('lib');del('skills');del('reference');for(const f of ['oclif.manifest.json','oclif.lock']){try{fs.unlinkSync(f)}catch{}}\"",
     "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
