@@ -1,7 +1,9 @@
 // Tail view → pick a debug level → Start → emit a new Apex log → the live row appears → Stop, and put the
-// user's DEVELOPER_LOG flags back the way Start found them.
+// user's DEVELOPER_LOG flags, the Debug Only switch and the panel size back the way the step found them.
 // args: { debugLevel?: string } — exact level to test, which must exist. Without it, picks ALV_E2E; when ALV_E2E
 // is missing, keeps the current level, or picks the first one when none is set.
+import { userDeveloperLogFlags } from './lib/traceFlags.mjs';
+
 export default async function ({ page, h, expect, session, args }) {
   await h.runCommandWhenAvailable('Electivus Apex Logs: Tail Logs');
   await h.closeQuickInput();
@@ -24,21 +26,18 @@ export default async function ({ page, h, expect, session, args }) {
       await expect(startButton).toBeVisible({ timeout: 60_000 });
     }
   };
-
-  const auth = await h.orgAuth();
-  const api = `${auth.instanceUrl}/services/data/v${auth.apiVersion}`;
-  const headers = { Authorization: `Bearer ${auth.accessToken}`, 'Content-Type': 'application/json' };
-  const query = async (soql, { toolingApi = true } = {}) => {
-    const res = await fetch(`${api}${toolingApi ? '/tooling' : ''}/query?q=${encodeURIComponent(soql)}`, { headers });
-    if (!res.ok) {
-      throw new Error(`Query failed (${res.status}): ${await res.text()}`);
+  // Debug Only persists in webview state and hides the `=== ApexLog` header rows this step asserts.
+  const debugOnly = tail.getByRole('switch', { name: 'Debug Only' });
+  const setDebugOnly = async on => {
+    if (((await debugOnly.getAttribute('aria-checked')) === 'true') !== on) {
+      await debugOnly.click();
+      await expect(debugOnly).toHaveAttribute('aria-checked', String(on));
     }
-    return (await res.json()).records.map(({ attributes, ...record }) => record);
   };
-  const [user] = await query(`SELECT Id FROM User WHERE Username = '${session.org.username}'`, { toolingApi: false });
-  const flagsSoql = `SELECT Id, DebugLevelId, DebugLevel.DeveloperName, StartDate, ExpirationDate FROM TraceFlag WHERE LogType = 'DEVELOPER_LOG' AND TracedEntityId = '${user.Id}'`;
 
+  const flags = await userDeveloperLogFlags(h, session);
   let flagsBefore;
+  let debugOnlyWasOn;
   let stepError;
   try {
     await idle();
@@ -58,6 +57,8 @@ export default async function ({ page, h, expect, session, args }) {
     }
     // A tail left running by an earlier step would skip Start, and its flag changes would look like the baseline.
     await stopTail();
+    debugOnlyWasOn = (await debugOnly.getAttribute('aria-checked')) === 'true';
+    await setDebugOnly(false);
 
     const level = tail.locator('[data-testid="tail-debug-level"]').first();
     await level.waitFor({ state: 'visible', timeout: 60_000 });
@@ -92,7 +93,7 @@ export default async function ({ page, h, expect, session, args }) {
 
     // Start points the user's newest DEVELOPER_LOG flag, the harness seed, at the chosen level for 30 minutes
     // (and creates one when none exists). Snapshot the flags before it; `finally` puts them back.
-    flagsBefore = await query(flagsSoql);
+    flagsBefore = await flags.read();
     const search = tail.getByLabel('Search live logs…');
     await search.fill('');
     await tail.getByRole('button', { name: 'Clear' }).click();
@@ -111,8 +112,8 @@ export default async function ({ page, h, expect, session, args }) {
     // Tail's overlapping flag), so run the anonymous Apex directly; Tail's own trace flag makes the log.
     const marker = `ALV_TAIL_MARKER_${Date.now()}`;
     const emittedAfter = new Date(Date.now() - 5_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
-    await h.tooling.executeAnonymousApex(auth, `System.debug('${marker}');`);
-    const flagDuringTail = (await query(flagsSoql)).map(f => ({
+    await h.tooling.executeAnonymousApex(flags.auth, `System.debug('${marker}');`);
+    const flagDuringTail = (await flags.read()).map(f => ({
       id: f.Id,
       debugLevel: f.DebugLevel?.DeveloperName,
       expirationDate: f.ExpirationDate
@@ -122,8 +123,8 @@ export default async function ({ page, h, expect, session, args }) {
     await expect(tail.locator('[role="row"]', { hasText: marker }).first()).toBeAttached({ timeout: 180_000 });
     await search.fill('');
     // The anonymous run above is this user's only executeAnonymous log since just before it; its row must be there.
-    const [log] = await query(
-      `SELECT Id FROM ApexLog WHERE LogUserId = '${user.Id}' AND Operation LIKE '%executeAnonymous%' AND StartTime >= ${emittedAfter} ORDER BY StartTime DESC LIMIT 1`,
+    const [log] = await flags.query(
+      `SELECT Id FROM ApexLog WHERE LogUserId = '${flags.userId}' AND Operation LIKE '%executeAnonymous%' AND StartTime >= ${emittedAfter} ORDER BY StartTime DESC LIMIT 1`,
       { toolingApi: false }
     );
     const header = tail.locator('[role="row"]', { hasText: `=== ApexLog ${log?.Id}` }).first();
@@ -136,6 +137,7 @@ export default async function ({ page, h, expect, session, args }) {
       logId: log.Id,
       header: headerText,
       flagDuringTail,
+      debugOnlyWasOn,
       tailShot
     };
   } catch (error) {
@@ -150,29 +152,13 @@ export default async function ({ page, h, expect, session, args }) {
     }
     if (flagsBefore) {
       try {
-        const known = new Map(flagsBefore.map(f => [f.Id, f]));
-        for (const now of await query(flagsSoql)) {
-          const before = known.get(now.Id);
-          if (!before) {
-            // Start created this flag because the user had none.
-            const res = await fetch(`${api}/tooling/sobjects/TraceFlag/${now.Id}`, { method: 'DELETE', headers });
-            if (!res.ok) cleanupErrors.push(`delete TraceFlag ${now.Id}: ${res.status} ${await res.text()}`);
-          } else if (now.DebugLevelId !== before.DebugLevelId || now.ExpirationDate !== before.ExpirationDate) {
-            const res = await fetch(`${api}/tooling/sobjects/TraceFlag/${before.Id}`, {
-              method: 'PATCH',
-              headers,
-              body: JSON.stringify({
-                DebugLevelId: before.DebugLevelId,
-                StartDate: before.StartDate,
-                ExpirationDate: before.ExpirationDate
-              })
-            });
-            if (!res.ok) cleanupErrors.push(`restore TraceFlag ${before.Id}: ${res.status} ${await res.text()}`);
-          }
-        }
+        cleanupErrors.push(...(await flags.restore(flagsBefore)).errors);
       } catch (error) {
         cleanupErrors.push(`restore: ${error.message}`);
       }
+    }
+    if (debugOnlyWasOn) {
+      await setDebugOnly(true).catch(error => cleanupErrors.push(`Debug Only: ${error.message}`));
     }
     if (maximized) {
       await h.runCommand('View: Toggle Maximized Panel').catch(error => cleanupErrors.push(`panel: ${error.message}`));

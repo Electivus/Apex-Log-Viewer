@@ -152,6 +152,53 @@ async function frameWith(selector: string, timeoutMs = 120_000): Promise<Frame> 
   });
 }
 
+const DEBUG_FLAGS_FRAME = '[data-testid="debug-flags-user-search"]';
+
+async function countFramesWith(selector: string): Promise<number> {
+  let count = 0;
+  for (const frame of requirePage().frames()) {
+    if (
+      (await frame
+        .locator(selector)
+        .count()
+        .catch(() => 0)) > 0
+    ) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+/**
+ * The Apex Debug Flags editor is a singleton, so an open one would satisfy the wait after a click that never reached
+ * the host. Close it first: the only Debug Flags frame the helpers can then find is the one their own click opened.
+ * A middle-click closes just that tab; `View: Close Editor` through the palette can run a broader close command,
+ * because the palette matches by words and Enter takes its first row.
+ */
+async function closeDebugFlagsEditor(): Promise<void> {
+  const vscodePage = requirePage();
+  const tab = vscodePage.locator('.tabs-container .tab[aria-label^="Apex Debug Flags"]');
+  if ((await tab.count()) > 0) {
+    if (!(await vscodePage.locator('.part.editor').isVisible())) {
+      // A maximized panel hides the editor area, where the Debug Flags editor opens.
+      await runCommand(vscodePage, 'View: Toggle Maximized Panel');
+    }
+    await tab.first().click({ button: 'middle' });
+    await expect(tab).toHaveCount(0, { timeout: 30_000 });
+  }
+  await expect
+    .poll(() => countFramesWith(DEBUG_FLAGS_FRAME), {
+      message: 'no Apex Debug Flags frame is left before the click',
+      timeout: 30_000
+    })
+    .toBe(0);
+}
+
+async function openDebugFlagsFromLogsAfterClosing(): Promise<Frame> {
+  await closeDebugFlagsEditor();
+  return await openDebugFlagsFromLogs(requirePage());
+}
+
 /**
  * Right after `Tail Logs` reveals the panel, a forced click on the Tail toolbar is lost (seen twice in a row),
  * so click with Playwright's actionability checks first, then fall back to Enter and a DOM click.
@@ -161,6 +208,7 @@ async function frameWith(selector: string, timeoutMs = 120_000): Promise<Frame> 
 async function openDebugFlagsFromTailWithRetry(): Promise<Frame> {
   const vscodePage = requirePage();
   const alias = state.org?.alias;
+  await closeDebugFlagsEditor();
   await runCommand(vscodePage, 'Electivus Apex Logs: Tail Logs');
   const tail = await frameWith('[data-testid="tail-open-debug-flags"]', 180_000);
   const button = tail.locator('[data-testid="tail-open-debug-flags"]').first();
@@ -190,12 +238,12 @@ async function openDebugFlagsFromTailWithRetry(): Promise<Frame> {
   let frame: Frame | undefined;
   for (const attempt of attempts) {
     await attempt().catch(() => {});
-    frame = await frameWith('[data-testid="debug-flags-user-search"]', 10_000).catch(() => undefined);
+    frame = await frameWith(DEBUG_FLAGS_FRAME, 10_000).catch(() => undefined);
     if (frame) {
       break;
     }
   }
-  frame ??= await frameWith('[data-testid="debug-flags-user-search"]', 60_000);
+  frame ??= await frameWith(DEBUG_FLAGS_FRAME, 60_000);
   if (alias) {
     const orgSelect = frame.getByTestId('debug-flags-org-select');
     await expect(orgSelect, `Apex Debug Flags must target the session org '${alias}'`).toHaveText(alias, {
@@ -273,7 +321,7 @@ function createHelpers() {
     logsFrame: (timeoutMs?: number) => frameWith('[data-testid="logs-open-debug-flags"]', timeoutMs),
     tailFrame: (timeoutMs?: number) => frameWith('[data-testid="tail-open-debug-flags"]', timeoutMs),
     viewerFrame: (timeoutMs?: number) => frameWith('text=Apex Log Viewer', timeoutMs),
-    debugFlagsFrame: (timeoutMs?: number) => frameWith('[data-testid="debug-flags-user-search"]', timeoutMs),
+    debugFlagsFrame: (timeoutMs?: number) => frameWith(DEBUG_FLAGS_FRAME, timeoutMs),
     setWorkspaceSetting,
     customLogsFrame: async (timeoutMs?: number) => {
       await assertCustomLogsEnabled();
@@ -287,8 +335,9 @@ function createHelpers() {
           : '[data-testid="custom-log-viewer-root"]',
         timeoutMs
       ),
-    // Clicks into a webview can be swallowed while it takes focus; these retry with keyboard and DOM clicks.
-    openDebugFlagsFromLogs: () => openDebugFlagsFromLogs(requirePage()),
+    // Clicks into a webview can be swallowed while it takes focus; these retry with keyboard and DOM clicks, and
+    // close an open Debug Flags editor first so the frame they return is the one their click opened.
+    openDebugFlagsFromLogs: openDebugFlagsFromLogsAfterClosing,
     openDebugFlagsFromTail: openDebugFlagsFromTailWithRetry,
     shot,
     saveEvidence: async (name: string, content: unknown): Promise<string> => {
