@@ -128,6 +128,37 @@ test('two watchers share one connection, one subscription and one set of stored 
   });
 });
 
+test('a watcher that joins a running run reports the allowance of the run, and only the deliveries since it joined', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+    const { clock, transport, deps, hub } = setup(store);
+    const first = watcher({ follow: true, initial: 'new' });
+    const firstDone = hub.watch(store.location, first.watcher, deps);
+    const attempt = await transport.opened(0);
+    attempt.subscribed();
+    attempt.events(busEvent(1));
+    await clock.advance(250);
+    await until(() => first.rows().length === 1, 'the row before the join');
+
+    const joiner = watcher({ follow: true });
+    const joinerDone = hub.watch(store.location, joiner.watcher, deps);
+    await until(() => joiner.updates.length > 0, 'the joiner to be told the current state');
+    attempt.events(busEvent(2));
+    await clock.advance(250);
+    await until(() => joiner.rows().length === 1, 'the row after the join');
+
+    joiner.abort();
+    const joinerResult = await resultOf(joinerDone);
+    first.abort();
+    const firstResult = await resultOf(firstDone);
+    assert.equal(firstResult.delivered, 2);
+    assert.equal(joinerResult.delivered, 1);
+    const allowance = { remaining: 10_000, max: 25_000, budget: 5_000 };
+    assert.deepEqual(firstResult.allowance, allowance);
+    assert.deepEqual(joinerResult.allowance, allowance);
+  });
+});
+
 test('a drain that joins a run that is already live is done at once, and a follow watcher that joins is not', async () => {
   await withProject(async root => {
     const store = openStore(root);
@@ -366,23 +397,56 @@ test('a process that finds the lease held stands by, relays what the holder stor
   });
 });
 
-test('a drain that finds the lease held ends at once with capturedElsewhere', async () => {
+test('a drain that finds the lease held ends at once with capturedElsewhere and names the holder', async () => {
   await withProject(async root => {
     const store = openStore(root);
+    const tookLeaseAfter = Date.now();
     const holder = await openWriter(openStore(root), 'vscode');
+    const tookLeaseBefore = Date.now();
     try {
       const { transport, deps, hub } = setup(store);
       const w = watcher({ follow: false });
 
       const result = await resultOf(hub.watch(store.location, w.watcher, deps));
 
-      assert.equal(result.outcome, 'capturedElsewhere');
+      assert.ok(result.outcome === 'capturedElsewhere', `outcome ${result.outcome}`);
+      const { since, ...who } = result.holder;
+      assert.deepEqual(who, { surface: 'vscode', pid: process.pid, host: os.hostname() });
+      assert.ok(
+        Date.parse(since) >= tookLeaseAfter && Date.parse(since) <= tookLeaseBefore,
+        `since ${since} is when the holder took the lease`
+      );
+      assert.equal(result.allowance, undefined, 'a drain that never held the lease never read /limits');
+      assert.equal(deps.calls.allowances, 0);
       assert.equal(transport.attempts.length, 0);
       assert.equal(result.delivered, 0);
       assert.deepEqual(w.states(), ['connecting', 'standby']);
     } finally {
       await holder.release();
     }
+  });
+});
+
+test('a drain that joins a standby run ends at once with capturedElsewhere and names the holder', async () => {
+  await withProject(async root => {
+    const real = openStore(root);
+    const heldBy = { surface: 'cli' as const, pid: 4242, host: 'build-7', since: '2026-10-30T10:00:00.000Z' };
+    const store: EventStore = { ...real, openWriter: async () => ({ heldBy }) };
+    const { clock, deps, hub } = setup(store);
+    const follower = watcher({ follow: true });
+    const following = hub.watch(store.location, follower.watcher, deps);
+    await until(() => standbyUpdate(follower) !== undefined && clock.pending > 0, 'the standby state');
+
+    const drain = watcher({ follow: false });
+    const result = await resultOf(hub.watch(store.location, drain.watcher, deps));
+
+    assert.deepEqual(
+      { outcome: result.outcome, holder: 'holder' in result ? result.holder : undefined },
+      { outcome: 'capturedElsewhere', holder: heldBy }
+    );
+    follower.abort();
+    await within(following, 'the standby run to stop');
+    await hub.dispose();
   });
 });
 
@@ -410,21 +474,26 @@ test('a standby run relays every row of a burst the holder stored between two po
   });
 });
 
+async function leaseTakenOnFirstAdvance(root: string, store: EventStore) {
+  const foreign = await foreignHolder(root);
+  let advances = 0;
+  const guarded = instrumentStore(store, {
+    advance: () => {
+      advances += 1;
+      if (advances === 1) {
+        foreign.plant();
+        throw new LeaseLostError();
+      }
+    }
+  });
+  return { foreign, guarded };
+}
+
 test('a lease taken away mid-run sends the run to standby, drops the batch it could not checkpoint, and resumes from the last good checkpoint', async () => {
   await withProject(async root => {
     const store = openStore(root);
     await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
-    const foreign = await foreignHolder(root);
-    let advances = 0;
-    const guarded = instrumentStore(store, {
-      advance: () => {
-        advances += 1;
-        if (advances === 1) {
-          foreign.plant();
-          throw new LeaseLostError();
-        }
-      }
-    });
+    const { foreign, guarded } = await leaseTakenOnFirstAdvance(root, store);
     try {
       const { clock, transport, deps, hub } = setup(guarded);
       const w = watcher({ follow: true });
@@ -445,6 +514,50 @@ test('a lease taken away mid-run sends the run to standby, drops the batch it co
       assert.equal(second.durableCursor(), cursorOf(2));
       w.abort();
       assert.equal((await resultOf(done)).outcome, 'aborted');
+    } finally {
+      await foreign.die();
+    }
+  });
+});
+
+test('a run that wins a lost lease back reports the allowance from before its first delivery, and its updates carry the new read', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+    await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
+    const { foreign, guarded } = await leaseTakenOnFirstAdvance(root, store);
+    try {
+      const { clock, transport, deps, hub } = setup(guarded);
+      const reads = [
+        { remaining: 10_000, max: 25_000 },
+        { remaining: 9_000, max: 25_000 }
+      ];
+      const w = watcher({ follow: true });
+      const done = hub.watch(guarded.location, w.watcher, { ...deps, readAllowance: async () => reads.shift() });
+      const first = await transport.opened(0);
+      first.subscribed();
+      first.events(busEvent(3));
+      await clock.advance(250);
+      await until(() => w.states().includes('standby'), 'the standby state after the lease was lost');
+
+      await foreign.die();
+      await until(() => clock.pending > 0, 'the standby poll');
+      await clock.advance(2_000);
+      const second = await transport.opened(1);
+      second.subscribed();
+      second.events(busEvent(4));
+      await clock.advance(250);
+      await until(() => w.rows().length > 0, 'the row of the second lease');
+      assert.equal(reads.length, 0, 'the second lease read /limits again');
+
+      w.abort();
+      const result = await resultOf(done);
+      assert.equal(result.delivered, 2, 'the result counts the deliveries of both leases');
+      assert.deepEqual(result.allowance, { remaining: 10_000, max: 25_000, budget: 5_000 });
+      assert.deepEqual(
+        w.updates[w.updates.length - 1]!.allowance,
+        { remaining: 9_000, max: 25_000, budget: 4_500 },
+        'the budget in force is the one of the new read'
+      );
     } finally {
       await foreign.die();
     }

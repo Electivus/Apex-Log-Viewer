@@ -133,6 +133,11 @@ test('a drain resumes after the stored cursor, stores what follows exactly, and 
     assert.equal(result.outcome, 'quiet');
     assert.equal(result.delivered, 3);
     assert.equal(result.stored, 3);
+    assert.deepEqual(
+      result.allowance,
+      { remaining: 10_000, max: 25_000, budget: 5_000 },
+      'the result reports what /limits said when the run prepared'
+    );
     assert.deepEqual(result.newGaps, []);
     assert.equal(result.store.state, 'captured');
     assert.equal(result.store.state === 'captured' ? result.store.newest : undefined, busEvent(5).createdDate);
@@ -156,6 +161,7 @@ test('needsInitial writes the describe and reads the allowance but subscribes no
     assert.equal(deps.calls.allowances, 1);
     assert.equal((await store.describe())?.name, 'App_Log__e');
     assert.equal(result.store.state, 'notCaptured');
+    assert.deepEqual(result.allowance, { remaining: 8_412, max: 10_000, budget: 4_206 });
     const last = w.updates[w.updates.length - 1]!;
     assert.deepEqual(last.allowance, { remaining: 8_412, max: 10_000, budget: 4_206 });
     assert.deepEqual(last.capture, { state: 'stopped', outcome: 'needsInitial' });
@@ -172,8 +178,9 @@ test('an allowance /limits could not give falls back to the default budget and r
     const store = openStore(root);
     const { deps, hub } = setup(store, { allowance: undefined });
     const w = watcher({ follow: false, initial: 'none' });
-    resultOf(await settledOf(hub.watch(store.location, w.watcher, deps)));
+    const result = resultOf(await settledOf(hub.watch(store.location, w.watcher, deps)));
     assert.deepEqual(w.updates[w.updates.length - 1]!.allowance, { budget: 5_000 });
+    assert.deepEqual(result.allowance, { budget: 5_000 });
   });
 });
 
@@ -1032,6 +1039,7 @@ for (const [label, remaining] of [
       const result = resultOf(await within(settledOf(hub.watch(store.location, w.watcher, deps)), 'the budget stop'));
 
       assert.equal(result.outcome, 'budget');
+      assert.deepEqual(result.allowance, { remaining, max: 10_000, budget: 0 });
       assert.equal(transport.attempts.length, 0, 'no subscription is opened, so Salesforce delivers nothing');
       assert.equal(result.delivered, 0);
       assert.equal(result.stored, 0);
@@ -1255,6 +1263,32 @@ test('a connect failure rejects with that error, reports failed, and subscribes 
       ['none', ['failed', 'ORG_NOT_FOUND']]
     );
     await openWriter(store);
+  });
+});
+
+test('a drain whose time limit runs out during the connect ends timeLimit and reports no allowance', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+    let connecting = false;
+    const { clock, deps, hub } = setup(store, {
+      connect: ({ signal }) =>
+        new Promise((_resolve, reject) => {
+          connecting = true;
+          signal.addEventListener('abort', () => reject(new AlvError('ABORTED', 'The connect was aborted.')), {
+            once: true
+          });
+        })
+    });
+    const w = watcher({ follow: false, maxDurationMs: 1_000 });
+
+    const done = hub.watch(store.location, w.watcher, deps);
+    await until(() => connecting, 'the connect to start');
+    await clock.advance(1_000);
+    const result = resultOf(await settledOf(done));
+
+    assert.equal(result.outcome, 'timeLimit');
+    assert.equal(result.allowance, undefined);
+    assert.equal(deps.calls.allowances, 0, 'the run never reached /limits');
   });
 });
 

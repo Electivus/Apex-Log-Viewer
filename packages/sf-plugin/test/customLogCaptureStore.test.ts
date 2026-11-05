@@ -11,6 +11,7 @@ import { Config } from '@oclif/core';
 import CustomLogCapture from '../src/commands/electivus/custom-log/capture.ts';
 import CustomLogList from '../src/commands/electivus/custom-log/list.ts';
 import { core } from '../src/core.ts';
+import { openEventStore } from '../../core/src/customLogs/events/store.ts';
 import { recordedEvents, startBayeuxDouble } from '../../core/test/support/cometdDouble.ts';
 import { alvTestLogDescribe } from '../../core/test/support/describeFixtures.ts';
 import { nebulaHandler } from '../../core/test/support/nebulaDouble.ts';
@@ -148,6 +149,42 @@ test('capture drains the event stream into the store, and list then reads it wit
   assert.equal(page.rows.length, 1);
   assert.equal(page.rows[0]!.title, 'Synthetic INFO entry 870 of 870 (bsn870)');
   assert.equal(page.store?.state, 'captured');
+});
+
+test('a drain reports in its JSON result the delivery allowance the org had and the budget of the run', async t => {
+  const { org } = await world(t);
+
+  const { out } = await withStreams(() => capture(...org, '--max-time', '1', '--json')._run());
+  const drained = JSON.parse(out).result as CustomLogCaptureResult;
+
+  assert.deepEqual(drained.allowance, { remaining: 22_000, max: 25_000, budget: 11_000 });
+});
+
+test('a drain that finds another process capturing the source names that process in its JSON result', async t => {
+  const { double, org } = await world(t);
+  const store = openEventStore({ root: process.cwd(), username: double.username, object: OBJECT });
+  const tookLeaseAfter = Date.now();
+  const lease = await store.openWriter('vscode');
+  const tookLeaseBefore = Date.now();
+  assert.ok('writer' in lease, 'the lease was free');
+
+  try {
+    const { out, err } = await withStreams(() => capture(...org, '--json')._run());
+    const result = JSON.parse(out).result as CustomLogCaptureResult;
+
+    assert.equal(err, '');
+    assert.ok(result.outcome === 'capturedElsewhere', `outcome ${result.outcome}`);
+    const { since, ...who } = result.holder;
+    assert.deepEqual(who, { surface: 'vscode', pid: process.pid, host: os.hostname() });
+    assert.ok(
+      Date.parse(since) >= tookLeaseAfter && Date.parse(since) <= tookLeaseBefore,
+      `since ${since} is when the holder took the lease`
+    );
+    assert.equal('allowance' in result, false, 'a drain that never held the lease reads no allowance');
+    assert.deepEqual(double.replays, [], 'nothing subscribed');
+  } finally {
+    await lease.writer.release();
+  }
 });
 
 test('--follow prints the stored row, and Ctrl-C ends with the aborted summary and the row on disk', async t => {

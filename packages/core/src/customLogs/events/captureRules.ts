@@ -10,6 +10,7 @@ import {
   type CustomLogCaptureOutcome,
   type CustomLogCaptureState,
   type CustomLogErrorCode,
+  type CustomLogLeaseHolder,
   type CustomLogStoreGap
 } from '../contracts.js';
 import { assertNever } from '../resolved.js';
@@ -225,12 +226,10 @@ export function drainBoundOutcome(input: { wait: FirstEventWait; transportUp: bo
 export const backoffMs = (attempt: number): number =>
   RECONNECT_BACKOFF_MS[Math.min(Math.max(attempt, 1), RECONNECT_BACKOFF_MS.length) - 1]!;
 
-type Holder = Extract<CustomLogCaptureState, { state: 'standby' }>['holder'];
-
 /** Everything that moves the public state. A transport signal, a timer, or the run's own decision. */
 export type StateInput =
   | { type: 'connecting' }
-  | { type: 'standby'; holder: Holder }
+  | { type: 'standby'; holder: CustomLogLeaseHolder }
   | { type: 'subscribed'; from: ReplayFrom['kind'] }
   | { type: 'quiet' }
   | { type: 'down' }
@@ -239,7 +238,7 @@ export type StateInput =
   | { type: 'stopped'; outcome: CustomLogCaptureOutcome }
   | { type: 'failed'; code: CustomLogErrorCode; message: string };
 
-const sameHolder = (a: Holder, b: Holder): boolean =>
+const sameHolder = (a: CustomLogLeaseHolder, b: CustomLogLeaseHolder): boolean =>
   a.surface === b.surface && a.pid === b.pid && a.host === b.host && a.since === b.since;
 
 /**

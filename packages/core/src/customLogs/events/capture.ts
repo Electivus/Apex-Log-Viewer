@@ -48,6 +48,7 @@
 import { AlvError } from '../../errors.js';
 import type {
   CustomLogCaptureAllowance,
+  CustomLogCaptureEnding,
   CustomLogCaptureOutcome,
   CustomLogCaptureParams,
   CustomLogCaptureResult,
@@ -274,7 +275,7 @@ async function resultWithoutRun(
 /** Why the stream has to stop, and what follows. Requests rank: a later one replaces an earlier one only if it ranks higher. */
 type StopRequest =
   | { kind: 'failed'; error: unknown }
-  | { kind: 'finish'; outcome: CustomLogCaptureOutcome }
+  | { kind: 'finish'; ending: CustomLogCaptureEnding }
   | { kind: 'leaseLost' }
   | { kind: 'overflow' };
 
@@ -287,7 +288,7 @@ const isTerminal = (request: StopRequest | undefined): boolean =>
   request?.kind === 'failed' || request?.kind === 'finish';
 
 /** How a run ends. */
-type RunEnd = { kind: 'outcome'; outcome: CustomLogCaptureOutcome } | { kind: 'failed'; error: unknown };
+type RunEnd = { kind: 'outcome'; ending: CustomLogCaptureEnding } | { kind: 'failed'; error: unknown };
 
 type EpochExit = { kind: 'end'; end: RunEnd } | { kind: 'standby' };
 
@@ -348,7 +349,7 @@ function createRun(
   const runAbort = new AbortController();
   const watchers = new Set<WatcherState>();
   /** Watchers that left as the last one: they settle when the run has flushed, ended its stream and released the lease. */
-  const awaiting: { w: WatcherState; outcome: CustomLogCaptureOutcome }[] = [];
+  const awaiting: { w: WatcherState; ending: CustomLogCaptureEnding }[] = [];
 
   let delivered = 0;
   let stored = 0;
@@ -360,7 +361,8 @@ function createRun(
 
   let state: CustomLogCaptureState = { state: 'connecting' };
   let storeInfo: CustomLogStoreInfo | undefined;
-  let allowance: CustomLogCaptureAllowance | undefined;
+  let latestAllowance: CustomLogCaptureAllowance | undefined;
+  let allowanceAtStart: CustomLogCaptureAllowance | undefined;
   let concluded = false;
   let stopRequest: StopRequest | undefined;
   let attemptAbort: AbortController | undefined;
@@ -385,7 +387,12 @@ function createRun(
   const deliver = (w: WatcherState, view: () => RowView): void => {
     if (w.detached || !w.watcher.onUpdate || !storeInfo) return;
     try {
-      w.watcher.onUpdate({ capture: state, store: storeInfo, ...view(), ...(allowance ? { allowance } : {}) });
+      w.watcher.onUpdate({
+        capture: state,
+        store: storeInfo,
+        ...view(),
+        ...(latestAllowance ? { allowance: latestAllowance } : {})
+      });
     } catch (error) {
       w.detached = true;
       deps.onCallbackError?.(error);
@@ -438,18 +445,19 @@ function createRun(
     report({ type: 'start', from });
   };
 
-  const resultFor = async (w: WatcherState, outcome: CustomLogCaptureOutcome): Promise<CustomLogCaptureResult> => ({
+  const resultFor = async (w: WatcherState, ending: CustomLogCaptureEnding): Promise<CustomLogCaptureResult> => ({
     source: sourceRef(w.watcher.source),
-    outcome,
+    ...ending,
     delivered: delivered - w.base.delivered,
     stored: stored - w.base.stored,
     newGaps: newGaps.slice(w.base.gaps),
-    store: deps.storeInfo(await store.coverage())
+    store: deps.storeInfo(await store.coverage()),
+    ...(allowanceAtStart ? { allowance: allowanceAtStart } : {})
   });
 
-  const settle = async (w: WatcherState, outcome: CustomLogCaptureOutcome): Promise<void> => {
+  const settle = async (w: WatcherState, ending: CustomLogCaptureEnding): Promise<void> => {
     try {
-      w.settle.resolve(await resultFor(w, outcome));
+      w.settle.resolve(await resultFor(w, ending));
     } catch (error) {
       w.settle.reject(error);
     }
@@ -468,30 +476,30 @@ function createRun(
     stop({ kind: 'failed', error });
   };
 
-  const leave = (w: WatcherState, outcome: CustomLogCaptureOutcome): void => {
+  const leave = (w: WatcherState, ending: CustomLogCaptureEnding): void => {
     if (!watchers.delete(w)) return;
     w.cancelBound();
     w.cancelAbort();
     if (watchers.size > 0) {
-      void settle(w, outcome);
+      void settle(w, ending);
       return;
     }
-    awaiting.push({ w, outcome });
-    stop({ kind: 'finish', outcome });
+    awaiting.push({ w, ending });
+    stop({ kind: 'finish', ending });
   };
 
   /** A drain has nothing to wait for when the run is already live or another process captures. */
   const endEarly = (w: WatcherState): void => {
     if (w.watcher.params.follow) return;
-    if (state.state === 'live') leave(w, 'quiet');
-    else if (state.state === 'standby') leave(w, 'capturedElsewhere');
+    if (state.state === 'live') leave(w, { outcome: 'quiet' });
+    else if (state.state === 'standby') leave(w, { outcome: 'capturedElsewhere', holder: state.holder });
   };
 
   const becomeLive = (): void => {
     if (state.state === 'catchingUp') proof = proofOnLive(proof, waiting.deliveredSinceAck, clock.now().getTime());
     transition({ type: 'quiet' });
     if (state.state !== 'live') return;
-    for (const w of [...watchers]) if (!w.watcher.params.follow) leave(w, 'quiet');
+    for (const w of [...watchers]) if (!w.watcher.params.follow) leave(w, { outcome: 'quiet' });
   };
 
   const armLiveTimer = (ms: number): void => {
@@ -506,7 +514,7 @@ function createRun(
       deliveredSinceAck: waiting.deliveredSinceAck
     });
     if (enterLive) becomeLive();
-    leave(w, outcome);
+    leave(w, { outcome });
   };
 
   const join = (watcher: CaptureWatcher): Promise<CustomLogCaptureResult> =>
@@ -520,7 +528,7 @@ function createRun(
         cancelAbort: noop
       };
       watchers.add(w);
-      const onAbort = (): void => leave(w, 'aborted');
+      const onAbort = (): void => leave(w, { outcome: 'aborted' });
       watcher.signal.addEventListener('abort', onAbort, { once: true });
       w.cancelAbort = () => watcher.signal.removeEventListener('abort', onAbort);
       if (!watcher.params.follow) w.cancelBound = clock.after(boundMs(watcher.params.maxDurationMs), () => onBound(w));
@@ -598,7 +606,8 @@ function createRun(
     const session = await deps.connect({ fresh: false, signal });
     const remaining = await deps.readAllowance(session.ctx, signal);
     const budget = deliveryBudget(remaining);
-    allowance = { ...(remaining ? { remaining: remaining.remaining, max: remaining.max } : {}), budget };
+    latestAllowance = { ...(remaining ? { remaining: remaining.remaining, max: remaining.max } : {}), budget };
+    allowanceAtStart ??= latestAllowance;
     await writer.writeDescribe(await deps.describe(session.ctx, store.location.object, signal));
     await writer.purge(deps.retentionDays, clock.now());
     const checkpoint = await store.checkpoint();
@@ -717,7 +726,7 @@ function createRun(
           fail(error);
         }
       });
-      if (delivered - deliveredAtStart >= prepared.budget) stop({ kind: 'finish', outcome: 'budget' });
+      if (delivered - deliveredAtStart >= prepared.budget) stop({ kind: 'finish', ending: { outcome: 'budget' } });
     };
 
     const onEvents = (events: readonly BusEvent[]): void => {
@@ -738,7 +747,7 @@ function createRun(
           void flush();
         });
       }
-      if (delivered - deliveredAtStart >= prepared.budget) stop({ kind: 'finish', outcome: 'budget' });
+      if (delivered - deliveredAtStart >= prepared.budget) stop({ kind: 'finish', ending: { outcome: 'budget' } });
     };
 
     const onSignal = (signal: TransportSignal): void => {
@@ -863,7 +872,7 @@ function createRun(
     /** The clean end of a live run writes the coverage it proved since the last flush, so a quiet stream never looks older than retention. */
     const cleanEnd = async (): Promise<void> => {
       const request = stopRequest;
-      if (request?.kind !== 'finish' || !CLEAN_ENDS.has(request.outcome)) return;
+      if (request?.kind !== 'finish' || !CLEAN_ENDS.has(request.ending.outcome)) return;
       if (state.state !== 'live' || !last) return;
       try {
         await writer.advance({
@@ -904,8 +913,8 @@ function createRun(
   const epoch = async (writer: EventStoreWriter): Promise<EpochExit> => {
     try {
       const prepared = await prepare(writer);
-      if (prepared.decision.kind === 'needsInitial') stop({ kind: 'finish', outcome: 'needsInitial' });
-      else if (prepared.budget === 0) stop({ kind: 'finish', outcome: 'budget' });
+      if (prepared.decision.kind === 'needsInitial') stop({ kind: 'finish', ending: { outcome: 'needsInitial' } });
+      else if (prepared.budget === 0) stop({ kind: 'finish', ending: { outcome: 'budget' } });
       else await stream(writer, prepared, prepared.decision.start);
     } catch (error) {
       fail(error);
@@ -930,7 +939,7 @@ function createRun(
   const endOf = (request: StopRequest | undefined): RunEnd =>
     request?.kind === 'failed'
       ? { kind: 'failed', error: request.error }
-      : { kind: 'outcome', outcome: request?.kind === 'finish' ? request.outcome : 'aborted' };
+      : { kind: 'outcome', ending: request?.kind === 'finish' ? request.ending : { outcome: 'aborted' } };
 
   const lifecycle = async (): Promise<RunEnd> => {
     for (;;) {
@@ -957,12 +966,12 @@ function createRun(
     transition(
       end.kind === 'failed'
         ? { type: 'failed', code: customCodeOf(end.error), message: messageOf(end.error) }
-        : { type: 'stopped', outcome: end.outcome }
+        : { type: 'stopped', outcome: end.ending.outcome }
     );
     reportStart('none');
     report({
       type: 'end',
-      outcome: end.kind === 'failed' ? 'failed' : end.outcome,
+      outcome: end.kind === 'failed' ? 'failed' : end.ending.outcome,
       ...(end.kind === 'failed' ? { code: end.error instanceof AlvError ? end.error.code : 'UNKNOWN' } : {}),
       durationMs: clock.now().getTime() - startedAtMs,
       delivered,
@@ -971,11 +980,11 @@ function createRun(
       reconnects,
       dropped
     });
-    const outcome = end.kind === 'outcome' ? end.outcome : 'aborted';
-    const everyone = [...awaiting, ...[...watchers].map(w => ({ w, outcome }))];
+    const ending: CustomLogCaptureEnding = end.kind === 'outcome' ? end.ending : { outcome: 'aborted' };
+    const everyone = [...awaiting, ...[...watchers].map(w => ({ w, ending }))];
     watchers.clear();
     await Promise.all(
-      everyone.map(entry => (end.kind === 'failed' ? entry.w.settle.reject(end.error) : settle(entry.w, entry.outcome)))
+      everyone.map(entry => (end.kind === 'failed' ? entry.w.settle.reject(end.error) : settle(entry.w, entry.ending)))
     );
   };
 
@@ -1000,7 +1009,7 @@ function createRun(
     accepting: () => !concluded && !isTerminal(stopRequest),
     join,
     abort: () => {
-      for (const w of [...watchers]) leave(w, 'aborted');
+      for (const w of [...watchers]) leave(w, { outcome: 'aborted' });
     }
   };
   const result = join(first);
