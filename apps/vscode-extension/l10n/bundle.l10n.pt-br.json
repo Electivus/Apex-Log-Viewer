@@ -17,6 +17,7 @@
   "Select a debug level": "Selecione um nível de depuração",
   "Select an authenticated org": "Selecione uma org autenticada",
   "Starting Apex Replay Debugger…": "Iniciando o Apex Replay Debugger...",
+  "Salesforce did not acknowledge the log subscription within {0} seconds.": "O Salesforce não confirmou a assinatura de logs em {0} segundos.",
   "Tail stopped after 30 minutes.": "Tail parado após 30 minutos.",
   "Tail: failed to save log to workspace (best-effort).": "Tail: falha ao salvar log no workspace (melhor esforço).",
   "This record has no payload.": "Este registro não tem payload.",

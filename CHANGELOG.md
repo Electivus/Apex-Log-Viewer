@@ -32,6 +32,7 @@
 ### Fixes
 
 - Tail/Debug Flags: Tail, and the Apex Debug Flags editor opened from it, now start on the workspace's `target-org` when they open before the Logs panel. They used the `target-org` of the extension host's working directory or the global one, so Start and Apply could write a trace flag to another org ([#1224](https://github.com/Electivus/Apex-Log-Viewer/issues/1224)).
+- Tail: `Stop` now appears only after Salesforce acknowledges the log subscription, and Tail lists and shows any log written since Start. A log written right after Start was never shown ([#1225](https://github.com/Electivus/Apex-Log-Viewer/issues/1225)).
 - Log Viewer: keep the status bar fully visible; the entries table now ends above it at any editor size instead of overlapping it with its horizontal scrollbar.
 - Logs: hide logs that matched only the previous search text as soon as you change the search, instead of listing them until the new full-log search finishes.
 - Salesforce: reuse one connection per org instead of rebuilding it for every action, so Logs and Debug Flags stop repeating the API-version request and the auth-file rewrite on each call (every call paid both on pt-BR or de-DE systems), and the calls within one `sf electivus` command share one connection; a session Salesforce rejects is rebuilt from the saved login and retried once.
