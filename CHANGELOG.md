@@ -4,6 +4,7 @@
 
 ### Maintenance
 
+- Refresh JSforce to 3.13.1 and Faye to 1.4.3. Faye 1.4.2 and later keep pending requests in a `Map`, which hid them from the Custom Logs capture's stop, so a stopped capture whose connection had dropped kept retrying for seconds; the stop now cancels those retries under both Faye shapes. Faye 1.4.2 itself is skipped because it raises unhandled rejections when a transport fails to connect.
 - Custom Logs: say a platform event is kept for at least 72 hours, in the panel's first-use note and catching-up text and in the docs, because Salesforce may purge later and a `-2` replay can cost more than the docs said; warn against a `-2` replay of `ALV_Test_Backlog__e`.
 - Custom Logs: remove the `Captured elsewhere` strip state, which the panel could never reach because it always follows; `capturedElsewhere` stays a CLI drain outcome.
 - Discontinue the IntelliJ product initiative and remove its plugin, build tooling, CI/E2E lanes, and release workflow; retain useful TypeScript core regression coverage.
