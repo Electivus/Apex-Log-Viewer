@@ -286,7 +286,8 @@ test('--payload-entries writes complete JSON arrays and nothing from an org', as
   const argv = ['publish', '--count', '2', '--transaction-id', 'T'];
   assert.equal(parseArgs([...argv, '--payload-entries', '3']).options['payload-entries'], 3);
   assert.equal(parseArgs(argv).options['payload-entries'], undefined);
-  for (const bad of ['0', '51', 'x']) assert.throws(() => parseArgs([...argv, '--payload-entries', bad]), /payload-entries/);
+  for (const bad of ['0', '51', 'x'])
+    assert.throws(() => parseArgs([...argv, '--payload-entries', bad]), /payload-entries/);
 
   const now = Date.UTC(2026, 9, 30, 20, 15, 0);
   const base = { count: 2, transactionId: 'T', runTag: 'a1b2c3', level: 'mixed', now };
@@ -327,7 +328,11 @@ test('--payload-entries writes complete JSON arrays and nothing from an org', as
   assert.deepEqual(findLeaks(JSON.stringify(events)), []);
 
   const flat = buildSyntheticEvents({ ...base, level: 'WARN', payloadEntries: 2 });
-  assert.ok(JSON.parse(flat[0].Payload__c).filter(item => item.msg).every(item => item.level === 'WARN'));
+  assert.ok(
+    JSON.parse(flat[0].Payload__c)
+      .filter(item => item.msg)
+      .every(item => item.level === 'WARN')
+  );
   assert.ok(!('flowId' in JSON.parse(buildSyntheticEvents({ ...base, count: 1 })[0].Payload__c)));
 });
 
