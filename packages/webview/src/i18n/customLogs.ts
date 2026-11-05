@@ -140,7 +140,6 @@ export type CustomLogsMessages = {
     stopped: string;
     budget: string;
     budgetNoAllowance: string;
-    elsewhere: string;
     standby: string;
     leaseNote: string;
     surface: { vscode: string; cli: string };
@@ -373,7 +372,7 @@ export const customLogsEn: CustomLogsMessages = {
     start: 'Start',
     connecting: 'Connecting to {source}…',
     catchingUpPosition: 'Catching up: loading events Salesforce kept since {since}',
-    catchingUpRetained: 'Loading retained events (up to 72 hours)…',
+    catchingUpRetained: 'Loading retained events (at least 72 hours)…',
     catchingUpNew: 'Waiting for new events…',
     live: 'Live',
     liveHint: 'Inferred: no event for 10 s. Salesforce sends no end-of-backlog marker.',
@@ -389,7 +388,6 @@ export const customLogsEn: CustomLogsMessages = {
     budget:
       "Paused: this run spent its delivery budget (about {budget} deliveries of the org's daily allocation). Start to resume from the stored position.",
     budgetNoAllowance: 'Paused: this run spent its delivery budget. Start to resume from the stored position.',
-    elsewhere: 'Another VS Code window or sf command is capturing these events. Start to check again.',
     standby: 'Another {surface} (pid {pid} on {host}) is capturing; new events appear here.',
     leaseNote: 'If no such process exists (the host name may have changed), delete capture.lease in {folder}.',
     surface: { vscode: 'VS Code window', cli: 'sf command' },
@@ -397,8 +395,8 @@ export const customLogsEn: CustomLogsMessages = {
       empty: 'No events from this org are stored yet.',
       loadRetained: 'Load retained events',
       onlyNew: 'Only new events',
-      note: "Salesforce keeps up to 72 hours; each event counts against the org's daily delivery allocation{left}; this run stops after about {budget} deliveries and resumes on the next Start.",
-      noteNoBudget: "Salesforce keeps up to 72 hours; each event counts against the org's daily delivery allocation.",
+      note: "Salesforce keeps at least 72 hours; each event counts against the org's daily delivery allocation{left}; this run stops after about {budget} deliveries and resumes on the next Start.",
+      noteNoBudget: "Salesforce keeps at least 72 hours; each event counts against the org's daily delivery allocation.",
       left: ' (about {remaining} of {max} left)',
       leftOnly: ' (about {remaining} left)'
     },
@@ -629,7 +627,7 @@ export const customLogsPtBR: CustomLogsMessages = {
     start: 'Iniciar',
     connecting: 'Conectando a {source}…',
     catchingUpPosition: 'Recuperando: carregando os eventos que o Salesforce guardou desde {since}',
-    catchingUpRetained: 'Carregando os eventos retidos (até 72 horas)…',
+    catchingUpRetained: 'Carregando os eventos retidos (pelo menos 72 horas)…',
     catchingUpNew: 'Aguardando novos eventos…',
     live: 'Ao vivo',
     liveHint: 'Inferido: nenhum evento por 10 s. O Salesforce não envia um marcador de fim do backlog.',
@@ -646,8 +644,6 @@ export const customLogsPtBR: CustomLogsMessages = {
       'Pausada: esta execução gastou o orçamento de entregas (cerca de {budget} entregas da cota diária da org). Inicie para continuar da posição armazenada.',
     budgetNoAllowance:
       'Pausada: esta execução gastou o orçamento de entregas. Inicie para continuar da posição armazenada.',
-    elsewhere:
-      'Outra janela do VS Code ou outro comando sf está capturando estes eventos. Inicie para verificar de novo.',
     standby: 'Outro processo ({surface}, pid {pid} em {host}) está capturando; os novos eventos aparecem aqui.',
     leaseNote: 'Se esse processo não existir (o nome do host pode ter mudado), apague capture.lease em {folder}.',
     surface: { vscode: 'janela do VS Code', cli: 'comando sf' },
@@ -655,8 +651,8 @@ export const customLogsPtBR: CustomLogsMessages = {
       empty: 'Ainda não há eventos desta org armazenados.',
       loadRetained: 'Carregar eventos retidos',
       onlyNew: 'Só eventos novos',
-      note: 'O Salesforce guarda até 72 horas; cada evento conta na cota diária de entregas da org{left}; esta execução para após cerca de {budget} entregas e continua no próximo Iniciar.',
-      noteNoBudget: 'O Salesforce guarda até 72 horas; cada evento conta na cota diária de entregas da org.',
+      note: 'O Salesforce guarda pelo menos 72 horas; cada evento conta na cota diária de entregas da org{left}; esta execução para após cerca de {budget} entregas e continua no próximo Iniciar.',
+      noteNoBudget: 'O Salesforce guarda pelo menos 72 horas; cada evento conta na cota diária de entregas da org.',
       left: ' (cerca de {remaining} de {max} restantes)',
       leftOnly: ' (cerca de {remaining} restantes)'
     },
