@@ -57,7 +57,7 @@ import { CANNOT_READ_CODES, customLogError } from './errors.js';
 import { createCaptureHub, systemClock, type CaptureDeps, type CaptureRunEvent } from './events/capture.js';
 import { DRAIN_MAX_MS, type Allowance } from './events/captureRules.js';
 import { createCometdTransport } from './events/cometd.js';
-import { parseEventRowId, type EventPosition } from './events/ids.js';
+import { parseEntryRowId, type EntryPosition } from './events/ids.js';
 import {
   decodeEventRows,
   entryEvent,
@@ -389,7 +389,7 @@ function storeRoot(config: ParsedCustomLogsConfig, projectDir: string | undefine
 
 /** An event id names an event source's row, so it cannot say which source without `--source`. */
 function refuseEventIdWithoutSource(id: string | undefined, sourceId: string | undefined): void {
-  if (sourceId === undefined && id !== undefined && parseEventRowId(id)) {
+  if (sourceId === undefined && id !== undefined && parseEntryRowId(id)) {
     throw customLogError(
       'CUSTOM_LOG_SOURCE_REQUIRED',
       `${id} is an event id. Pass --source <event source> so core knows which store to read.`
@@ -397,8 +397,8 @@ function refuseEventIdWithoutSource(id: string | undefined, sourceId: string | u
   }
 }
 
-function eventPositionOf(value: string, what: string, sourceId: string): EventPosition {
-  const position = parseEventRowId(value);
+function entryPositionOf(value: string, what: string, sourceId: string): EntryPosition {
+  const position = parseEntryRowId(value);
   if (!position) {
     throw customLogError(
       'INVALID_ARGUMENT',
@@ -612,7 +612,7 @@ export function createCustomLogApi(
         const anchor =
           params.logId === undefined
             ? { transactionId: params.transactionId ?? '' }
-            : { logId: eventPositionOf(params.logId, 'logId', events.candidate.definition.id) };
+            : { logId: entryPositionOf(params.logId, 'logId', events.candidate.definition.id) };
         return getEvent(
           await snapshotOf(env, config, params.projectDir, events),
           { limit, minLevel, cursor: params.cursor, keep: keepOf(params.payloadFields), anchor },
@@ -680,7 +680,7 @@ export function createCustomLogApi(
       if (events) {
         return entryEvent(
           await snapshotOf(env, config, params.projectDir, events),
-          eventPositionOf(params.entryId, 'entryId', events.candidate.definition.id)
+          entryPositionOf(params.entryId, 'entryId', events.candidate.definition.id)
         );
       }
       const entryId = parseRecordId(params.entryId, 'entryId');

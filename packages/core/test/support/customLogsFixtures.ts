@@ -47,6 +47,33 @@ export function eventSource(props: Json): Json {
   return { ...appEventSource, event: { ...(appEventSource.event as Json), ...props } };
 }
 
+/** The entries mapping of issue #1240: every role a payload path, two fields that each hold a JSON array. */
+export const appEntriesSource: Json = {
+  id: 'app-events',
+  event: {
+    object: 'AppLog__e',
+    fields: {
+      time: { path: 'timestamp' },
+      message: { path: 'msg' },
+      level: { path: 'level' },
+      user: { path: 'username' },
+      transactionId: { path: 'traceId' },
+      origin: { path: 'caller' }
+    },
+    payload: { entries: ['Payload__c', 'Payload2__c'], columns: ['traceId', 'level', 'msg'] }
+  }
+};
+
+/** `appEntriesSource` with its roles and payload overridden. */
+export function entriesSource(props: Json): Json {
+  return { ...appEntriesSource, event: { ...(appEntriesSource.event as Json), ...props } };
+}
+
+/** `appEntriesSource` with one role replaced. */
+export function entriesRole(role: string, value: unknown): Json {
+  return entriesSource({ fields: { ...((appEntriesSource.event as Json).fields as Json), [role]: value } });
+}
+
 export function projectWith(source: Json): Json {
   return { plugins: { electivus: { customLogs: { sources: [source] } } } };
 }

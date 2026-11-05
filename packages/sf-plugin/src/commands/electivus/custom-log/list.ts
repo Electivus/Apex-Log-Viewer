@@ -3,11 +3,17 @@ import { Flags } from '@salesforce/sf-plugins-core';
 import { AlvCommand } from '../../../command.js';
 import { core } from '../../../core.js';
 import { cursorFlag, minLevelFlag, payloadFieldsFlag, sourceFlag } from '../../../customLogFlags.js';
+import { CUSTOM_LOG_REFERENCE_NOTE } from '../../../customLogReference.js';
 import { targetOrgFlag } from '../../../flags.js';
 
 export default class CustomLogList extends AlvCommand<PrintsAsJson<CustomLogListResult>> {
   public static override readonly summary =
     'List application log records (for example Nebula Logger logs), newest first.';
+  public static override readonly description =
+    'A row of an events source is one stored event. Without --payload-fields, each row keeps up to 200 payload paths; ' +
+    'take the columns from payload.transaction in "custom-log sources --json" on a source with a transaction header and from payload.entry on any other, to keep the output small. ' +
+    'A column from the other level matches nothing and gives no error.\n\n' +
+    CUSTOM_LOG_REFERENCE_NOTE;
   public static override readonly flags = {
     cursor: cursorFlag,
     limit: Flags.integer({
