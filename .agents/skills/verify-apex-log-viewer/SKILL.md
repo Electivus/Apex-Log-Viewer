@@ -1,5 +1,5 @@
 ---
-name: verify
+name: verify-apex-log-viewer
 description: Drive the Electivus Apex Log Viewer the way a user does and capture proof. It opens the VS Code extension's Logs panel, Log Viewer, Tail, Debug Flags and Custom Logs webviews in a real VS Code window, and runs the `sf electivus` CLI plugin, both against a real Salesforce scratch org from the configured Dev Hub (a pool slot or the reused single scratch). Use it to show that an extension, webview, core or CLI change works in the running product rather than only in unit tests, or to reproduce a reported UI bug.
 metadata:
   # Repo-only tooling: keeps `npx skills add electivus/apex-log-viewer` from publishing it with the skills/ catalog.
@@ -15,7 +15,7 @@ The host reuses the E2E harness in `test/e2e/utils/` for org leasing, seeding, w
 All commands run from the repo root:
 
 ```bash
-V=".claude/skills/verify/scripts/verify.mjs"
+V=".agents/skills/verify-apex-log-viewer/scripts/verify.mjs"
 ```
 
 ## Surfaces

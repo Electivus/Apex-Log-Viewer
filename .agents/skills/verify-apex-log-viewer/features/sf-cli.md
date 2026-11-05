@@ -25,7 +25,7 @@ Preconditions:
 
 - Baseline from `README.md`. The plugin is built (`start` runs `pnpm run build`, which includes `build:sf-plugin`).
 
-Shorthand: `S` is `node .claude/skills/verify/scripts/verify.mjs sf --`.
+Shorthand: `S` is `node .agents/skills/verify-apex-log-viewer/scripts/verify.mjs sf --`.
 
 - **Status after extension activity.** After the `logs-open-viewer` step and the Logs panel's background sync, `S log status --json` exits 0 with `result.hasState: true` and `lastSyncedLogId` set to the newest log that sync listed. This proves both surfaces share `sync-state.json`. In a session where no panel refreshed yet, `hasState` is `false`.
 - **Sync.** Seed a log, then run `S log sync --json`. It exits 0 with `result.status: "success"`, `downloaded ≥ 1` and `lastSyncedLogId` equal to the newest id. A second run returns `downloaded: 0, cached: 0` with `checkpointAdvanced: true`, because that flag only means the sync had no failures; compare `lastSyncedLogId` before and after instead. `S log sync --force-full --json` counts the stored logs as `cached`.

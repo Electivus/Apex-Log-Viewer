@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Client for the verification session host (session.ts). Run from anywhere in the checkout:
-//   node .claude/skills/verify/scripts/verify.mjs <doctor|start|run|shot|sf|stop> [...]
-// See .claude/skills/verify/SKILL.md for the workflow.
+//   node .agents/skills/verify-apex-log-viewer/scripts/verify.mjs <doctor|start|run|shot|sf|stop> [...]
+// See .agents/skills/verify-apex-log-viewer/SKILL.md for the workflow.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -522,7 +522,7 @@ const commands = {
   stop: () => stop(flags)
 };
 if (!commands[command]) {
-  console.log('usage: verify.mjs <doctor|start|run|shot|sf|stop> — see .claude/skills/verify/SKILL.md');
+  console.log('usage: verify.mjs <doctor|start|run|shot|sf|stop> — see .agents/skills/verify-apex-log-viewer/SKILL.md');
   process.exit(command ? 1 : 0);
 }
 Promise.resolve(commands[command]()).catch(error => fail(error instanceof Error ? error.message : String(error)));
