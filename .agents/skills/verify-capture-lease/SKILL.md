@@ -28,9 +28,10 @@ Coverage record. The model and the replay describe these functions:
 | `packages/core/src/customLogs/events/store.ts`   | `openWriter` (lease part), writer `advance` (the `stillHeld` fence), writer `release`, `LeaseLostError`                                                                                                                                 |
 | `packages/core/src/customLogs/events/capture.ts` | `acquire` (standby retry), `epoch` (`LeaseLostError` → release → standby), `flushBatch` (`advance` call)                                                                                                                                |
 
-**Sync commit: `a74da07fe7e3216ee45d4f1f6e08f3755b12fad6`.** At that commit the model was confirmed to describe the code above, including the F1 fix. To see what changed since:
+**Sync commit: `a74da07fe7e3216ee45d4f1f6e08f3755b12fad6`.** At that commit the model was confirmed to describe the code above, including the F1 fix. The repo squash-merges, so this commit is not on `main`. Fetch it from its pull request, then see what changed since:
 
 ```bash
+git fetch origin refs/pull/1215/head
 git diff a74da07fe7e3216ee45d4f1f6e08f3755b12fad6 -- packages/core/src/localStore/workspaceFs.ts packages/core/src/customLogs/events/store.ts packages/core/src/customLogs/events/capture.ts
 ```
 
@@ -41,7 +42,7 @@ store.ts and capture.ts also change for reasons unrelated to the lease. Look onl
 From the repo root, after `pnpm install --frozen-lockfile`:
 
 ```bash
-node .claude/skills/verify-capture-lease/scripts/check.mjs
+node .agents/skills/verify-capture-lease/scripts/check.mjs
 ```
 
 The check needs Node 24 and Java 11 or later (`java` on `PATH`, or set `JAVA`). The first run downloads tla2tools 1.7.4 to `~/.cache/alv-formal/` and checks its SHA-256. Use `TLA2TOOLS_JAR` to point at a local copy. `--only model|conformance|mutants` runs one part, and `--traces N` changes the number of conformance traces per config. The check runs the TypeScript source through `tsx`, so it needs no build. Model checking uses every core; on fewer than 8 cores it takes longer than two minutes.
@@ -49,7 +50,7 @@ The check needs Node 24 and Java 11 or later (`java` on `PATH`, or set `JAVA`). 
 To replay one trace by hand:
 
 ```bash
-node .claude/skills/verify-capture-lease/scripts/replay.mjs <tlc.out or trace file> [--keep]
+node .agents/skills/verify-capture-lease/scripts/replay.mjs <tlc.out or trace file> [--keep]
 ```
 
 ## Read the result
@@ -95,7 +96,7 @@ Each action in `CaptureLease.tla` is one awaited file-system call, or one `proce
 
 ## Findings
 
-**F1 (fixed in `a74da07f`): two live processes could both take the lease when the previous holder and a reclaimer of its lease had both died.** The fifth mutant in `checks.json` restores the old step, and `check.mjs` must report it caught on `Leftovers.cfg`.
+**F1 (fixed in #1215): two live processes could both take the lease when the previous holder and a reclaimer of its lease had both died.** The fifth mutant in `checks.json` restores the old step, and `check.mjs` must report it caught on `Leftovers.cfg`.
 
 Start: `capture.lease` names a dead process D. `capture.lease.reclaim-<D's token>` names a process E, which died inside `reclaimDeadLease` between creating the marker and deleting it. `Reach.cfg` shows that two crashes from clean files lead here. In the old code, two windows, 1 and 2, start a capture:
 
