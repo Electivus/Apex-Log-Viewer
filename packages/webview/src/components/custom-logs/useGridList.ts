@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import type { ListImperativeAPI } from 'react-window';
+
+import { syncHeaderScroll, useVirtualListElement } from '../table/useVirtualListElement';
 
 /**
  * What the two virtual grids share: the header scrolls with the body, and Arrow keys move the selection
- * through the visible items. `onOpen` adds Enter for a grid whose rows open something.
+ * through the visible items. `onOpen` adds Enter for a grid whose rows open something. Pass `setListRef`
+ * as the List's `listRef`; `listRef` is for imperative calls such as `scrollToRow`.
  */
 export function useGridList<T extends { id: string }>(
   items: readonly T[],
@@ -11,22 +13,18 @@ export function useGridList<T extends { id: string }>(
   onSelect: (item: T) => void,
   onOpen?: (item: T) => void
 ) {
-  const listRef = useRef<ListImperativeAPI | null>(null);
+  const { listRef, setListRef, element } = useVirtualListElement();
   const headerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const element = listRef.current?.element;
     if (!element) {
       return;
     }
-    const syncHeader = () => {
-      if (headerRef.current) {
-        headerRef.current.scrollLeft = element.scrollLeft;
-      }
-    };
+    const syncHeader = () => syncHeaderScroll(element, headerRef.current);
+    syncHeader();
     element.addEventListener('scroll', syncHeader, { passive: true });
     return () => element.removeEventListener('scroll', syncHeader);
-  }, []);
+  }, [element]);
 
   const selectedIndex = items.findIndex(item => item.id === selectedId);
 
@@ -60,5 +58,5 @@ export function useGridList<T extends { id: string }>(
     }
   };
 
-  return { listRef, headerRef, onKeyDown };
+  return { listRef, setListRef, headerRef, onKeyDown };
 }

@@ -299,3 +299,33 @@ test('resolvePlaywrightInvocation lets an explicit shard arg override PLAYWRIGHT
     cleanupTempRepo(repoRoot);
   }
 });
+
+test('resolvePlaywrightInvocation drops the leading -- that pnpm run forwards, so a spec filter still applies', () => {
+  const repoRoot = createTempRepo();
+  try {
+    const runner = loadRunner();
+    fs.mkdirSync(path.join(repoRoot, 'test', 'e2e', 'cli'), { recursive: true });
+    const spec = 'test/e2e/cli/specs/logs.e2e.spec.ts';
+    const invocation = runner.resolvePlaywrightInvocation(['--', spec], {
+      env: { PLAYWRIGHT_RETRIES: '0' },
+      repoRoot
+    });
+
+    assert.deepEqual(invocation.args.slice(1), ['test', '--config=playwright.cli.config.ts', '--retries=0', spec]);
+    assert.ok(!invocation.args.includes('--'));
+
+    const sharded = runner.resolvePlaywrightInvocation(['--', '--shard=2/2'], {
+      env: { PLAYWRIGHT_RETRIES: '0', PLAYWRIGHT_SHARD: '1/2' },
+      repoRoot
+    });
+    assert.deepEqual(sharded.args.slice(1), [
+      'test',
+      '--config=playwright.cli.config.ts',
+      '--pass-with-no-tests',
+      '--retries=0',
+      '--shard=2/2'
+    ]);
+  } finally {
+    cleanupTempRepo(repoRoot);
+  }
+});
