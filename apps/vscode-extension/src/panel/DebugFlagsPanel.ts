@@ -439,7 +439,7 @@ export class DebugFlagsPanel {
       system: String(draft.system || '').trim(),
       database: String(draft.database || '').trim(),
       wave: String(draft.wave || '').trim(),
-      nba: String(draft.nba || '').trim(),
+      nba: String(draft.nba || '').trim() || 'INFO',
       dataAccess: String(draft.dataAccess || '').trim() || 'INFO'
     };
   }

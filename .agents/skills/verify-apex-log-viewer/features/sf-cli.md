@@ -41,7 +41,7 @@ Shorthand: `S` is `node .agents/skills/verify-apex-log-viewer/scripts/verify.mjs
 
 - `verify.mjs sf` appends `--target-org <session alias>` unless you pass `--target-org` or `-o`. `org list` and `skill install` take no `--target-org`, so run them directly with `node packages/sf-plugin/bin/run.js electivus <cmd>`, with cwd set to the session workspace, and save their stdout yourself.
 - The command runs with the session workspace as cwd, so `apexlogs/` paths in results point into the session workspace (`session.workspacePath`, under `$TMPDIR` on macOS), not the repo.
-- Mutating commands preview by default: without `--yes`, or with `--dry-run`, they exit 0 and write nothing. The preview's `status` differs: `"dry-run"` for `trace-flag apply|remove`, `"success"` with `dryRun: true` for `log delete` and `debug-level *`. `custom-log capture` has no preview and spends the org's daily event allocation. Keep mutations to the harness org.
+- Mutating commands preview by default: without `--yes`, or with `--dry-run`, on valid input they exit 0 and write nothing. The preview's `status` differs: `"dry-run"` for `trace-flag apply|remove`, `"success"` with `dryRun: true` for `log delete` and `debug-level *`. `custom-log capture` has no preview and spends the org's daily event allocation. Keep mutations to the harness org.
 - `verify.mjs sf` never contacts the host, so it does not reset the 30-minute idle timer. In a CLI-only stretch, run `node $V doctor` now and then, or start with `--idle-minutes 60`.
 - A CLI rebuild needs no session restart, because each call starts the plugin fresh.
 - For CLI-only regression coverage without VS Code, use `pnpm run test:e2e:cli`.
