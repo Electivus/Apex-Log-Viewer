@@ -70,7 +70,7 @@ export function allowanceLine(allowance: CustomLogCaptureAllowance): string {
     : `The org has ${allowance.remaining} of ${allowance.max} daily event deliveries left. ${stops}`;
 }
 
-/** The allowance after the run: `/limits` is read once, before the run delivers anything, so it speaks of the start. */
+/** The allowance after the run: the result keeps the read from before the first delivery, so it speaks of the start. */
 function spentAllowanceLine(allowance: CustomLogCaptureAllowance): string {
   const budget = `The budget of this run was about ${allowance.budget} deliveries`;
   return allowance.remaining === undefined || allowance.max === undefined

@@ -359,7 +359,10 @@ function createRun(
 
   let state: CustomLogCaptureState = { state: 'connecting' };
   let storeInfo: CustomLogStoreInfo | undefined;
+  /** The latest `/limits` read. A run that wins a lost lease back reads again, and the new budget comes from that read. */
   let allowance: CustomLogCaptureAllowance | undefined;
+  /** The first read, from before any delivery. A result reports this one because `delivered` counts from the start of the run. */
+  let allowanceAtStart: CustomLogCaptureAllowance | undefined;
   let concluded = false;
   let stopRequest: StopRequest | undefined;
   let attemptAbort: AbortController | undefined;
@@ -433,7 +436,7 @@ function createRun(
     stored: stored - w.base.stored,
     newGaps: newGaps.slice(w.base.gaps),
     store: deps.storeInfo(await store.coverage()),
-    ...(allowance ? { allowance } : {})
+    ...(allowanceAtStart ? { allowance: allowanceAtStart } : {})
   });
 
   const settle = async (w: WatcherState, ending: CustomLogCaptureEnding): Promise<void> => {
@@ -588,6 +591,7 @@ function createRun(
     const remaining = await deps.readAllowance(session.ctx, signal);
     const budget = deliveryBudget(remaining);
     allowance = { ...(remaining ? { remaining: remaining.remaining, max: remaining.max } : {}), budget };
+    allowanceAtStart ??= allowance;
     await writer.writeDescribe(await deps.describe(session.ctx, store.location.object, signal));
     await writer.purge(deps.retentionDays, clock.now());
     const checkpoint = await store.checkpoint();

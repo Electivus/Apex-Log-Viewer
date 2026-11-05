@@ -541,8 +541,10 @@ export type CustomLogCaptureResult = CustomLogCaptureEnding & {
   newGaps: CustomLogStoreGap[];
   store: CustomLogStoreInfo;
   /**
-   * What the run read from `/limits` when it prepared, as its updates carry it. Absent when the run never
-   * prepared: another process held the lease the whole time (a drain's `capturedElsewhere`), or the caller aborted first.
+   * What the run first read from `/limits`, before any delivery, so `remaining - delivered` estimates what the org
+   * has left. A run that wins a lost lease back reads again for its updates and its new budget; this keeps the first
+   * read. Absent when the run never prepared: another process held the lease the whole time (a drain's
+   * `capturedElsewhere`), or the caller aborted first.
    */
   allowance?: CustomLogCaptureAllowance;
 };
