@@ -440,7 +440,7 @@ export class DebugFlagsPanel {
       database: String(draft.database || '').trim(),
       wave: String(draft.wave || '').trim(),
       nba: String(draft.nba || '').trim(),
-      dataAccess: String(draft.dataAccess || '').trim()
+      dataAccess: String(draft.dataAccess || '').trim() || 'INFO'
     };
   }
 
@@ -749,7 +749,7 @@ export class DebugFlagsPanel {
         const result = await runtimeClient.debugLevelUpdate({
           targetOrg: this.getRuntimeTargetOrg(),
           id: record.id,
-          record,
+          changes: record,
           dryRun: false,
           confirmed: true
         });

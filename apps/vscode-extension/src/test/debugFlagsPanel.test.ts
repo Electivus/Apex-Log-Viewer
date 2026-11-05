@@ -377,6 +377,16 @@ suite('DebugFlagsPanel', () => {
     assert.equal(applyCalls, 0);
   });
 
+  test('a blank DataAccess draft, as a level with no DataAccess loads, saves as INFO', () => {
+    const { DebugFlagsPanel } = loadDebugFlagsPanel();
+    const normalized = (DebugFlagsPanel as any).prototype.normalizeDebugLevelDraft.call(
+      {},
+      { ...createEmptyDebugLevelRecord(), developerName: 'SFDC_DevConsole', masterLabel: 'Dev Console', dataAccess: '' }
+    );
+
+    assert.equal(normalized.dataAccess, 'INFO');
+  });
+
   test('debug level runtime writes throw when runtime reports error status', async () => {
     const calls: string[] = [];
     const { DebugFlagsPanel } = loadDebugFlagsPanel({

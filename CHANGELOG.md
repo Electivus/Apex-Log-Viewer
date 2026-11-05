@@ -31,6 +31,7 @@
 
 ### Fixes
 
+- CLI: `sf electivus debug-level create` and `update` no longer fail without `--language`. `create` defaults the language to `en_US`. `update` now changes only the fields you pass, instead of resetting every other category and the label, and no longer needs `--developer-name`. Without `--yes`, both commands check the picklist values against the org, so the preview fails on a value the real call would reject.
 - Log Viewer: keep the status bar fully visible; the entries table now ends above it at any editor size instead of overlapping it with its horizontal scrollbar.
 - Logs: hide logs that matched only the previous search text as soon as you change the search, instead of listing them until the new full-log search finishes.
 - Salesforce: reuse one connection per org instead of rebuilding it for every action, so Logs and Debug Flags stop repeating the API-version request and the auth-file rewrite on each call (every call paid both on pt-BR or de-DE systems), and the calls within one `sf electivus` command share one connection; a session Salesforce rejects is rebuilt from the saved login and retried once.

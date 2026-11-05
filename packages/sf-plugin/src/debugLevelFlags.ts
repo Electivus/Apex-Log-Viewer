@@ -1,4 +1,4 @@
-import type { RuntimeDebugLevelRecord } from '@alv/core/contracts';
+import type { DebugLevelFields } from '@alv/core/contracts';
 import { Flags } from '@salesforce/sf-plugins-core';
 
 const levelSummary = 'Salesforce debug category level.';
@@ -37,23 +37,21 @@ export type DebugLevelValueFlags = {
   workflow?: string;
 };
 
-export function debugLevelRecord(flags: DebugLevelValueFlags, id?: string): RuntimeDebugLevelRecord {
-  if (!flags['developer-name']) throw new Error('--developer-name is required.');
+export function debugLevelFields(flags: DebugLevelValueFlags): Partial<DebugLevelFields> {
   return {
-    id,
     developerName: flags['developer-name'],
-    masterLabel: flags['master-label'] ?? flags['developer-name'],
-    language: flags.language ?? 'None',
-    workflow: flags.workflow ?? 'INFO',
-    validation: flags.validation ?? 'INFO',
-    callout: flags.callout ?? 'INFO',
-    apexCode: flags['apex-code'] ?? 'DEBUG',
-    apexProfiling: flags['apex-profiling'] ?? 'INFO',
-    visualforce: flags.visualforce ?? 'INFO',
-    system: flags.system ?? 'DEBUG',
-    database: flags.database ?? 'INFO',
-    wave: flags.wave ?? 'INFO',
-    nba: flags.nba ?? 'INFO',
-    dataAccess: flags['data-access'] ?? 'INFO'
+    masterLabel: flags['master-label'],
+    language: flags.language,
+    workflow: flags.workflow,
+    validation: flags.validation,
+    callout: flags.callout,
+    apexCode: flags['apex-code'],
+    apexProfiling: flags['apex-profiling'],
+    visualforce: flags.visualforce,
+    system: flags.system,
+    database: flags.database,
+    wave: flags.wave,
+    nba: flags.nba,
+    dataAccess: flags['data-access']
   };
 }
