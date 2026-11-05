@@ -132,8 +132,12 @@ async function world(
   return { core, double, root, scope, location };
 }
 
-/** A drain that ends at its bound instead of after the 10 s of silence a real run waits for. */
-const DRAIN = { follow: false, initial: 'retained', maxDurationMs: 1_000 } as const;
+/**
+ * A drain that ends at its bound instead of after the 10 s of silence a real run waits for. The bound starts with the
+ * run, so it covers the lease, the allowance read and the handshake as well as the delivery: a loaded Windows runner
+ * once spent all of 1 s before the first event arrived.
+ */
+const DRAIN = { follow: false, initial: 'retained', maxDurationMs: 3_000 } as const;
 
 // ---------------------------------------------------------------------------------------------
 // the join: capture over the real adapter, then the offline read of the same source
