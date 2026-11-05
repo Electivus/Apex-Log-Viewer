@@ -128,6 +128,37 @@ test('two watchers share one connection, one subscription and one set of stored 
   });
 });
 
+test('a watcher that joins a running run reports the allowance of the run, and only the deliveries since it joined', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+    const { clock, transport, deps, hub } = setup(store);
+    const first = watcher({ follow: true, initial: 'new' });
+    const firstDone = hub.watch(store.location, first.watcher, deps);
+    const attempt = await transport.opened(0);
+    attempt.subscribed();
+    attempt.events(busEvent(1));
+    await clock.advance(250);
+    await until(() => first.rows().length === 1, 'the row before the join');
+
+    const joiner = watcher({ follow: true });
+    const joinerDone = hub.watch(store.location, joiner.watcher, deps);
+    await until(() => joiner.updates.length > 0, 'the joiner to be told the current state');
+    attempt.events(busEvent(2));
+    await clock.advance(250);
+    await until(() => joiner.rows().length === 1, 'the row after the join');
+
+    joiner.abort();
+    const joinerResult = await resultOf(joinerDone);
+    first.abort();
+    const firstResult = await resultOf(firstDone);
+    assert.equal(firstResult.delivered, 2);
+    assert.equal(joinerResult.delivered, 1);
+    const allowance = { remaining: 10_000, max: 25_000, budget: 5_000 };
+    assert.deepEqual(firstResult.allowance, allowance);
+    assert.deepEqual(joinerResult.allowance, allowance);
+  });
+});
+
 test('a drain that joins a run that is already live is done at once, and a follow watcher that joins is not', async () => {
   await withProject(async root => {
     const store = openStore(root);
@@ -443,7 +474,6 @@ test('a standby run relays every row of a burst the holder stored between two po
   });
 });
 
-/** A store whose first `advance` finds the lease taken: `foreign` holds it until the test kills that process. */
 async function leaseTakenOnFirstAdvance(root: string, store: EventStore) {
   const foreign = await foreignHolder(root);
   let advances = 0;

@@ -70,8 +70,7 @@ export function allowanceLine(allowance: CustomLogCaptureAllowance): string {
     : `The org has ${allowance.remaining} of ${allowance.max} daily event deliveries left. ${stops}`;
 }
 
-/** The allowance after the run: the result keeps the read from before the first delivery, so it speaks of the start. */
-function spentAllowanceLine(allowance: CustomLogCaptureAllowance): string {
+function allowanceAtStartLine(allowance: CustomLogCaptureAllowance): string {
   const budget = `The budget of this run was about ${allowance.budget} deliveries`;
   return allowance.remaining === undefined || allowance.max === undefined
     ? `${budget}.`
@@ -89,11 +88,10 @@ export function gapLine(gap: CustomLogStoreGap): string {
   return `Events ${spanOf(gap)} may be missing (${gap.reason}).`;
 }
 
-/** The last lines of a `--follow` run: what it spent and stored, its allowance, and every gap it created. */
 export function finishLines(result: CustomLogCaptureResult): string[] {
   return [
     `Delivered ${result.delivered}, stored ${result.stored}. Store: ${result.store.eventsRoot}`,
-    ...(result.allowance ? [spentAllowanceLine(result.allowance)] : []),
+    ...(result.allowance ? [allowanceAtStartLine(result.allowance)] : []),
     ...result.newGaps.map(gapLine)
   ];
 }

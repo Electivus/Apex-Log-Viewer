@@ -1056,6 +1056,32 @@ test('a connect failure rejects with that error, reports failed, and subscribes 
   });
 });
 
+test('a drain whose time limit runs out during the connect ends timeLimit and reports no allowance', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+    let connecting = false;
+    const { clock, deps, hub } = setup(store, {
+      connect: ({ signal }) =>
+        new Promise((_resolve, reject) => {
+          connecting = true;
+          signal.addEventListener('abort', () => reject(new AlvError('ABORTED', 'The connect was aborted.')), {
+            once: true
+          });
+        })
+    });
+    const w = watcher({ follow: false, maxDurationMs: 1_000 });
+
+    const done = hub.watch(store.location, w.watcher, deps);
+    await until(() => connecting, 'the connect to start');
+    await clock.advance(1_000);
+    const result = resultOf(await settledOf(done));
+
+    assert.equal(result.outcome, 'timeLimit');
+    assert.equal(result.allowance, undefined);
+    assert.equal(deps.calls.allowances, 0, 'the run never reached /limits');
+  });
+});
+
 test('a transport that drops and recovers reports reconnecting and catchingUp, and counts the reconnect', async () => {
   await withProject(async root => {
     const store = openStore(root);

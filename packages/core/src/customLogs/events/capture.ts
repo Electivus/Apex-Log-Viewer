@@ -359,9 +359,7 @@ function createRun(
 
   let state: CustomLogCaptureState = { state: 'connecting' };
   let storeInfo: CustomLogStoreInfo | undefined;
-  /** The latest `/limits` read. A run that wins a lost lease back reads again, and the new budget comes from that read. */
-  let allowance: CustomLogCaptureAllowance | undefined;
-  /** The first read, from before any delivery. A result reports this one because `delivered` counts from the start of the run. */
+  let latestAllowance: CustomLogCaptureAllowance | undefined;
   let allowanceAtStart: CustomLogCaptureAllowance | undefined;
   let concluded = false;
   let stopRequest: StopRequest | undefined;
@@ -387,7 +385,12 @@ function createRun(
   const deliver = (w: WatcherState, view: () => RowView): void => {
     if (w.detached || !w.watcher.onUpdate || !storeInfo) return;
     try {
-      w.watcher.onUpdate({ capture: state, store: storeInfo, ...view(), ...(allowance ? { allowance } : {}) });
+      w.watcher.onUpdate({
+        capture: state,
+        store: storeInfo,
+        ...view(),
+        ...(latestAllowance ? { allowance: latestAllowance } : {})
+      });
     } catch (error) {
       w.detached = true;
       deps.onCallbackError?.(error);
@@ -590,8 +593,8 @@ function createRun(
     const session = await deps.connect({ fresh: false, signal });
     const remaining = await deps.readAllowance(session.ctx, signal);
     const budget = deliveryBudget(remaining);
-    allowance = { ...(remaining ? { remaining: remaining.remaining, max: remaining.max } : {}), budget };
-    allowanceAtStart ??= allowance;
+    latestAllowance = { ...(remaining ? { remaining: remaining.remaining, max: remaining.max } : {}), budget };
+    allowanceAtStart ??= latestAllowance;
     await writer.writeDescribe(await deps.describe(session.ctx, store.location.object, signal));
     await writer.purge(deps.retentionDays, clock.now());
     const checkpoint = await store.checkpoint();
