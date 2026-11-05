@@ -281,3 +281,38 @@ test('resolvePlaywrightEnv preserves an explicit extension runner Node runtime',
   assert.equal(env.ALV_NODE_BIN_PATH, '/custom/node');
   assert.equal(env.SF_CLI_NODE_PATH, '/opt/salesforce-node/bin/node');
 });
+
+test('resolvePlaywrightInvocation drops the leading -- that pnpm run forwards, so a spec filter still applies', () => {
+  const originalRetries = process.env.PLAYWRIGHT_RETRIES;
+  process.env.PLAYWRIGHT_RETRIES = '0';
+
+  try {
+    const spec = 'test/e2e/specs/openLogViewer.e2e.spec.ts';
+    const invocation = resolvePlaywrightInvocation(['--', spec, '--grep', 'smoke']);
+
+    assert.deepEqual(invocation.args.slice(1), ['test', '--retries=0', spec, '--grep', 'smoke']);
+    assert.ok(!invocation.args.includes('--'));
+    assert.deepEqual(resolvePlaywrightInvocation([spec]).args.slice(1), ['test', '--retries=0', spec]);
+    assert.deepEqual(resolvePlaywrightInvocation(['--', '--shard=2/3']).args.slice(1), [
+      'test',
+      '--retries=0',
+      '--shard=2/3'
+    ]);
+  } finally {
+    if (originalRetries === undefined) {
+      delete process.env.PLAYWRIGHT_RETRIES;
+    } else {
+      process.env.PLAYWRIGHT_RETRIES = originalRetries;
+    }
+  }
+});
+
+test('withoutLeadingArgSeparator removes only a leading --', () => {
+  const { withoutLeadingArgSeparator } = require('./run-playwright-e2e');
+
+  assert.deepEqual(withoutLeadingArgSeparator(['--', 'a.spec.ts']), ['a.spec.ts']);
+  assert.deepEqual(withoutLeadingArgSeparator(['a.spec.ts', '--', 'b']), ['a.spec.ts', '--', 'b']);
+  assert.deepEqual(withoutLeadingArgSeparator(['--']), []);
+  assert.deepEqual(withoutLeadingArgSeparator([]), []);
+  assert.deepEqual(withoutLeadingArgSeparator(), []);
+});
