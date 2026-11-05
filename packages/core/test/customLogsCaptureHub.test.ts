@@ -443,21 +443,27 @@ test('a standby run relays every row of a burst the holder stored between two po
   });
 });
 
+/** A store whose first `advance` finds the lease taken: `foreign` holds it until the test kills that process. */
+async function leaseTakenOnFirstAdvance(root: string, store: EventStore) {
+  const foreign = await foreignHolder(root);
+  let advances = 0;
+  const guarded = instrumentStore(store, {
+    advance: () => {
+      advances += 1;
+      if (advances === 1) {
+        foreign.plant();
+        throw new LeaseLostError();
+      }
+    }
+  });
+  return { foreign, guarded };
+}
+
 test('a lease taken away mid-run sends the run to standby, drops the batch it could not checkpoint, and resumes from the last good checkpoint', async () => {
   await withProject(async root => {
     const store = openStore(root);
     await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
-    const foreign = await foreignHolder(root);
-    let advances = 0;
-    const guarded = instrumentStore(store, {
-      advance: () => {
-        advances += 1;
-        if (advances === 1) {
-          foreign.plant();
-          throw new LeaseLostError();
-        }
-      }
-    });
+    const { foreign, guarded } = await leaseTakenOnFirstAdvance(root, store);
     try {
       const { clock, transport, deps, hub } = setup(guarded);
       const w = watcher({ follow: true });
@@ -478,6 +484,50 @@ test('a lease taken away mid-run sends the run to standby, drops the batch it co
       assert.equal(second.durableCursor(), cursorOf(2));
       w.abort();
       assert.equal((await resultOf(done)).outcome, 'aborted');
+    } finally {
+      await foreign.die();
+    }
+  });
+});
+
+test('a run that wins a lost lease back reports the allowance from before its first delivery, and its updates carry the new read', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+    await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
+    const { foreign, guarded } = await leaseTakenOnFirstAdvance(root, store);
+    try {
+      const { clock, transport, deps, hub } = setup(guarded);
+      const reads = [
+        { remaining: 10_000, max: 25_000 },
+        { remaining: 9_000, max: 25_000 }
+      ];
+      const w = watcher({ follow: true });
+      const done = hub.watch(guarded.location, w.watcher, { ...deps, readAllowance: async () => reads.shift() });
+      const first = await transport.opened(0);
+      first.subscribed();
+      first.events(busEvent(3));
+      await clock.advance(250);
+      await until(() => w.states().includes('standby'), 'the standby state after the lease was lost');
+
+      await foreign.die();
+      await until(() => clock.pending > 0, 'the standby poll');
+      await clock.advance(2_000);
+      const second = await transport.opened(1);
+      second.subscribed();
+      second.events(busEvent(4));
+      await clock.advance(250);
+      await until(() => w.rows().length > 0, 'the row of the second lease');
+      assert.equal(reads.length, 0, 'the second lease read /limits again');
+
+      w.abort();
+      const result = await resultOf(done);
+      assert.equal(result.delivered, 2, 'the result counts the deliveries of both leases');
+      assert.deepEqual(result.allowance, { remaining: 10_000, max: 25_000, budget: 5_000 });
+      assert.deepEqual(
+        w.updates[w.updates.length - 1]!.allowance,
+        { remaining: 9_000, max: 25_000, budget: 4_500 },
+        'the budget in force is the one of the new read'
+      );
     } finally {
       await foreign.die();
     }
