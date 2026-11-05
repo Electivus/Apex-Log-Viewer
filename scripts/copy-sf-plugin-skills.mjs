@@ -12,8 +12,7 @@ export async function copySfPluginSkills(repoRoot = path.resolve(fileURLToPath(n
   await fs.cp(source, destination, { recursive: true });
 }
 
-/** The Custom Logs reference ships from its repo sources, so the installed copy cannot drift from them. */
-export const SF_PLUGIN_REFERENCE_FILES = [
+const SF_PLUGIN_REFERENCE_FILES = [
   ['docs/CUSTOM_LOGS.md', 'CUSTOM_LOGS.md'],
   ['packages/core/schemas/sfdx-project.electivus.schema.json', 'sfdx-project.electivus.schema.json']
 ];

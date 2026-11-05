@@ -8,7 +8,9 @@ export default class CustomLogSources extends AlvCommand<PrintsAsJson<CustomLogS
   public static override readonly summary =
     'List the application log sources found in an org: built-in Nebula Logger detection and sfdx-project.json mappings.';
   public static override readonly description =
-    'Each source\'s payload.<level>.columns in --json lists its default payload columns; pass them as --payload-fields to "custom-log list" to keep rows small.\n\n' +
+    "A source's payload.<level>.columns in --json lists the payload columns it maps. " +
+    'Pass them to "custom-log list" as --payload-fields to keep rows small: list reads payload.transaction on a source with a transaction header and payload.entry on any other, and get reads payload.entry. ' +
+    'A plain-string payload mapping lists no columns, and a source that is not ready has an empty payload.\n\n' +
     CUSTOM_LOG_REFERENCE_NOTE;
   public static override readonly flags = {
     'target-org': targetOrgFlag

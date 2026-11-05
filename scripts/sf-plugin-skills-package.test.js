@@ -53,8 +53,10 @@ test(
     assert.ok(packed.files.some(entry => entry.path === 'node_modules/@alv/core/lib/index.js'));
     assert.ok(packed.files.some(entry => entry.path === 'README.md'));
     // GNU tar interprets a Windows drive colon as a remote host; use a local filename.
-    run('tar', ['-xzf', packed.filename], { cwd: temporary });
-    const extracted = path.join(temporary, 'package');
+    const holder = path.join(temporary, "O'Brien & Sons");
+    await fs.mkdir(holder);
+    run('tar', ['-xzf', packed.filename, '-C', holder], { cwd: temporary });
+    const extracted = path.join(holder, 'package');
     const manifest = JSON.parse(await fs.readFile(path.join(extracted, 'package.json'), 'utf8'));
     assert.equal(manifest.private, undefined);
     for (const file of canonicalFiles) {
@@ -136,8 +138,9 @@ require('node:module').syncBuiltinESMExports();
           env: { ...env, OCLIF_COLUMNS: '2000' }
         }
       );
-      const named = /(\S+)[\\/]CUSTOM_LOGS\.md/.exec(help);
+      const named = /documented offline in (.+)[\\/]CUSTOM_LOGS\.md,/.exec(help);
       assert.ok(named, help);
+      assert.doesNotMatch(named[1], /&#39;|&amp;/);
       if (command === 'capture') assert.match(help, /5,000 deliveries[\s\S]*by one response/);
       assert.equal(await fs.realpath(named[1]), await fs.realpath(path.join(extracted, 'reference')));
       await fs.access(path.join(named[1], 'CUSTOM_LOGS.md'));

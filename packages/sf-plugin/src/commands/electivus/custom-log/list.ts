@@ -11,7 +11,8 @@ export default class CustomLogList extends AlvCommand<PrintsAsJson<CustomLogList
     'List application log records (for example Nebula Logger logs), newest first.';
   public static override readonly description =
     'A row of an events source is one stored event. Without --payload-fields, each row keeps up to 200 payload paths; ' +
-    'take the default columns of the source from payload.<level>.columns in "custom-log sources --json" to keep the output small.\n\n' +
+    'take the columns from payload.transaction in "custom-log sources --json" on a source with a transaction header and from payload.entry on any other, to keep the output small. ' +
+    'A column from the other level matches nothing and gives no error.\n\n' +
     CUSTOM_LOG_REFERENCE_NOTE;
   public static override readonly flags = {
     cursor: cursorFlag,
