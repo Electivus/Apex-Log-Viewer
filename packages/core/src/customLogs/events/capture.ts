@@ -81,6 +81,7 @@ import {
   drainBoundOutcome,
   coveredUntilMs,
   firstEventWait,
+  newestHeldEvent,
   nextState,
   proofOnAck,
   proofOnDown,
@@ -657,13 +658,7 @@ function createRun(
       let newlyStored: readonly StoredEvent[];
       try {
         newlyStored = (await writer.append(batch)).stored;
-        const newest = newlyStored[newlyStored.length - 1];
-        const next: RunPosition = {
-          cursor: tail.cursor,
-          lastEvent: newest
-            ? { createdDate: newest.createdDate, uuid: newest.position.uuid }
-            : (last?.lastEvent ?? { createdDate: tail.createdDate, uuid: tail.uuid })
-        };
+        const next: RunPosition = { cursor: tail.cursor, lastEvent: newestHeldEvent(last?.lastEvent ?? tail, batch) };
         await writer.advance({
           orgId: session.orgId,
           transport: transport.name,

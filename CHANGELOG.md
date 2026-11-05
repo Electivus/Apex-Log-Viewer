@@ -31,6 +31,7 @@
 
 ### Fixes
 
+- Custom Logs: keep the stored position's `lastEvent` at the newest event after a replay that ends in events the store already holds. In a store with no open gap, the next gap could name an older time, and a retention gap could open early.
 - Custom Logs: show a possible gap on the capture strip as soon as capture records it. A gap from a rejected position, an unreadable delivery, a start past the 72-hour retention, or another org now shows at once. Before, it stayed off the strip until a later event was stored, so a replay of events the store already held left the strip on `Live` with no warning.
 - Log Viewer: keep the status bar fully visible; the entries table now ends above it at any editor size instead of overlapping it with its horizontal scrollbar.
 - Logs: hide logs that matched only the previous search text as soon as you change the search, instead of listing them until the new full-log search finishes.

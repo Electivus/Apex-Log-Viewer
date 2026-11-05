@@ -16,6 +16,7 @@ import {
   deliveryBudget,
   drainBoundOutcome,
   firstEventWait,
+  newestHeldEvent,
   nextState,
   proofOnAck,
   proofOnDown,
@@ -315,6 +316,24 @@ for (const [from, input, expected] of stateCases) {
     else assert.deepEqual(next, expected);
   });
 }
+
+test('newestHeldEvent: the newest of the position and the batch, the later delivery on a tie, and only the two fields', () => {
+  const named = (n: number, createdDate = `2026-11-05T10:00:0${n}.000Z`) => ({
+    createdDate,
+    uuid: parseEventUuid(`00000000-0000-4000-8000-00000000000${n}`)!
+  });
+  const event = (n: number, createdDate?: string) => ({ ...named(n, createdDate), payload: { Message__c: 'dropped' } });
+  const cases: [string, ReturnType<typeof named>, ReturnType<typeof event>[], ReturnType<typeof named>][] = [
+    ['the batch ends at the newest', named(1), [event(2), event(3)], named(3)],
+    ['the batch is older than the position', named(5), [event(2), event(3)], named(5)],
+    ['the newest is in the middle of the batch', named(1), [event(2), event(4), event(3)], named(4)],
+    ['a tie goes to the later delivery', named(1), [event(2, event(3).createdDate), event(3)], named(3)],
+    ['an unreadable position loses', named(1, 'not a date'), [event(2)], named(2)]
+  ];
+  for (const [label, start, batch, expected] of cases) {
+    assert.deepEqual(newestHeldEvent(start, batch), expected, label);
+  }
+});
 
 test('closesGap: any stored event closes a gap with no bound; otherwise only an event newer than `after`', () => {
   const at = (createdDate: string) => ({ createdDate, uuid });
