@@ -5,6 +5,7 @@ const { existsSync, readFileSync } = require('node:fs');
 const { homedir } = require('node:os');
 const path = require('node:path');
 const { hasDevHubJwtConfig } = require('./devhub-auth');
+const { XVFB_ARGS, shouldUseXvfb } = require('./e2e-display');
 
 function assertSupportedNode(
   version = process.versions.node,
@@ -56,13 +57,15 @@ async function bootstrapLocalE2e(
   if (!existsSync(config)) return undefined;
 
   const command = ['node', entrypoint, ...args];
-  if (gui && platform === 'linux') command.unshift('xvfb-run', '-a', '-s', '-screen 0 1280x1024x24');
+  // Hide VS Code on a private Xvfb display unless ALV_E2E_SHOW_VSCODE asks to show it.
+  const xvfb = gui && shouldUseXvfb(env, platform);
+  if (xvfb) command.unshift('xvfb-run', ...XVFB_ARGS);
   const launcher = platform === 'darwin' ? 'run-macos-e2e.sh' : 'run-wsl-e2e.sh';
 
   return new Promise((resolve, reject) => {
     const child = spawnImpl('bash', [path.join(__dirname, launcher), 'run', '--', ...command], {
       cwd: path.join(__dirname, '..'),
-      env,
+      env: xvfb ? { ...env, __ALV_XVFB_RAN: '1' } : env,
       stdio: 'inherit'
     });
     child.once('error', () => reject(new Error('Cannot start the configured local E2E environment.')));
