@@ -32,6 +32,7 @@
 
 ### Fixes
 
+- CLI: `sf electivus debug-level create` and `update` no longer fail without `--language`. `create` defaults the language to `en_US`. `update` now changes only the fields you pass, instead of resetting every other category and the label, and no longer needs `--developer-name`. Without `--yes`, both commands check the picklist values against the org, so the preview fails on a value the real call would reject; a preview now needs a reachable org, and `create` without `--developer-name` exits 2.
 - Custom Logs: stop two VS Code windows or `sf electivus custom-log capture` runs from both capturing one event object after a previous holder and a reclaimer of its `capture.lease` have both died. Every event delivered in that overlap counted twice against the org's daily allocation. The fix holds when every process on the workspace runs it.
 - Log Viewer: keep the status bar fully visible; the entries table now ends above it at any editor size instead of overlapping it with its horizontal scrollbar.
 - Logs: hide logs that matched only the previous search text as soon as you change the search, instead of listing them until the new full-log search finishes.
