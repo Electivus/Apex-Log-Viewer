@@ -682,7 +682,7 @@ apexlogs/orgs/<safe-org>/events/
 
 The store lives in the directory that holds `sfdx-project.json`, so a command run from a subdirectory uses the same store. When core finds no `sfdx-project.json`, it uses the directory the command runs in, or the folder that is open in VS Code. With neither, `capture` and `list` fail with `CUSTOM_LOG_STORE_UNAVAILABLE`.
 
-Each line holds the whole event as Salesforce delivered it: `id`, `uuid`, `seq`, `replayId`, `createdDate`, `receivedAt`, and a `payload` with every field of the message except the null ones. The `id` is the row id, which `entry --entry-id` accepts, so a search hit leads straight to the event. The `replayId` is for search only, and no result or id exposes it. Core writes the events to disk before it moves the stored position, so a crash of the process delivers an event again and never loses it. A power loss on macOS can still lose the last flush.
+Each line holds the whole event as Salesforce delivered it: `id`, `uuid`, `seq`, `replayId`, `createdDate`, `receivedAt`, and a `payload` with every field of the message except the null ones. The `id` is the row id, which `entry --entry-id` accepts, so a search hit leads straight to the event, or to its first entry when the source maps `entries`. The `replayId` is for search only, and no result or id exposes it. Core writes the events to disk before it moves the stored position, so a crash of the process delivers an event again and never loses it. A power loss on macOS can still lose the last flush.
 
 The store keeps every delivered field. Salesforce applies no field-level security to platform event fields, so the subscriber receives every value. Reads still follow the stored describe. A mapped field that the describe does not list shows as `hidden`, for example when someone removed the field from the event after the capture. A permission never causes it. Core never decodes the value of a `hidden` field. The value stays on disk, so a later remap can use it and a search can find it.
 
@@ -700,7 +700,7 @@ The store is plain text, so ripgrep and `jq` search the whole history. The `stor
 rg --no-ignore -g '*.ndjson' 'Order sync failed' "$(sf electivus custom-log sources --target-org my-org --json | jq -r '.result.sources[] | select(.id == "app-events") | .store.eventsRoot')"
 ```
 
-Pass `--no-ignore`, because the store ignores itself and ripgrep honors `events/.gitignore`. A plain `rg` finds nothing. Each line is JSON, so a message with quotes, backslashes, or line breaks appears in its escaped form. Pass the `id` of a hit to `custom-log entry --entry-id` with `--source` to read the decoded event.
+Pass `--no-ignore`, because the store ignores itself and ripgrep honors `events/.gitignore`. A plain `rg` finds nothing. Each line is JSON, so a message with quotes, backslashes, or line breaks appears in its escaped form. Pass the `id` of a hit to `custom-log entry --entry-id` with `--source` to read the decoded event. When the source maps `entries`, that id opens the event's first entry, which may not be the item that matched; the stored line holds every item.
 
 To bring the store up to date before a search, run `capture`. A search sees only what was captured.
 
