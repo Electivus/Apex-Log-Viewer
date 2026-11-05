@@ -9,7 +9,7 @@ import { customLogError } from '../src/customLogs/errors.ts';
 import { createCaptureHub, type CaptureHub } from '../src/customLogs/events/capture.ts';
 import { FLUSH_MAX } from '../src/customLogs/events/captureRules.ts';
 import type { EventStore } from '../src/customLogs/events/store.ts';
-import type { TransportFailure } from '../src/customLogs/events/transport.ts';
+import type { BusEvent, TransportFailure } from '../src/customLogs/events/transport.ts';
 import {
   CHANNEL,
   ManualClock,
@@ -674,6 +674,134 @@ test('a duplicate-only batch stores nothing but still moves the resume point', a
     assert.equal(result.stored, 0);
     assert.deepEqual(w.rows(), []);
     assert.equal((await readStored(store)).length, 2);
+  });
+});
+
+const lastEventOf = async (store: EventStore) => (await store.checkpoint())?.lastEvent;
+
+const lastEventNaming = (n: number) => ({ createdDate: busEvent(n).createdDate, uuid: uuidOf(n) });
+
+for (const [label, batches] of [
+  ['one batch', [[busEvent(1), busEvent(2), busEvent(10, { cursor: 1_020 }), busEvent(11, { cursor: 1_021 })]]],
+  [
+    'two batches',
+    [
+      [busEvent(1), busEvent(2)],
+      [busEvent(10, { cursor: 1_020 }), busEvent(11, { cursor: 1_021 })]
+    ]
+  ]
+] as const) {
+  test(`a replay of new older events, then stored newer ones in ${label}, leaves lastEvent at the event of the cursor`, async () => {
+    await withProject(async root => {
+      const store = openStore(root);
+      await seedCheckpoint(store, [busEvent(10), busEvent(11)]);
+      const { clock, transport, deps, hub } = setup(store);
+      const w = watcher({ follow: true });
+
+      const done = hub.watch(store.location, w.watcher, deps);
+      const first = await transport.opened(0);
+      first.subscribed();
+      first.fail({ kind: 'cursorRejected' });
+      const retained = await transport.opened(1);
+      retained.subscribed();
+      for (const batch of batches) {
+        retained.events(...batch);
+        await clock.advance(250);
+        await until(
+          async () => (await checkpointCursor(store)) === batch[batch.length - 1]!.cursor,
+          'the checkpoint at the end of the batch'
+        );
+      }
+
+      assert.deepEqual(await lastEventOf(store), lastEventNaming(11));
+      w.abort();
+      assert.equal(resultOf(await settledOf(done)).stored, 2, 'the two older events');
+    });
+  });
+}
+
+test('a late older event does not move lastEvent back', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+    await seedCheckpoint(store, [busEvent(10), busEvent(11)]);
+    const { clock, transport, deps, hub } = setup(store);
+    const w = watcher({ follow: true });
+
+    const done = hub.watch(store.location, w.watcher, deps);
+    const attempt = await transport.opened(0);
+    attempt.subscribed();
+    attempt.events(busEvent(1, { cursor: 1_012 }));
+    await clock.advance(250);
+    await until(async () => (await checkpointCursor(store)) === cursorOf(12), 'the checkpoint at the late event');
+
+    assert.deepEqual(await lastEventOf(store), lastEventNaming(11));
+    w.abort();
+    await settledOf(done);
+  });
+});
+
+async function storeWithoutAdvancing(store: EventStore, events: readonly BusEvent[]): Promise<void> {
+  const writer = await openWriter(store);
+  await writer.append(events);
+  await writer.release();
+}
+
+async function abortRetainedReplayWhileCatchingUp(store: EventStore, now: number, events: BusEvent[]): Promise<void> {
+  const { clock, transport, deps, hub } = setup(store, { clock: new ManualClock(now) });
+  const w = watcher({ follow: true, initial: 'retained' });
+  const done = hub.watch(store.location, w.watcher, deps);
+  const attempt = await transport.opened(0);
+  attempt.subscribed();
+  attempt.events(...events);
+  await clock.advance(250);
+  await until(
+    async () => (await checkpointCursor(store)) === events.at(-1)!.cursor,
+    'the checkpoint at the replay tail'
+  );
+  w.abort();
+  await settledOf(done);
+}
+
+test('a replay that ends in stored events does not open a false retention gap on the next run', async () => {
+  await withProject(async root => {
+    const now = Date.now();
+    const newer = busEvent(2, { createdMs: now - HOUR });
+    const store = openStore(root);
+    await storeWithoutAdvancing(store, [newer]);
+    await abortRetainedReplayWhileCatchingUp(store, now, [busEvent(1, { createdMs: now - 73 * HOUR }), newer]);
+
+    const { transport, deps, hub } = setup(store, { clock: new ManualClock(now) });
+    const w = watcher({ follow: true });
+    const done = hub.watch(store.location, w.watcher, deps);
+    await transport.opened(0);
+    w.abort();
+
+    assert.deepEqual(resultOf(await settledOf(done)).newGaps, [], 'the store holds events from an hour ago');
+  });
+});
+
+test('a replay that ends in stored events gives the next gap the newest stored time', async () => {
+  await withProject(async root => {
+    const now = Date.now();
+    const newer = busEvent(2, { createdMs: now - HOUR });
+    const store = openStore(root);
+    await storeWithoutAdvancing(store, [newer]);
+    await abortRetainedReplayWhileCatchingUp(store, now, [busEvent(1, { createdMs: now - 40 * HOUR }), newer]);
+
+    const { transport, deps, hub } = setup(store, { clock: new ManualClock(now) });
+    const w = watcher({ follow: true });
+    const done = hub.watch(store.location, w.watcher, deps);
+    const first = await transport.opened(0);
+    first.subscribed();
+    first.fail({ kind: 'cursorRejected' });
+    await transport.opened(1);
+    w.abort();
+
+    assert.deepEqual(
+      resultOf(await settledOf(done)).newGaps.map(gap => [gap.reason, gap.after]),
+      [['cursorRejected', newer.createdDate]],
+      'events after the newest stored one may be missing, not events after the older one'
+    );
   });
 });
 
