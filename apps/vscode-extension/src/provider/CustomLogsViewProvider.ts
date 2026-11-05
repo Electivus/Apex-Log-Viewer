@@ -145,6 +145,11 @@ function restrictFilter(filter: CustomLogsFilterView, source: CustomLogSourceVie
   };
 }
 
+export type CustomLogsViewProviderOptions = {
+  /** Shows this provider's captures in the window's status bar item until the provider is disposed. */
+  trackCapture?(provider: CustomLogsViewProvider): vscode.Disposable;
+};
+
 export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   public static readonly viewType = 'electivus.apexLogViewer.customLogsView';
   private view?: { webview: vscode.Webview };
@@ -181,7 +186,10 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
    */
   private liveDuringReplace: CustomLogLiveRowsView | undefined;
 
-  constructor(private readonly context: vscode.ExtensionContext) {
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    options: CustomLogsViewProviderOptions = {}
+  ) {
     this.payloadColumnsStore = createPayloadColumnsStore(context.workspaceState);
     this.orgManager = new OrgManager(context);
     this.session = createWebviewSession({
@@ -198,6 +206,9 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       onDiagnostic: diagnostic => this.webviewSurface.handleSessionDiagnostic(diagnostic)
     });
     this.disposables.push(onSfdxProjectFileChanged(() => void this.onProjectConfigChanged()));
+    if (options.trackCapture) {
+      this.disposables.push(options.trackCapture(this));
+    }
   }
 
   resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {

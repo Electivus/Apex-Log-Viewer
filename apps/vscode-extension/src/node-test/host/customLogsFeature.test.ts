@@ -25,7 +25,12 @@ function load(options: { enabled: boolean; logsOrg?: string }) {
   const events: string[] = [];
   const watchers = { started: 0, disposed: 0 };
   const documents = { registered: 0, disposed: 0 };
-  const editor = { initialized: 0, closed: 0, shows: [] as Array<{ selectedOrg?: string }> };
+  const editor = {
+    initialized: 0,
+    closed: 0,
+    shows: [] as Array<{ selectedOrg?: string } | undefined>,
+    trackCapture: undefined as ((tab: never) => { dispose(): void }) | undefined
+  };
   const viewer = { initialized: 0, closedAll: 0 };
   const configured: number[] = [];
   const statusItems: Array<{ shown: boolean; disposed: boolean; command?: string }> = [];
@@ -127,9 +132,12 @@ function load(options: { enabled: boolean; logsOrg?: string }) {
     './utils/logger': { logWarn: () => undefined },
     '../panel/CustomLogsEditorPanel': {
       CustomLogsEditorPanel: {
-        initialize: () => void (editor.initialized += 1),
+        initialize: (_context: unknown, track: (tab: never) => { dispose(): void }) => {
+          editor.initialized += 1;
+          editor.trackCapture = track;
+        },
         close: () => void (editor.closed += 1),
-        show: async (showOptions: { selectedOrg?: string }) => void editor.shows.push(showOptions),
+        show: async (showOptions?: { selectedOrg?: string }) => void editor.shows.push(showOptions),
         getDiagnosticState: () => undefined
       }
     },
@@ -237,6 +245,38 @@ suite('Custom Logs feature switch', () => {
     host.change(SETTING, false);
 
     assert.equal(item?.disposed, true);
+  });
+
+  test('the item shows a capture of the editor tab, Show brings the tab forward and Stop stops it', async () => {
+    const host = load({ enabled: true });
+    const [item] = host.statusItems;
+    const tab = {
+      listener: undefined as ((status: unknown) => void) | undefined,
+      stops: 0,
+      onDidChangeCaptureStatus(listener: (status: unknown) => void) {
+        this.listener = listener;
+        listener(undefined);
+        return { dispose: () => undefined };
+      },
+      stopByUser() {
+        this.stops += 1;
+        this.listener?.(undefined);
+      }
+    };
+
+    host.editor.trackCapture!(tab as never);
+    tab.listener!({ sourceLabel: 'App events', capture: { state: 'live', basis: 'quiet' } });
+    assert.equal(item?.shown, true, 'a capture the editor tab started shows');
+
+    host.quickPick.answer = 'Show Custom Logs';
+    await host.commands.get('electivus.apexLogViewer.customLogs.captureStatus')!();
+    assert.deepEqual(host.editor.shows, [undefined], 'Show reveals the tab, not the bottom view');
+    assert.equal(host.executed.length, 0);
+
+    host.quickPick.answer = 'Stop capture';
+    await host.commands.get('electivus.apexLogViewer.customLogs.captureStatus')!();
+    assert.equal(tab.stops, 1);
+    assert.equal(item?.shown, false);
   });
 
   test('can be turned on again after it was turned off', () => {

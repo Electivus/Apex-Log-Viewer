@@ -42,6 +42,8 @@ const ptBrByLegacyKey = {
   'customLogs.payload.unmapped': 'Esta fonte não mapeia um payload.',
   'customLogs.status.text': '$(broadcast) Logs Personalizados: {0} · {1}',
   'customLogs.status.action': 'Clique para mostrar o painel ou parar a captura.',
+  'customLogs.status.many': '$(broadcast) Logs Personalizados: {0} capturas',
+  'customLogs.status.many.action': 'Clique para mostrar o painel ou parar todas as capturas desta janela.',
   'customLogs.status.connecting': 'Conectando',
   'customLogs.status.connecting.detail': 'Conectando a {0} para capturar seus eventos.',
   'customLogs.status.standby': 'Em espera',

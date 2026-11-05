@@ -40,7 +40,7 @@ suite('Custom Logs capture status presentation', () => {
     const { presentCaptureStatus } = load();
 
     for (const [capture, label] of SHOWN) {
-      const view = presentCaptureStatus({ sourceLabel: 'App events', capture });
+      const view = presentCaptureStatus([{ sourceLabel: 'App events', capture }]);
       assert.equal(view.visible, true);
       assert.ok(
         view.visible && view.text.includes('App events') && view.text.endsWith(label),
@@ -53,17 +53,38 @@ suite('Custom Logs capture status presentation', () => {
   test('has no item without a capture, or once it stopped or failed', () => {
     const { presentCaptureStatus } = load();
 
-    assert.deepEqual(presentCaptureStatus(undefined), { visible: false });
+    assert.deepEqual(presentCaptureStatus([]), { visible: false });
     for (const capture of HIDDEN) {
-      assert.deepEqual(presentCaptureStatus({ sourceLabel: 'App events', capture }), { visible: false });
+      assert.deepEqual(presentCaptureStatus([{ sourceLabel: 'App events', capture }]), { visible: false });
     }
+  });
+
+  test('reads the view and its editor tab on one source as one capture, and different ones as a count', () => {
+    const { presentCaptureStatus } = load();
+    const live: CustomLogCaptureStateView = { state: 'live', basis: 'quiet' };
+
+    const shared = presentCaptureStatus([
+      { sourceLabel: 'App events', capture: live },
+      { sourceLabel: 'App events', capture: live }
+    ]);
+    assert.ok(shared.visible && shared.text.endsWith('App events · Live'), shared.visible ? shared.text : '');
+
+    const two = presentCaptureStatus([
+      { sourceLabel: 'App events', capture: live },
+      { sourceLabel: 'Nebula events', capture: { state: 'catchingUp', from: 'new' } },
+      { sourceLabel: 'Old events', capture: { state: 'stopped', outcome: 'aborted' } }
+    ]);
+    assert.ok(two.visible);
+    assert.equal(two.visible && two.text, '$(broadcast) Custom Logs: 2 captures');
+    assert.ok(two.visible && two.tooltip.startsWith('App events · Live\nNebula events · Catching up\n'));
   });
 
   test('every string it shows has a translation in the pt-BR bundle', () => {
     const { presentCaptureStatus, used } = load();
     for (const [capture] of SHOWN) {
-      presentCaptureStatus({ sourceLabel: 'App events', capture });
+      presentCaptureStatus([{ sourceLabel: 'App events', capture }]);
     }
+    presentCaptureStatus(SHOWN.map(([capture], i) => ({ sourceLabel: `Source ${i}`, capture })));
     const en = bundle('bundle.l10n.json');
     const ptBr = bundle('bundle.l10n.pt-br.json');
 

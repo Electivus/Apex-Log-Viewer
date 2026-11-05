@@ -34,9 +34,6 @@ export function registerCustomLogsFeature(
     if (running) {
       return;
     }
-    CustomLogsEditorPanel.initialize(context);
-    CustomLogViewerPanel.initialize(context);
-    const provider = new CustomLogsViewProvider(context);
     const revealPanel = async () => {
       await vscode.commands.executeCommand('workbench.view.extension.electivus-apex-log-viewer-custom-logs');
       try {
@@ -45,12 +42,16 @@ export function registerCustomLogsFeature(
         await vscode.commands.executeCommand('workbench.action.openView', CustomLogsViewProvider.viewType);
       }
     };
+    const statusBar = registerCaptureStatusBar();
+    CustomLogsEditorPanel.initialize(context, tab => statusBar.track(tab, () => CustomLogsEditorPanel.show()));
+    CustomLogViewerPanel.initialize(context);
+    const provider = new CustomLogsViewProvider(context, { trackCapture: view => statusBar.track(view, revealPanel) });
     running = {
       provider,
       registrations: vscode.Disposable.from(
         registerCustomLogDocuments(),
         provider,
-        registerCaptureStatusBar(provider, revealPanel),
+        statusBar,
         vscode.window.registerWebviewViewProvider(CustomLogsViewProvider.viewType, provider, {
           webviewOptions: { retainContextWhenHidden: true }
         }),

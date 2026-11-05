@@ -1,5 +1,6 @@
 {
   "$(broadcast) Custom Logs: {0} · {1}": "$(broadcast) Custom Logs: {0} · {1}",
+  "$(broadcast) Custom Logs: {0} captures": "$(broadcast) Custom Logs: {0} captures",
   "A log bulk download is already in progress.": "A log bulk download is already in progress.",
   "A log cleanup is already in progress.": "A log cleanup is already in progress.",
   "Another VS Code window or sf command is capturing {0}; new events appear here.": "Another VS Code window or sf command is capturing {0}; new events appear here.",
@@ -14,6 +15,7 @@
   "Capturing {0}. Each new event counts against the org daily delivery allocation.": "Capturing {0}. Each new event counts against the org daily delivery allocation.",
   "Catching up": "Catching up",
   "Clear org logs…": "Clear org logs…",
+  "Click to show the panel or stop every capture of this window.": "Click to show the panel or stop every capture of this window.",
   "Click to show the panel or stop the capture.": "Click to show the panel or stop the capture.",
   "Connecting": "Connecting",
   "Connecting to {0} to capture its events.": "Connecting to {0} to capture its events.",

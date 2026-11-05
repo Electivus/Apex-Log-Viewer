@@ -88,7 +88,8 @@ function load(options: { projectDefaultOrg?: string } = {}) {
     }
   }) as typeof import('../../provider/CustomLogsViewProvider');
 
-  const create = () => new CustomLogsViewProvider({ extensionUri: {}, workspaceState: memento } as never);
+  const create = (options?: import('../../provider/CustomLogsViewProvider').CustomLogsViewProviderOptions) =>
+    new CustomLogsViewProvider({ extensionUri: {}, workspaceState: memento } as never, options);
   const provider = create();
 
   async function mount(host: FakeHost, mountSequence = 1, target: typeof provider = provider): Promise<void> {
@@ -1235,6 +1236,23 @@ suite('Custom Logs view provider', () => {
 
         assert.ok(mine.provider.getCaptureStatus());
         assert.equal(other.provider.getCaptureStatus(), undefined);
+      });
+
+      test('joins the status bar item when it is created and leaves it when it is disposed', () => {
+        const ctx = loadEvents();
+        const joined: unknown[] = [];
+        let left = 0;
+
+        const tab = ctx.create({
+          trackCapture: provider => {
+            joined.push(provider);
+            return { dispose: () => void (left += 1) };
+          }
+        });
+        assert.deepEqual(joined, [tab]);
+
+        tab.dispose();
+        assert.equal(left, 1);
       });
 
       test('dispose, which turning the setting off does, takes the item down', async () => {

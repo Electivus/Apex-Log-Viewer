@@ -7,24 +7,18 @@ export type CustomLogsStatusBarPresentation = { visible: false } | { visible: tr
 
 const HIDDEN: CustomLogsStatusBarPresentation = { visible: false };
 
-export function presentCaptureStatus(status: CustomLogsCaptureStatus | undefined): CustomLogsStatusBarPresentation {
-  if (!status) {
-    return HIDDEN;
-  }
-  const { sourceLabel, capture } = status;
-  const item = (state: string, detail: string): CustomLogsStatusBarPresentation => ({
-    visible: true,
-    text: localize('customLogs.status.text', '$(broadcast) Custom Logs: {0} · {1}', sourceLabel, state),
-    tooltip: `${detail}\n${localize('customLogs.status.action', 'Click to show the panel or stop the capture.')}`
-  });
+type Described = { sourceLabel: string; state: string; detail: string };
+
+function describe({ sourceLabel, capture }: CustomLogsCaptureStatus): Described | undefined {
+  const described = (state: string, detail: string): Described => ({ sourceLabel, state, detail });
   switch (capture.state) {
     case 'connecting':
-      return item(
+      return described(
         localize('customLogs.status.connecting', 'Connecting'),
         localize('customLogs.status.connecting.detail', 'Connecting to {0} to capture its events.', sourceLabel)
       );
     case 'standby':
-      return item(
+      return described(
         localize('customLogs.status.standby', 'Standby'),
         localize(
           'customLogs.status.standby.detail',
@@ -33,7 +27,7 @@ export function presentCaptureStatus(status: CustomLogsCaptureStatus | undefined
         )
       );
     case 'catchingUp':
-      return item(
+      return described(
         localize('customLogs.status.catchingUp', 'Catching up'),
         localize(
           'customLogs.status.catchingUp.detail',
@@ -42,7 +36,7 @@ export function presentCaptureStatus(status: CustomLogsCaptureStatus | undefined
         )
       );
     case 'live':
-      return item(
+      return described(
         localize('customLogs.status.live', 'Live'),
         localize(
           'customLogs.status.live.detail',
@@ -51,7 +45,7 @@ export function presentCaptureStatus(status: CustomLogsCaptureStatus | undefined
         )
       );
     case 'reconnecting':
-      return item(
+      return described(
         localize('customLogs.status.reconnecting', 'Reconnecting'),
         localize(
           'customLogs.status.reconnecting.detail',
@@ -62,6 +56,40 @@ export function presentCaptureStatus(status: CustomLogsCaptureStatus | undefined
       );
     case 'stopped':
     case 'failed':
-      return HIDDEN;
+      return undefined;
   }
+}
+
+/**
+ * One item for every capture of the window. The view and its editor tab watching one source show the same
+ * source and state, so they read as one capture; different ones read as a count, each named in the tooltip.
+ */
+export function presentCaptureStatus(statuses: readonly CustomLogsCaptureStatus[]): CustomLogsStatusBarPresentation {
+  const running = new Map<string, Described>();
+  for (const status of statuses) {
+    const described = describe(status);
+    if (described) {
+      running.set(JSON.stringify([described.sourceLabel, described.state]), described);
+    }
+  }
+  const all = [...running.values()];
+  const [only] = all;
+  if (!only) {
+    return HIDDEN;
+  }
+  if (all.length === 1) {
+    return {
+      visible: true,
+      text: localize('customLogs.status.text', '$(broadcast) Custom Logs: {0} · {1}', only.sourceLabel, only.state),
+      tooltip: `${only.detail}\n${localize('customLogs.status.action', 'Click to show the panel or stop the capture.')}`
+    };
+  }
+  return {
+    visible: true,
+    text: localize('customLogs.status.many', '$(broadcast) Custom Logs: {0} captures', all.length),
+    tooltip: [
+      ...all.map(({ sourceLabel, state }) => `${sourceLabel} · ${state}`),
+      localize('customLogs.status.many.action', 'Click to show the panel or stop every capture of this window.')
+    ].join('\n')
+  };
 }
