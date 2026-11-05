@@ -11,7 +11,7 @@ function resolveVsceInvocation(platformValue = process.platform) {
   if (existsSync(localBinary)) {
     return { command: localBinary, baseArgs: [] };
   }
-  return { command: 'pnpm', baseArgs: ['dlx', '@vscode/vsce@3.9.2'] };
+  return { command: 'pnpm', baseArgs: ['dlx', '@vscode/vsce@4.1.0'] };
 }
 
 function addRepoLocalBinToPath(env = process.env) {

@@ -233,7 +233,7 @@ jobs:
           node scripts/run-vsce.js package --no-dependencies --skip-prepublish --no-yarn --target "${MATRIX_TARGET}" --out "apex-log-viewer-${VERSION}-${CHANNEL_SUFFIX}-${MATRIX_TARGET}.vsix" --pre-release
 
       - name: Upload VSIX artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: prerelease-vsix-${{ matrix.target }}
           path: |
@@ -290,7 +290,7 @@ jobs:
           done
 
       - name: Upload VSIX artifact for publish
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: prerelease-vsix
           path: |
