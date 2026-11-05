@@ -4,16 +4,19 @@
  * module or `queries.ts` once per call, by the source's kind.
  *
  * What an event source documents (docs/CUSTOM_LOGS.md, "Event sources"):
- *  - list: one row per event, newest first in publish order: `CreatedDate`, then delivery order
- *    inside one publish (the capture sequence), then uuid. A Nebula transaction's entries share one
- *    `CreatedDate`, so the mapped time column can read non-monotonic; the order key is not the mapped
- *    time role. `since` and `until` bound `CreatedDate`. `minLevel` and `user` run in memory over the
- *    decoded rows, so `capabilities.levelFilter` and `userFilter` say only whether the role is mapped.
- *  - get by event id: the event as `log`, plus every stored event with the same `transactionId`
- *    whose `CreatedDate` is within `TRANSACTION_WINDOW_MS` of it, ordered by `order`, else by
- *    position. Without a `transactionId` value the event stands alone. `get` by transaction id
- *    anchors the same window on the newest stored event with that value (a scan of the store).
- *  - entry: the full message, every mapped detail and the mapped payload of one stored event.
+ *  - A row is an entry of an event (`entriesOf`): the event itself, or one element of each JSON
+ *    array its `payload.entries` fields hold. Ordinal 0 keeps the event's plain id.
+ *  - list: entries newest first in publish order: `CreatedDate`, then delivery order inside one
+ *    publish (the capture sequence), then uuid, then the highest ordinal first. A Nebula
+ *    transaction's entries share one `CreatedDate`, so the mapped time column can read
+ *    non-monotonic; the order key is not the mapped time role. `since` and `until` bound
+ *    `CreatedDate`. `minLevel` and `user` run in memory over the decoded rows, so
+ *    `capabilities.levelFilter` and `userFilter` say only whether the role is mapped.
+ *  - get by id: the entry as `log`, plus every stored entry with the same `transactionId` whose
+ *    event `CreatedDate` is within `TRANSACTION_WINDOW_MS` of it, ordered by `order`, else by
+ *    position. Without a `transactionId` value the entry stands alone. `get` by transaction id
+ *    anchors the same window on the newest stored entry with that value (a scan of the store).
+ *  - entry: the full message, every mapped detail and the payload of one stored entry.
  *    A mapped field the stored describe does not list resolves as `hidden`, as on a record source;
  *    its raw value stays on the stored line and is never decoded.
  *  - A store with no checkpoint answers `list` with an empty page and `store.state = 'notCaptured'`,
@@ -45,18 +48,29 @@ import {
   entryRow,
   levelOf,
   rawPayloadOf,
-  recordSubject,
+  read,
   roleNumber,
   roleText,
   type Subject
 } from '../decode.js';
 import { customLogError } from '../errors.js';
 import { shortHash } from '../hash.js';
-import { normalizeLevel } from '../levels.js';
-import { selectPayloadPaths, summarizePayloadFields } from '../payload.js';
-import { assertNever, type ResolvedEventObject, type ResolvedEventSource } from '../resolved.js';
+import {
+  HIDDEN_DOC,
+  docOfText,
+  readEntrySlot,
+  selectPayloadPaths,
+  summarizePayloadFields,
+  type PayloadDoc
+} from '../payload.js';
+import {
+  assertNever,
+  type ResolvedEventObject,
+  type ResolvedEventPayload,
+  type ResolvedEventSource
+} from '../resolved.js';
 import type { ObjectDescribe } from '../schema.js';
-import { compareNewestFirst, entryRowId, parseEntryRowId, type EntryPosition } from './ids.js';
+import { compareEntriesNewestFirst, entryRowId, parseEntryRowId, type EntryPosition } from './ids.js';
 import type { EventStore, StoreCoverage, StoredEvent } from './store.js';
 
 /** Nebula transactions publish in one call; an hour each way covers long async chains without scanning the whole store. */
@@ -165,12 +179,12 @@ function invalidCursor(reason: string): never {
 const isInstant = (value: unknown): value is string =>
   typeof value === 'string' && normalizeSoqlDateTimeLiteral(value) === value;
 
-/** Throws CUSTOM_LOG_INVALID_CURSOR on a malformed token or on any binding mismatch. */
+/** Throws CUSTOM_LOG_INVALID_CURSOR on a malformed token or on any binding mismatch. `at` is the parsed `id`. */
 function decodeEventCursor<K extends PageKind>(
   token: string,
   kind: K,
   binding: Binding
-): Extract<EventCursor, { k: K }> {
+): Extract<EventCursor, { k: K }> & { at: EntryPosition } {
   if (token.length > MAX_CURSOR_CHARS || !BASE64URL.test(token)) return invalidCursor('malformed');
   let parsed: unknown;
   try {
@@ -180,6 +194,7 @@ function decodeEventCursor<K extends PageKind>(
   }
   const cursor = parsed as Partial<EventCursor> | null;
   const window = cursor?.k === 'eventList' ? cursor.w : undefined;
+  const at = parseEntryRowId(cursor?.id);
   const wellFormed =
     typeof cursor === 'object' &&
     cursor !== null &&
@@ -188,7 +203,7 @@ function decodeEventCursor<K extends PageKind>(
     typeof cursor.s === 'string' &&
     typeof cursor.m === 'string' &&
     typeof cursor.f === 'string' &&
-    parseEntryRowId(cursor.id) !== undefined &&
+    at !== undefined &&
     (cursor.k === 'eventList'
       ? window === undefined ||
         (typeof window === 'object' &&
@@ -207,26 +222,130 @@ function decodeEventCursor<K extends PageKind>(
     ['f', 'other filters']
   ];
   for (const [key, reason] of mismatches) if (found[key] !== binding[key]) return invalidCursor(reason);
-  return found as Extract<EventCursor, { k: K }>;
+  return { ...(found as Extract<EventCursor, { k: K }>), at };
 }
 
 // ---------------------------------------------------------------------------------------------
-// Shared pieces
+// Entries: what a call reads rows from
 
-/** Until entries expand into rows, a row is its event: a document payload is decoded, an entries payload not yet. */
-function subjectOf(event: ResolvedEventObject, stored: StoredEvent): Subject {
-  const { payload } = event;
-  const identity = { id: stored.id, createdDate: stored.createdDate };
+/** One row of an event source: the event, where the row sits in its payload, and what the decoders read. */
+export type EventEntry = Readonly<{
+  stored: StoredEvent;
+  position: EntryPosition;
+  subject: Subject;
+}>;
+
+type Docs = readonly [PayloadDoc | undefined, ...(PayloadDoc | undefined)[]];
+
+/**
+ * The payload doc of each row of an event, in payload order. No payload: one row with none. A
+ * document: one row with it. Entries: each readable field in mapping order contributes its slot
+ * reading; when nothing results, one row with `HIDDEN_DOC` if any field is hidden, else the first
+ * field's doc (so blank fields give `empty` and `[]` gives `parsed` with no values).
+ */
+function docsOf(payload: ResolvedEventPayload | undefined, record: StoredEvent['record']): Docs {
   switch (payload?.kind) {
     case undefined:
-    case 'entries':
-      return recordSubject(undefined, stored.record, identity);
+      return [undefined];
     case 'document':
-      return recordSubject(payload.field, stored.record, identity, payload.rolePaths);
+      return [
+        payload.field.state === 'readable'
+          ? docOfText(read(record, payload.field.field.api), payload.rolePaths)
+          : HIDDEN_DOC
+      ];
+    case 'entries': {
+      const docs: PayloadDoc[] = [];
+      let hidden = false;
+      for (const field of payload.fields) {
+        if (field.state === 'hidden') {
+          hidden = true;
+          continue;
+        }
+        const reading = readEntrySlot(read(record, field.field.api), payload.rolePaths);
+        switch (reading.kind) {
+          case 'blank':
+            break;
+          case 'elements':
+            docs.push(...reading.docs);
+            break;
+          case 'whole':
+            docs.push(reading.doc);
+            break;
+          default:
+            assertNever(reading, 'slot reading');
+        }
+      }
+      const [head, ...tail] = docs;
+      if (head) return [head, ...tail];
+      if (hidden) return [HIDDEN_DOC];
+      const [first] = payload.fields;
+      return [docOfText(first.state === 'readable' ? read(record, first.field.api) : undefined, payload.rolePaths)];
+    }
     default:
       return assertNever(payload, 'event payload');
   }
 }
+
+/** The rows of one stored event, in payload order. Never empty; an entry's ordinal is its index. Pure. */
+export function entriesOf(event: ResolvedEventObject, stored: StoredEvent): readonly [EventEntry, ...EventEntry[]] {
+  const entryAt = (doc: PayloadDoc | undefined, ordinal: number): EventEntry => {
+    const position = { event: stored.position, ordinal };
+    return {
+      stored,
+      position,
+      subject: {
+        record: stored.record,
+        identity: { id: entryRowId(position), createdDate: stored.createdDate },
+        payload: doc
+      }
+    };
+  };
+  const [first, ...rest] = docsOf(event.payload, stored.record);
+  return [entryAt(first, 0), ...rest.map((doc, index) => entryAt(doc, index + 1))];
+}
+
+/** An event's entries in list order: highest ordinal first. */
+const newestFirst = (entries: readonly EventEntry[]): EventEntry[] => [...entries].reverse();
+
+/**
+ * Every entry newer-to-older, resuming after `after` when given: the rest of that event's entries
+ * first, then older events. The resumed event needs no window check (page one listed it under the
+ * same window, which the cursor carries), and one retention purged between pages is skipped.
+ */
+async function* entriesNewestFirst(
+  store: EventStore,
+  event: ResolvedEventObject,
+  options: { after?: EntryPosition; sinceMs?: number; untilMs?: number }
+): AsyncGenerator<EventEntry> {
+  const { after, sinceMs, untilMs } = options;
+  if (after && after.ordinal > 0) {
+    const stored = await store.find(after.event);
+    if (stored) {
+      for (const entry of newestFirst(entriesOf(event, stored))) {
+        if (entry.position.ordinal < after.ordinal) yield entry;
+      }
+    }
+  }
+  const scan = store.newestFirst({
+    ...(after ? { before: after.event } : {}),
+    ...(sinceMs === undefined ? {} : { sinceMs }),
+    ...(untilMs === undefined ? {} : { untilMs })
+  });
+  for await (const stored of scan) yield* newestFirst(entriesOf(event, stored));
+}
+
+/** The entry at `position`, or undefined when the store lacks the event or the ordinal is past its end. */
+async function findEntry(
+  store: EventStore,
+  event: ResolvedEventObject,
+  position: EntryPosition
+): Promise<EventEntry | undefined> {
+  const stored = await store.find(position.event);
+  return stored && entriesOf(event, stored)[position.ordinal];
+}
+
+// ---------------------------------------------------------------------------------------------
+// Shared pieces
 
 function notFound(what: string): never {
   throw customLogError(
@@ -267,30 +386,30 @@ export function requireFilterable(source: ResolvedEventSource, { minLevel, user 
   if (user && !can.userFilter) unsupported(source, 'user mapping');
 }
 
-/** The row of one stored event, or nothing when the filter drops it. `list` and a live capture decode through this alone, so a live row and a listed row cannot differ. */
-function rowOf(source: ResolvedEventSource, stored: StoredEvent, { minLevel, user }: EventRowFilter) {
-  const row = entryRow(source.shape.event, source.levels, subjectOf(source.shape.event, stored));
+/** The row of one entry, or nothing when the filter drops it. `list` and a live capture decode through this alone, so a live row and a listed row cannot differ. */
+function rowOf(source: ResolvedEventSource, entry: EventEntry, { minLevel, user }: EventRowFilter) {
+  const row = entryRow(source.shape.event, source.levels, entry.subject);
   if (minLevel && (row.level === undefined || levelIndex(row.level) < levelIndex(minLevel))) return undefined;
   if (user && row.user?.toLowerCase() !== user.toLowerCase()) return undefined;
   return row;
 }
 
-/** What a capture update shows for `events`: the rows that pass the filter and the payload paths they carry. */
+/** What a capture update shows for `events`: the rows that pass the filter, events in the order given and each event's entries in payload order, and the payload paths they carry. */
 export function decodeEventRows(
   source: ResolvedEventSource,
   events: readonly StoredEvent[],
   view: EventRowFilter & { keep?: ReadonlySet<string> }
 ): { rows: CustomLogRow[]; payloadFields: CustomLogPayloadField[] } {
   const { items, payloadFields } = withPayloadSummary(
-    events.flatMap(stored => rowOf(source, stored, view) ?? []),
+    events.flatMap(stored => entriesOf(source.shape.event, stored)).flatMap(entry => rowOf(source, entry, view) ?? []),
     view.keep
   );
   return { rows: items, payloadFields };
 }
 
 /** The mapped transaction id, whole: a row's copy is cut to a cell, and ids are compared uncut. */
-function transactionOf(event: ResolvedEventObject, stored: StoredEvent): string | undefined {
-  return roleText(subjectOf(event, stored), event.roles.transactionId);
+function transactionOf(event: ResolvedEventObject, entry: EventEntry): string | undefined {
+  return roleText(entry.subject, event.roles.transactionId);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -321,28 +440,34 @@ export async function listEvents(snapshot: EventSnapshot, params: EventListParam
   const window = after ? (after.w ?? {}) : params.window;
 
   const rows: CustomLogRow[] = [];
-  let last: StoredEvent | undefined;
+  let last: EventEntry | undefined;
   let more = false;
-  const scan = store.newestFirst({
-    ...(after ? { before: parseEntryRowId(after.id)!.event } : {}),
+  const scan = entriesNewestFirst(store, event, {
+    ...(after ? { after: after.at } : {}),
     ...(window.since ? { sinceMs: Date.parse(window.since) } : {}),
     ...(window.until ? { untilMs: Date.parse(window.until) } : {})
   });
-  for await (const stored of scan) {
-    const row = rowOf(source, stored, params.given);
+  for await (const entry of scan) {
+    const row = rowOf(source, entry, params.given);
     if (!row) continue;
     if (rows.length === params.limit) {
       more = true;
       break;
     }
     rows.push(row);
-    last = stored;
+    last = entry;
   }
 
   const { items, payloadFields } = withPayloadSummary(rows, params.keep);
   const next: EventCursor | undefined =
     more && last
-      ? { v: 1, k: 'eventList', ...binding, ...(Object.keys(window).length > 0 ? { w: window } : {}), id: last.id }
+      ? {
+          v: 1,
+          k: 'eventList',
+          ...binding,
+          ...(Object.keys(window).length > 0 ? { w: window } : {}),
+          id: entryRowId(last.position)
+        }
       : undefined;
   return {
     source: ref,
@@ -365,42 +490,46 @@ export type EventGetParams = {
   anchor: { logId: EntryPosition } | { transactionId: string };
 };
 
-/** Looks the link up from the anchor row's request id. Only this lookup may need the org. */
+/** Looks the link up from a request id. Only this lookup may need the org. */
 export type ApexLogLookup = (requestId: string | undefined) => Promise<CustomLogApexLogLink>;
 
 async function anchorOf(
   store: EventStore,
   source: ResolvedEventSource,
   anchor: EventGetParams['anchor']
-): Promise<StoredEvent> {
-  if ('logId' in anchor) {
-    const found = anchor.logId.ordinal === 0 ? await store.find(anchor.logId.event) : undefined;
-    return found ?? notFound(`Event ${entryRowId(anchor.logId)}`);
-  }
+): Promise<EventEntry> {
   const event = source.shape.event;
+  if ('logId' in anchor) {
+    return (await findEntry(store, event, anchor.logId)) ?? notFound(`Event ${entryRowId(anchor.logId)}`);
+  }
   if (!event.roles.transactionId) unsupported(source, 'transaction id mapping');
-  for await (const stored of store.newestFirst({})) {
-    if (transactionOf(event, stored) === anchor.transactionId) return stored;
+  for await (const entry of entriesNewestFirst(store, event, {})) {
+    if (transactionOf(event, entry) === anchor.transactionId) return entry;
   }
   return notFound(`Transaction ${anchor.transactionId}`);
 }
 
-/** The anchor's transaction, in order: the mapped `order`, then position. Events with no `order` come last. */
+/**
+ * The anchor's transaction, in order: the mapped `order`, then publish order and payload order.
+ * Entries with no `order` come last. An entry of the same event with another transaction id is
+ * left out.
+ */
 async function transactionOfAnchor(
   store: EventStore,
   event: ResolvedEventObject,
-  anchor: StoredEvent
-): Promise<StoredEvent[]> {
+  anchor: EventEntry
+): Promise<EventEntry[]> {
   const key = transactionOf(event, anchor);
   if (key === undefined) return [anchor];
-  const { createdMs } = anchor.position;
+  const { createdMs } = anchor.stored.position;
   const around = await store.window(createdMs - TRANSACTION_WINDOW_MS, createdMs + TRANSACTION_WINDOW_MS);
-  const orderOf = (stored: StoredEvent): number => roleNumber(subjectOf(event, stored), event.roles.order) ?? Infinity;
+  const orderOf = (entry: EventEntry): number => roleNumber(entry.subject, event.roles.order) ?? Infinity;
   return around
-    .filter(stored => transactionOf(event, stored) === key)
-    .map(stored => ({ stored, order: orderOf(stored) }))
-    .sort((a, b) => a.order - b.order || compareNewestFirst(b.stored.position, a.stored.position))
-    .map(({ stored }) => stored);
+    .flatMap(stored => entriesOf(event, stored))
+    .filter(entry => transactionOf(event, entry) === key)
+    .map(entry => ({ entry, order: orderOf(entry) }))
+    .sort((a, b) => a.order - b.order || compareEntriesNewestFirst(b.entry.position, a.entry.position))
+    .map(({ entry }) => entry);
 }
 
 export async function getEvent(
@@ -425,25 +554,26 @@ export async function getEvent(
   const after = params.cursor ? decodeEventCursor(params.cursor, 'eventEntries', binding) : undefined;
 
   // A later page continues the window of the first: a newer occurrence of the transaction id must not move it.
-  const continued = after ? parseEntryRowId(after.id) : undefined;
-  const anchor = await anchorOf(store, source, continued ? { logId: continued } : params.anchor);
-  const members = (await transactionOfAnchor(store, event, anchor)).filter(stored => {
+  const anchor = await anchorOf(store, source, after ? { logId: after.at } : params.anchor);
+  const transaction = await transactionOfAnchor(store, event, anchor);
+  const members = transaction.filter(entry => {
     if (!minLevel) return true;
-    const level = levelOf(event, source.levels, subjectOf(event, stored));
+    const level = levelOf(event, source.levels, entry.subject);
     return level !== undefined && levelIndex(level) >= levelIndex(minLevel);
   });
 
   const offset = after?.n ?? 0;
   const page = members.slice(offset, offset + params.limit);
-  const entries = page.map((stored, index) =>
-    entryDto(event, source.levels, subjectOf(event, stored), offset + index + 1, true)
-  );
-  const log = entryRow(event, source.levels, subjectOf(event, anchor));
+  const entries = page.map((entry, index) => entryDto(event, source.levels, entry.subject, offset + index + 1, true));
+  const log = entryRow(event, source.levels, anchor.subject);
   const { items, payloadFields } = withPayloadSummary(entries, params.keep);
   const next: EventCursor | undefined =
     offset + page.length < members.length
-      ? { v: 1, k: 'eventEntries', ...binding, id: anchor.id, n: offset + page.length }
+      ? { v: 1, k: 'eventEntries', ...binding, id: entryRowId(anchor.position), n: offset + page.length }
       : undefined;
+  const requestId = [anchor, ...transaction]
+    .map(entry => roleText(entry.subject, event.roles.requestId))
+    .find(value => value !== undefined);
   return {
     source: ref,
     log,
@@ -451,7 +581,7 @@ export async function getEvent(
     entries: items,
     payloadFields,
     nextCursor: next ? encodeEventCursor(next) : null,
-    apexLog: await apexLog(log.requestId),
+    apexLog: await apexLog(requestId),
     store: info
   };
 }
@@ -464,11 +594,11 @@ export async function entryEvent(snapshot: EventSnapshot, entryId: EntryPosition
   if (snapshot.state === 'notCaptured') return notFound(missing);
   const { store, source, ref } = snapshot;
   const event = source.shape.event;
-  const found = (entryId.ordinal === 0 ? await store.find(entryId.event) : undefined) ?? notFound(missing);
-  const subject = subjectOf(event, found);
+  const found = (await findEntry(store, event, entryId)) ?? notFound(missing);
+  const { subject } = found;
   return {
     source: ref,
-    logId: found.id,
+    logId: subject.identity.id,
     entry: entryDto(event, source.levels, subject, 1, false),
     details: detailsOf(event, subject),
     rawPayload: rawPayloadOf(subject)
