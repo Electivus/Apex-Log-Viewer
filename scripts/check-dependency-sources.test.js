@@ -735,3 +735,50 @@ test('runs without installed dependencies while still rejecting hosted git short
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+function writePnpmFixture(baseDir, packagesSection) {
+  writeJson(baseDir, 'package.json', { name: 'fixture', private: true, dependencies: { leftpad: '1.0.0' } });
+  fs.writeFileSync(path.join(baseDir, 'pnpm-lock.yaml'), `lockfileVersion: '9.0'\n\npackages:\n\n${packagesSection}\n`);
+}
+
+test('ignores URLs in pnpm lockfile deprecated messages', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
+
+  try {
+    writePnpmFixture(
+      tempDir,
+      [
+        '  leftpad@1.0.0:',
+        '    resolution: {integrity: sha512-registry}',
+        '    deprecated: Deprecated due to a bug. See https://github.com/example/repo/issues/1.'
+      ].join('\n')
+    );
+
+    const result = runCheck(tempDir);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('still rejects a non-registry pnpm tarball next to a deprecated message', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
+
+  try {
+    writePnpmFixture(
+      tempDir,
+      [
+        '  leftpad@1.0.0:',
+        '    resolution: {tarball: https://evil.example/leftpad-1.0.0.tgz}',
+        '    deprecated: See https://github.com/example/repo/issues/1.'
+      ].join('\n')
+    );
+
+    const result = runCheck(tempDir);
+    assert.notEqual(result.status, 0, 'expected a non-registry tarball to fail');
+    assert.match(result.stderr, /pnpm-lock\.yaml:6 -> https:\/\/evil\.example\/leftpad-1\.0\.0\.tgz/);
+    assert.doesNotMatch(result.stderr, /issues\/1/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
