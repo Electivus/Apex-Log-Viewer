@@ -71,6 +71,11 @@ function errorOf(settled: Settled): AlvError {
 
 const checkpointCursor = async (store: EventStore) => (await store.checkpoint())?.cursor;
 
+const gapsOnScreen = (w: ReturnType<typeof watcher>) => {
+  const shown = w.updates.at(-1)?.store;
+  return shown?.state === 'captured' ? shown.gaps.map(gap => [gap.reason, gap.after, gap.before]) : [];
+};
+
 /** Event lines on disk, counting a re-stored copy that the readers would merge into one row. */
 function storedLines(store: EventStore): number {
   return fs
@@ -267,6 +272,83 @@ test('a rejected cursor writes the gap before the retained resubscribe, closes i
     );
     assert.equal(result.store.state === 'captured' ? result.store.gaps[0]?.before : undefined, busEvent(3).createdDate);
     assert.deepEqual(w.states(), ['connecting', 'catchingUp', 'reconnecting', 'catchingUp', 'live']);
+  });
+});
+
+test('a rejected cursor whose replay delivers only stored events shows a watcher the open gap, and the next stored event closes it', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+    await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
+    const { clock, transport, deps, hub } = setup(store);
+    const w = watcher({ follow: true });
+    const open = ['cursorRejected', busEvent(2).createdDate, undefined];
+
+    const done = hub.watch(store.location, w.watcher, deps);
+    const first = await transport.opened(0);
+    first.subscribed();
+    first.fail({ kind: 'cursorRejected' });
+    const retained = await transport.opened(1);
+    assert.deepEqual(gapsOnScreen(w), [open], 'the gap shows before the replay starts');
+
+    retained.subscribed();
+    retained.events(busEvent(1), busEvent(2, { cursor: 1_004 }));
+    await clock.advance(250);
+    await until(async () => (await checkpointCursor(store)) === cursorOf(4), 'the checkpoint at the replay tail');
+    await clock.advance(10_000);
+    await until(() => w.states().at(-1) === 'live', 'the run to go live');
+    assert.deepEqual(w.rows(), [], 'the replay stored nothing new');
+    assert.deepEqual(gapsOnScreen(w), [open], 'and the gap still shows');
+
+    retained.events(busEvent(3));
+    await clock.advance(250);
+    await until(() => w.rows().length === 1, 'the newer event to reach the watcher');
+    assert.deepEqual(gapsOnScreen(w), [['cursorRejected', busEvent(2).createdDate, busEvent(3).createdDate]]);
+    w.abort();
+    await settledOf(done);
+  });
+});
+
+for (const [reason, seed, lateMs] of [
+  ['retentionElapsed', {}, 73 * HOUR],
+  ['orgChanged', { orgId: '00D000000000009AAA' }, 0]
+] as const) {
+  test(`the ${reason} gap decided at start reaches a watcher before any event is stored`, async () => {
+    await withProject(async root => {
+      const store = openStore(root);
+      await seedCheckpoint(store, [busEvent(1), busEvent(2)], seed);
+      const { transport, deps, hub } = setup(store, { clock: new ManualClock(Date.now() + lateMs) });
+      const w = watcher({ follow: true, initial: 'retained' });
+
+      const done = hub.watch(store.location, w.watcher, deps);
+      await transport.opened(0);
+
+      assert.deepEqual(gapsOnScreen(w), [[reason, busEvent(2).createdDate, undefined]]);
+      w.abort();
+      await settledOf(done);
+    });
+  });
+}
+
+test('an unreadable delivery that nothing follows shows a watcher its gap', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+    await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
+    const { transport, deps, hub } = setup(store);
+    const w = watcher({ follow: true });
+
+    const done = hub.watch(store.location, w.watcher, deps);
+    const attempt = await transport.opened(0);
+    attempt.subscribed();
+    attempt.emit({ type: 'malformed' });
+
+    await until(async () => {
+      const coverage = await store.coverage();
+      return coverage.state === 'captured' && coverage.gaps.length === 1;
+    }, 'the gap on disk');
+    await until(() => gapsOnScreen(w).length === 1, 'the gap to reach the watcher');
+    assert.deepEqual(gapsOnScreen(w), [['malformedEvent', busEvent(2).createdDate, undefined]]);
+    w.abort();
+    await settledOf(done);
   });
 });
 
