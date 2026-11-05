@@ -17,7 +17,7 @@
   },
   "events": {
     "extension.activate": {
-      "description": "Production extension activation completed.",
+      "description": "Production extension activation completed. durationMs runs until project detection and the expired-cache cleanup finish; registrationMs until views and commands are registered.",
       "properties": {
         "outcome": {
           "classification": "SystemMetaData",
@@ -40,6 +40,10 @@
       },
       "measurements": {
         "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "registrationMs": {
           "classification": "SystemMetaData",
           "purpose": "PerformanceAndHealth"
         }

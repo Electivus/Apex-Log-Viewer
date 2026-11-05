@@ -37,6 +37,7 @@
 
 ### Fixes
 
+- Startup: the Logs and Tail views and the extension's commands are registered before activation reads `sfdx-project.json` or cleans the cache, so a busy VS Code no longer shows empty views or "command not found" for seconds after startup. `sourceApiVersion` is still applied, as soon as the project is read. Telemetry: `extension.activate` adds `registrationMs`, the time until views and commands exist.
 - Custom Logs: keep the stored position's `lastEvent` at the newest event after a replay that ends in events the store already holds. In a store with no open gap, the next gap could name an older time, and a retention gap could open early.
 - Custom Logs: show a possible gap on the capture strip as soon as capture records it. A gap from a rejected position, an unreadable delivery, a start past the 72-hour retention, or another org now shows at once. Before, it stayed off the strip until a later event was stored, so a replay of events the store already held left the strip on `Live` with no warning.
 - CLI: `sf electivus debug-level create` and `update` no longer fail without `--language`. `create` defaults the language to `en_US`. `update` now changes only the fields you pass, instead of resetting every other category and the label, and no longer needs `--developer-name`. Without `--yes`, both commands check the picklist values against the org, so the preview fails on a value the real call would reject; a preview now needs a reachable org, and `create` without `--developer-name` exits 2.

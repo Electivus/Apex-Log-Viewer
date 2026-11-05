@@ -101,17 +101,30 @@ async function initializePersistentCache(context: vscode.ExtensionContext): Prom
   await CacheManager.clearExpired();
 }
 
-export async function activate(context: vscode.ExtensionContext) {
+type SalesforceProjectInfo = Awaited<ReturnType<typeof findSalesforceProjectInfo>>;
+
+export interface ExtensionExports {
+  getApiVersion: typeof getApiVersion;
+  /** Resolves once project detection, the `sourceApiVersion` setup and the cache cleanup have finished. */
+  whenProjectReady: () => Promise<void>;
+}
+
+/**
+ * Registers every view, command and listener before anything is awaited. A file read or a
+ * `globalState` round trip can queue for seconds in a busy extension host, and until registration
+ * runs the views have no provider and the commands do not exist. Project detection, the
+ * `sourceApiVersion` setup and the expired-cache cleanup run afterwards in the background; requests
+ * read the API version when they are made, so they pick it up once it is set.
+ */
+export function activate(context: vscode.ExtensionContext): ExtensionExports {
   const activationStart = Date.now();
   LogViewerPanel.initialize(context);
   DebugFlagsPanel.initialize(context);
   LogsEditorPanel.initialize(context);
   TailEditorPanel.initialize(context);
-  const salesforceProject = await findSalesforceProjectInfo();
-  const hasSalesforceProject = !!salesforceProject;
-  // Init TTL cache (best-effort; no-op if unavailable)
+  // Init TTL cache (best-effort; no-op if unavailable). The expired-entry cleanup runs in the background.
   try {
-    await initializePersistentCache(context);
+    CacheManager.init(context.globalState);
   } catch {}
   try {
     clearListCache();
@@ -150,12 +163,8 @@ export async function activate(context: vscode.ExtensionContext) {
     const msg = getErrorMessage(e);
     logWarn('Failed to configure trace logging ->', msg);
   }
-  if (salesforceProject?.sourceApiVersion) {
-    setApiVersion(salesforceProject.sourceApiVersion);
-    logInfo('Detected sourceApiVersion from sfdx-project.json:', salesforceProject.sourceApiVersion);
-  } else if (hasSalesforceProject) {
-    logInfo('Detected Salesforce project workspace at', salesforceProject.workspaceRoot);
-  }
+  // Set by project detection below, once registration is done.
+  let salesforceProject: SalesforceProjectInfo = undefined;
   const provider = new SfLogsViewProvider(context);
   context.subscriptions.push(
     provider,
@@ -375,20 +384,47 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  const registrationMs = Date.now() - activationStart;
+
+  const projectDetected = (async () => {
+    try {
+      salesforceProject = await findSalesforceProjectInfo();
+    } catch (e) {
+      logWarn('Failed to detect the Salesforce project ->', getErrorMessage(e));
+      return;
+    }
+    if (salesforceProject?.sourceApiVersion) {
+      setApiVersion(salesforceProject.sourceApiVersion);
+      logInfo('Detected sourceApiVersion from sfdx-project.json:', salesforceProject.sourceApiVersion);
+    } else if (salesforceProject) {
+      logInfo('Detected Salesforce project workspace at', salesforceProject.workspaceRoot);
+    }
+  })();
+  const expiredCacheCleared = (async () => {
+    try {
+      await CacheManager.clearExpired();
+    } catch {}
+  })();
+  const projectReady = Promise.all([projectDetected, expiredCacheCleared]).then(() => {
+    // `durationMs` keeps covering activation up to project detection and the cache cleanup;
+    // `registrationMs` is the part before views and commands exist.
+    try {
+      safeSendEvent(
+        'extension.activate',
+        {
+          outcome: 'ok',
+          hasWorkspace: String(!!vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0),
+          hasSalesforceProject: String(!!salesforceProject)
+        },
+        { durationMs: Date.now() - activationStart, registrationMs }
+      );
+    } catch {}
+  });
+
   // Return exports for tests and programmatic use
-  try {
-    safeSendEvent(
-      'extension.activate',
-      {
-        outcome: 'ok',
-        hasWorkspace: String(!!vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0),
-        hasSalesforceProject: String(hasSalesforceProject)
-      },
-      { durationMs: Date.now() - activationStart }
-    );
-  } catch {}
   return {
-    getApiVersion
+    getApiVersion,
+    whenProjectReady: () => projectReady
   };
 }
 
