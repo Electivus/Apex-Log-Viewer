@@ -258,6 +258,7 @@ function branchOf(before, after, p) {
   return `${edge} (${before.lease !== before.tok[p] ? 'fence sees loss' : 'finish'})`;
 }
 
+/** Steps that leave a reclaim wait by the deadline: move the real clock past LEASE_RECLAIM_SETTLE_MS. */
 const SETTLE_SKEW_MS = 1_100;
 
 const modelMarkerName = chain => (chain.length === 1 ? chain : [chain[0], chain[chain.length - 1]]);

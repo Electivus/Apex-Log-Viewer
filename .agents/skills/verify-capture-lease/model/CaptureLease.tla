@@ -11,6 +11,8 @@ CONSTANTS
 None == 0
 Tokens == 1..MaxTokens
 
+(* Every combination of those two files is a state that two crashes leave:  *)
+(* Reach.cfg shows it.                                                       *)
 DeadHolder == 98
 DeadElector == 99
 Pids == Procs \cup (IF Leftovers THEN {DeadHolder, DeadElector} ELSE {})
