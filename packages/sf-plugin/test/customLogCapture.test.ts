@@ -248,7 +248,7 @@ test('--follow prints stored rows to stdout and everything else to stderr', asyn
     'Live. The stream went quiet, so the backlog is probably done; Salesforce sends no end marker.',
     'Stopping. Press Ctrl-C again to quit now.',
     `Delivered 3, stored 3. Store: ${STORE.eventsRoot}`,
-    'The budget of this run was about 11000 deliveries; the org had 22000 of 25000 daily event deliveries left when it started.',
+    'The budget of this run was about 11000 deliveries; the org had 22000 of 25000 daily event deliveries left when it first took the lease.',
     ''
   ]);
   assert.equal(calls[0]!.params.follow, true);
@@ -259,6 +259,32 @@ test('the summary of a run names the budget alone when Salesforce did not report
     `Delivered 2, stored 2. Store: ${STORE.eventsRoot}`,
     'The budget of this run was about 5000 deliveries.'
   ]);
+});
+
+test('a follow that stood by first still says the allowance is from when it first took the lease', async () => {
+  const allowance = { remaining: 19_000, max: 25_000, budget: 9_500 };
+  const calls = fakeCore(
+    untilAborted(
+      [
+        updateOf({
+          state: 'standby',
+          holder: { surface: 'vscode', pid: 4242, host: 'laptop', since: '2026-10-30T10:00:00.000Z' }
+        }),
+        updateOf({ state: 'connecting' }, { allowance })
+      ],
+      { delivered: 0, stored: 0, allowance }
+    )
+  );
+
+  const { err } = await withStreams(async () => {
+    const running = command('--follow')._run();
+    await until(() => calls.length === 1);
+    process.emit('SIGINT');
+    return running;
+  });
+
+  assert.match(err, /the org had 19000 of 25000 daily event deliveries left when it first took the lease\./);
+  assert.doesNotMatch(err, /when it started/);
 });
 
 test('--follow with --json keeps stdout and stderr for the result alone', async () => {

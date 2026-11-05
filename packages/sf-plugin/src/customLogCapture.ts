@@ -74,7 +74,7 @@ function allowanceAtStartLine(allowance: CustomLogCaptureAllowance): string {
   const budget = `The budget of this run was about ${allowance.budget} deliveries`;
   return allowance.remaining === undefined || allowance.max === undefined
     ? `${budget}.`
-    : `${budget}; the org had ${allowance.remaining} of ${allowance.max} daily event deliveries left when it started.`;
+    : `${budget}; the org had ${allowance.remaining} of ${allowance.max} daily event deliveries left when it first took the lease.`;
 }
 
 function spanOf(gap: CustomLogStoreGap): string {

@@ -79,7 +79,7 @@ A source whose `shape` is `events` reads a platform event, such as `nebula-event
    sf electivus custom-log capture --source app-events --target-org my-org --json
    ```
 
-   Read `result.outcome`, `delivered`, `stored`, `newGaps`, `store`, and `allowance`. `delivered` counts every event Salesforce sent, re-deliveries included, and `stored` counts only the events that were new to the store. `allowance` is what Salesforce reported when the run started: the org's `remaining` and `max` daily deliveries, absent when Salesforce did not report them, and the run's `budget`. `remaining` minus `delivered` estimates what the org has left. Every delivered event counts against the org's daily allocation, so do not run it in a loop. Use `--follow` only while a person reproduces a bug, and stop it with Ctrl-C, which exits with code 0.
+   Read `result.outcome`, `delivered`, `stored`, `newGaps`, `store`, and `allowance`. `delivered` counts every event Salesforce sent, re-deliveries included, and `stored` counts only the events that were new to the store. `allowance` is what Salesforce reported when the run first took the lease: the org's `remaining` and `max` daily deliveries, absent when Salesforce did not report them, and the run's `budget`. `remaining` minus `delivered` estimates what the org has left, and `delivered` can pass `budget` when the run loses the lease and wins it back. Every delivered event counts against the org's daily allocation, so do not run it in a loop. Use `--follow` only while a person reproduces a bug, and stop it with Ctrl-C, which exits with code 0.
 
 2. Search. `store.eventsRoot` names the directory. The store ignores itself, so pass `--no-ignore`:
 

@@ -22,7 +22,7 @@ export default class CustomLogCapture extends AlvCommand<PrintsAsJson<CustomLogC
     'A drain that hears nothing over a stored position older than one hour, or on a first run that replays retained events, waits the whole --max-time before it stops, ' +
     'because the first event of a backlog can take that long. Lower --max-time for a stream you know is quiet.\n\n' +
     'The result says why the run stopped (outcome), how many events it delivered and stored, and where the store is. ' +
-    "allowance holds the org's daily event delivery allocation that Salesforce reported when the run started (remaining and max, absent when Salesforce did not report them) and this run's budget; " +
+    "allowance holds the org's daily event delivery allocation that Salesforce reported when the run first took the lease (remaining and max, absent when Salesforce did not report them) and this run's budget; delivered can pass budget when the run loses the lease and wins it back; " +
     'remaining minus delivered estimates what is left. ' +
     'A drain that finds another VS Code window or sf command capturing the source stops at once with outcome capturedElsewhere, ' +
     'and holder names that process: its surface, pid, host, and since, when it started capturing.\n\n' +
