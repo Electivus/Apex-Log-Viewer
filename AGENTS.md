@@ -17,6 +17,7 @@
 - `scripts/` contains build/test helper scripts.
 - `skills/` contains the neutral, portable Agent Skills catalog: `apex-log-viewer-cli`, `apex-debug-investigate`, and `apex-debug-performance`. Install through the standard `skills` CLI, the offline Salesforce plugin installer, or the complete `electivus-debug` agent plugin.
 - `plugins/electivus-debug/` and the root marketplace catalogs are generated from `skills/` and `config/agent-plugin.json`. Run `pnpm run build:agent-plugin` after source edits and commit the outputs; do not hand-edit the bundle. `pnpm run check:agent-plugin` verifies freshness.
+- `.agents/skills/` contains the repo-only agent skills for working on this repository: `verify-apex-log-viewer` (drive the product against a real org) and `verify-capture-lease` (TLA+ model check of the Custom Logs capture lease, replayed on the real code). Hermes, Codex and other agents read `.agents/skills/`. Claude Code reads only `.claude/skills/`, so each skill has a relative symlink there (`ln -s ../../.agents/skills/<name> .claude/skills/<link>`); the link name may differ from the skill name, as `.claude/skills/verify` points at `verify-apex-log-viewer`. Hermes loads them once the checkout is trusted with `hermes skills trust`. Each skill sets `metadata.internal: true`, which keeps it out of the public `skills/` catalog. `scripts/repo-agent-skills.test.js` enforces the link targets and the `metadata.internal` flag.
 
 ## Shared Runtime Strategy
 
