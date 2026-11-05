@@ -145,7 +145,7 @@ jobs:
 
       - name: Upload CLI E2E artifacts
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: playwright-cli-e2e
           path: output/playwright-cli/
@@ -192,7 +192,7 @@ jobs:
 
       - name: Upload Playwright artifacts
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: playwright-e2e
           path: output/playwright/
@@ -356,7 +356,7 @@ jobs:
 
       - name: Upload CLI E2E artifacts
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: playwright-cli-e2e-${{ matrix.os.artifact_suffix }}
           path: output/playwright-cli/
@@ -390,7 +390,7 @@ jobs:
 
       - name: Upload Playwright artifacts
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: playwright-e2e-${{ matrix.os.artifact_suffix }}
           path: output/playwright/
