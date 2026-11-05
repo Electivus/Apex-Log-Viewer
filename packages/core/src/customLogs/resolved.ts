@@ -18,6 +18,7 @@ import type { LevelTable } from './levels.js';
 
 /** A field confirmed by describe. `api` is the qualified path to put in SOQL. */
 export type ResolvedField = {
+  readonly from: 'field';
   /** As written in the definition, unprefixed. Stable across namespaces; used as DTO key. */
   readonly key: string;
   readonly api: string;
@@ -32,6 +33,7 @@ export type ResolvedTimeField = ResolvedField & { readonly encoding: 'datetime' 
 
 /** `CreatedDate`: never null, always sortable and filterable. The list keyset and the time fallback. */
 export const CREATED_DATE: ResolvedTimeField = {
+  from: 'field',
   key: 'CreatedDate',
   api: 'CreatedDate',
   label: 'Created Date',
@@ -78,6 +80,41 @@ export type ResolvedDetail = ResolvedLongField & {
 
 export type ResolvedPayload = ResolvedLongField & { readonly columns: readonly PayloadPath[] };
 
+/** A role read from the row's payload at `path`. Never checked against describe: the value says what it is. `key` is the path, for DTO keys. */
+export type ResolvedPayloadPath = { readonly from: 'path'; readonly key: string; readonly path: PayloadPath };
+
+/** Where a role's value comes from. `decode.ts` switches on `from` in one place. */
+export type RoleSource = ResolvedField | ResolvedPayloadPath;
+/** A path time has no `encoding`: a number is epoch milliseconds, a string a datetime literal. */
+export type TimeSource = ResolvedTimeField | ResolvedPayloadPath;
+
+/** The roles the decoders read. Record roles are all fields; event roles may be paths. */
+export type DecodableRoles = ByRole<typeof ENTRY_ROLES, RoleSource> & { readonly time: TimeSource };
+
+/**
+ * An event's payload. `document`: one JSON per event, as a record payload. `entries`: fields in
+ * mapping order that each hold a JSON array whose elements are the rows; a hidden field stays
+ * listed as hidden and contributes no row. `rolePaths` are the paths the roles read, picked whole.
+ */
+export type ResolvedEventPayload = {
+  readonly columns: readonly PayloadPath[];
+  readonly rolePaths: ReadonlySet<string>;
+} & (
+  | { readonly kind: 'document'; readonly field: ResolvedLongField }
+  | { readonly kind: 'entries'; readonly fields: readonly [ResolvedLongField, ...ResolvedLongField[]] }
+);
+
+/** The fields of an event payload this user can read, in mapping order. */
+export function readablePayloadFields(payload: ResolvedEventPayload): ResolvedField[] {
+  const fields = payload.kind === 'document' ? [payload.field] : payload.fields;
+  return fields.flatMap(field => (field.state === 'readable' ? [field.field] : []));
+}
+
+/** The readable fields whose arrays expand into rows; undefined when the payload is one document. */
+export function expandedPayloadFields(payload: ResolvedEventPayload): ResolvedField[] | undefined {
+  return payload.kind === 'entries' ? readablePayloadFields(payload) : undefined;
+}
+
 /** Every mapped role describe returned. Required roles are always there; a hidden optional role is absent. */
 export type ResolvedEntryRoles = ByRole<typeof ENTRY_ROLES, ResolvedField> & { readonly time: ResolvedTimeField };
 
@@ -113,11 +150,13 @@ export type ResolvedTransactionObject = {
   readonly levelPredicate: HeaderLevelPredicate;
 };
 
-/** What the decoders (`decode.ts`) read from an entry object: the parts that do not describe a query. */
-export type DecodableEntryObject = Pick<
-  ResolvedEntryObject,
-  'roles' | 'columns' | 'details' | 'payload' | 'systemMessagePrefix'
->;
+/** What the decoders (`decode.ts`) read from an entry object: the parts that do not describe a query. The payload belongs to the row (`Subject`). */
+export type DecodableEntryObject = {
+  readonly roles: DecodableRoles;
+  readonly columns: readonly ResolvedField[];
+  readonly details: readonly ResolvedDetail[];
+  readonly systemMessagePrefix?: string;
+};
 
 /**
  * A platform event resolved against a describe, live or stored. It has no `keyPrefix`,
@@ -130,6 +169,7 @@ export type ResolvedEventObject = DecodableEntryObject & {
   readonly object: string;
   /** `/event/<describe.name>`. The only place the channel string is built. */
   readonly channel: string;
+  readonly payload?: ResolvedEventPayload;
 };
 
 export type ResolvedRecordShape =

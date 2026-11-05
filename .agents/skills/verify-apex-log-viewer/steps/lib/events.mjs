@@ -13,8 +13,8 @@ const EVENTS_ORG_ALIAS = 'alv-events';
 /** The event for scenarios that may replay `-2`: its retained backlog is only what the specs and steps published. */
 export const DEFAULT_OBJECT = 'ALV_Test_Replay__e';
 
-/** Writes the source into the session workspace's sfdx-project.json, the file a user edits. */
-export async function mapEventSource(session, object) {
+/** Writes the source into the session workspace's sfdx-project.json, the file a user edits. `mapping` is a full `event` object that replaces the default one. */
+export async function mapEventSource(session, object, mapping) {
   const file = path.join(session.workspacePath, 'sfdx-project.json');
   const project = JSON.parse(await readFile(file, 'utf8'));
   project.plugins = {
@@ -24,7 +24,7 @@ export async function mapEventSource(session, object) {
           {
             id: SOURCE_ID,
             label: 'ALV events',
-            event: {
+            event: mapping ?? {
               object,
               fields: {
                 time: 'Logged_At__c',
@@ -44,7 +44,7 @@ export async function mapEventSource(session, object) {
 }
 
 /** Publishes `count` synthetic events to the events org and returns `{ runTag, transactionId, published }`. */
-export async function publishEvents(session, { count, object, transactionId = 'verify' }) {
+export async function publishEvents(session, { count, object, transactionId = 'verify', payloadEntries }) {
   const { stdout } = await execFileAsync(
     process.execPath,
     [
@@ -55,7 +55,8 @@ export async function publishEvents(session, { count, object, transactionId = 'v
       '--transaction-id',
       transactionId,
       '--object',
-      object
+      object,
+      ...(payloadEntries === undefined ? [] : ['--payload-entries', String(payloadEntries)])
     ],
     { cwd: session.repoRoot, timeout: 5 * 60_000 }
   );
@@ -124,14 +125,14 @@ export async function waitForRunToEnd(root, timeoutMs = 30_000) {
 }
 
 /** Opens the Custom Logs panel on the event source and tall enough to show rows. */
-export async function openEventsPanel({ h, session, expect }, object) {
+export async function openEventsPanel({ h, session, expect }, object, mapping) {
   if (session.org.alias !== EVENTS_ORG_ALIAS) {
     // Publishing always goes to alv-events, so on any other org the rows could never appear.
     throw new Error(
       `The events-* steps need a session started with --target-org ${EVENTS_ORG_ALIAS}; this one runs on ${session.org.alias}.`
     );
   }
-  await mapEventSource(session, object);
+  await mapEventSource(session, object, mapping);
   await h.setWorkspaceSetting('electivus.apexLogViewer.customLogs.enabled', true);
   await h.runCommandWhenAvailable('Electivus Custom Logs: Focus on Electivus Custom Logs View');
   await h.runCommandWhenAvailable('Electivus Apex Logs: Refresh Custom Logs');

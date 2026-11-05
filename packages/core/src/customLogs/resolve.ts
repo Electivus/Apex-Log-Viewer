@@ -15,7 +15,9 @@ import {
   type DetailDefinition,
   type EntryDefinition,
   type EventDefinition,
+  type EventPayloadDefinition,
   type FieldPath,
+  type PathRef,
   type PayloadDefinition,
   type RecordShapeDefinition,
   type RoleSpec,
@@ -29,6 +31,7 @@ import {
   CREATED_DATE,
   assertNever,
   filterableField,
+  readablePayloadFields,
   type CatalogEntry,
   type CatalogHead,
   type EntryLevelPredicate,
@@ -36,12 +39,15 @@ import {
   type ResolvedDetail,
   type ResolvedEntryObject,
   type ResolvedEventObject,
+  type ResolvedEventPayload,
   type ResolvedField,
   type ResolvedLongField,
   type ResolvedPayload,
+  type ResolvedPayloadPath,
   type ResolvedRecordShape,
   type ResolvedTimeField,
-  type ResolvedTransactionObject
+  type ResolvedTransactionObject,
+  type RoleSource
 } from './resolved.js';
 import { findField, referenceFor, type DescribedField, type ObjectDescribe, type SchemaReader } from './schema.js';
 
@@ -145,6 +151,7 @@ class ObjectResolver {
       });
     }
     return {
+      from: 'field',
       key: path,
       api: found.api,
       label: found.field.label,
@@ -172,17 +179,39 @@ class ObjectResolver {
     return field;
   }
 
-  /** Every mapped role. A required one missing or hidden fails the source; a hidden optional one is dropped. */
-  roles<R extends Record<string, RoleSpec>>(specs: R, paths: ByRole<R, string>, at: string): ByRole<R, ResolvedField> {
-    const resolved: Record<string, ResolvedField> = {};
+  /**
+   * Every mapped role. A required one missing or hidden fails the source; a hidden optional one is
+   * dropped. A `{ path }` role is never checked against describe: being mapped satisfies it.
+   */
+  roles<R extends Record<string, RoleSpec>>(
+    specs: R,
+    refs: Readonly<Partial<Record<string, string>>>,
+    at: string
+  ): ByRole<R, ResolvedField>;
+  roles<R extends Record<string, RoleSpec>>(
+    specs: R,
+    refs: Readonly<Partial<Record<string, string | PathRef>>>,
+    at: string
+  ): ByRole<R, RoleSource>;
+  roles<R extends Record<string, RoleSpec>>(
+    specs: R,
+    refs: Readonly<Partial<Record<string, string | PathRef>>>,
+    at: string
+  ): ByRole<R, RoleSource> {
+    const resolved: Record<string, RoleSource> = {};
     for (const [role, spec] of Object.entries(specs)) {
-      const path = (paths as Partial<Record<string, string>>)[role];
-      if (path === undefined) continue;
+      const ref = refs[role];
+      if (ref === undefined) continue;
       const what = `${at}.fields.${role}`;
-      const field = spec.required ? this.required(path, spec.types, what) : this.optional(path, spec.types, what);
-      if (field) resolved[role] = field;
+      const source =
+        typeof ref === 'string'
+          ? spec.required
+            ? this.required(ref, spec.types, what)
+            : this.optional(ref, spec.types, what)
+          : pathSource(ref);
+      if (source) resolved[role] = source;
     }
-    return resolved as ByRole<R, ResolvedField>;
+    return resolved as ByRole<R, RoleSource>;
   }
 
   columns(paths: readonly string[], at: string): ResolvedField[] {
@@ -212,7 +241,27 @@ class ObjectResolver {
   payload(definition: PayloadDefinition<string> | undefined, at: string): ResolvedPayload | undefined {
     return definition && { ...this.longField(definition.field, at), columns: definition.columns };
   }
+
+  /**
+   * An event's payload. Two `entries` names describe resolves to one field (`findField` compares
+   * case-insensitively, the parser exactly) collapse to the first, so no element is listed twice.
+   */
+  eventPayload(definition: EventPayloadDefinition, rolePaths: ReadonlySet<string>): ResolvedEventPayload {
+    const { columns } = definition;
+    if ('field' in definition) {
+      return { kind: 'document', field: this.longField(definition.field, 'event.payload'), columns, rolePaths };
+    }
+    const seen = new Set<string>();
+    const names = definition.entries.filter(name => {
+      const lower = name.toLowerCase();
+      return seen.has(lower) ? false : seen.add(lower);
+    });
+    const [first, ...rest] = names.map(name => this.longField(name, `event.payload.entries.${name}`));
+    return { kind: 'entries', fields: [first!, ...rest], columns, rolePaths };
+  }
 }
+
+const pathSource = ({ path }: PathRef): ResolvedPayloadPath => ({ from: 'path', key: path, path });
 
 function timeFieldOf(field: ResolvedField): ResolvedTimeField {
   return { ...field, encoding: field.type === 'datetime' ? 'datetime' : 'epochMillis' };
@@ -294,6 +343,31 @@ function notAnEvent(described: ObjectDescribe): ResolveFailure {
 }
 
 /**
+ * When nothing can read the payload, a path role reads nothing: a required one fails the source,
+ * an optional one is dropped and listed as hidden, like a field describe omits.
+ */
+function dropUnreadablePathRoles(
+  roles: ByRole<typeof ENTRY_ROLES, RoleSource>,
+  payload: ResolvedEventPayload | undefined,
+  hidden: string[]
+): ByRole<typeof ENTRY_ROLES, RoleSource> {
+  if (payload && readablePayloadFields(payload).length > 0) return roles;
+  const kept: Record<string, RoleSource> = {};
+  for (const [role, spec] of Object.entries(ENTRY_ROLES)) {
+    const source = (roles as Partial<Record<string, RoleSource>>)[role];
+    if (!source) continue;
+    if (source.from === 'field') kept[role] = source;
+    else if (spec.required) {
+      throw new Fail({
+        reason: 'requiredFieldMissing',
+        message: `event.fields.${role} reads the payload path "${source.path}", but every payload field is missing or hidden from this user.`
+      });
+    } else hidden.push(`event.fields.${role}`);
+  }
+  return kept as ByRole<typeof ENTRY_ROLES, RoleSource>;
+}
+
+/**
  * One `event` mapping against the describe of its object, live or stored. Platform event custom
  * fields cannot be picklists, so the level table falls back to the aliases and the source's `levels`.
  */
@@ -304,14 +378,17 @@ function resolveEventObject(
 ): { object: ResolvedEventObject; hidden: string[] } {
   if (!described.name.endsWith('__e') || described.queryable) throw new Fail(notAnEvent(described));
   const resolver = new ObjectResolver(described, new Map([[described.name, described]]), namespace, true);
-  const roles = resolver.roles(ENTRY_ROLES, event.fields, 'event');
+  const mapped = resolver.roles(ENTRY_ROLES, event.fields, 'event');
+  const rolePaths = new Set(Object.values(mapped).flatMap(source => (source.from === 'path' ? [source.path] : [])));
+  const payload = event.payload && resolver.eventPayload(event.payload, rolePaths);
+  const roles = dropUnreadablePathRoles(mapped, payload, resolver.hidden);
   const object: ResolvedEventObject = {
     object: described.name,
     channel: `/event/${described.name}`,
-    roles: { ...roles, time: timeFieldOf(roles.time) },
+    roles: { ...roles, time: roles.time.from === 'field' ? timeFieldOf(roles.time) : roles.time },
     columns: resolver.columns(event.columns, 'event'),
     details: resolver.details(event.details, 'event'),
-    ...(event.payload ? { payload: resolver.payload(event.payload, 'event.payload') } : {}),
+    ...(payload ? { payload } : {}),
     ...(event.systemMessagePrefix ? { systemMessagePrefix: event.systemMessagePrefix } : {})
   };
   return { object, hidden: resolver.hidden };
@@ -476,7 +553,10 @@ function resolveEventSource({
         ...(namespace ? { namespace } : {}),
         digest: definition.digest,
         shape: { kind: 'events', event: object },
-        levels: buildLevelTable(definition.levels, picklistValuesOf(described, object.roles.level)),
+        levels: buildLevelTable(
+          definition.levels,
+          picklistValuesOf(described, object.roles.level?.from === 'field' ? object.roles.level : undefined)
+        ),
         hidden
       }
     };

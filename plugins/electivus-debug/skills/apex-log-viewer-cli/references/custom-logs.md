@@ -51,6 +51,8 @@ sf electivus custom-log get --log-id a0A000000000001AAA --target-org my-org --mi
 
 When a source in `sources` has a `payload` field, rows and entries have `payload.state`. The states are `parsed`, `invalid`, `text`, `empty`, and `hidden`. A `parsed` payload has `values`, keyed by flattened paths such as `orderId`, `http.status`, or `lines[0].sku`. Each page also returns `payloadFields`, which lists every path seen on that page.
 
+An event source can map `payload.entries` (one or more fields that each hold a JSON array) so that each element is a row. Then `values` holds the paths of the element, relative to it, such as `traceId`. Roles can read these paths, so levels, users and transaction ids of such rows are per entry.
+
 Salesforce cannot filter long text, so filter the loaded rows with `jq`. `--payload-fields` keeps only the named paths in `values`:
 
 ```bash
@@ -98,6 +100,8 @@ A source whose `shape` is `events` reads a platform event, such as `nebula-event
    ```
 
    `get` returns the event as `log` and the stored events of its transaction in `entries`. `entry` returns the full message, each detail, and the payload. An event id needs `--source`. Without it, the command fails with `CUSTOM_LOG_SOURCE_REQUIRED`.
+
+   A source whose `payload.entry.entries` in `sources` is set reads each item of a JSON array as its own entry, so a row is an entry, not an event. The first entry has the 55-character event id, and each later entry adds `-<ordinal>` (60 characters). An `rg` hit's `id` passed to `entry --entry-id` opens the first entry of the event, and `logId` in the `entry` result is the canonical id. `get --transaction-id` groups per entry across events. `--min-level` and `--user` filter per entry. `rawPayload` of `entry` is the element.
 
 On the first run for an org, `--initial retained`, the default, replays up to 72 hours of events and spends allocation. `--initial new` starts with the events published from now on. Choose `retained` when the task needs events that were already published.
 

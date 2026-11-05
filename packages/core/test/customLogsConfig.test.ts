@@ -8,8 +8,11 @@ import type { CustomLogConfigIssue } from '../src/customLogs/contracts.ts';
 import { loadCustomLogsConfig, parseCustomLogsConfig, parseSourceDefinition } from '../src/customLogs/config.ts';
 import { BUILTIN_PRESETS, NEBULA_MANAGED_PRESET, NEBULA_PRESET, qualifyPath } from '../src/customLogs/presets.ts';
 import {
+  appEntriesSource,
   appEventSource,
   appLogSource,
+  entriesRole,
+  entriesSource,
   entrySource,
   eventSource,
   headerSource,
@@ -434,4 +437,179 @@ test('loadCustomLogsConfig reads eventRetentionDays from the project and default
   await withProject({ 'sfdx-project.json': '{ "plugins": ' }, async root => {
     assert.equal((await loadCustomLogsConfig(root)).eventRetentionDays, 30);
   });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Payload entries and path roles (issue #1240)
+
+test('the entries mapping of issue #1240 parses with every role kept as written and an entries payload', () => {
+  const { sources, issues } = parseSources(appEntriesSource);
+
+  assert.deepEqual(issues, []);
+  const event = sources[0].shape.kind === 'events' ? sources[0].shape.event : undefined;
+  assert.deepEqual(event?.fields, {
+    time: { path: 'timestamp' },
+    message: { path: 'msg' },
+    level: { path: 'level' },
+    user: { path: 'username' },
+    transactionId: { path: 'traceId' },
+    origin: { path: 'caller' }
+  });
+  assert.deepEqual(event?.payload, { entries: ['Payload__c', 'Payload2__c'], columns: ['traceId', 'level', 'msg'] });
+});
+
+test('a path role reads the one document of a field payload, and a field role sits beside path roles', () => {
+  const { sources, issues } = parseSources(
+    eventSource({ fields: { time: 'Logged_At__c', message: { path: 'msg' }, messageTruncated: { path: 'cut' } } })
+  );
+
+  assert.deepEqual(issues, []);
+  const event = sources[0].shape.kind === 'events' ? sources[0].shape.event : undefined;
+  assert.deepEqual(event?.fields, {
+    time: 'Logged_At__c',
+    message: { path: 'msg' },
+    messageTruncated: { path: 'cut' }
+  });
+  assert.deepEqual(event?.payload, { field: 'Payload__c', columns: [] });
+});
+
+test('a bare entries payload has no columns, and entries may list up to eight fields', () => {
+  const eight = Array.from({ length: 8 }, (_, i) => `F${i}__c`);
+  const { sources, issues } = parseSources(entriesSource({ payload: { entries: eight } }));
+
+  assert.deepEqual(issues, []);
+  const event = sources[0].shape.kind === 'events' ? sources[0].shape.event : undefined;
+  assert.deepEqual(event?.payload, { entries: eight, columns: [] });
+});
+
+test('every malformed path role or entries payload is reported at its own pointer with the existing codes', () => {
+  const nine = Array.from({ length: 9 }, (_, i) => `F${i}__c`);
+  const cases: [string, Json, string, string][] = [
+    [
+      'a role object with an extra key',
+      entriesRole('level', { path: 'level', zz: 1 }),
+      'unknownKey',
+      'event/fields/level/zz'
+    ],
+    [
+      'a role object without path',
+      entriesRole('level', { paht: 'level' }),
+      'missingRequired',
+      'event/fields/level/path'
+    ],
+    ['a path that is not a string', entriesRole('level', { path: 7 }), 'invalidValue', 'event/fields/level/path'],
+    ['an empty path', entriesRole('level', { path: '' }), 'invalidValue', 'event/fields/level/path'],
+    [
+      'a path over 255 characters',
+      entriesRole('level', { path: 'x'.repeat(256) }),
+      'invalidValue',
+      'event/fields/level/path'
+    ],
+    ['a role that is a number', entriesRole('level', 7), 'invalidValue', 'event/fields/level'],
+    ['a role that is an array', entriesRole('level', ['Level__c']), 'invalidValue', 'event/fields/level'],
+    ['a role that is null', entriesRole('level', null), 'invalidValue', 'event/fields/level'],
+    ['a role string with a dot', entriesRole('level', 'ctx.level'), 'invalidValue', 'event/fields/level'],
+    ['a role string with a bracket', entriesRole('level', 'levels[0]'), 'invalidValue', 'event/fields/level'],
+    [
+      'a path role without a payload',
+      eventSource({ fields: { time: 'Logged_At__c', message: { path: 'msg' } }, payload: undefined }),
+      'missingRequired',
+      'event/payload'
+    ],
+    [
+      'field and entries together',
+      entriesSource({ payload: { field: 'Payload__c', entries: ['Payload__c'] } }),
+      'invalidValue',
+      'event/payload/entries'
+    ],
+    [
+      'a payload object with neither',
+      entriesSource({ payload: { columns: ['a'] } }),
+      'missingRequired',
+      'event/payload/field'
+    ],
+    [
+      'entries that is a string',
+      entriesSource({ payload: { entries: 'Payload__c' } }),
+      'invalidValue',
+      'event/payload/entries'
+    ],
+    ['empty entries', entriesSource({ payload: { entries: [] } }), 'invalidValue', 'event/payload/entries'],
+    ['nine entries', entriesSource({ payload: { entries: nine } }), 'invalidValue', 'event/payload/entries'],
+    [
+      'an entries item that is not a field name',
+      entriesSource({ payload: { entries: ['Payload__c', 'Owner.Json'] } }),
+      'invalidValue',
+      'event/payload/entries/1'
+    ],
+    [
+      'an entries item that is a number',
+      entriesSource({ payload: { entries: [1] } }),
+      'invalidValue',
+      'event/payload/entries/0'
+    ],
+    [
+      'the same field twice',
+      entriesSource({ payload: { entries: ['Payload__c', 'Payload2__c', 'Payload__c'] } }),
+      'invalidValue',
+      'event/payload/entries/2'
+    ]
+  ];
+  for (const [name, source, code, tail] of cases) {
+    const { sources, issues } = parseSources(source);
+    assert.ok(
+      issues.some(issue => issue.code === code && issue.pointer === `${SOURCE_0}/${tail}`),
+      `${name}: expected ${code}@${tail}, got ${JSON.stringify(codes(issues))}`
+    );
+    assert.equal(sources.length, code === 'unknownKey' ? 1 : 0, name);
+  }
+});
+
+test('the role message offers the path form for a dotted or indexed role, and the entries limit names its bound', () => {
+  const dotted = parseSources(entriesRole('level', 'ctx.level')).issues[0]!.message;
+  assert.match(dotted, /\{ "path": "ctx\.level" \}/);
+  assert.match(dotted, /Platform events have no relationships/);
+  const nine = parseSources(entriesSource({ payload: { entries: Array.from({ length: 9 }, (_, i) => `F${i}`) } }));
+  assert.match(nine.issues[0]!.message, /1 to 8 fields/);
+  assert.match(
+    parseSources(entriesSource({ payload: { field: 'Payload__c', entries: ['Payload__c'] } })).issues[0]!.message,
+    /cannot both be set/
+  );
+});
+
+test('the same field name spelled in another case is a different entries item for the parser, as it is for the schema', () => {
+  const { sources, issues } = parseSources(entriesSource({ payload: { entries: ['Payload__c', 'payload__c'] } }));
+
+  assert.deepEqual(issues, []);
+  assert.equal(sources.length, 1);
+});
+
+test('a record source takes field names only: a path role or an entries payload is an error there', () => {
+  const entryRole = parseSources(entrySource({ fields: { time: 'CreatedDate', message: { path: 'msg' } } }));
+  const headerRole = parseSources(headerSource({ fields: { startTime: { path: 'start' } } }));
+  const entryEntries = parseSources(entrySource({ payload: { entries: ['Payload__c'] } }));
+  const headerEntries = parseSources(headerSource({ payload: { entries: ['Body__c'] } }));
+
+  assert.deepEqual(codes(entryRole.issues), [`invalidValue@${SOURCE_0}/entry/fields/message`]);
+  assert.match(entryRole.issues[0]!.message, /event source only/);
+  assert.deepEqual(codes(headerRole.issues), [`invalidValue@${SOURCE_0}/transaction/fields/startTime`]);
+  assert.deepEqual(codes(entryEntries.issues), [`invalidValue@${SOURCE_0}/entry/payload/entries`]);
+  assert.deepEqual(codes(headerEntries.issues), [`invalidValue@${SOURCE_0}/transaction/payload/entries`]);
+  assert.deepEqual(
+    [entryRole.sources, headerRole.sources, entryEntries.sources, headerEntries.sources].map(list => list.length),
+    [0, 0, 0, 0]
+  );
+});
+
+test('an existing event mapping keeps the digest it had before path roles and entries existed', () => {
+  // Snapshots computed on main (145f046c) before this change, so an upgrade keeps every cursor valid.
+  const digest = (source: Json) => parseSources(source).sources[0].digest;
+
+  assert.equal(digest(appEventSource), '653dfbfaccd3');
+  assert.equal(digest(eventSource({ details: ['Stack_Trace__c'], payload: 'Payload__c' })), '419272cfb3e3');
+  assert.notEqual(
+    digest(eventSource({ fields: { time: 'Logged_At__c', message: { path: 'msg' } } })),
+    digest(appEventSource)
+  );
+  assert.notEqual(digest(entriesSource({ payload: { entries: ['Payload__c'] } })), digest(appEntriesSource));
 });

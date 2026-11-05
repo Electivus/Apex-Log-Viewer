@@ -5,12 +5,17 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { AlvError, createApexLogViewerCore } from '../src/index.ts';
+import { parseCustomLogsConfig } from '../src/customLogs/config.ts';
 import { CUSTOM_LOG_EVENT_ID_PATTERN, type CustomLogListResult } from '../src/customLogs/contracts.ts';
+import { decodeEventRows } from '../src/customLogs/events/read.ts';
 import { encodeCursor } from '../src/customLogs/queries.ts';
+import { resolveDefinition } from '../src/customLogs/resolve.ts';
+import type { ResolvedEventSource } from '../src/customLogs/resolved.ts';
+import type { ObjectDescribe } from '../src/customLogs/schema.ts';
 import { projectWith, type Json } from './support/customLogsFixtures.ts';
 import { alvTestLogDescribe, logEntryEventDescribe } from './support/describeFixtures.ts';
-import { eventObjectKey } from '../src/customLogs/events/store.ts';
-import { busEvent, seedEventStore } from './support/eventSeed.ts';
+import { eventObjectKey, openEventStore } from '../src/customLogs/events/store.ts';
+import { busEvent, seedEventStore, uuidOf } from './support/eventSeed.ts';
 import { page, startNebulaOrg } from './support/nebulaDouble.ts';
 import {
   ORG_ID,
@@ -104,6 +109,8 @@ async function world(
     reachable?: boolean;
     orgHandler?: DoubleHandler;
     project?: Json | null;
+    /** The describe the store was captured with. Default: the events org's `ALV_Test_Log__e`. */
+    describe?: ObjectDescribe;
   } = {}
 ) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-event-read-'));
@@ -117,7 +124,12 @@ async function world(
   );
   await saveOrgAuth(username, options.reachable === false ? UNREACHABLE_ORG : org.instanceUrl);
   if (options.events) {
-    await seedEventStore({ root, username, describe: alvTestLogDescribe(), events: options.events });
+    await seedEventStore({
+      root,
+      username,
+      describe: options.describe ?? alvTestLogDescribe(),
+      events: options.events
+    });
   }
   const core = createApexLogViewerCore();
   t.after(() => core.dispose());
@@ -897,4 +909,424 @@ test('nebula-events reads a stored LogEntryEvent__e offline: level from the ordi
   assert.deepEqual(messages(errors.rows), ['entry 1']);
   assert.equal(entry.details.find(detail => detail.key === 'ExceptionStackTrace__c')?.state, 'value');
   assert.equal(org.received, 0);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Entries of an event (issue #1240): every role a payload path, two fields that each hold a JSON array
+
+/** `ALV_Test_Log__e` read through its payload: each row is one element of `Payload__c` or `Stack_Trace__c`. */
+const alvEntries = (event: Json = {}): Json => ({
+  id: SOURCE,
+  label: 'ALV entries',
+  event: {
+    object: OBJECT,
+    fields: {
+      time: { path: 'at' },
+      message: { path: 'msg' },
+      level: { path: 'level' },
+      user: { path: 'user' },
+      transactionId: { path: 'tx' },
+      requestId: { path: 'req' },
+      order: { path: 'seq' }
+    },
+    columns: ['Epoch_Ms__c'],
+    payload: { entries: ['Payload__c', 'Stack_Trace__c'], columns: ['tx', 'level'] },
+    ...event
+  }
+});
+
+type Slots = { Payload__c?: string; Stack_Trace__c?: string };
+
+/** An `ALV_Test_Log__e` event numbered `n` whose array fields hold the given text, raw. */
+function slotEvent(n: number, at: number, slots: Slots) {
+  return busEvent(n, at, { Epoch_Ms__c: at, Username__c: 'dev@acme.com', ...slots });
+}
+
+/** The same with `Payload__c` holding `items` as JSON. */
+const itemsEvent = (n: number, at: number, items: unknown[], rest: Slots = {}) =>
+  slotEvent(n, at, { Payload__c: JSON.stringify(items), ...rest });
+
+const EVENT_ID_CHARS = 55;
+const suffixOf = (id: string) => id.slice(EVENT_ID_CHARS);
+const eventOf = (id: string) => id.slice(0, EVENT_ID_CHARS);
+
+test('list expands the array fields of each event into rows, highest ordinal first, and never drops an event', async t => {
+  const events = [
+    itemsEvent(1, T0 + 1 * MINUTE, [{ msg: 'a' }, { msg: 'b' }], { Stack_Trace__c: '[{"msg":"c"}]' }),
+    slotEvent(2, T0 + 2 * MINUTE, {}),
+    slotEvent(3, T0 + 3 * MINUTE, { Payload__c: '[]' }),
+    slotEvent(4, T0 + 4 * MINUTE, { Payload__c: 'plain text' }),
+    slotEvent(5, T0 + 5 * MINUTE, { Payload__c: '[{"msg":' }),
+    slotEvent(6, T0 + 6 * MINUTE, { Payload__c: '{"msg":"one object"}' }),
+    itemsEvent(7, T0 + 7 * MINUTE, [{ msg: 'o' }, 7, 'x', null, [1]]),
+    itemsEvent(8, T0 + 8 * MINUTE, [{ msg: 'a' }, { msg: 'b' }], { Stack_Trace__c: '{"broken":' }),
+    slotEvent(9, T0 + 9 * MINUTE, { Payload__c: '[]', Stack_Trace__c: '[{"msg":"c"}]' })
+  ];
+  const { core, scope } = await world(t, { events, source: alvEntries() });
+
+  const { rows } = await core.customLog.list({ ...scope, limit: 50 });
+
+  const seen = rows.map(row => [suffixOf(row.id), row.payload?.state, row.title]);
+  assert.deepEqual(seen, [
+    ['', 'parsed', 'c'],
+    ['-0002', 'invalid', undefined],
+    ['-0001', 'parsed', 'b'],
+    ['', 'parsed', 'a'],
+    ['-0004', 'parsed', '[1]'],
+    ['-0003', 'empty', undefined],
+    ['-0002', 'text', undefined],
+    ['-0001', 'text', undefined],
+    ['', 'parsed', 'o'],
+    ['', 'parsed', 'one object'],
+    ['', 'invalid', undefined],
+    ['', 'text', undefined],
+    ['', 'parsed', '[]'],
+    ['', 'empty', undefined],
+    ['-0002', 'parsed', 'c'],
+    ['-0001', 'parsed', 'b'],
+    ['', 'parsed', 'a']
+  ]);
+  const bases = [...new Set(rows.map(row => eventOf(row.id)))];
+  assert.equal(bases.length, 9, 'nine events, each a run of rows');
+  assert.deepEqual(bases, [...bases].sort().reverse(), 'events newest first');
+  for (const id of rows.map(row => row.id)) assert.match(id, CUSTOM_LOG_EVENT_ID_PATTERN);
+  assert.deepEqual(
+    [...rows].map(row => row.id),
+    [...rows.map(row => row.id)].sort().reverse(),
+    'ids sort as listed'
+  );
+});
+
+test('a row whose element has no mapped message shows the element as compact JSON, and a scalar element shows nothing', async t => {
+  const events = [itemsEvent(1, T0, [{ msg: 'has one' }, { type: 'metric', name: 'cpu', value: 3 }])];
+  const { core, scope } = await world(t, { events, source: alvEntries() });
+
+  const { rows, payloadFields } = await core.customLog.list(scope);
+
+  assert.deepEqual(messages(rows), ['{"type":"metric","name":"cpu","value":3}', 'has one']);
+  assert.deepEqual(
+    payloadFields.map(field => [field.path, field.rows]),
+    [
+      ['type', 1],
+      ['name', 1],
+      ['value', 1],
+      ['msg', 1]
+    ]
+  );
+});
+
+test('a row whose path roles read nothing keeps the event time and no level, so only a level filter leaves it out', async t => {
+  const events = [itemsEvent(1, T0, [{ at: T0 + MINUTE, level: 'ERROR', msg: 'timed' }, { msg: 'bare' }])];
+  const { core, scope } = await world(t, { events, source: alvEntries() });
+
+  const all = await core.customLog.list(scope);
+  const errors = await core.customLog.list({ ...scope, filter: { minLevel: 'ERROR' } });
+
+  assert.deepEqual(
+    all.rows.map(row => [row.title, row.time, row.level]),
+    [
+      ['bare', new Date(T0).toISOString(), undefined],
+      ['timed', new Date(T0 + MINUTE).toISOString(), 'ERROR']
+    ]
+  );
+  assert.deepEqual(messages(errors.rows), ['timed']);
+});
+
+test('list orders entries newest first across events, and filters the level and the user per entry', async t => {
+  const events = [
+    itemsEvent(1, T0, [
+      { msg: 'a', level: 'INFO', tx: 't-1', user: 'User@Example.com' },
+      { msg: 'b', level: 'DEBUG', tx: 't-2', user: 'other@example.com' }
+    ]),
+    itemsEvent(2, T0 + MINUTE, [{ msg: 'c', level: 'ERROR', tx: 't-1', user: 'user@example.com' }])
+  ];
+  const { core, scope } = await world(t, { events, source: alvEntries() });
+
+  const all = await core.customLog.list(scope);
+  const info = await core.customLog.list({ ...scope, filter: { minLevel: 'INFO' } });
+  const user = await core.customLog.list({ ...scope, filter: { user: 'USER@example.com' } });
+
+  assert.deepEqual(messages(all.rows), ['c', 'b', 'a']);
+  assert.deepEqual(
+    all.rows.map(row => row.transactionId),
+    ['t-1', 't-2', 't-1']
+  );
+  assert.deepEqual(messages(info.rows), ['c', 'a']);
+  assert.deepEqual(messages(user.rows), ['c', 'a']);
+});
+
+test('a page that ends inside an event resumes exactly there: no row twice, none skipped', async t => {
+  const events = Array.from({ length: 4 }, (_, event) =>
+    itemsEvent(
+      event + 1,
+      T0 + event * MINUTE,
+      Array.from({ length: 3 }, (_, item) => ({ msg: `e${event + 1}-${item}` }))
+    )
+  );
+  const { core, scope } = await world(t, { events, source: alvEntries() });
+
+  const seen: (string | undefined)[] = [];
+  let cursor: string | undefined;
+  let pages = 0;
+  do {
+    const result: CustomLogListResult = await core.customLog.list({ ...scope, limit: 5, cursor });
+    seen.push(...messages(result.rows));
+    cursor = result.nextCursor ?? undefined;
+    pages++;
+  } while (cursor && pages < 10);
+
+  assert.equal(pages, 3);
+  assert.deepEqual(
+    seen,
+    [4, 3, 2, 1].flatMap(event => [2, 1, 0].map(item => `e${event}-${item}`))
+  );
+});
+
+test('a list cursor inside an event that retention purged resumes with the older events', async t => {
+  const events = [
+    itemsEvent(1, T0, [{ msg: 'old-0' }, { msg: 'old-1' }]),
+    itemsEvent(2, T0 + HOUR, [{ msg: 'new-0' }, { msg: 'new-1' }, { msg: 'new-2' }])
+  ];
+  const { core, root, scope } = await world(t, { events, source: alvEntries() });
+  const first = await core.customLog.list({ ...scope, limit: 2 });
+  assert.deepEqual(messages(first.rows), ['new-2', 'new-1']);
+  assert.ok(first.nextCursor);
+
+  const purged = uuidOf(2);
+  const files = (await fs.readdir(root, { recursive: true }))
+    .filter(name => name.endsWith('.ndjson'))
+    .map(name => path.join(root, name));
+  const holding: string[] = [];
+  for (const file of files) if ((await fs.readFile(file, 'utf8')).includes(purged)) holding.push(file);
+  assert.equal(holding.length, 1, 'the newer event sits in one partition file');
+  await fs.rm(holding[0]!);
+  const later = createApexLogViewerCore();
+  t.after(() => later.dispose());
+
+  const second = await later.customLog.list({ ...scope, limit: 2, cursor: first.nextCursor! });
+
+  assert.deepEqual(messages(second.rows), ['old-1', 'old-0']);
+  assert.equal(second.nextCursor, null);
+});
+
+test('get by transaction id groups entries across events and leaves out the other transaction of the same event', async t => {
+  const events = [
+    itemsEvent(1, T0, [
+      { msg: 'a', tx: 't-1', seq: 1 },
+      { msg: 'z', tx: 't-2', seq: 1 }
+    ]),
+    itemsEvent(2, T0 + MINUTE, [{ msg: 'b', tx: 't-1', seq: 2 }])
+  ];
+  const { core, scope } = await world(t, { events, source: alvEntries() });
+  const list = await core.customLog.list(scope);
+
+  const got = await core.customLog.get({ ...scope, transactionId: 't-1' });
+
+  assert.equal(got.log.id, list.rows.find(row => row.title === 'b')!.id, 'anchored on the newest entry with the id');
+  assert.deepEqual(
+    got.entries.map(entry => [entry.message, entry.sequence, entry.id]),
+    [
+      ['a', 1, list.rows.find(row => row.title === 'a')!.id],
+      ['b', 2, list.rows.find(row => row.title === 'b')!.id]
+    ]
+  );
+  assert.equal(got.apexLog.state, 'noRequestId');
+});
+
+test('a transaction orders its entries by the order path, else by publish order then payload order', async t => {
+  const byOrder = await world(t, {
+    events: [
+      itemsEvent(1, T0, [
+        { msg: 'second', tx: 't-1', seq: 2 },
+        { msg: 'third', tx: 't-1', seq: 3 }
+      ]),
+      itemsEvent(2, T0 + MINUTE, [{ msg: 'first', tx: 't-1', seq: 1 }])
+    ],
+    source: alvEntries()
+  });
+  const byPosition = await world(t, {
+    events: [
+      itemsEvent(1, T0, [
+        { msg: 'older-0', tx: 't-1' },
+        { msg: 'older-1', tx: 't-1' }
+      ]),
+      itemsEvent(2, T0 + MINUTE, [{ msg: 'newer-0', tx: 't-1' }])
+    ],
+    source: alvEntries()
+  });
+
+  const ordered = await byOrder.core.customLog.get({ ...byOrder.scope, transactionId: 't-1' });
+  const positioned = await byPosition.core.customLog.get({ ...byPosition.scope, transactionId: 't-1' });
+
+  assert.deepEqual(
+    ordered.entries.map(entry => [entry.message, entry.sequence]),
+    [
+      ['first', 1],
+      ['second', 2],
+      ['third', 3]
+    ]
+  );
+  assert.deepEqual(
+    positioned.entries.map(entry => [entry.message, entry.sequence]),
+    [
+      ['older-0', 1],
+      ['older-1', 2],
+      ['newer-0', 3]
+    ]
+  );
+});
+
+test('get pages the entries of a transaction across events and keeps its anchor', async t => {
+  const events = [
+    itemsEvent(1, T0, [
+      { msg: 'a', tx: 't-1', seq: 1 },
+      { msg: 'b', tx: 't-1', seq: 2 }
+    ]),
+    itemsEvent(2, T0 + MINUTE, [{ msg: 'c', tx: 't-1', seq: 3 }])
+  ];
+  const { core, scope } = await world(t, { events, source: alvEntries() });
+  const anchor = (await core.customLog.list(scope)).rows.find(row => row.title === 'b')!.id;
+
+  const first = await core.customLog.get({ ...scope, logId: anchor, limit: 2 });
+  const second = await core.customLog.get({ ...scope, logId: anchor, limit: 2, cursor: first.nextCursor! });
+
+  assert.deepEqual(
+    first.entries.map(entry => entry.message),
+    ['a', 'b']
+  );
+  assert.deepEqual(
+    second.entries.map(entry => [entry.message, entry.sequence]),
+    [['c', 3]]
+  );
+  assert.equal(second.log.id, anchor);
+  assert.equal(second.nextCursor, null);
+});
+
+test('entry of an element returns its own id, its message or compact JSON, and the element pretty-printed', async t => {
+  const element = { type: 'metric', name: 'cpu', metrics: [{ name: 'heap', value: 12 }] };
+  const events = [itemsEvent(1, T0, [{ msg: 'first' }, element])];
+  const { core, scope } = await world(t, { events, source: alvEntries() });
+  const ids = (await core.customLog.list(scope)).rows.map(row => row.id);
+  const [second, first] = ids;
+
+  const result = await core.customLog.entry({ ...scope, entryId: second! });
+
+  assert.equal(suffixOf(second!), '-0001');
+  assert.equal(result.logId, second);
+  assert.equal(result.entry.id, second);
+  assert.equal(result.entry.message, JSON.stringify(element));
+  assert.deepEqual(result.details, []);
+  assert.deepEqual(result.rawPayload, { state: 'value', value: JSON.stringify(element, null, 2), format: 'json' });
+  assert.deepEqual(result.entry.payload?.state === 'parsed' && result.entry.payload.values, {
+    type: 'metric',
+    name: 'cpu',
+    'metrics[0].name': 'heap',
+    'metrics[0].value': 12
+  });
+  assert.equal((await core.customLog.entry({ ...scope, entryId: first! })).entry.message, 'first');
+});
+
+test('the plain event id opens the first entry of an expanding event, and an ordinal past the end is not found', async t => {
+  const events = [itemsEvent(1, T0, [{ msg: 'first' }, { msg: 'second' }])];
+  const { core, scope } = await world(t, { events, source: alvEntries() });
+  const ids = (await core.customLog.list(scope)).rows.map(row => row.id);
+  const plain = eventOf(ids[0]!);
+  assert.equal(ids[1], plain, 'ordinal 0 is the plain event id');
+
+  const opened = await core.customLog.entry({ ...scope, entryId: plain });
+  const got = await core.customLog.get({ ...scope, logId: plain });
+
+  assert.equal(opened.logId, plain);
+  assert.equal(opened.entry.message, 'first');
+  assert.equal(got.log.title, 'first');
+  assert.equal(
+    await codeOf(core.customLog.entry({ ...scope, entryId: `${plain}-0002` })),
+    'CUSTOM_LOG_RECORD_NOT_FOUND'
+  );
+  assert.equal(await codeOf(core.customLog.get({ ...scope, logId: `${plain}-0002` })), 'CUSTOM_LOG_RECORD_NOT_FOUND');
+});
+
+test('the ApexLog link takes the request id of the anchor, else the first one in transaction order', async t => {
+  const lookups: string[] = [];
+  const orgHandler: DoubleHandler = request => {
+    if (request.path !== '/tooling/query')
+      return { status: 404, body: [{ errorCode: 'NOT_FOUND', message: 'unexpected' }] };
+    lookups.push(request.query.get('q') ?? '');
+    return {
+      body: {
+        totalSize: 1,
+        done: true,
+        records: [{ Id: '07L000000000002AAA', StartTime: '2026-10-30T10:00:00.000+0000', LogLength: 64 }]
+      }
+    };
+  };
+  const events = [
+    itemsEvent(1, T0, [
+      { msg: 'no request', tx: 't-1', seq: 1 },
+      { msg: 'with request', tx: 't-1', seq: 2, req: 'SLB:req-9' }
+    ]),
+    itemsEvent(2, T0 + MINUTE, [{ msg: 'own request', tx: 't-1', seq: 3, req: 'SLB:req-3' }])
+  ];
+  const { core, scope } = await world(t, { events, source: alvEntries(), orgHandler });
+  const rows = (await core.customLog.list(scope)).rows;
+  const without = rows.find(row => row.title === 'no request')!.id;
+  const own = rows.find(row => row.title === 'own request')!.id;
+
+  const fallback = await core.customLog.get({ ...scope, logId: without });
+  const direct = await core.customLog.get({ ...scope, logId: own });
+
+  assert.equal(fallback.apexLog.state, 'linked');
+  assert.equal(direct.apexLog.state, 'linked');
+  assert.equal(lookups.length, 2);
+  assert.match(lookups[0]!, /req-9/);
+  assert.match(lookups[1]!, /req-3/);
+});
+
+test('when every array field is hidden, the event is one row whose payload is hidden', async t => {
+  const describe = alvTestLogDescribe();
+  const hidden = {
+    ...describe,
+    fields: describe.fields.filter(field => !['Payload__c', 'Stack_Trace__c'].includes(field.name))
+  };
+  const events = [
+    busEvent(1, T0, {
+      Logged_At__c: new Date(T0).toISOString(),
+      Message__c: 'seen',
+      Epoch_Ms__c: T0,
+      Payload__c: '[{"msg":"unseen"},{"msg":"unseen too"}]'
+    })
+  ];
+  const source = alvEntries({ fields: { time: 'Logged_At__c', message: 'Message__c', level: { path: 'level' } } });
+  const { core, scope } = await world(t, { events, source, describe: hidden });
+
+  const { rows } = await core.customLog.list(scope);
+
+  assert.deepEqual(
+    rows.map(row => [row.title, row.payload?.state, suffixOf(row.id)]),
+    [['seen', 'hidden', '']]
+  );
+});
+
+test('decodeEventRows yields every entry of every event, events in the order given and entries in payload order', async t => {
+  const events = [
+    itemsEvent(1, T0, [{ msg: 'a0' }, { msg: 'a1' }]),
+    itemsEvent(2, T0 + MINUTE, [{ msg: 'b0' }]),
+    itemsEvent(3, T0 + 2 * MINUTE, [{ msg: 'c0' }, { msg: 'c1' }, { msg: 'c2' }])
+  ];
+  const { root, username } = await world(t, { events, source: alvEntries() });
+  const stored = await openEventStore({ root, username, object: OBJECT }).window(T0 - 1, T0 + HOUR);
+  const { sources, issues } = parseCustomLogsConfig({ sources: [alvEntries()] });
+  assert.deepEqual(issues, []);
+  const entry = resolveDefinition(sources[0]!, 'config', '', new Map([[OBJECT, alvTestLogDescribe()]]));
+  assert.equal(entry.state, 'ready');
+  const source = (entry as Extract<typeof entry, { state: 'ready' }>).source;
+  assert.equal(source.shape.kind, 'events');
+
+  const { rows } = decodeEventRows(source as ResolvedEventSource, stored, {});
+
+  assert.deepEqual(messages(rows), ['a0', 'a1', 'b0', 'c0', 'c1', 'c2']);
+  assert.deepEqual(
+    rows.map(row => suffixOf(row.id)),
+    ['', '-0001', '', '', '-0001', '-0002']
+  );
 });

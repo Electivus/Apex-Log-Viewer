@@ -7,6 +7,7 @@ import { isDeepStrictEqual } from 'node:util';
 import Ajv2020 from 'ajv/dist/2020.js';
 
 import { AlvError, ApexLogLifecycleError, createApexLogViewerCore } from '../../src/index.ts';
+import type { CustomLogEntryParams, CustomLogGetParams, CustomLogListParams } from '../../src/customLogs/contracts.ts';
 import type { ApexLogRemote } from '../../src/logLifecycle.ts';
 
 type JsonObject = Record<string, unknown>;
@@ -296,6 +297,15 @@ async function executeScenario(scenario: ConformanceScenario, workspaceRoot: str
           }
         );
         break;
+      case 'customLog.list':
+        result = await core.customLog.list(request as unknown as CustomLogListParams);
+        break;
+      case 'customLog.get':
+        result = await core.customLog.get(request as unknown as CustomLogGetParams);
+        break;
+      case 'customLog.entry':
+        result = await core.customLog.entry(request as unknown as CustomLogEntryParams);
+        break;
       default:
         assert.fail(`unsupported TypeScript conformance operation: ${scenario.operation}`);
     }
@@ -342,7 +352,34 @@ async function loadScenarios(): Promise<ConformanceScenario[]> {
   );
 }
 
+/**
+ * Custom Logs resolve `targetOrg` through the Salesforce SDK's state aggregator, which reads the
+ * user's home. A throwaway home keeps the corpus hermetic: a username matches no alias and resolves as is.
+ */
+async function withIsolatedSalesforceHome<T>(run: () => Promise<T>): Promise<T> {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-conformance-sf-home-'));
+  const names = ['HOME', 'USERPROFILE', 'SF_DISABLE_LOG_FILE', 'SF_DISABLE_DNS_CHECK'] as const;
+  const saved = names.map(name => [name, process.env[name]] as const);
+  process.env.HOME = home;
+  process.env.USERPROFILE = home;
+  process.env.SF_DISABLE_LOG_FILE = 'true';
+  process.env.SF_DISABLE_DNS_CHECK = 'true';
+  try {
+    return await run();
+  } finally {
+    for (const [name, value] of saved) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    await fs.rm(home, { recursive: true, force: true });
+  }
+}
+
 export async function runTypeScriptConformance(): Promise<void> {
+  await withIsolatedSalesforceHome(runScenarios);
+}
+
+async function runScenarios(): Promise<void> {
   for (const scenario of await loadScenarios()) {
     const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), `alv-conformance-ts-${scenario.id}-`));
     try {
