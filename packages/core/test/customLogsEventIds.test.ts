@@ -3,15 +3,19 @@ import test from 'node:test';
 
 import { CUSTOM_LOG_EVENT_ID_PATTERN } from '../src/customLogs/contracts.ts';
 import {
+  ENTRY_ORDINAL_LIMIT,
   SEQ_LIMIT,
   cometdCursor,
+  compareEntriesNewestFirst,
   compareNewestFirst,
+  entryRowId,
   eventRowId,
   isCaptureSeq,
-  parseEventRowId,
+  parseEntryRowId,
   parseEventUuid,
   readCursor,
   type CaptureSeq,
+  type EntryPosition,
   type EventPosition
 } from '../src/customLogs/events/ids.ts';
 
@@ -63,13 +67,75 @@ function samplePositions(count: number): EventPosition[] {
 
 const ascending = (a: EventPosition, b: EventPosition) => compareNewestFirst(b, a);
 const compareStrings = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+const entryAt = (event: EventPosition, ordinal: number): EntryPosition => ({ event, ordinal });
 
-test('an event id round-trips its position and is 55 characters of the contract pattern', () => {
+/** Every event at ordinal 0 (its plain id) and at a few ordinals above, edges included. */
+function sampleEntries(count: number): EntryPosition[] {
+  const random = pseudoRandom(11);
+  return samplePositions(count).flatMap(event => [
+    entryAt(event, 0),
+    entryAt(event, 1),
+    entryAt(event, ENTRY_ORDINAL_LIMIT - 1),
+    entryAt(event, 1 + Math.floor(random() * (ENTRY_ORDINAL_LIMIT - 1)))
+  ]);
+}
+
+test('an event id round-trips its position as ordinal 0 and is 55 characters of the contract pattern', () => {
   for (const sample of samplePositions(200)) {
     const id = eventRowId(sample);
     assert.equal(id.length, 55);
     assert.match(id, CUSTOM_LOG_EVENT_ID_PATTERN);
-    assert.deepEqual(parseEventRowId(id), sample);
+    assert.deepEqual(parseEntryRowId(id), entryAt(sample, 0));
+    assert.equal(entryRowId(entryAt(sample, 0)), id);
+  }
+});
+
+test('an entry id above ordinal 0 adds four base36 digits, round-trips and matches the contract pattern', () => {
+  for (const sample of sampleEntries(100)) {
+    const id = entryRowId(sample);
+    assert.equal(id.length, sample.ordinal === 0 ? 55 : 60);
+    assert.match(id, CUSTOM_LOG_EVENT_ID_PATTERN);
+    assert.deepEqual(parseEntryRowId(id), sample);
+  }
+  assert.equal(entryRowId(entryAt(position(1000, 9, A), 1)).slice(55), '-0001');
+  assert.equal(entryRowId(entryAt(position(1000, 9, A), 36)).slice(55), '-0010');
+  assert.equal(entryRowId(entryAt(position(1000, 9, A), ENTRY_ORDINAL_LIMIT - 1)).slice(55), '-zzzz');
+});
+
+test('entry ids compare as strings in list order across both forms, whatever the event and ordinal', () => {
+  const samples = sampleEntries(100);
+
+  const byId = [...samples].sort((a, b) => compareStrings(entryRowId(a), entryRowId(b)));
+  const byPosition = [...samples].sort((a, b) => compareEntriesNewestFirst(b, a));
+
+  assert.deepEqual(byId, byPosition);
+  const newestFirst = [...samples].sort(compareEntriesNewestFirst).map(entryRowId);
+  assert.deepEqual(newestFirst, [...newestFirst].sort().reverse());
+});
+
+test('the ordinal orders entries of one event and never crosses into the next event', () => {
+  const event = position(1001, 1, A);
+  const newer = position(1001, 1, B);
+  const ordered = [entryAt(event, 0), entryAt(event, 1), entryAt(event, 2), entryAt(newer, 0)].map(entryRowId);
+
+  assert.deepEqual([...ordered].sort(), ordered);
+  assert.ok(compareEntriesNewestFirst(entryAt(event, 2), entryAt(event, 1)) < 0);
+  assert.ok(compareEntriesNewestFirst(entryAt(event, 2), entryAt(newer, 0)) > 0);
+  assert.equal(compareEntriesNewestFirst(entryAt(event, 2), entryAt(event, 2)), 0);
+});
+
+test('-0000 is never issued and never accepted: ordinal 0 has one spelling, the plain event id', () => {
+  const plain = eventRowId(position(1000, 9, A));
+
+  assert.equal(entryRowId(entryAt(position(1000, 9, A), 0)), plain);
+  assert.equal(parseEntryRowId(`${plain}-0000`), undefined);
+  assert.equal(CUSTOM_LOG_EVENT_ID_PATTERN.test(`${plain}-0000`), false);
+});
+
+test('an ordinal that does not fit four base36 digits has no id', () => {
+  const event = position(1000, 9, A);
+  for (const ordinal of [-1, 1.5, Number.NaN, ENTRY_ORDINAL_LIMIT, Number.MAX_SAFE_INTEGER]) {
+    assert.throws(() => entryRowId(entryAt(event, ordinal)), RangeError, String(ordinal));
   }
 });
 
@@ -97,13 +163,15 @@ test('the time decides first, then the capture sequence, then the uuid', () => {
 });
 
 test('an event id carries the position and nothing else, in particular no replay value', () => {
-  const parsed = parseEventRowId(eventRowId(position(1793321290000, 5, A)));
+  const parsed = parseEntryRowId(eventRowId(position(1793321290000, 5, A)));
 
-  assert.deepEqual(Object.keys(parsed!).sort(), ['createdMs', 'seq', 'uuid']);
+  assert.deepEqual(Object.keys(parsed!).sort(), ['event', 'ordinal']);
+  assert.deepEqual(Object.keys(parsed!.event).sort(), ['createdMs', 'seq', 'uuid']);
 });
 
-test('only an exact event id parses: record ids, other cases and other lengths are not event ids', () => {
+test('only an exact event or entry id parses: record ids, other cases, other lengths and other suffixes are not ids', () => {
   const valid = eventRowId(position(1793321290000, 5, A));
+  const entry = entryRowId(entryAt(position(1793321290000, 5, A), 7));
   const rejected = [
     'a015g00000Q2xYz',
     'a015g00000Q2xYzAAB',
@@ -117,6 +185,13 @@ test('only an exact event id parses: record ids, other cases and other lengths a
     valid.replace(/^e-/, 'x-'),
     ` ${valid}`,
     `${valid}\n`,
+    `${valid}-`,
+    `${valid}-001`,
+    `${valid}-00001`,
+    `${valid}-000A`,
+    `${valid}-0001x`,
+    `${entry}-0001`,
+    entry.toUpperCase(),
     null,
     undefined,
     42,
@@ -124,10 +199,11 @@ test('only an exact event id parses: record ids, other cases and other lengths a
   ];
 
   for (const value of rejected) {
-    assert.equal(parseEventRowId(value), undefined, JSON.stringify(value));
+    assert.equal(parseEntryRowId(value), undefined, JSON.stringify(value));
     if (typeof value === 'string') assert.equal(CUSTOM_LOG_EVENT_ID_PATTERN.test(value), false, JSON.stringify(value));
   }
-  assert.notEqual(parseEventRowId(valid), undefined);
+  assert.notEqual(parseEntryRowId(valid), undefined);
+  assert.notEqual(parseEntryRowId(entry), undefined);
 });
 
 test('an event time that does not fit nine base36 digits has no id', () => {

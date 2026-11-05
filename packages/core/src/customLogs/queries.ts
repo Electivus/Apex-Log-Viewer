@@ -35,6 +35,7 @@ import {
   longValueOf,
   rawPayloadOf,
   read,
+  recordSubject,
   text,
   transactionRow,
   type RowIdentity
@@ -314,7 +315,8 @@ function rowObject(source: ResolvedRecordSource) {
         levelPredicate: transaction.levelPredicate,
         user: filterableField(roles.user),
         select: new Select().add(...Object.values(roles), ...transaction.columns, payloadField(transaction.payload)),
-        decode: (record: Record<string, unknown>) => transactionRow(transaction, levels, record, recordIdentity(record))
+        decode: (record: Record<string, unknown>) =>
+          transactionRow(transaction, levels, recordSubject(transaction.payload, record, recordIdentity(record)))
       };
     }
     case 'entries': {
@@ -326,7 +328,8 @@ function rowObject(source: ResolvedRecordSource) {
         levelPredicate: entry.levelPredicate,
         user: filterableField(roles.user),
         select: new Select().add(...Object.values(roles), ...entry.columns, payloadField(entry.payload)),
-        decode: (record: Record<string, unknown>) => entryRow(entry, levels, record, recordIdentity(record))
+        decode: (record: Record<string, unknown>) =>
+          entryRow(entry, levels, recordSubject(entry.payload, record, recordIdentity(record)))
       };
     }
     default:
@@ -541,7 +544,8 @@ export function entriesPlan(
         limit,
         after?.n ?? 0,
         params.keep,
-        (record, position) => entryDto(entry, source.levels, record, recordIdentity(record), position, true),
+        (record, position) =>
+          entryDto(entry, source.levels, recordSubject(entry.payload, record, recordIdentity(record)), position, true),
         record => sequenceValue(entry, record)
       )
   };
@@ -578,10 +582,11 @@ export function entryPlan(
     decode: ([record]) => {
       if (!record) return undefined;
       const identity = recordIdentity(record);
+      const subject = recordSubject(entry.payload, record, identity);
       return {
-        entry: entryDto(entry, source.levels, record, identity, 1, false),
-        details: detailsOf(entry, record),
-        rawPayload: rawPayloadOf(entry, record),
+        entry: entryDto(entry, source.levels, subject, 1, false),
+        details: detailsOf(entry, subject),
+        rawPayload: rawPayloadOf(subject),
         logId: parent ? (text(read(record, parent.api)) ?? '') : identity.id
       };
     }

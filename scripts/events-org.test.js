@@ -281,6 +281,61 @@ test('synthetic events carry the run tag, a sequence and no org data', async () 
   );
 });
 
+test('--payload-entries writes complete JSON arrays and nothing from an org', async () => {
+  const { buildSyntheticEvents, findLeaks, parseArgs, SYNTHETIC_USERNAME } = await load();
+  const argv = ['publish', '--count', '2', '--transaction-id', 'T'];
+  assert.equal(parseArgs([...argv, '--payload-entries', '3']).options['payload-entries'], 3);
+  assert.equal(parseArgs(argv).options['payload-entries'], undefined);
+  for (const bad of ['0', '51', 'x'])
+    assert.throws(() => parseArgs([...argv, '--payload-entries', bad]), /payload-entries/);
+
+  const now = Date.UTC(2026, 9, 30, 20, 15, 0);
+  const base = { count: 2, transactionId: 'T', runTag: 'a1b2c3', level: 'mixed', now };
+  const events = buildSyntheticEvents({ ...base, payloadEntries: 3 });
+  assert.deepEqual(events, buildSyntheticEvents({ ...base, payloadEntries: 3 }));
+  assert.equal(events.length, 2);
+  for (const [index, event] of events.entries()) {
+    const sequence = index + 1;
+    const payload = JSON.parse(event.Payload__c);
+    assert.equal(payload.length, 4);
+    const messages = payload.filter(item => 'msg' in item);
+    assert.equal(messages.length, 3);
+    assert.deepEqual(
+      messages.map(item => item.level),
+      ['DEBUG', 'INFO', 'WARN']
+    );
+    assert.equal(messages[0].msg, `Synthetic DEBUG entry 1 of 3 in event ${sequence} (a1b2c3)`);
+    assert.equal(messages[0].caller, 'Class.Synthetic.run: line 1');
+    assert.equal(messages[0].flowId, `f-${sequence}`);
+    assert.equal(messages[0].username, SYNTHETIC_USERNAME);
+    assert.equal(messages[0].timestamp, new Date(now + sequence + 1).toISOString());
+    assert.ok(payload.every(item => item.traceId === 'T-a1b2c3'));
+    const metric = payload.at(-1);
+    assert.equal(metric.type, 'metric');
+    assert.ok(!('msg' in metric) && !('level' in metric));
+    assert.deepEqual(metric.metrics, [{ name: 'duration', type: 'TIMING', value: 433 }]);
+
+    const resumed = JSON.parse(event.Stack_Trace__c);
+    assert.equal(resumed.length, 1);
+    assert.equal(resumed[0].traceId, 'T-a1b2c3-2');
+    assert.equal(resumed[0].level, 'INFO');
+    assert.equal(resumed[0].msg, 'Execution resume (a1b2c3)');
+    assert.equal(event.Has_Stack_Trace__c, true);
+    assert.equal(event.Transaction_Id__c, 'T-a1b2c3');
+    assert.equal(event.Sequence__c, sequence);
+    assert.equal(event.Username__c, SYNTHETIC_USERNAME);
+  }
+  assert.deepEqual(findLeaks(JSON.stringify(events)), []);
+
+  const flat = buildSyntheticEvents({ ...base, level: 'WARN', payloadEntries: 2 });
+  assert.ok(
+    JSON.parse(flat[0].Payload__c)
+      .filter(item => item.msg)
+      .every(item => item.level === 'WARN')
+  );
+  assert.ok(!('flowId' in JSON.parse(buildSyntheticEvents({ ...base, count: 1 })[0].Payload__c)));
+});
+
 test('long messages are padded to the requested length and published in smaller batches', async () => {
   const { buildSyntheticEvents, parseArgs, publishBatchSize } = await load();
   const [event] = buildSyntheticEvents({
