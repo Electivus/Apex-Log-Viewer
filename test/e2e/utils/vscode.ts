@@ -225,6 +225,70 @@ export function resolveVsCodeCompositingLaunchArgs(targetPlatform: NodeJS.Platfo
   return targetPlatform === 'linux' ? ['--use-gl=angle', '--use-angle=swiftshader'] : [];
 }
 
+// E2E keeps VS Code out of sight unless ALV_E2E_SHOW_VSCODE=1. Linux runners provide
+// a private Xvfb display (scripts/e2e-display.js). macOS and Windows have no virtual
+// display, so their native window is concealed instead.
+export function shouldConcealVsCodeWindow(
+  env: NodeJS.ProcessEnv = process.env,
+  targetPlatform: NodeJS.Platform = process.platform
+): boolean {
+  if (targetPlatform !== 'darwin' && targetPlatform !== 'win32') {
+    return false;
+  }
+  return !/^(1|true)$/i.test(String(env.ALV_E2E_SHOW_VSCODE || '').trim());
+}
+
+type ConcealableWindow = {
+  isDestroyed(): boolean;
+  setOpacity(opacity: number): void;
+  setIgnoreMouseEvents(ignore: boolean): void;
+  setFocusable(focusable: boolean): void;
+  setSkipTaskbar(skip: boolean): void;
+};
+
+// Conceals VS Code's windows from the Electron main process right after launch. The
+// listener is usually in place before VS Code opens its first window; a window that
+// already exists shows for a moment before it is concealed. A concealed window is
+// transparent, lets clicks through, cannot take keyboard focus and stays off the
+// taskbar. It keeps rendering, because Playwright launches Electron with
+// --disable-backgrounding-occluded-windows and drives it over CDP, which needs neither
+// OS focus nor a visible window. Hiding the window outright would stop rendering.
+export async function concealVsCodeWindows(app: Pick<ElectronApplication, 'evaluate'>, attempts = 3): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await app.evaluate(concealElectronWindows);
+      return;
+    } catch (error) {
+      // While VS Code starts, the main process occasionally drops an evaluation
+      // ("Resulting promise was garbage collected"). Concealing twice is harmless.
+      if (attempt >= attempts) {
+        throw error;
+      }
+    }
+  }
+}
+
+// Serialized into the Electron main process, so it must not use anything from this module.
+function concealElectronWindows(electronModule: unknown): void {
+  const { app, BrowserWindow } = electronModule as {
+    app: { on(event: 'browser-window-created', listener: (event: unknown, win: ConcealableWindow) => void): void };
+    BrowserWindow: { getAllWindows(): ConcealableWindow[] };
+  };
+  const conceal = (win: ConcealableWindow): void => {
+    if (win.isDestroyed()) {
+      return;
+    }
+    win.setOpacity(0);
+    win.setIgnoreMouseEvents(true);
+    win.setFocusable(false);
+    win.setSkipTaskbar(true);
+  };
+  app.on('browser-window-created', (_event, win) => conceal(win));
+  for (const win of BrowserWindow.getAllWindows()) {
+    conceal(win);
+  }
+}
+
 async function readExtensionReferences(
   extensionDevelopmentPath: string,
   extraExtensionIds: string[] = []
@@ -671,6 +735,12 @@ export async function launchVsCode(options: {
         }
       })
   );
+
+  if (shouldConcealVsCodeWindow()) {
+    await concealVsCodeWindows(app).catch(error => {
+      console.warn(`[e2e] Could not hide the VS Code window; it stays visible: ${String(error)}`);
+    });
+  }
 
   const page = await timeE2eStep('vscode.firstWindow', async () => await app.firstWindow());
   await timeE2eStep('vscode.workbenchReady', async () => {

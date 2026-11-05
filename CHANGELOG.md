@@ -4,6 +4,7 @@
 
 ### Maintenance
 
+- E2E: keep VS Code hidden during Playwright runs by default. Linux runs use Xvfb even when a `DISPLAY` exists, and macOS and Windows make the native window transparent and click-through. Set `ALV_E2E_SHOW_VSCODE=1` to watch a run.
 - Custom Logs: say a platform event is kept for at least 72 hours, in the panel's first-use note and catching-up text and in the docs, because Salesforce may purge later and a `-2` replay can cost more than the docs said; warn against a `-2` replay of `ALV_Test_Backlog__e`.
 - Custom Logs: remove the `Captured elsewhere` strip state, which the panel could never reach because it always follows; `capturedElsewhere` stays a CLI drain outcome.
 - Discontinue the IntelliJ product initiative and remove its plugin, build tooling, CI/E2E lanes, and release workflow; retain useful TypeScript core regression coverage.

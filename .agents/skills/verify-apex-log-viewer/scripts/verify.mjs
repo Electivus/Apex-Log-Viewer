@@ -171,9 +171,9 @@ function preflightChecks() {
   const sf = spawnSync('sf', ['--version'], { encoding: 'utf8' });
   add(sf.status === 0, 'Salesforce CLI on PATH', sf.status === 0 ? sf.stdout.trim().split('\n')[0] : 'install sf');
 
-  if (process.platform === 'linux' && !process.env.DISPLAY) {
+  if (repoRequire('./scripts/e2e-display.js').shouldUseXvfb(process.env)) {
     const xvfb = spawnSync('bash', ['-lc', 'command -v xvfb-run'], { encoding: 'utf8' });
-    add(xvfb.status === 0, 'xvfb-run available (no DISPLAY)', xvfb.stdout.trim());
+    add(xvfb.status === 0, 'xvfb-run available', xvfb.stdout.trim());
   }
 
   add(
@@ -351,10 +351,10 @@ async function start(flags) {
     ALV_E2E_TIMING: process.env.ALV_E2E_TIMING || '1'
   };
   const hostCommand = [process.execPath, bundlePath];
-  const command =
-    process.platform === 'linux' && !process.env.DISPLAY
-      ? ['xvfb-run', '-a', '-s', '-screen 0 1920x1080x24', ...hostCommand]
-      : hostCommand;
+  // Linux hides VS Code on a private Xvfb display unless ALV_E2E_SHOW_VSCODE=1 and a DISPLAY exist.
+  const command = repoRequire('./scripts/e2e-display.js').shouldUseXvfb(process.env)
+    ? ['xvfb-run', '-a', '-s', '-screen 0 1920x1080x24', ...hostCommand]
+    : hostCommand;
   const child = spawn(command[0], command.slice(1), {
     cwd: repoRoot,
     env,
