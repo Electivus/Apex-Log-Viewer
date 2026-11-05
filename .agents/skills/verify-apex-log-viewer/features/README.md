@@ -4,8 +4,8 @@ This directory is the maintained source for verifying the user-facing behavior o
 
 ## Baseline preconditions
 
-- A session started with `node .claude/skills/verify/scripts/verify.mjs start` printed `"ready": true`.
-- `node .claude/skills/verify/scripts/verify.mjs doctor` exits 0. Exit 2 means no session is running.
+- A session started with `node .agents/skills/verify-apex-log-viewer/scripts/verify.mjs start` printed `"ready": true`.
+- `node .agents/skills/verify-apex-log-viewer/scripts/verify.mjs doctor` exits 0. Exit 2 means no session is running.
 - The org is a harness scratch: `org.strategy` is `pool` for a pool slot (`SF_SCRATCH_POOL_NAME` or `SF_SCRATCH_STRATEGY=pool`), otherwise `single`, the reused `ALV_E2E_Scratch`. Start seeded it with an `ALV_E2E` debug level, a 60-minute `DEVELOPER_LOG` trace flag at that level on the authenticated user, and one Apex log (`session.seeded.marker`, `session.seeded.logId`).
 - VS Code shows the temporary workspace `alv-e2e-ws-*`, whose `.sf/config.json` sets `target-org` to the session org. The profile sets `window.dialogStyle` to `custom`, so modal confirmations render in the workbench.
 - No step has run yet, so no Electivus webview is open.

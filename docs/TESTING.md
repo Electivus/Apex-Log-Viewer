@@ -277,7 +277,7 @@ pnpm run test:e2e:cli specs/customLogEventsPoll.e2e.spec.ts
 node scripts/run-playwright-e2e.js specs/customLogEventsPanel.e2e.spec.ts   # opens a native VS Code window
 ```
 
-The `verify` skill has the same flows as steps for PR evidence: start a session with `--target-org alv-events`, then `run events-capture` and `run events-gap` (screenshots of the first-use strip, the Live strip with its tooltip and a gap line).
+The `verify-apex-log-viewer` skill has the same flows as steps for PR evidence: start a session with `--target-org alv-events`, then `run events-capture` and `run events-gap` (screenshots of the first-use strip, the Live strip with its tooltip and a gap line).
 
 What a real org showed that the doubles did not:
 
