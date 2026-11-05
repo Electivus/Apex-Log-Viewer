@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test, type Frame, type Page } from '@playwright/test';
-import { executeCommandId, runCommand, runCommandWhenAvailable } from '../utils/commandPalette';
+import { runCommand, runCommandWhenAvailable } from '../utils/commandPalette';
 import { emitDocsTailLog, prepareDocsScreenshotScenario } from '../utils/docsScenario';
 import { dismissAllNotifications } from '../utils/notifications';
 import { ensureScratchOrg } from '../utils/scratchOrg';
@@ -51,19 +51,19 @@ async function closeQuickInputIfOpen(page: Page): Promise<void> {
 
 async function closePanel(page: Page): Promise<void> {
   try {
-    await executeCommandId(page, 'workbench.action.closePanel');
+    // The palette lists `View: Hide Panel` only while the panel is open.
+    await runCommand(page, 'View: Hide Panel');
   } catch {
-    try {
-      await executeCommandId(page, 'workbench.action.togglePanel');
-    } catch {
-      // best-effort
-    }
+    // best-effort
   }
 }
 
 async function maximizePanel(page: Page): Promise<void> {
   try {
-    await executeCommandId(page, 'workbench.action.toggleMaximizedPanel');
+    // A maximized panel hides the editor area, and the command toggles.
+    if (await page.locator('.part.editor').isVisible()) {
+      await runCommand(page, 'View: Toggle Maximized Panel');
+    }
   } catch {
     // best-effort
   }

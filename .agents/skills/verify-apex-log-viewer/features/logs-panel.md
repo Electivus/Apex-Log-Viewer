@@ -45,7 +45,7 @@ Preconditions:
 - The org keeps logs from earlier sessions and CI runs, so always search a fresh marker instead of counting rows.
 - Search waits for the background sync to cache the bodies. Assert with `expect(...).toBeVisible({ timeout: 180_000 })`, never a fixed sleep.
 - Rows are virtualized: rows outside the visible area are not in the DOM, so `[role="row"][tabindex="0"]` counts rendered rows only. The panel is short in the default window.
-- With the editor-area copy open, two frames match `h.logsFrame()` and it returns the first visible one. Close the panel (`View: Close Panel`) to drive the editor tab.
+- With the editor-area copy open, two frames match `h.logsFrame()` and it returns the first visible one. Close the panel (`View: Hide Panel`) to drive the editor tab.
 - The modals are VS Code dialogs. The session profile sets `window.dialogStyle: custom` so they render as `.monaco-dialog-box` on `page`; with the native default, Playwright cannot click them.
 - `Clear logs` → `Delete all org logs` deletes logs created by other users of the scratch org. That is acceptable in a harness org, but never do it with `--target-org` on a real org unless the user asked.
 - `logs-replay` needs `salesforce.salesforcedx-vscode-apex-replay-debugger`. The verify session does not install it, so a session-driven replay click proves only the missing-extension path. For the installed path, use `pnpm run test:e2e -- test/e2e/specs/replayDebugger.e2e.spec.ts`.
