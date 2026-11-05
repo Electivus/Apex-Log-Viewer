@@ -19,14 +19,15 @@ import {
 } from './contracts.js';
 import { normalizeLevel, type LevelTable } from './levels.js';
 import { HIDDEN_DOC, docOfText, toLongValue, type PayloadDoc } from './payload.js';
-import type {
-  DecodableEntryObject,
-  DecodableRoles,
-  ResolvedField,
-  ResolvedLongField,
-  ResolvedTransactionObject,
-  RoleSource,
-  TimeSource
+import {
+  assertNever,
+  type DecodableEntryObject,
+  type DecodableRoles,
+  type ResolvedField,
+  type ResolvedLongField,
+  type ResolvedTransactionObject,
+  type RoleSource,
+  type TimeSource
 } from './resolved.js';
 
 /** What a row is called and when it was created, as the record's own source knows them. */
@@ -76,12 +77,8 @@ function valueOf(subject: Subject, source: RoleSource | undefined): unknown {
     case 'path':
       return subject.payload?.picked.get(source.path);
     default:
-      return unreachable(source);
+      return assertNever(source, 'role source');
   }
-}
-
-function unreachable(value: never): never {
-  throw new Error(`Unhandled role source ${JSON.stringify(value)}`);
 }
 
 export const text = (value: unknown): string | undefined =>
