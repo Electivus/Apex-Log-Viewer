@@ -295,6 +295,9 @@ function RowContent({
 
   const commonStyle: React.CSSProperties = {
     whiteSpace: 'pre-wrap',
+    // Break a line with no spaces, such as the log's category header, instead of clipping it at the
+    // row's edge. The ResizeObserver above measures the taller row.
+    overflowWrap: 'anywhere',
     background: selected ? 'var(--vscode-editor-selectionBackground)' : 'transparent',
     outline: selected ? '1px solid var(--vscode-contrastActiveBorder, transparent)' : 'none',
     borderLeft: selected ? '3px solid var(--vscode-focusBorder)' : '3px solid transparent',
