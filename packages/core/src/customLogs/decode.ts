@@ -23,8 +23,9 @@ import type {
   ResolvedField,
   ResolvedLongField,
   ResolvedPayload,
-  ResolvedTimeField,
-  ResolvedTransactionObject
+  ResolvedTransactionObject,
+  RoleSource,
+  TimeSource
 } from './resolved.js';
 
 /** What a row is called and when it was created, as the record's own source knows them. */
@@ -53,10 +54,11 @@ const scalar = (value: unknown): CustomLogScalar =>
       : null;
 
 /** The display time as ISO: the mapped field, or the record's CreatedDate when it is empty. */
-function displayTime(field: ResolvedTimeField, record: Readonly<Record<string, unknown>>, createdDate: string): string {
-  const value = read(record, field.api);
+function displayTime(source: TimeSource, record: Readonly<Record<string, unknown>>, createdDate: string): string {
+  if (source.from === 'path') return createdDate;
+  const value = read(record, source.api);
   const mapped =
-    field.encoding === 'epochMillis'
+    source.encoding === 'epochMillis'
       ? typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 8.64e15
         ? new Date(value).toISOString()
         : undefined
@@ -96,8 +98,8 @@ function extras(
   return Object.fromEntries(columns.map(column => [column.key, scalar(read(record, column.api))]));
 }
 
-function valueOf(record: Readonly<Record<string, unknown>>, field: ResolvedField | undefined): unknown {
-  return field ? read(record, field.api) : undefined;
+export function valueOf(record: Readonly<Record<string, unknown>>, source: RoleSource | undefined): unknown {
+  return source?.from === 'field' ? read(record, source.api) : undefined;
 }
 
 export function entryRow(

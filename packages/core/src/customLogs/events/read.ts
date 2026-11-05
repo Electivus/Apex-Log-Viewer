@@ -39,12 +39,17 @@ import {
   type CustomLogSourceRef,
   type CustomLogStoreInfo
 } from '../contracts.js';
-import { count, detailsOf, entryDto, entryRow, rawPayloadOf, read, text, type RowIdentity } from '../decode.js';
+import { count, detailsOf, entryDto, entryRow, rawPayloadOf, text, valueOf, type RowIdentity } from '../decode.js';
 import { customLogError } from '../errors.js';
 import { shortHash } from '../hash.js';
 import { normalizeLevel } from '../levels.js';
 import { selectPayloadPaths, summarizePayloadFields } from '../payload.js';
-import type { ResolvedEventObject, ResolvedEventSource } from '../resolved.js';
+import {
+  assertNever,
+  type DecodableEntryObject,
+  type ResolvedEventObject,
+  type ResolvedEventSource
+} from '../resolved.js';
 import type { ObjectDescribe } from '../schema.js';
 import { compareNewestFirst, entryRowId, parseEntryRowId, type EntryPosition } from './ids.js';
 import type { EventStore, StoreCoverage, StoredEvent } from './store.js';
@@ -205,6 +210,20 @@ function decodeEventCursor<K extends PageKind>(
 
 const identityOf = (event: StoredEvent): RowIdentity => ({ id: event.id, createdDate: event.createdDate });
 
+/** Until entries expand into rows, a row decodes a document payload and nothing of an entries payload. */
+function decodable(event: ResolvedEventObject): DecodableEntryObject {
+  const { payload, ...rest } = event;
+  switch (payload?.kind) {
+    case undefined:
+    case 'entries':
+      return rest;
+    case 'document':
+      return { ...rest, payload: { ...payload.field, columns: payload.columns } };
+    default:
+      return assertNever(payload, 'event payload');
+  }
+}
+
 function notFound(what: string): never {
   throw customLogError(
     'CUSTOM_LOG_RECORD_NOT_FOUND',
@@ -236,11 +255,7 @@ const levelIndex = (level: CustomLogLevel): number => CUSTOM_LOG_LEVELS.indexOf(
 
 function levelOf(event: ResolvedEventObject, source: ResolvedEventSource, record: StoredEvent['record']) {
   const { roles } = event;
-  return normalizeLevel(
-    source.levels,
-    roles.level && read(record, roles.level.api),
-    roles.levelOrdinal && read(record, roles.levelOrdinal.api)
-  ).level;
+  return normalizeLevel(source.levels, valueOf(record, roles.level), valueOf(record, roles.levelOrdinal)).level;
 }
 
 /** The in-memory filters of `list` and of a live capture: both run over decoded rows, so the mapped roles decide what they can do. */
@@ -255,7 +270,7 @@ export function requireFilterable(source: ResolvedEventSource, { minLevel, user 
 
 /** The row of one stored event, or nothing when the filter drops it. `list` and a live capture decode through this alone, so a live row and a listed row cannot differ. */
 function rowOf(source: ResolvedEventSource, stored: StoredEvent, { minLevel, user }: EventRowFilter) {
-  const row = entryRow(source.shape.event, source.levels, stored.record, identityOf(stored));
+  const row = entryRow(decodable(source.shape.event), source.levels, stored.record, identityOf(stored));
   if (minLevel && (row.level === undefined || levelIndex(row.level) < levelIndex(minLevel))) return undefined;
   if (user && row.user?.toLowerCase() !== user.toLowerCase()) return undefined;
   return row;
@@ -276,7 +291,7 @@ export function decodeEventRows(
 
 /** The mapped transaction id, whole: a row's copy is cut to a cell, and ids are compared uncut. */
 function transactionOf(event: ResolvedEventObject, record: StoredEvent['record']): string | undefined {
-  return event.roles.transactionId && text(read(record, event.roles.transactionId.api));
+  return text(valueOf(record, event.roles.transactionId));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -381,8 +396,7 @@ async function transactionOfAnchor(
   if (key === undefined) return [anchor];
   const { createdMs } = anchor.position;
   const around = await store.window(createdMs - TRANSACTION_WINDOW_MS, createdMs + TRANSACTION_WINDOW_MS);
-  const orderOf = (stored: StoredEvent): number =>
-    (event.roles.order && count(read(stored.record, event.roles.order.api))) ?? Infinity;
+  const orderOf = (stored: StoredEvent): number => count(valueOf(stored.record, event.roles.order)) ?? Infinity;
   return around
     .filter(stored => transactionOf(event, stored.record) === key)
     .map(stored => ({ stored, order: orderOf(stored) }))
@@ -423,9 +437,9 @@ export async function getEvent(
   const offset = after?.n ?? 0;
   const page = members.slice(offset, offset + params.limit);
   const entries = page.map((stored, index) =>
-    entryDto(event, source.levels, stored.record, identityOf(stored), offset + index + 1, true)
+    entryDto(decodable(event), source.levels, stored.record, identityOf(stored), offset + index + 1, true)
   );
-  const log = entryRow(event, source.levels, anchor.record, identityOf(anchor));
+  const log = entryRow(decodable(event), source.levels, anchor.record, identityOf(anchor));
   const { items, payloadFields } = withPayloadSummary(entries, params.keep);
   const next: EventCursor | undefined =
     offset + page.length < members.length
@@ -455,8 +469,8 @@ export async function entryEvent(snapshot: EventSnapshot, entryId: EntryPosition
   return {
     source: ref,
     logId: found.id,
-    entry: entryDto(event, source.levels, found.record, identityOf(found), 1, false),
-    details: detailsOf(event, found.record),
-    rawPayload: rawPayloadOf(event, found.record)
+    entry: entryDto(decodable(event), source.levels, found.record, identityOf(found), 1, false),
+    details: detailsOf(decodable(event), found.record),
+    rawPayload: rawPayloadOf(decodable(event), found.record)
   };
 }

@@ -69,7 +69,11 @@ export type CustomLogUnavailableReason =
   | 'notAnEvent'; // an `event` mapping names an object that is not a platform event
 
 /** A mapped JSON payload: the qualified field and the team's default columns from the mapping. */
-export type CustomLogPayloadInfo = { field: string; columns: string[] };
+/**
+ * The payload mapping of one level. `entries` is present when an event source expands the JSON
+ * arrays of several fields into rows: it lists those fields in order, and `field` is the first.
+ */
+export type CustomLogPayloadInfo = { field: string; columns: string[]; entries?: string[] };
 
 /**
  * One source as `sources` reports it. Every state carries every field, so a consumer reads one
