@@ -82,6 +82,32 @@ export async function eventsRoot(session, object) {
   throw new Error(`No event store for ${object} under ${orgs}`);
 }
 
+/** Whether a capture stored a position for `object` here. The panel then resumes instead of asking the first-use question. */
+export async function hasStoredPosition(session, object) {
+  try {
+    await readFile(path.join(await eventsRoot(session, object), 'checkpoint.json'), 'utf8');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The store's gaps by id, folded from every writer's `gaps.<writer>.ndjson`; `before` is set once a close line names the gap. */
+export async function readGaps(root) {
+  const files = (await readdir(root)).filter(name => name.startsWith('gaps.') && name.endsWith('.ndjson'));
+  const lines = (await Promise.all(files.map(name => readFile(path.join(root, name), 'utf8'))))
+    .flatMap(text => text.split('\n'))
+    .filter(Boolean)
+    .map(line => JSON.parse(line));
+  const gaps = new Map(lines.filter(line => line.op === 'open').map(line => [line.id, { ...line }]));
+  for (const line of lines.filter(line => line.op === 'close')) {
+    if (gaps.has(line.id)) gaps.get(line.id).before = line.before;
+  }
+  return gaps;
+}
+
+export const openGaps = async root => [...(await readGaps(root)).values()].filter(gap => gap.before === undefined);
+
 /** Stop answers at once, but the run still writes its last position; the lease file goes when the run is over. */
 export async function waitForRunToEnd(root, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
