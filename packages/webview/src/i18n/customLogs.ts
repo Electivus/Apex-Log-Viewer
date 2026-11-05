@@ -140,7 +140,6 @@ export type CustomLogsMessages = {
     stopped: string;
     budget: string;
     budgetNoAllowance: string;
-    elsewhere: string;
     standby: string;
     leaseNote: string;
     surface: { vscode: string; cli: string };
@@ -389,7 +388,6 @@ export const customLogsEn: CustomLogsMessages = {
     budget:
       "Paused: this run spent its delivery budget (about {budget} deliveries of the org's daily allocation). Start to resume from the stored position.",
     budgetNoAllowance: 'Paused: this run spent its delivery budget. Start to resume from the stored position.',
-    elsewhere: 'Another VS Code window or sf command is capturing these events. Start to check again.',
     standby: 'Another {surface} (pid {pid} on {host}) is capturing; new events appear here.',
     leaseNote: 'If no such process exists (the host name may have changed), delete capture.lease in {folder}.',
     surface: { vscode: 'VS Code window', cli: 'sf command' },
@@ -646,8 +644,6 @@ export const customLogsPtBR: CustomLogsMessages = {
       'Pausada: esta execução gastou o orçamento de entregas (cerca de {budget} entregas da cota diária da org). Inicie para continuar da posição armazenada.',
     budgetNoAllowance:
       'Pausada: esta execução gastou o orçamento de entregas. Inicie para continuar da posição armazenada.',
-    elsewhere:
-      'Outra janela do VS Code ou outro comando sf está capturando estes eventos. Inicie para verificar de novo.',
     standby: 'Outro processo ({surface}, pid {pid} em {host}) está capturando; os novos eventos aparecem aqui.',
     leaseNote: 'Se esse processo não existir (o nome do host pode ter mudado), apague capture.lease em {folder}.',
     surface: { vscode: 'janela do VS Code', cli: 'comando sf' },

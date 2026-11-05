@@ -178,13 +178,6 @@ describe('capture strip text', () => {
         'Paused: this run spent its delivery budget. Start to resume from the stored position.'
       );
     });
-
-    it('says another process captures these events, with the lease note, when this one lost the election', () => {
-      const view = stripViewOf(viewOf({ state: 'stopped', outcome: 'capturedElsewhere' }), en);
-
-      expect(view.text).toBe('Another VS Code window or sf command is capturing these events. Start to check again.');
-      expect(view.detail).toContain('delete capture.lease');
-    });
   });
 
   describe('first use', () => {

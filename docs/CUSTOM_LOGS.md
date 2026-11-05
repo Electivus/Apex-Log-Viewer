@@ -634,7 +634,6 @@ The strip shows one of these states:
 | Reconnecting                   | `Reconnecting (attempt <n>) after the connection dropped`, `after Salesforce rejected the session`, or `after a burst of events…`                                   | **Stop**                                      |
 | Stopped                        | `Stopped · stored since <time> · <size>`. It shows after `quiet`, `timeLimit`, and `aborted`.                                                                       | **Start**                                     |
 | Budget spent                   | `Paused: this run spent its delivery budget (about <n> deliveries of the org's daily allocation).`                                                                  | **Start**                                     |
-| Captured elsewhere             | `Another VS Code window or sf command is capturing these events. Start to check again.` and the lease note.                                                         | **Start**                                     |
 | First use                      | `No events from this org are stored yet.` with the allowance and the budget.                                                                                        | **Load retained events**, **Only new events** |
 | Failed                         | `Capture failed: <message>`. For `CUSTOM_LOG_DELIVERY_LIMIT`, `Salesforce's daily event delivery limit is used up; capture resumes from the stored position later.` | **Start**                                     |
 
