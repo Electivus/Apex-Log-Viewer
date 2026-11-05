@@ -202,8 +202,6 @@ async function openDebugFlagsFromLogsAfterClosing(): Promise<Frame> {
 /**
  * Right after `Tail Logs` reveals the panel, a forced click on the Tail toolbar is lost (seen twice in a row),
  * so click with Playwright's actionability checks first, then fall back to Enter and a DOM click.
- * Tail opened before the Logs panel picks its org without the workspace target-org, and the Debug Flags editor
- * inherits it, so pin the session org first and refuse to return an editor that targets another org.
  */
 async function openDebugFlagsFromTailWithRetry(): Promise<Frame> {
   const vscodePage = requirePage();
@@ -215,17 +213,11 @@ async function openDebugFlagsFromTailWithRetry(): Promise<Frame> {
   await expect(button).toBeEnabled({ timeout: 180_000 });
   await dismissAllNotifications(vscodePage);
   await closeQuickInputIfOpen(vscodePage);
-  const org = tail.getByRole('combobox').first();
-  if (alias && ((await org.textContent()) || '').trim() !== alias) {
-    await org.click();
-    await tail
-      .locator('[role="listbox"]')
-      .last()
-      .getByRole('option', { name: alias, exact: true })
-      .first()
-      .click({ timeout: 30_000 });
-    await expect(org).toHaveText(alias, { timeout: 30_000 });
-    await expect(tail.getByRole('status')).toHaveCount(0, { timeout: 60_000 });
+  if (alias) {
+    await expect(
+      tail.getByRole('combobox').first(),
+      `Refusing to open Apex Debug Flags, which inherits Tail's org, unless Tail shows the session org '${alias}'`
+    ).toHaveText(alias, { timeout: 30_000 });
   }
   const attempts = [
     () => button.click({ timeout: 15_000 }),

@@ -41,20 +41,10 @@ export default async function ({ page, h, expect, session, args }) {
   let stepError;
   try {
     await idle();
-    // Tail opened before the Logs panel resolves its org from the extension host's working directory, not the
-    // workspace target-org (#1224), so pin the session org.
-    const org = tail.getByRole('combobox').first();
-    if (((await org.textContent()) || '').trim() !== session.org.alias) {
-      await org.click();
-      await tail
-        .locator('[role="listbox"]')
-        .last()
-        .getByRole('option', { name: session.org.alias, exact: true })
-        .first()
-        .click({ timeout: 30_000 });
-      await expect(org).toHaveText(session.org.alias, { timeout: 30_000 });
-      await idle();
-    }
+    await expect(
+      tail.getByRole('combobox').first(),
+      `Refusing to press Start, which writes a trace flag, unless Tail shows the session org '${session.org.alias}'`
+    ).toHaveText(session.org.alias, { timeout: 30_000 });
     // A tail left running by an earlier step would skip Start, and its flag changes would look like the baseline.
     await stopTail();
     debugOnlyWasOn = (await debugOnly.getAttribute('aria-checked')) === 'true';

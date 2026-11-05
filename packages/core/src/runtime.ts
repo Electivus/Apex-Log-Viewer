@@ -213,8 +213,16 @@ export async function resolveLogDeleteIds(params: {
   return Array.from(new Set([...inlineIds, ...fileIds]));
 }
 
-async function getDefaultTargetOrg(): Promise<string | undefined> {
-  const aggregator = await ConfigAggregator.create();
+/** The project whose `.sf/config.json` can name the default org. Without one, the process working directory decides. */
+type ProjectPath = () => string | undefined;
+
+async function projectConfig(projectPath: ProjectPath | undefined): Promise<ConfigAggregator> {
+  const path = projectPath?.();
+  return ConfigAggregator.create(path ? { projectPath: path } : undefined);
+}
+
+async function getDefaultTargetOrg(projectPath: ProjectPath | undefined): Promise<string | undefined> {
+  const aggregator = await projectConfig(projectPath);
   return asString(aggregator.getPropertyValue<string>(OrgConfigProperties.TARGET_ORG));
 }
 
@@ -238,9 +246,10 @@ async function findAliasForUsername(username: string): Promise<string | undefine
 }
 
 async function resolveUsername(
-  usernameOrAlias?: string
+  usernameOrAlias: string | undefined,
+  projectPath: ProjectPath | undefined
 ): Promise<{ requested: string; username: string; alias?: string; source: string }> {
-  const requested = asString(usernameOrAlias) ?? (await getDefaultTargetOrg()) ?? '';
+  const requested = asString(usernameOrAlias) ?? (await getDefaultTargetOrg(projectPath)) ?? '';
   if (!requested) {
     throw new Error('No default Salesforce org is configured. Select an org or run "sf org login web".');
   }
@@ -290,7 +299,7 @@ type OrgConnections = {
   clear(): void;
 };
 
-function createOrgConnections(): OrgConnections {
+function createOrgConnections(projectPath: ProjectPath | undefined): OrgConnections {
   const byUsername = new Map<string, Promise<OrgConnection>>();
   const evict = (username: string, pending: Promise<OrgConnection>): void => {
     if (byUsername.get(username) === pending) byUsername.delete(username);
@@ -306,7 +315,7 @@ function createOrgConnections(): OrgConnections {
   return {
     async use(targetOrg, signal, run) {
       throwIfAborted(signal);
-      const resolved = await awaitWithAbort(resolveUsername(targetOrg), signal);
+      const resolved = await awaitWithAbort(resolveUsername(targetOrg, projectPath), signal);
       const cached = cachedConnection(resolved.username);
       const ctx = { ...(await awaitWithAbort(cached, signal)), alias: resolved.alias };
       try {
@@ -347,8 +356,8 @@ function toOrgAuth(token: unknown, url: unknown, username: string): OrgAuth {
   return { accessToken, instanceUrl, username };
 }
 
-async function getOrgAuthFromCore(params: OrgAuthParams = {}): Promise<OrgAuth> {
-  const resolved = await resolveUsername(params.username);
+async function getOrgAuthFromCore(params: OrgAuthParams, projectPath: ProjectPath | undefined): Promise<OrgAuth> {
+  const resolved = await resolveUsername(params.username, projectPath);
   const authInfo = await AuthInfo.create({ username: resolved.username });
   const fields = authInfo.getFields(true);
   return toOrgAuth(fields.accessToken, fields.instanceUrl, asString(authInfo.getUsername()) ?? resolved.username);
@@ -359,13 +368,12 @@ async function refreshOrgAuth(ctx: ConnectionContext): Promise<OrgAuth> {
   return toOrgAuth(ctx.connection.accessToken, ctx.connection.instanceUrl, ctx.username);
 }
 
-async function listOrgsNative(params: OrgListParams = {}): Promise<OrgListItem[]> {
+async function listOrgsNative(params: OrgListParams, projectPath: ProjectPath | undefined): Promise<OrgListItem[]> {
   const state = await stateAggregator(params.forceRefresh);
   const orgs = await state.orgs.readAll(false);
-  const defaultOrg = await getDefaultTargetOrg();
-  const defaultDevHub = asString(
-    (await ConfigAggregator.create()).getPropertyValue<string>(OrgConfigProperties.TARGET_DEV_HUB)
-  );
+  const config = await projectConfig(projectPath);
+  const defaultOrg = asString(config.getPropertyValue<string>(OrgConfigProperties.TARGET_ORG));
+  const defaultDevHub = asString(config.getPropertyValue<string>(OrgConfigProperties.TARGET_DEV_HUB));
   const mapped = orgs
     .map(fields => {
       const username = asString(fields.username);
@@ -395,10 +403,11 @@ async function listOrgsNative(params: OrgListParams = {}): Promise<OrgListItem[]
 
 async function resolveOrgNative(
   connections: OrgConnections,
-  params: OrgResolveParams = {},
+  params: OrgResolveParams,
+  projectPath: ProjectPath | undefined,
   signal?: AbortSignal
 ): Promise<OrgResolveResult> {
-  const resolved = await resolveUsername(params.targetOrg);
+  const resolved = await resolveUsername(params.targetOrg, projectPath);
   return connections.use(resolved.username, signal, async ctx => ({
     requested: resolved.requested,
     username: ctx.username,
@@ -1134,7 +1143,7 @@ async function traceFlagRemoveNative(
   };
 }
 
-async function doctorNative(params: DoctorParams = {}): Promise<DoctorResult> {
+async function doctorNative(params: DoctorParams, projectPath: ProjectPath | undefined): Promise<DoctorResult> {
   const workspaceRoot = process.cwd();
   const apexlogsRoot = resolveApexlogsRoot(workspaceRoot);
   const result: DoctorResult = {
@@ -1156,7 +1165,7 @@ async function doctorNative(params: DoctorParams = {}): Promise<DoctorResult> {
     result.writableApexlogs = { ok: false, message: error instanceof Error ? error.message : String(error) };
   }
   try {
-    const auth = await getOrgAuthFromCore({ username: params.targetOrg });
+    const auth = await getOrgAuthFromCore({ username: params.targetOrg }, projectPath);
     result.orgAuth = { ok: true, message: `authenticated as ${auth.username || '(unknown)'}` };
   } catch (error) {
     result.status = result.status === 'error' ? 'error' : 'warning';
@@ -1233,6 +1242,7 @@ export function createApexLogViewerCore(
     instrumentation?: CoreInstrumentation;
     apexLogRemote?: ApexLogRemote;
     surface?: CustomLogEnv['surface'];
+    projectPath?: ProjectPath;
   } = {}
 ) {
   const call = <T>(
@@ -1240,7 +1250,8 @@ export function createApexLogViewerCore(
     callOptions: CoreCallOptions | undefined,
     run: (signal?: AbortSignal) => Promise<T>
   ) => instrumentedCall(options.instrumentation, method, callOptions, run);
-  const connections = createOrgConnections();
+  const { projectPath } = options;
+  const connections = createOrgConnections(projectPath);
   const orgCall = <T>(
     method: string,
     targetOrg: string | undefined,
@@ -1263,7 +1274,7 @@ export function createApexLogViewerCore(
     targetOrg: string | undefined,
     signal: AbortSignal | undefined
   ): Promise<CustomLogEnv> => {
-    const { username } = await awaitWithAbort(resolveUsername(targetOrg), signal);
+    const { username } = await awaitWithAbort(resolveUsername(targetOrg, projectPath), signal);
     return {
       username,
       surface: options.surface ?? 'cli',
@@ -1354,19 +1365,19 @@ export function createApexLogViewerCore(
   return {
     logLifecycle,
     doctor: (params: DoctorParams = {}, callOptions?: CoreCallOptions) =>
-      call('doctor', callOptions, () => doctorNative(params)),
+      call('doctor', callOptions, () => doctorNative(params, projectPath)),
     org: {
       list: (params: OrgListParams = {}, callOptions?: CoreCallOptions) =>
         call('org.list', callOptions, () => {
           if (params.forceRefresh) connections.clear();
-          return listOrgsNative(params);
+          return listOrgsNative(params, projectPath);
         }),
       resolve: (params: OrgResolveParams = {}, callOptions?: CoreCallOptions) =>
-        call('org.resolve', callOptions, signal => resolveOrgNative(connections, params, signal)),
+        call('org.resolve', callOptions, signal => resolveOrgNative(connections, params, projectPath, signal)),
       getAuth: (params: OrgAuthParams = {}, callOptions?: CoreCallOptions) =>
         params.refresh
           ? orgCall('org.getAuth', params.username, callOptions, refreshOrgAuth)
-          : call('org.getAuth', callOptions, () => getOrgAuthFromCore(params))
+          : call('org.getAuth', callOptions, () => getOrgAuthFromCore(params, projectPath))
     },
     log: {
       list: (params: LogsListParams = {}, callOptions?: CoreCallOptions) =>
