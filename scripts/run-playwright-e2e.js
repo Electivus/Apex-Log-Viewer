@@ -3,8 +3,8 @@
 
 const { execFile, spawn } = require('child_process');
 const { existsSync } = require('fs');
-const { platform } = require('os');
 const path = require('path');
+const { XVFB_ARGS, shouldUseXvfb } = require('./e2e-display');
 const { bootstrapLocalE2e } = require('./local-e2e-bootstrap');
 
 const requiredBuildArtifacts = [
@@ -123,7 +123,16 @@ async function ensureBuildArtifacts(repoRoot, options = {}) {
   }
 }
 
-function resolvePlaywrightInvocation(extraArgs) {
+/**
+ * `pnpm run test:e2e -- <spec>` hands the script a literal leading `--`, and Playwright ignores every
+ * path after `--`, so the run would ignore the filter and take the whole suite.
+ */
+function withoutLeadingArgSeparator(args = []) {
+  return args[0] === '--' ? args.slice(1) : args;
+}
+
+function resolvePlaywrightInvocation(rawExtraArgs) {
+  const extraArgs = withoutLeadingArgSeparator(rawExtraArgs);
   const rawRetries = String(process.env.PLAYWRIGHT_RETRIES ?? '').trim();
   const configuredRetries = rawRetries === '' ? DEFAULT_PLAYWRIGHT_RETRIES : rawRetries;
   if (!/^\d+$/.test(configuredRetries)) {
@@ -168,22 +177,22 @@ async function main() {
     delete process.env.ELECTRON_RUN_AS_NODE;
   } catch {}
 
-  // Re-exec under Xvfb when DISPLAY is missing on Linux.
-  if (platform() === 'linux' && !process.env.DISPLAY && !process.env.__ALV_XVFB_RAN) {
+  // On Linux, re-exec under Xvfb so VS Code stays hidden, even when a DISPLAY exists.
+  // ALV_E2E_SHOW_VSCODE=1 keeps the current DISPLAY instead.
+  if (shouldUseXvfb(process.env)) {
     try {
       await execFileAsync('bash', ['-lc', 'command -v xvfb-run >/dev/null 2>&1']);
-      const child = spawn(
-        'xvfb-run',
-        ['-a', '-s', '-screen 0 1280x1024x24', process.execPath, __filename, ...process.argv.slice(2)],
-        {
-          stdio: 'inherit',
-          env: { ...process.env, __ALV_XVFB_RAN: '1' }
-        }
-      );
+      const child = spawn('xvfb-run', [...XVFB_ARGS, process.execPath, __filename, ...process.argv.slice(2)], {
+        stdio: 'inherit',
+        env: { ...process.env, __ALV_XVFB_RAN: '1' }
+      });
       child.on('exit', exitWithChildResult);
       return;
     } catch {
-      // no xvfb-run; continue and let Electron try (may fail)
+      // No xvfb-run: use the current DISPLAY if there is one, otherwise let Electron try (may fail).
+      if (process.env.DISPLAY) {
+        console.warn('[e2e] xvfb-run not found; VS Code will open on the current display. Install xvfb to hide it.');
+      }
     }
   }
 
@@ -214,5 +223,6 @@ module.exports = {
   resolveBuildInvocation,
   resolvePlaywrightEnv,
   resolvePlaywrightShardArgs,
-  resolvePlaywrightInvocation
+  resolvePlaywrightInvocation,
+  withoutLeadingArgSeparator
 };

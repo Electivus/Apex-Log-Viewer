@@ -8,6 +8,7 @@ import { Flags } from '@salesforce/sf-plugins-core';
 import { AlvCommand } from '../../../command.js';
 import { core } from '../../../core.js';
 import { finishLines, updatePrinter, withInterrupt, withNextSteps } from '../../../customLogCapture.js';
+import { CUSTOM_LOG_REFERENCE_NOTE } from '../../../customLogReference.js';
 import { targetOrgFlag } from '../../../flags.js';
 
 export default class CustomLogCapture extends AlvCommand<PrintsAsJson<CustomLogCaptureResult>> {
@@ -16,7 +17,9 @@ export default class CustomLogCapture extends AlvCommand<PrintsAsJson<CustomLogC
   public static override readonly description =
     'Salesforce keeps platform events for about 72 hours, and every event delivered counts against the org-wide daily allocation. ' +
     'This command subscribes, stores each event whole under apexlogs/, and resumes from the stored position on the next run.\n\n' +
-    'By default it drains: it stops when the stream goes quiet, when this run has spent about half of the remaining daily allocation, or after --max-time. ' +
+    'By default it drains: it stops when the stream goes quiet, when this run has spent its delivery budget, or after --max-time. ' +
+    'The budget is about half of the remaining daily allocation, or 5,000 deliveries when Salesforce does not report the allowance, which can be more than half of what remains. ' +
+    'It is checked as responses arrive and Salesforce sends a whole response at a time, so a run can pass it by one response. ' +
     'A quiet stream does not prove the backlog was complete. The stored position is exact, so an early stop costs one more run; ' +
     'if that run starts after the oldest event left behind has expired, the result lists the interval as a gap. ' +
     'A drain that hears nothing over a stored position older than one hour, or on a first run that replays retained events, waits the whole --max-time before it stops, ' +
@@ -27,7 +30,10 @@ export default class CustomLogCapture extends AlvCommand<PrintsAsJson<CustomLogC
     'A drain that finds another VS Code window or sf command capturing the source stops at once with outcome capturedElsewhere, ' +
     'and holder names that process: its surface, pid, host, and since, when it started capturing.\n\n' +
     'With --follow it keeps capturing, prints each stored row to stdout and state changes to stderr, and stops on Ctrl-C with exit code 0. A second Ctrl-C quits at once.\n\n' +
-    'Events published while nothing captured and older than 72 hours are lost; the result lists the interval as a gap.';
+    'Events published while nothing captured and older than 72 hours are lost; the result lists the interval as a gap.\n\n' +
+    'A first capture cannot start at the last N events or since a time. Salesforce replays only from the newest event, from the earliest retained event, or from a known replay id, so any partial window still delivers from the start of the backlog. ' +
+    '--initial new is the cheap start, and the run budget caps an --initial retained run.\n\n' +
+    CUSTOM_LOG_REFERENCE_NOTE;
   public static override readonly examples = [
     '<%= config.bin %> <%= command.id %> --source app-events --target-org dev --json',
     '<%= config.bin %> <%= command.id %> --source app-events --target-org dev --max-time 20 --json',
@@ -41,7 +47,7 @@ export default class CustomLogCapture extends AlvCommand<PrintsAsJson<CustomLogC
       options: ['retained', 'new'] as const,
       default: 'retained',
       summary:
-        'For an org this project never captured: "retained" replays the events Salesforce still keeps (each counts against the daily allocation), "new" starts with events published from now on.'
+        'For an org this project never captured: "retained" replays the events Salesforce still keeps (each counts against the daily allocation, up to the run budget), "new" starts with events published from now on.'
     })(),
     'max-time': Flags.integer({
       min: 1,

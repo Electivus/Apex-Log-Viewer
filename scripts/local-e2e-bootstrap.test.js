@@ -103,6 +103,54 @@ for (const selectedPnpm of [true, false]) {
   );
 }
 
+test(
+  'Linux ui launcher hides VS Code on Xvfb unless asked to show it on the DISPLAY',
+  { skip: process.platform !== 'linux' },
+  t => {
+    const { home, config } = fixture(t);
+    const scripts = path.join(home, 'checkout', 'scripts');
+    const toolsBin = path.join(home, 'tools');
+    const sfCache = path.join(home, 'sf-cache');
+    for (const directory of [scripts, toolsBin, path.join(sfCache, 'bin')]) {
+      fs.mkdirSync(directory, { recursive: true });
+    }
+    const executable = (file, content) => fs.writeFileSync(file, content, { mode: 0o755 });
+    const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
+    fs.copyFileSync(path.join(__dirname, 'run-wsl-e2e.sh'), path.join(scripts, 'run-wsl-e2e.sh'));
+    fs.copyFileSync(path.join(__dirname, 'e2e-display.js'), path.join(scripts, 'e2e-display.js'));
+    fs.symlinkSync(path.join(__dirname, 'local-e2e-bootstrap.js'), path.join(scripts, 'local-e2e-bootstrap.js'));
+    fs.writeFileSync(config, 'export SF_SCRATCH_POOL_NAME=test-pool\n');
+    executable(path.join(sfCache, 'bin', 'sf'), '#!/bin/sh\nexit 0\n');
+    executable(path.join(toolsBin, 'node'), `#!/bin/sh\nexec ${quote(process.execPath)} "$@"\n`);
+    executable(path.join(toolsBin, 'xvfb-run'), '#!/bin/sh\nprintf xvfb-run,\nshift 3\nexec "$@"\n');
+    fs.writeFileSync(
+      path.join(scripts, 'setup-salesforce-cli.mjs'),
+      'export const resolveSalesforceCliCacheConfig = () => ({cacheDir: process.env.SALESFORCE_CLI_CACHE_ROOT});\n' +
+        'export const resolveSalesforceCliBinPath = cacheDir => `${cacheDir}/bin/sf`;\n'
+    );
+    // Stub only JWT/network work: report what the launcher would run.
+    fs.writeFileSync(
+      path.join(scripts, 'devhub-local.js'),
+      'console.log(JSON.stringify({args: process.argv.slice(2), xvfbRan: process.env.__ALV_XVFB_RAN}));\n'
+    );
+    const run = extraEnv => {
+      const result = spawnSync('/bin/bash', [path.join(scripts, 'run-wsl-e2e.sh'), 'ui', '--grep', 'viewer'], {
+        env: { HOME: home, PATH: `${toolsBin}:/usr/bin:/bin`, SALESFORCE_CLI_CACHE_ROOT: sfCache, ...extraEnv },
+        encoding: 'utf8',
+        timeout: 10000
+      });
+      assert.equal(result.status, 0, result.stderr || result.error?.message);
+      return result.stdout;
+    };
+    const command = ['run', '--', 'corepack', 'pnpm', 'run', 'test:e2e', '--grep', 'viewer'];
+    const hidden = `xvfb-run,${JSON.stringify({ args: command, xvfbRan: '1' })}\n`;
+    assert.equal(run({}), hidden);
+    assert.equal(run({ DISPLAY: ':0' }), hidden);
+    assert.equal(run({ ALV_E2E_SHOW_VSCODE: '1' }), hidden);
+    assert.equal(run({ DISPLAY: ':0', ALV_E2E_SHOW_VSCODE: '1' }), `${JSON.stringify({ args: command })}\n`);
+  }
+);
+
 test('macOS GUI bootstrap uses the native launcher without Xvfb or another package build', async t => {
   const { home } = fixture(t, 'darwin');
   const entrypoint = path.join(__dirname, 'run-playwright-e2e.js');
@@ -222,8 +270,39 @@ test('configured GUI bootstrap forwards literal arguments and the child exit cod
     ...args
   ]);
   assert.equal(invocation.options.cwd, path.join(__dirname, '..'));
-  assert.equal(invocation.options.env, env);
+  // The marker stops the runner inside xvfb-run from wrapping itself in a second display.
+  assert.deepEqual(invocation.options.env, { ...env, __ALV_XVFB_RAN: '1' });
   assert.equal(invocation.options.stdio, 'inherit');
+});
+
+test('configured GUI bootstrap shows VS Code on the current DISPLAY only when asked', async t => {
+  const { home } = fixture(t);
+  const entrypoint = path.join(__dirname, 'run-playwright-e2e.js');
+  const invocations = [];
+  const run = env =>
+    bootstrapLocalE2e(
+      { entrypoint, gui: true },
+      {
+        home,
+        env,
+        platform: 'linux',
+        spawnImpl(file, argv, options) {
+          invocations.push({ argv, env: options.env });
+          const child = new EventEmitter();
+          process.nextTick(() => child.emit('close', 0, null));
+          return child;
+        }
+      }
+    );
+  const shown = { DISPLAY: ':0', ALV_E2E_SHOW_VSCODE: '1' };
+  await run(shown);
+  await run({ DISPLAY: ':0' });
+  await run({ ALV_E2E_SHOW_VSCODE: '1' });
+  const launcher = [path.join(__dirname, 'run-wsl-e2e.sh'), 'run', '--'];
+  const xvfb = ['xvfb-run', '-a', '-s', '-screen 0 1280x1024x24'];
+  assert.deepEqual(invocations[0], { argv: [...launcher, 'node', entrypoint], env: shown });
+  assert.deepEqual(invocations[1].argv, [...launcher, ...xvfb, 'node', entrypoint]);
+  assert.deepEqual(invocations[2].argv, [...launcher, ...xvfb, 'node', entrypoint]);
 });
 
 test('CLI bootstrap supports XDG configuration and preserves a child signal without starting Xvfb', async t => {

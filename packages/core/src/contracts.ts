@@ -323,10 +323,19 @@ export type DebugLevelGetParams = {
   developerName?: string;
 };
 
-export type DebugLevelWriteParams = {
+export type DebugLevelFields = Omit<RuntimeDebugLevelRecord, 'id'>;
+
+export type DebugLevelCreateParams = {
   targetOrg?: string;
-  id?: string;
-  record: RuntimeDebugLevelRecord;
+  record: Partial<DebugLevelFields> & Pick<DebugLevelFields, 'developerName'>;
+  dryRun?: boolean;
+  confirmed?: boolean;
+};
+
+export type DebugLevelUpdateParams = {
+  targetOrg?: string;
+  id: string;
+  changes: Partial<DebugLevelFields>;
   dryRun?: boolean;
   confirmed?: boolean;
 };

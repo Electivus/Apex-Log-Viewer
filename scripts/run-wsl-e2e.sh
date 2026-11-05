@@ -66,9 +66,14 @@ cli)
   exec node scripts/devhub-local.js run -- corepack pnpm run test:e2e:cli "$@"
   ;;
 ui | telemetry)
-  command -v xvfb-run >/dev/null
   test_script=test:e2e
   if [[ "$suite" == telemetry ]]; then test_script=test:e2e:telemetry; fi
+  # VS Code stays on a private Xvfb display unless ALV_E2E_SHOW_VSCODE=1 asks for WSLg.
+  if [[ -n "${DISPLAY:-}" ]] && node scripts/e2e-display.js; then
+    exec node scripts/devhub-local.js run -- corepack pnpm run "$test_script" "$@"
+  fi
+  command -v xvfb-run >/dev/null
+  export __ALV_XVFB_RAN=1
   exec xvfb-run -a -s '-screen 0 1280x1024x24' \
     node scripts/devhub-local.js run -- corepack pnpm run "$test_script" "$@"
   ;;

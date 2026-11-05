@@ -377,6 +377,36 @@ suite('DebugFlagsPanel', () => {
     assert.equal(applyCalls, 0);
   });
 
+  test('a blank DataAccess draft, as a level with no DataAccess loads, saves as INFO', () => {
+    const { DebugFlagsPanel } = loadDebugFlagsPanel();
+    const normalized = (DebugFlagsPanel as any).prototype.normalizeDebugLevelDraft.call(
+      {},
+      { ...createEmptyDebugLevelRecord(), developerName: 'SFDC_DevConsole', masterLabel: 'Dev Console', dataAccess: '' }
+    );
+
+    assert.equal(normalized.dataAccess, 'INFO');
+  });
+
+  test('a level with null Nba and DataAccess saves both as INFO when only ApexCode changed', () => {
+    const { DebugFlagsPanel } = loadDebugFlagsPanel();
+    const normalized = (DebugFlagsPanel as any).prototype.normalizeDebugLevelDraft.call(
+      {},
+      {
+        ...createEmptyDebugLevelRecord(),
+        id: '7dl000000000001AAA',
+        developerName: 'SFDC_DevConsole',
+        masterLabel: 'Dev Console',
+        apexCode: 'FINEST',
+        nba: null,
+        dataAccess: null
+      }
+    );
+
+    assert.equal(normalized.apexCode, 'FINEST');
+    assert.equal(normalized.nba, 'INFO');
+    assert.equal(normalized.dataAccess, 'INFO');
+  });
+
   test('debug level runtime writes throw when runtime reports error status', async () => {
     const calls: string[] = [];
     const { DebugFlagsPanel } = loadDebugFlagsPanel({

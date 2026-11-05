@@ -60,8 +60,87 @@ const ptBrByLegacyKey = {
   'customLogs.status.stop': 'Parar captura',
   'customLogs.configure.noWorkspace': 'Abra um projeto Salesforce para configurar os Logs Personalizados.',
   'customLogs.configure.noProjectFile':
-    'Os Logs Personalizados leem suas fontes de plugins.electivus.customLogs no sfdx-project.json, que este workspace não tem.'
+    'Os Logs Personalizados leem suas fontes de plugins.electivus.customLogs no sfdx-project.json, que este workspace não tem.',
+  'openLogInViewer.noDocument': 'Electivus Apex Logs: nenhum log Apex está ativo.',
+  'openLogInViewer.unsupportedScheme': 'Electivus Apex Logs: não é possível abrir logs Apex deste local.',
+  'openLogInViewer.notApex':
+    'Electivus Apex Logs: o documento ativo não foi reconhecido como um log Apex do Salesforce.',
+  'openLogInViewer.failed': 'Falha ao abrir o log Apex: {0}',
+  'openLogInViewer.codeLensTitle': 'Abrir no Apex Log Viewer',
+  'diagnostics.copied': 'Electivus Apex Logs: pacote de diagnóstico copiado para a área de transferência.',
+  'diagnostics.copyFailed': 'Electivus Apex Logs: falha ao copiar o diagnóstico: {0}',
+  cliDefaultOrgMissing:
+    'Nenhuma org padrão do Salesforce está configurada. Selecione uma org na extensão ou execute "sf org login web" e defina uma org padrão.',
+  cliAuthRequired: 'O Salesforce CLI não está autenticado. Execute "sf org login web" para autenticar.',
+  listOrgsFailed: 'Falha ao listar as orgs Salesforce.',
+  sendOrgsFailed: 'Falha ao listar as orgs Salesforce: {0}',
+  openingApexLog: 'Abrindo log Apex…',
+  startReplayFailed: 'Falha ao iniciar o Apex Replay Debugger: {0}',
+  'debugFlags.unavailable': 'O painel Debug Flags não está disponível antes da ativação da extensão.',
+  'debugFlags.noOrg': 'Nenhuma org Salesforce está selecionada.',
+  'debugFlags.loadOrgsFailed': 'Falha ao carregar as orgs e os níveis de depuração: {0}',
+  'debugFlags.loadUsersFailed': 'Falha ao carregar os usuários: {0}',
+  'debugFlags.loadStatusFailed': 'Falha ao carregar o status da debug flag do alvo selecionado: {0}',
+  'debugFlags.applySummary': 'Debug flags aplicadas a {0} alvos correspondentes ({1} criadas, {2} atualizadas).',
+  'debugFlags.applyCreated': 'Debug flag criada com sucesso.',
+  'debugFlags.applyUpdated': 'Debug flag atualizada com sucesso.',
+  'debugFlags.applyFailed': 'Falha ao aplicar a debug flag: {0}',
+  'debugFlags.removeSummary': 'Removidos {0} registros de trace flag {1} em {2} alvos correspondentes.',
+  'debugFlags.removeNoneSummary': 'Nenhuma trace flag {0} foi encontrada em {1} alvos correspondentes.',
+  'debugFlags.removeSuccess': 'Debug flag removida com sucesso.',
+  'debugFlags.removeNone': 'Nenhuma trace flag {0} ativa foi encontrada para este alvo.',
+  'debugFlags.removeFailed': 'Falha ao remover a debug flag: {0}',
+  'debugFlags.targetUnavailable': 'O alvo de trace flag "{0}" não está disponível nesta org.',
+  'debugFlags.managerDeveloperNameRequired': 'DeveloperName é obrigatório.',
+  'debugFlags.managerMasterLabelRequired': 'MasterLabel é obrigatório.',
+  'debugFlags.managerCreated': 'Nível de depuração criado com sucesso.',
+  'debugFlags.managerUpdated': 'Nível de depuração atualizado com sucesso.',
+  'debugFlags.managerSaveFailed': 'Falha ao salvar o nível de depuração: {0}',
+  'debugFlags.managerDeleted': 'Nível de depuração excluído com sucesso.',
+  'debugFlags.managerDeleteFailed': 'Falha ao excluir o nível de depuração: {0}',
+  'debugFlags.runtimeDebugLevelWriteFailed': 'O runtime falhou ao gravar o nível de depuração ({0}).',
+  'logsCleanup.alreadyRunning': 'Uma limpeza de logs já está em andamento.',
+  'logsCleanup.actionClearAll': 'Limpar logs da org…',
+  'logsCleanup.hintStorageFull':
+    'O armazenamento de logs da org parece cheio. Use “Limpar logs” → “Deletar todos os logs da org” para liberar espaço.',
+  'logsCleanup.confirmAction': 'Deletar',
+  'logsCleanup.confirmMine.title': 'Deletar seus logs Apex da org selecionada?',
+  'logsCleanup.confirmAll.title': 'Deletar todos os logs Apex da org selecionada?',
+  'logsCleanup.confirmMine.detail':
+    'Isto deleta permanentemente os registros ApexLog cujo LogUser é o usuário autenticado na org. Não é possível desfazer.',
+  'logsCleanup.confirmAll.detail':
+    'Isto deleta permanentemente os registros ApexLog armazenados na org. Não é possível desfazer.',
+  'logsCleanup.progressTitleMine': 'Deletando meus logs da org…',
+  'logsCleanup.progressTitleAll': 'Deletando os logs da org…',
+  'logsCleanup.progressListingMine': 'Listando seus logs Apex…',
+  'logsCleanup.progressListingAll': 'Listando os logs Apex da org…',
+  'logsCleanup.progressDeleting': 'Deletando logs ({0}/{1})…',
+  'logsCleanup.emptyMine': 'Nenhum log Apex foi encontrado para o usuário autenticado.',
+  'logsCleanup.emptyAll': 'Nenhum log Apex foi encontrado na org.',
+  'logsCleanup.cancelledCounts': 'Limpeza de logs cancelada ({0} deletados, {1} com falha).',
+  'logsCleanup.partial': '{0} log(s) deletado(s), mas {1} falharam.',
+  'logsCleanup.done': '{0} log(s) Apex deletado(s).',
+  'logsCleanup.failed': 'Falha ao limpar os logs: {0}',
+  downloadAllLogsAlreadyRunning: 'Um download em massa de logs já está em andamento.',
+  downloadAllLogsConfirmAction: 'Baixar',
+  downloadAllLogsPreflightConfirm: 'Baixar todos os logs Apex da org selecionada?',
+  downloadAllLogsPreflightConfirmDetail:
+    'Esta ação pode fazer muitas chamadas de API e baixar uma grande quantidade de dados.',
+  downloadAllLogsProgressTitle: 'Baixando todos os logs da org…',
+  downloadAllLogsProgressSyncing: 'Sincronizando os logs da org selecionada…',
+  downloadAllLogsProgressMessage: '{0}/{1} logs processados…',
+  downloadAllLogsSummaryCancelledDuringSync:
+    'Download em massa cancelado durante a sincronização dos logs da org selecionada.',
+  downloadAllLogsNoLogs: 'Nenhum log Apex foi encontrado para a org selecionada.',
+  downloadAllLogsSummaryCancelled: 'Download em massa cancelado. Processados {0}/{1}. Sucesso: {2}, falhas: {3}.',
+  downloadAllLogsSummaryPartial: 'Download em massa concluído com sucesso parcial. Sucesso: {0}, falhas: {1}.',
+  downloadAllLogsSummarySuccess:
+    'Download em massa concluído. {0} logs estão disponíveis localmente ({1} baixados, {2} já em cache).',
+  downloadAllLogsFailed: 'Falha ao baixar todos os logs da org: {0}'
 };
+
+/** Runtime messages that read the same in pt-BR (product names), so the pt-BR bundle leaves them out. */
+const sameInPtBr = new Set(['Apex Debug Flags', 'Electivus Apex Logs', 'Electivus Apex Logs Tail', 'Payload']);
 
 function ensureDir(targetPath) {
   fs.mkdirSync(targetPath, { recursive: true });
@@ -170,19 +249,43 @@ function collectMessages() {
   return Array.from(byMessage.values()).sort((a, b) => a.defaultMessage.localeCompare(b.defaultMessage));
 }
 
-const messages = collectMessages();
-const baseBundle = Object.fromEntries(messages.map(({ defaultMessage }) => [defaultMessage, defaultMessage]));
-const existingPtBrBundle = readJsonIfExists(ptBrFile);
-const ptBrBundle = {};
+/**
+ * Builds both runtime bundles. `untranslated` lists the messages with no pt-BR entry that are not
+ * in `sameInPtBr`, which a pt-BR VS Code would show in English.
+ */
+function buildBundles(messages = collectMessages(), existingPtBrBundle = readJsonIfExists(ptBrFile)) {
+  const baseBundle = Object.fromEntries(messages.map(({ defaultMessage }) => [defaultMessage, defaultMessage]));
+  const ptBrBundle = {};
+  const untranslated = [];
 
-for (const { legacyKey, defaultMessage } of messages) {
-  const translated = ptBrByLegacyKey[legacyKey] || existingPtBrBundle[defaultMessage];
-  if (translated && translated !== defaultMessage) {
-    ptBrBundle[defaultMessage] = translated;
+  for (const message of messages) {
+    const { legacyKey, defaultMessage } = message;
+    const translated = ptBrByLegacyKey[legacyKey] || existingPtBrBundle[defaultMessage];
+    if (translated && translated !== defaultMessage) {
+      ptBrBundle[defaultMessage] = translated;
+    } else if (!sameInPtBr.has(defaultMessage)) {
+      untranslated.push(message);
+    }
+  }
+
+  return { baseBundle, ptBrBundle, untranslated };
+}
+
+function main() {
+  const messages = collectMessages();
+  const { baseBundle, ptBrBundle, untranslated } = buildBundles(messages);
+
+  writeJson(baseFile, baseBundle);
+  writeJson(ptBrFile, ptBrBundle);
+
+  console.log(`[l10n] wrote ${messages.length} runtime message(s) to apps/vscode-extension/l10n/bundle.l10n*.json`);
+  for (const { legacyKey, location } of untranslated) {
+    console.warn(`[l10n] no pt-BR translation for '${legacyKey}' (${location}); add it to ptBrByLegacyKey`);
   }
 }
 
-writeJson(baseFile, baseBundle);
-writeJson(ptBrFile, ptBrBundle);
+if (require.main === module) {
+  main();
+}
 
-console.log(`[l10n] wrote ${messages.length} runtime message(s) to apps/vscode-extension/l10n/bundle.l10n*.json`);
+module.exports = { baseFile, buildBundles, collectMessages, ptBrFile, sameInPtBr };

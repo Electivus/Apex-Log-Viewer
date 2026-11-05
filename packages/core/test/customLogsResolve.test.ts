@@ -20,7 +20,12 @@ import {
 } from '../src/customLogs/resolved.ts';
 import { createSchemaMemo, memoizedSchemaReader, type ObjectDescribe } from '../src/customLogs/schema.ts';
 import { headerSource, type Json } from './support/customLogsFixtures.ts';
-import { describeFixture, fakeSchemaReader, logEntryEventDescribe } from './support/describeFixtures.ts';
+import {
+  alvTestLogDescribe,
+  describeFixture,
+  fakeSchemaReader,
+  logEntryEventDescribe
+} from './support/describeFixtures.ts';
 
 const nebula = NEBULA_PRESET.definition;
 const unlockedAdmin = describeFixture('unlocked-admin');
@@ -699,7 +704,7 @@ test('an event mapping resolves against the measured LogEntryEvent__e describe',
     event.details.map(detail => [detail.key, detail.state]),
     [['StackTrace__c', 'readable']]
   );
-  assert.equal(event.payload?.state, 'readable');
+  assert.equal(event.payload?.kind === 'document' && event.payload.field.state, 'readable');
   assert.equal(event.systemMessagePrefix, 'Nebula Logger - ');
 });
 
@@ -774,7 +779,7 @@ test('an event field that describe omits is hidden like a record field, and a mi
     event.details.map(detail => detail.state),
     ['hidden']
   );
-  assert.equal(event.payload?.state, 'hidden');
+  assert.equal(event.payload?.kind === 'document' && event.payload.field.state, 'hidden');
 
   const noMessage = resolveDefinition(
     definition,
@@ -892,6 +897,162 @@ test('an event source that is not ready still reports the event object it looked
   );
 
   assert.deepEqual([info.shape, info.objects, info.state], ['events', { event: 'LogEntryEvent__e' }, 'unavailable']);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Path roles and entries payloads (issue #1240)
+
+const alvTestLog = alvTestLogDescribe();
+const alvDescribes = (described: ObjectDescribe = alvTestLog) => new Map([['ALV_Test_Log__e', described]]);
+
+/** `ALV_Test_Log__e` with its roles read from the elements of two array fields. */
+const alvEntriesMapping: Json = {
+  id: 'alv-entries',
+  event: {
+    object: 'ALV_Test_Log__e',
+    fields: {
+      time: { path: 'timestamp' },
+      message: { path: 'msg' },
+      level: { path: 'level' },
+      user: 'Username__c',
+      requestId: { path: 'requestId' }
+    },
+    payload: { entries: ['Payload__c', 'Stack_Trace__c'], columns: ['traceId'] }
+  }
+};
+
+const alvEntries = (event: Json = {}): Json => ({
+  ...alvEntriesMapping,
+  event: { ...(alvEntriesMapping.event as Json), ...event }
+});
+
+test('a path role resolves without a describe check and the payload lists the paths the roles read', () => {
+  const entry = resolveDefinition(define(alvEntriesMapping), 'config', '', alvDescribes());
+  const event = eventOf(entry);
+
+  assert.deepEqual(ready(entry).hidden, []);
+  assert.deepEqual(event.roles.time, { from: 'path', key: 'timestamp', path: 'timestamp' });
+  assert.deepEqual(event.roles.message, { from: 'path', key: 'msg', path: 'msg' });
+  assert.deepEqual(event.roles.level, { from: 'path', key: 'level', path: 'level' });
+  assert.equal(event.roles.user?.from === 'field' && event.roles.user.api, 'Username__c');
+  assert.equal(event.payload?.kind, 'entries');
+  assert.deepEqual([...event.payload!.rolePaths].sort(), ['level', 'msg', 'requestId', 'timestamp']);
+  assert.deepEqual(event.payload?.kind === 'entries' && event.payload.fields.map(field => [field.key, field.state]), [
+    ['Payload__c', 'readable'],
+    ['Stack_Trace__c', 'readable']
+  ]);
+  assert.deepEqual(event.payload?.columns, ['traceId']);
+});
+
+test('a path role reads a document payload too, and a path time has no encoding', () => {
+  const definition = define(
+    alvEntries({
+      payload: { field: 'Payload__c', columns: [] },
+      fields: { time: { path: 'at' }, message: 'Message__c' }
+    })
+  );
+
+  const event = eventOf(resolveDefinition(definition, 'config', '', alvDescribes()));
+
+  assert.deepEqual(event.roles.time, { from: 'path', key: 'at', path: 'at' });
+  assert.equal(event.payload?.kind, 'document');
+  assert.deepEqual([...event.payload!.rolePaths], ['at']);
+});
+
+test('a hidden entries field stays listed as hidden under event.payload.entries and the others still read', () => {
+  const entry = resolveDefinition(
+    define(alvEntriesMapping),
+    'config',
+    '',
+    alvDescribes(withoutFields(alvTestLog, 'Stack_Trace__c'))
+  );
+  const event = eventOf(entry);
+
+  assert.deepEqual(ready(entry).hidden, ['event.payload.entries.Stack_Trace__c']);
+  assert.deepEqual(event.payload?.kind === 'entries' && event.payload.fields.map(field => [field.key, field.state]), [
+    ['Payload__c', 'readable'],
+    ['Stack_Trace__c', 'hidden']
+  ]);
+  assert.deepEqual(toSourceInfo(entry).payload, {
+    entry: { field: 'Payload__c', entries: ['Payload__c'], columns: ['traceId'] }
+  });
+});
+
+test('an entries field of the wrong type makes the source unavailable', () => {
+  const result = resolveDefinition(
+    define(alvEntries({ payload: { entries: ['Payload__c', 'Epoch_Ms__c'] } })),
+    'config',
+    '',
+    alvDescribes()
+  );
+
+  assert.equal(result.state === 'unavailable' && result.reason, 'fieldTypeMismatch');
+});
+
+test('when every entries field is hidden, a required path role fails the source and an optional one is dropped', () => {
+  const noPayload = alvDescribes(withoutFields(alvTestLog, 'Payload__c', 'Stack_Trace__c'));
+
+  const required = resolveDefinition(define(alvEntriesMapping), 'config', '', noPayload);
+  assert.equal(required.state === 'unavailable' && required.reason, 'requiredFieldMissing');
+  assert.match(required.state === 'unavailable' ? required.message : '', /event\.fields\.time/);
+
+  const optional = resolveDefinition(
+    define(
+      alvEntries({
+        fields: { time: 'Logged_At__c', message: 'Message__c', level: { path: 'level' }, user: 'Username__c' }
+      })
+    ),
+    'config',
+    '',
+    noPayload
+  );
+  const event = eventOf(optional);
+  assert.deepEqual([...ready(optional).hidden].sort(), [
+    'event.fields.level',
+    'event.payload.entries.Payload__c',
+    'event.payload.entries.Stack_Trace__c'
+  ]);
+  assert.equal(event.roles.level, undefined);
+  assert.equal(event.roles.user?.from, 'field');
+  const info = toSourceInfo(optional);
+  assert.deepEqual(info.payload, {});
+  assert.equal(info.capabilities.levelFilter, false);
+  assert.equal(info.capabilities.userFilter, true);
+});
+
+test('a hidden document payload drops an optional path role the same way', () => {
+  const definition = define(
+    alvEntries({
+      payload: 'Payload__c',
+      fields: { time: 'Logged_At__c', message: 'Message__c', origin: { path: 'caller' } }
+    })
+  );
+
+  const entry = resolveDefinition(definition, 'config', '', alvDescribes(withoutFields(alvTestLog, 'Payload__c')));
+
+  assert.deepEqual([...ready(entry).hidden].sort(), ['event.fields.origin', 'event.payload']);
+  assert.equal(eventOf(entry).roles.origin, undefined);
+});
+
+test('two entries names that describe resolves to one field collapse to the first', () => {
+  const definition = define(alvEntries({ payload: { entries: ['Payload__c', 'payload__c', 'Stack_Trace__c'] } }));
+
+  const event = eventOf(resolveDefinition(definition, 'config', '', alvDescribes()));
+
+  assert.deepEqual(event.payload?.kind === 'entries' && event.payload.fields.map(field => field.key), [
+    'Payload__c',
+    'Stack_Trace__c'
+  ]);
+});
+
+test('sources reports an entries payload with its fields in order, and path roles count as mapped capabilities', () => {
+  const info = toSourceInfo(resolveDefinition(define(alvEntriesMapping), 'config', '', alvDescribes()));
+
+  assert.deepEqual(info.payload, {
+    entry: { field: 'Payload__c', entries: ['Payload__c', 'Stack_Trace__c'], columns: ['traceId'] }
+  });
+  assert.deepEqual(info.capabilities, { levelFilter: true, userFilter: true, apexLogLink: true });
+  assert.deepEqual(info.hiddenFields, []);
 });
 
 // ---------------------------------------------------------------------------------------------
