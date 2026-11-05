@@ -320,10 +320,6 @@ function validatePnpmLock(lockfilePath, failures) {
       }
     }
 
-    // `deprecated:` holds the registry's free-text deprecation message, which can link to an
-    // issue tracker. It is not a resolution source.
-    if (/^\s+deprecated:/u.test(line)) continue;
-
     for (const match of line.matchAll(/(?:git\+|https?:\/\/|github:|gitlab:|bitbucket:|gist:|file:)[^\s'",}\]]+/giu)) {
       const source = match[0];
       if (!isRegistryTarball(source)) {
