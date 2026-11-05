@@ -526,7 +526,7 @@ export async function replay(states, { workDir, keep = false, log = () => undefi
 
 export { Divergence };
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [file, ...flags] = process.argv.slice(2);
   if (!file) {
     console.error('usage: node replay.mjs <trace-file> [--keep]');
