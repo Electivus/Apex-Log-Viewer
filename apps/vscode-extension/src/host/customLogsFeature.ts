@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { affectsConfiguration, getBooleanConfig } from './utils/config';
 import { registerCustomLogDocuments } from './utils/customLogDocuments';
+import { registerCaptureStatusBar } from './customLogsStatusBar';
 import { openCustomLogsConfig } from './utils/customLogsConfig';
 import { getErrorMessage } from './utils/error';
 import { logWarn } from './utils/logger';
@@ -36,11 +37,20 @@ export function registerCustomLogsFeature(
     CustomLogsEditorPanel.initialize(context);
     CustomLogViewerPanel.initialize(context);
     const provider = new CustomLogsViewProvider(context);
+    const revealPanel = async () => {
+      await vscode.commands.executeCommand('workbench.view.extension.electivus-apex-log-viewer-custom-logs');
+      try {
+        await vscode.commands.executeCommand('workbench.viewsService.openView', CustomLogsViewProvider.viewType);
+      } catch {
+        await vscode.commands.executeCommand('workbench.action.openView', CustomLogsViewProvider.viewType);
+      }
+    };
     running = {
       provider,
       registrations: vscode.Disposable.from(
         registerCustomLogDocuments(),
         provider,
+        registerCaptureStatusBar(provider, revealPanel),
         vscode.window.registerWebviewViewProvider(CustomLogsViewProvider.viewType, provider, {
           webviewOptions: { retainContextWhenHidden: true }
         }),
@@ -48,12 +58,7 @@ export function registerCustomLogsFeature(
           safeSendEvent('command.customLogs.refresh', { outcome: 'invoked' });
           const viewAlreadyResolved = provider.hasResolvedView();
           try {
-            await vscode.commands.executeCommand('workbench.view.extension.electivus-apex-log-viewer-custom-logs');
-            try {
-              await vscode.commands.executeCommand('workbench.viewsService.openView', CustomLogsViewProvider.viewType);
-            } catch {
-              await vscode.commands.executeCommand('workbench.action.openView', CustomLogsViewProvider.viewType);
-            }
+            await revealPanel();
             if (!provider.getSelectedOrg()) {
               await provider.syncSelectedOrg(logsSelectedOrg());
             }

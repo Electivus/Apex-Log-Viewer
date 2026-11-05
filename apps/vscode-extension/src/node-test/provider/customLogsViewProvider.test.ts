@@ -1146,6 +1146,108 @@ suite('Custom Logs view provider', () => {
       assert.equal(second.ofType('customLogsCapture').length, 0);
     });
 
+    suite('capture status for the status bar', () => {
+      const watch = (provider: ReturnType<typeof load>['provider']) => {
+        const seen: Array<{ sourceLabel: string; state: string } | undefined> = [];
+        provider.onDidChangeCaptureStatus(status =>
+          seen.push(status && { sourceLabel: status.sourceLabel, state: status.capture.state })
+        );
+        return seen;
+      };
+
+      test('follows the capture while the panel is hidden and ends with it', async () => {
+        const ctx = loadEvents();
+        const seen = watch(ctx.provider);
+        const host = await openEvents(ctx);
+        host.visible = false;
+        const capture = ctx.fake.calls.customLogCapture[0]!;
+
+        capture.report({ capture: { state: 'catchingUp', from: 'new' } });
+        capture.report({ capture: { state: 'live', basis: 'quiet' } });
+        capture.report({ capture: { state: 'reconnecting', attempt: 1, cause: 'transport' } });
+        capture.report({ capture: { state: 'standby', holder: { surface: 'cli', pid: 1, host: 'h', since: 's' } } });
+        await settle();
+
+        assert.deepEqual(seen, [
+          undefined,
+          { sourceLabel: EVENTS.label, state: 'connecting' },
+          { sourceLabel: EVENTS.label, state: 'catchingUp' },
+          { sourceLabel: EVENTS.label, state: 'live' },
+          { sourceLabel: EVENTS.label, state: 'reconnecting' },
+          { sourceLabel: EVENTS.label, state: 'standby' }
+        ]);
+      });
+
+      test('a capture that ends on its own takes the item down', async () => {
+        const ctx = loadEvents();
+        const seen = watch(ctx.provider);
+        await openEvents(ctx);
+        const capture = ctx.fake.calls.customLogCapture[0]!;
+        capture.report();
+
+        capture.end('quiet');
+        await settle();
+
+        assert.equal(ctx.provider.getCaptureStatus(), undefined);
+        assert.equal(seen.at(-1), undefined);
+      });
+
+      test('a capture that fails takes the item down', async () => {
+        const ctx = loadEvents();
+        await openEvents(ctx);
+        ctx.fake.calls.customLogCapture[0]!.report();
+
+        ctx.fake.calls.customLogCapture[0]!.fail(new Error('boom'));
+        await settle();
+
+        assert.equal(ctx.provider.getCaptureStatus(), undefined);
+      });
+
+      test('Stop from the status bar stops the run the strip stops and the panel shows it stopped when it returns', async () => {
+        const ctx = loadEvents();
+        const host = await openEvents(ctx);
+        host.visible = false;
+        const capture = ctx.fake.calls.customLogCapture[0]!;
+        capture.report();
+        await settle();
+
+        ctx.provider.stopByUser();
+        await settle();
+
+        assert.equal(capture.aborted, true);
+        assert.equal(ctx.provider.getCaptureStatus(), undefined);
+        host.dispose();
+        const returned = new FakeHost();
+        await ctx.mount(returned, 2);
+        assert.deepEqual(strip(returned), {
+          capture: { state: 'stopped', outcome: 'aborted' },
+          store: CAPTURED,
+          wanted: false
+        });
+        assert.equal(ctx.fake.calls.customLogCapture.length, 1, 'the panel does not restart what the user stopped');
+      });
+
+      test('only the window that started a capture has a status', async () => {
+        const mine = loadEvents();
+        const other = loadEvents();
+        await openEvents(mine);
+        mine.fake.calls.customLogCapture[0]!.report();
+
+        assert.ok(mine.provider.getCaptureStatus());
+        assert.equal(other.provider.getCaptureStatus(), undefined);
+      });
+
+      test('dispose, which turning the setting off does, takes the item down', async () => {
+        const ctx = loadEvents();
+        const seen = watch(ctx.provider);
+        await openEvents(ctx);
+
+        ctx.provider.dispose();
+
+        assert.equal(seen.at(-1), undefined);
+      });
+    });
+
     test('stops on dispose, which is also how turning the setting off ends it', async () => {
       const ctx = loadEvents();
       await openEvents(ctx);
