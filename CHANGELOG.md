@@ -4,6 +4,7 @@
 
 ### Maintenance
 
+- Security: the dependency source check reads `pnpm-lock.yaml` as YAML instead of line by line, so a URL in a package's deprecation message, such as the one npm now shows for `@smithy/core@3.29.1`, no longer fails it; every other key and value is still checked, and YAML that pnpm does not write fails the check.
 - Custom Logs: say a platform event is kept for at least 72 hours, in the panel's first-use note and catching-up text and in the docs, because Salesforce may purge later and a `-2` replay can cost more than the docs said; warn against a `-2` replay of `ALV_Test_Backlog__e`.
 - Custom Logs: remove the `Captured elsewhere` strip state, which the panel could never reach because it always follows; `capturedElsewhere` stays a CLI drain outcome.
 - Discontinue the IntelliJ product initiative and remove its plugin, build tooling, CI/E2E lanes, and release workflow; retain useful TypeScript core regression coverage.
