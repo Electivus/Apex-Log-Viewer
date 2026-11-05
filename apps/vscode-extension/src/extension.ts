@@ -28,6 +28,7 @@ import { getBooleanConfig, affectsConfiguration } from './host/utils/config';
 import { getErrorMessage } from './host/utils/error';
 import { findSalesforceProjectInfo, isApexLogDocument, getLogIdFromLogFilePath } from './host/utils/workspace';
 import { ApexLogCodeLensProvider } from './provider/ApexLogCodeLensProvider';
+import { registerApexLogEditorContext } from './host/apexLogEditorContext';
 import { getWebviewDiagnosticEvents, type WebviewProviderDiagnosticState } from './shared/webviewDiagnostics';
 import { formatDiagnosticsPackageMarkdown, type DiagnosticsPackage } from './shared/diagnosticsPackage';
 
@@ -282,8 +283,16 @@ export async function activate(context: vscode.ExtensionContext) {
 
   const codeLensProvider = new ApexLogCodeLensProvider();
   context.subscriptions.push(
-    vscode.languages.registerCodeLensProvider({ scheme: 'file', language: 'apexlog' }, codeLensProvider),
-    codeLensProvider
+    vscode.languages.registerCodeLensProvider(
+      [
+        { scheme: 'file', language: 'apexlog' },
+        // VS Code's built-in Log language claims `.log`, so most Apex logs open as `log`; the provider checks the content.
+        { scheme: 'file', language: 'log' }
+      ],
+      codeLensProvider
+    ),
+    codeLensProvider,
+    registerApexLogEditorContext()
   );
 
   context.subscriptions.push(
