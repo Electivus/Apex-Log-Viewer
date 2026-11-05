@@ -185,14 +185,6 @@ export function TailApp({
     return out;
   }, [lines, query, onlyUserDebug]);
 
-  // Auto-scroll to the last visible (filtered) item when enabled
-  useEffect(() => {
-    if (!autoScroll) return;
-    if (filteredIndexes.length === 0) return;
-    const last = filteredIndexes.length - 1;
-    listRef.current?.scrollToRow({ index: last, align: 'end', behavior: 'auto' });
-  }, [lines, autoScroll, filteredIndexes.length]);
-
   // Map full indices to their current position inside filteredIndexes for O(1) lookup
   const filteredIndexMap = useMemo(() => {
     const m = new Map<number, number>();
@@ -293,10 +285,8 @@ export function TailApp({
           setAutoScroll(v);
           autoScrollPausedByScrollRef.current = false; // user action overrides pause reason
           if (v) {
-            // Clear selection to allow auto-scroll to take over and jump to end immediately
+            // Clear selection so the list can follow; TailList jumps to the end when `follow` turns on
             setSelectedIndex(undefined);
-            const last = filteredIndexes.length > 0 ? filteredIndexes.length - 1 : 0;
-            listRef.current?.scrollToRow({ index: last, align: 'end', behavior: 'auto' });
           }
         }}
         error={error}
@@ -315,6 +305,7 @@ export function TailApp({
         colorize={colorize}
         running={running}
         listRef={listRef}
+        follow={autoScroll}
         t={t}
         onAtBottomChange={atBottom => {
           // Only auto-toggle when current state stems from scroll pause
