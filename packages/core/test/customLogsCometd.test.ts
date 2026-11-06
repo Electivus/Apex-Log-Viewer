@@ -467,21 +467,29 @@ test('a process that aborts its subscription exits at once with no socket or tim
         ['--import', 'tsx', path.resolve(__dirname, 'support/cometdAbortChild.ts'), double.username, CHANNEL, abortOn],
         { cwd: path.resolve(__dirname, '..'), stdio: ['ignore', 'pipe', 'inherit'] }
       );
+      let output = '';
       let abortedAt = 0;
       child.stdout.on('data', (chunk: Buffer) => {
         const lines = chunk.toString();
+        output += lines;
         if (lines.includes('down')) void double.close();
         if (lines.includes('aborting')) abortedAt = Date.now();
       });
       const killer = setTimeout(() => child.kill('SIGKILL'), 20_000);
-      const code = await new Promise<number | null>(resolve => child.on('exit', resolve));
+      const code = await new Promise<number | null>(resolve => child.on('close', resolve));
       clearTimeout(killer);
       const exitedAfter = Date.now() - abortedAt;
+      // The child's own event loop emptied this long after the abort; teardown and the pipe come on top.
+      const drained = /^drained (\d+)$/m.exec(output)?.[1];
 
       assert.equal(code, 0);
-      assert.ok(exitedAfter < maxExitMs, `the process lingered ${exitedAfter} ms after the abort`);
+      assert.ok(drained !== undefined, `the child reported no drain time:\n${output}`);
+      assert.ok(
+        Number(drained) < maxExitMs,
+        `the event loop stayed busy ${drained} ms after the abort (exit seen after ${exitedAfter} ms)`
+      );
       assert.equal(double.disconnects, disconnects);
-      sub.diagnostic(`exited ${exitedAfter} ms after the abort`);
+      sub.diagnostic(`event loop empty ${drained} ms after the abort, exit seen after ${exitedAfter} ms`);
     });
   }
 });

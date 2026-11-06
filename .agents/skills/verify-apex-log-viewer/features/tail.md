@@ -30,7 +30,7 @@ Preconditions:
 - **Saved file.** After the run, `<session.workspacePath>/apexlogs/orgs/<safe org username>/logs/<date>/<logId>.log` exists. Read it in a step, or check `workspace-files.json` after `stop`.
 - **Open Log and Replay.** While tailing, click the `=== ApexLog <logId>` row in `h.tailFrame()`, then `Open Log`. `h.frameWith('text=<logId>.log')` then shows that log. `Replay Debugger` on the same row shows the `Apex Replay Debugger is unavailable…` toast, because the session does not install that extension.
 - **Search and Debug Only.** Fill `getByLabel('Search live logs…')` with the marker: the `Execute Anonymous:` line and the `USER_DEBUG` line remain. With `getByRole('switch', { name: 'Debug Only' })` on, only `USER_DEBUG` lines remain.
-- **Second channels.** The extension's Output log (copied to `vscode-logs/` at stop) has `Tail: TraceFlag updated or already matching for level <level>`, `Tail: primed seen set with N of M recent logs`, `Tail: subscribed to /systemTopic/Logging`, `Tail: backfilling log <id>` and `Tail: saved log <id> to <path>`. Read the trace flag through Tooling as in `tail-live`.
+- **Second channels.** The extension's Output log (copied to `vscode-logs/` at stop) has `Tail: TraceFlag updated or already matching for level <level>` (or `Tail: ensure TraceFlag failed (continuing) -> <reason>` when the flag could not be written; Tail still subscribes), `Tail: primed seen set with N of M recent logs`, `Tail: subscribed to /systemTopic/Logging`, `Tail: backfilling log <id>` and `Tail: saved log <id> to <path>`. Read the trace flag through Tooling as in `tail-live`.
 - **Proof.** Shoot the Tail frame while the panel is maximized, so the streamed rows are inside the screenshot.
 
 ## Gotchas

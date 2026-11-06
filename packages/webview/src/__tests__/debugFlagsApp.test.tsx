@@ -525,6 +525,59 @@ describe('DebugFlags webview App', () => {
     expect(screen.queryByTestId('debug-flags-user-row-005000000000001AAA')).toBeNull();
   });
 
+  it('drops the selected user when a new search no longer lists it, as the extension does', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<DebugFlagsApp vscode={vscode} messageBus={bus} />);
+    const ada = { id: '005000000000001AAA', name: 'Ada Lovelace', username: 'ada@example.com', active: true };
+    const grace = { id: '005000000000002AAA', name: 'Grace Hopper', username: 'grace@example.com', active: true };
+
+    sendMessage(bus, { type: 'debugFlagsInit', locale: 'en', defaultTtlMinutes: 30 });
+    sendMessage(bus, {
+      type: 'debugFlagsOrgs',
+      data: [{ username: 'user@example.com', alias: 'Main', isDefaultUsername: true }],
+      selected: 'user@example.com'
+    });
+    sendMessage(bus, { type: 'debugFlagsDebugLevels', data: ['ALV_E2E'], active: 'ALV_E2E' });
+    sendMessage(bus, { type: 'debugFlagsUsers', query: '', data: [ada, grace] });
+
+    fireEvent.click(screen.getByTestId('debug-flags-user-row-005000000000001AAA'));
+    expect(await screen.findByTestId('debug-flags-selected-target-label')).toHaveTextContent('Ada Lovelace');
+    expect(screen.getByTestId('debug-flags-apply')).not.toBeDisabled();
+    expect(screen.getByTestId('debug-flags-debug-level')).toBeTruthy();
+
+    fireEvent.change(screen.getByTestId('debug-flags-user-search'), { target: { value: 'grace' } });
+    sendMessage(bus, { type: 'debugFlagsUsers', query: 'grace', data: [grace] });
+    sendMessage(bus, { type: 'debugFlagsTargetStatus', target: { type: 'user', userId: ada.id }, status: undefined });
+
+    await screen.findByText('Select a special target or an active user to inspect and configure debug flags.');
+    expect(screen.queryByTestId('debug-flags-selected-target-label')).toBeNull();
+    expect(screen.getByTestId('debug-flags-apply')).toBeDisabled();
+    expect(screen.getByTestId('debug-flags-remove')).toBeDisabled();
+  });
+
+  it('keeps the selected user when a new search still lists it', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<DebugFlagsApp vscode={vscode} messageBus={bus} />);
+    const ada = { id: '005000000000001AAA', name: 'Ada Lovelace', username: 'ada@example.com', active: true };
+
+    sendMessage(bus, { type: 'debugFlagsInit', locale: 'en', defaultTtlMinutes: 30 });
+    sendMessage(bus, {
+      type: 'debugFlagsOrgs',
+      data: [{ username: 'user@example.com', alias: 'Main', isDefaultUsername: true }],
+      selected: 'user@example.com'
+    });
+    sendMessage(bus, { type: 'debugFlagsUsers', query: '', data: [ada] });
+    fireEvent.click(screen.getByTestId('debug-flags-user-row-005000000000001AAA'));
+    expect(await screen.findByTestId('debug-flags-selected-target-label')).toHaveTextContent('Ada Lovelace');
+
+    fireEvent.change(screen.getByTestId('debug-flags-user-search'), { target: { value: 'ada' } });
+    sendMessage(bus, { type: 'debugFlagsUsers', query: 'ada', data: [ada] });
+
+    expect(screen.getByTestId('debug-flags-selected-target-label')).toHaveTextContent('Ada Lovelace');
+  });
+
   it('sends debounced user search queries', async () => {
     const { vscode, posted } = createVsCodeMock();
     const bus = new EventTarget();

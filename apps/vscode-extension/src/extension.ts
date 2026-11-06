@@ -254,7 +254,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionExports {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('electivus.apexLogViewer.tail.start', async () => {
-      logInfo('Command electivus.apexLogViewer.tail.start invoked. Opening Tail view and starting…');
+      logInfo('Command electivus.apexLogViewer.tail.start invoked. Opening the Tail view.');
       safeSendEvent('command.tail', { outcome: 'invoked' });
       try {
         await tailProvider.syncSelectedOrg(provider.getSelectedOrg());

@@ -26,8 +26,10 @@ function loadTailService(stubs?: {
   streaming?: Record<string, unknown>;
   jsforce?: Record<string, unknown>;
   runtime?: Record<string, unknown>;
+  logger?: Record<string, unknown>;
 }) {
   return proxyquireStrict('../host/utils/tailService', {
+    ...(stubs?.logger ? { './logger': stubs.logger } : {}),
     '../salesforce/cli': stubs?.cli ?? {},
     '../salesforce/http': stubs?.http ?? {},
     '../salesforce/traceflags': stubs?.traceflags ?? {},
@@ -408,6 +410,51 @@ suite('TailService', () => {
 
     assert.deepEqual(requestedVersions, ['64.0']);
     assert.equal((service as any).connection?.version, '64.0');
+    service.stop();
+  });
+
+  test('start logs why the trace flag could not be written and keeps tailing', async () => {
+    const infos: string[] = [];
+    const warnings: string[] = [];
+    const { TailService } = loadTailService({
+      logger: {
+        logInfo: (...parts: unknown[]) => infos.push(parts.join(' ')),
+        logWarn: (...parts: unknown[]) => warnings.push(parts.join(' ')),
+        logError: () => {},
+        showOutput: () => {}
+      },
+      traceflags: {
+        ensureUserTraceFlag: async () => {
+          throw new Error("Debug level 'MISSING' was not found.");
+        }
+      },
+      http: { getEffectiveApiVersion: () => '64.0' },
+      streaming: {
+        createConnectionFromAuth: async () => ({
+          version: '64.0',
+          tooling: { query: async () => ({ records: [] }) }
+        }),
+        createLoggingStreamingClient: async () => ({
+          handshake: async () => {},
+          replay: () => {},
+          subscribeAndAwaitAck: async () => {},
+          disconnect: () => {}
+        })
+      }
+    });
+    const service = new TailService(() => {});
+
+    await service.start('MISSING');
+
+    assert.ok(
+      warnings.includes("Tail: ensure TraceFlag failed (continuing) -> Debug level 'MISSING' was not found."),
+      `expected the failure reason in the warnings, got ${JSON.stringify(warnings)}`
+    );
+    assert.ok(
+      !infos.some(line => line.startsWith('Tail: TraceFlag ')),
+      `expected no trace flag success line, got ${JSON.stringify(infos)}`
+    );
+    assert.equal(service.isRunning(), true);
     service.stop();
   });
 

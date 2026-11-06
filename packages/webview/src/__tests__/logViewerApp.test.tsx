@@ -126,19 +126,23 @@ describe('Log Viewer App', () => {
       lines: ['12:00:00.000 (0)|USER_DEBUG|[1]|Olá Mundo|Detalhe']
     });
     await screen.findByText(/Olá Mundo/);
+    // A pt-BR log opens in Portuguese.
+    screen.getByText('1 entrada');
+    screen.getByText('Total de linhas: 1');
+    screen.getByText('Diagnósticos');
 
-    fireEvent.click(screen.getByText('Debug Only'));
-    fireEvent.click(screen.getByText('Debug Only'));
+    fireEvent.click(screen.getByText('Somente debug'));
+    fireEvent.click(screen.getByText('Somente debug'));
 
-    const searchInput = screen.getByPlaceholderText('Search entries…');
+    const searchInput = screen.getByPlaceholderText('Buscar entradas…');
     fireEvent.change(searchInput, { target: { value: 'sem resultado' } });
     await screen.findByText(/Olá Mundo/);
     screen.getByText('0/0');
-    expect(screen.getByLabelText('Next match')).toBeDisabled();
+    expect(screen.getByLabelText('Próxima ocorrência')).toBeDisabled();
     fireEvent.change(searchInput, { target: { value: '' } });
     await waitFor(() => expect(screen.queryByText('0/0')).toBeNull());
 
-    fireEvent.click(screen.getByText('View Raw'));
+    fireEvent.click(screen.getByText('Ver bruto'));
 
     send(bus, {
       type: 'logViewerInit',
@@ -148,6 +152,10 @@ describe('Log Viewer App', () => {
       logUri: 'https://example.com/log-one'
     });
     expect(pending).toHaveLength(1);
+    // The status bar says the content is still on its way, not Ready.
+    screen.getByText('Loading log entries…');
+    screen.getByText('Loading…');
+    expect(screen.queryByText('Ready')).toBeNull();
 
     send(bus, {
       type: 'logViewerInit',
@@ -167,6 +175,7 @@ describe('Log Viewer App', () => {
     });
     await screen.findByText('SELECT Id FROM Account');
     expect(screen.queryByText('Old | Ignored')).toBeNull();
+    screen.getByText('Ready');
 
     send(bus, {
       type: 'logViewerInit',
@@ -179,6 +188,7 @@ describe('Log Viewer App', () => {
       pending[2]!.resolve(createResponse('', false, 500));
     });
     await screen.findByText('Failed to load log content: HTTP 500');
+    screen.getByText('Not loaded');
 
     send(bus, {
       type: 'logViewerInit',
@@ -209,6 +219,43 @@ describe('Log Viewer App', () => {
       expect(types[0]).toBe('logViewerReady');
       expect(types).toContain('logViewerViewRaw');
     });
+  });
+
+  it('starts a new query at its first match, and keeps the place of the same query when the filter changes', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<LogViewerApp vscode={vscode} messageBus={bus} />);
+
+    send(bus, {
+      type: 'logViewerInit',
+      logId: 'matches',
+      locale: 'en-US',
+      fileName: 'Matches.log',
+      lines: [
+        '12:00:00.000 (0)|USER_DEBUG|[1]|DEBUG|alpha one',
+        '12:00:01.000 (0)|USER_DEBUG|[2]|DEBUG|alpha two',
+        '12:00:02.000 (0)|USER_DEBUG|[3]|DEBUG|alpha three',
+        '12:00:03.000 (0)|SOQL_EXECUTION_BEGIN|[4]|SELECT Id FROM Alpha',
+        '12:00:04.000 (0)|USER_DEBUG|[5]|DEBUG|beta one',
+        '12:00:05.000 (0)|USER_DEBUG|[6]|DEBUG|beta two',
+        '12:00:06.000 (0)|USER_DEBUG|[7]|DEBUG|beta three'
+      ]
+    });
+    await screen.findByText(/alpha one/);
+
+    const searchInput = screen.getByPlaceholderText('Search entries…');
+    fireEvent.change(searchInput, { target: { value: 'alpha' } });
+    screen.getByText('1/4');
+    fireEvent.click(screen.getByLabelText('Next match'));
+    screen.getByText('2/4');
+
+    // Debug Only drops the SOQL row: the same query keeps its second match.
+    fireEvent.click(screen.getByText('Debug Only'));
+    screen.getByText('2/3');
+
+    // A new query starts at its first match instead of reusing the second.
+    fireEvent.change(searchInput, { target: { value: 'beta' } });
+    screen.getByText('1/3');
   });
 
   it('keeps multiline JSON from USER_DEBUG visible as one formatted debug entry', async () => {

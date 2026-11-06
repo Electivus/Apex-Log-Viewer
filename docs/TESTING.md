@@ -115,6 +115,8 @@ The CLI suite then validates the plugin surface through `packages/sf-plugin/bin/
 
 The VS Code suite launches the extension host and validates the Logs panel + Log Viewer webview UX against the same seeded org, including panel search through local saved log files.
 
+After the workbench loads, the harness waits up to 60 seconds for the extension host to write `Extension host with pid <n> started` to `logs/<session>/window1/exthost/exthost.log` in the launch's user-data-dir. When it does not, VS Code shows "Extension host did not start in 10 seconds" and never activates the extension, so the harness prints the window log's extension host lines, closes VS Code, and launches it once more with a fresh user-data-dir. The run output then shows `[e2e] extension host did not start; relaunching VS Code`. If the second launch has no extension host either, the test fails at once instead of waiting for a webview.
+
 ### Run locally
 
 The simplest local setup uses a Dev Hub you already authenticated in the Salesforce CLI. Authenticate it once, then set `SF_DEVHUB_ALIAS` for the run:
