@@ -4,6 +4,7 @@
 
 ### Maintenance
 
+- E2E: the Debug Flags spec now proves that the Tail toolbar button opens Apex Debug Flags. `openDebugFlagsFromTail` closes the editor that the Logs step left open, then clicks without `force`, with Enter and DOM-click fallbacks. Before, the open editor satisfied the wait, so the spec passed even when the click never reached the extension.
 - Telemetry: the Debug Flags `debugFlags.apply` and `debugFlags.remove` events now carry `logType` (`DEVELOPER_LOG` or `USER_DEBUG`), so usage shows how often people move away from the `DEVELOPER_LOG` default. `telemetry.json` and `docs/TELEMETRY.md` declare the new property.
 - E2E: `pnpm run test:e2e -- <spec>` and `pnpm run test:e2e:cli -- <spec>` run only that spec again; the runners drop the `--` that pnpm forwards, which made Playwright ignore the filter and run the whole suite.
 - E2E: keep VS Code hidden during Playwright runs by default. Linux runs use Xvfb even when a `DISPLAY` exists, and macOS and Windows make the native window transparent and click-through. Set `ALV_E2E_SHOW_VSCODE=1` to watch a run.
