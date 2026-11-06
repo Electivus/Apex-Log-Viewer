@@ -20,6 +20,7 @@
 - Refresh JSforce, oclif 4, YAML, CSS and TypeScript tooling; align the YAML override with its runtime update.
 - Refresh Salesforce, React, test, packaging, and CI dependencies; keep Playwright packages aligned and validate Agent Skill distribution against the exact installed CLI release.
 - Reduce Dependabot churn with coordinated dependency families, bounded weekly batches, and separate security updates; defer incompatible TypeScript 7 and oclif runtime 5 updates.
+- Security: the dependency source check reads `pnpm-lock.yaml` as YAML instead of line by line, so a URL in a package's deprecation message, such as the one npm now shows for `@smithy/core@3.29.1`, no longer fails it; every other key and value is still checked, and YAML that pnpm does not write fails the check.
 - Refresh React, React Window, Radix Slot, Mocha, Prettier, typescript-eslint, undici, Playwright and pinned CI action dependencies; group `react` with `react-dom` in Dependabot so they update together.
 - CI/Pre-release: run the pre-release workflow only on manual dispatch; scheduled nightly runs waited on the Marketplace approval and cancelled each other.
 
