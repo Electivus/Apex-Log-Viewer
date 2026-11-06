@@ -83,6 +83,20 @@ function formatDate(value: string | undefined, locale: string): string {
 
 type OtherLogTypeNote = { kind: 'overridden' | 'hidden'; other: TraceFlagOtherLogTypeStatus };
 
+/** Fills `{expiration}` with the date kept on one line, so a narrow panel does not split the date or the time. */
+function withNoWrapExpiration(template: string, expiration: string): React.ReactNode[] {
+  return template.split('{expiration}').flatMap((part, index) =>
+    index === 0
+      ? [part]
+      : [
+          <span key={index} className="whitespace-nowrap" data-testid="debug-flags-other-log-type-expiration">
+            {expiration}
+          </span>,
+          part
+        ]
+  );
+}
+
 /** An active flag of the other type either overrides this USER_DEBUG level or is the only flag a DEVELOPER_LOG read misses. */
 function getOtherLogTypeNote(status: TraceFlagTargetStatus | undefined): OtherLogTypeNote | undefined {
   const other = status?.targetAvailable ? status.otherLogType : undefined;
@@ -190,12 +204,20 @@ export function DebugFlagsApp({
           setOrgs(msg.data || []);
           setSelectedOrg(msg.selected);
           break;
-        case 'debugFlagsUsers':
+        case 'debugFlagsUsers': {
           if (String(msg.query || '') !== queryRef.current) {
             return;
           }
-          setUsers(msg.data || []);
+          const nextUsers = msg.data || [];
+          setUsers(nextUsers);
+          // The host drops a selected user that the new search no longer lists, so drop it here too.
+          const current = selectedTargetRef.current;
+          if (current?.type === 'user' && !nextUsers.some(user => user.id === current.userId)) {
+            setSelectedTarget(undefined);
+            setStatus(undefined);
+          }
           break;
+        }
         case 'debugFlagsDebugLevels': {
           const values = msg.data || [];
           setDebugLevels(values);
@@ -291,9 +313,10 @@ export function DebugFlagsApp({
         .replace('{resolved}', String(specialTargetResolvedCount))
     : (t.debugFlags?.otherLogTypeOnThisTarget ?? 'on this target');
   const otherLogTypeNoteText = otherLogTypeNote
-    ? otherLogTypeNoteTemplates[otherLogTypeNote.kind]
-        .replace('{where}', otherLogTypeWhere)
-        .replace('{expiration}', formatDate(otherLogTypeNote.other.expirationDate, locale))
+    ? withNoWrapExpiration(
+        otherLogTypeNoteTemplates[otherLogTypeNote.kind].replace('{where}', otherLogTypeWhere),
+        formatDate(otherLogTypeNote.other.expirationDate, locale)
+      )
     : undefined;
   const managerDraftDirty = !debugLevelDraftEquals(managerDraft, loadedManagerDraft);
 
@@ -787,6 +810,7 @@ export function DebugFlagsApp({
               onChange={setDebugLevel}
               options={debugLevels.map(level => ({ value: level, label: level }))}
               placeholderLabel={t.tail?.select ?? 'Select'}
+              testId="debug-flags-debug-level"
               disabled={loading.orgs || loading.action}
             />
             <div className="flex flex-col gap-1">

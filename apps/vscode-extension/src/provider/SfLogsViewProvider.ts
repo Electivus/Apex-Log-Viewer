@@ -47,6 +47,7 @@ import {
 
 const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
 const BACKGROUND_SYNC_COOLDOWN_MS = 5 * 60 * 1000;
+const BULK_DOWNLOAD_PROGRESS_INTERVAL_MS = 100;
 
 interface LogHeadSnapshot {
   hasErrors?: boolean;
@@ -1369,7 +1370,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       }
 
       type BulkDownloadRunResult =
-        | { kind: 'cancelled'; processed: number }
+        | { kind: 'cancelled'; processed: number; total?: number }
         | { kind: 'empty' }
         | {
             kind: 'done';
@@ -1390,6 +1391,25 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           progress.report({
             message: localize('downloadAllLogsProgressSyncing', 'Syncing logs from the selected org…')
           });
+          // Core reports each log as it is saved; the notification shows the count and a bar, at most every 100 ms.
+          let saved = 0;
+          let toSave: number | undefined;
+          let reportedPercent = 0;
+          let reportedAt = 0;
+          const onProgress = (update: { phase: string; completed: number; total?: number }) => {
+            if (update.phase !== 'saving' || !update.total) return;
+            saved = update.completed;
+            toSave = update.total;
+            const now = Date.now();
+            if (saved < toSave && now - reportedAt < BULK_DOWNLOAD_PROGRESS_INTERVAL_MS) return;
+            reportedAt = now;
+            const percent = Math.floor((saved / toSave) * 100);
+            progress.report({
+              increment: Math.max(0, percent - reportedPercent),
+              message: localize('downloadAllLogsProgressMessage', 'Processed {0}/{1} logs…', saved, toSave)
+            });
+            reportedPercent = Math.max(reportedPercent, percent);
+          };
           let result: Awaited<ReturnType<typeof runtimeClient.logsSync>>;
           try {
             result = await runtimeClient.logsSync(
@@ -1399,14 +1419,18 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
                 forceFull: true,
                 concurrency: this.getBackgroundSyncConcurrency()
               },
-              controller.signal
+              controller.signal,
+              onProgress
             );
           } catch (e) {
             const msg = getErrorMessage(e);
             if (controller.signal.aborted || this.isAbortLikeError(e, msg)) {
-              return { kind: 'cancelled', processed: 0 };
+              return { kind: 'cancelled', processed: saved, total: toSave };
             }
             throw e;
+          }
+          if (controller.signal.aborted) {
+            return { kind: 'cancelled', processed: saved, total: toSave };
           }
           const processed = result.downloaded + result.cached + result.failed;
           const success = result.downloaded + result.cached;
@@ -1417,16 +1441,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
             existing: result.cached,
             missing: 0,
             failed: result.failed,
-            cancelled: result.status === 'cancelled' ? processed : 0,
+            cancelled: 0,
             failedLogIds: []
           };
-          progress.report({
-            increment: 100,
-            message: localize('downloadAllLogsProgressMessage', 'Processed {0}/{1} logs…', processed, processed)
-          });
-          if (result.status === 'cancelled') {
-            return { kind: 'cancelled', processed };
-          }
           if (processed === 0) {
             return { kind: 'empty' };
           }
@@ -1435,11 +1452,19 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       );
 
       if (runResult.kind === 'cancelled') {
+        const total = runResult.total ?? 0;
         void vscode.window.showWarningMessage(
-          localize(
-            'downloadAllLogsSummaryCancelledDuringSync',
-            'Bulk download cancelled while syncing logs for the selected org.'
-          )
+          total > 0 && runResult.processed > 0
+            ? localize(
+                'downloadAllLogsSummaryCancelledAfter',
+                'Bulk download cancelled after processing {0} of {1} logs.',
+                runResult.processed,
+                total
+              )
+            : localize(
+                'downloadAllLogsSummaryCancelledDuringSync',
+                'Bulk download cancelled while syncing logs for the selected org.'
+              )
         );
         try {
           safeSendEvent(
@@ -1447,10 +1472,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
             { outcome: 'cancelled', sourceView: 'logs' },
             {
               durationMs: Date.now() - t0,
-              total: runResult.processed,
-              success: 0,
-              failed: 0,
-              cancelled: runResult.processed
+              total,
+              cancelled: Math.max(0, total - runResult.processed)
             }
           );
         } catch {}
@@ -1468,30 +1491,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       }
 
       const total = runResult.total;
-      const processed = runResult.processed;
       const summary = runResult.summary;
       const success = summary.success;
       this.rerunActiveSearch();
-      if (summary.cancelled > 0) {
-        void vscode.window.showWarningMessage(
-          localize(
-            'downloadAllLogsSummaryCancelled',
-            'Bulk download cancelled. Processed {0}/{1}. Success: {2}, failed: {3}.',
-            processed,
-            total,
-            success,
-            summary.failed
-          )
-        );
-        try {
-          safeSendEvent(
-            'logs.downloadAll',
-            { outcome: 'cancelled', sourceView: 'logs' },
-            { durationMs: Date.now() - t0, total, success, failed: summary.failed, cancelled: summary.cancelled }
-          );
-        } catch {}
-        return;
-      }
       if (summary.failed > 0) {
         void vscode.window.showWarningMessage(
           localize(

@@ -10,6 +10,7 @@ import { buildWebviewHtml } from '../host/utils/webviewHtml';
 import { findCustomLogsProjectDir, onSfdxProjectFileChanged } from '../host/utils/workspace';
 import { openCustomLogDocument } from '../host/utils/customLogDocuments';
 import { CustomLogViewerPanel } from '../panel/CustomLogViewerPanel';
+import type { CustomLogsCaptureStatus } from '../host/customLogsCaptureStatus';
 import { runtimeClient, type CustomLogCaptureUpdateView } from '../runtime/runtimeClient';
 import { safeSendEvent } from '../shared/telemetry';
 import { getTelemetryErrorCode } from '../shared/telemetryErrorCodes';
@@ -88,7 +89,7 @@ const newIntent = (selection: string | undefined): CaptureIntent => ({
 });
 
 /** The capture running for the screen. `key` names what it was started for, `ended` that its promise settled. */
-type CaptureRun = { controller: AbortController; key: string; ended: boolean };
+type CaptureRun = { controller: AbortController; key: string; sourceLabel: string; ended: boolean };
 
 /** The messages that can change what a capture is for, so `post` checks the running one after them. */
 const RETARGETING = new Set<CustomLogsToWebviewMessage['type']>([
@@ -144,6 +145,11 @@ function restrictFilter(filter: CustomLogsFilterView, source: CustomLogSourceVie
   };
 }
 
+export type CustomLogsViewProviderOptions = {
+  /** Shows this provider's captures in the window's status bar item until the provider is disposed. */
+  trackCapture?(provider: CustomLogsViewProvider): vscode.Disposable;
+};
+
 export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   public static readonly viewType = 'electivus.apexLogViewer.customLogsView';
   private view?: { webview: vscode.Webview };
@@ -172,13 +178,18 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
   private cursor: string | null = null;
   private captureIntent = newIntent(undefined);
   private capture: CaptureRun | undefined;
+  private readonly captureStatusListeners = new Set<(status: CustomLogsCaptureStatus | undefined) => void>();
+  private publishedCaptureStatus = 'null';
   /**
    * Live batches that arrive while a replace page is read. That page's store snapshot may predate them and the
    * replace drops every merged row, while capture sends each batch once, so they are merged again after it.
    */
   private liveDuringReplace: CustomLogLiveRowsView | undefined;
 
-  constructor(private readonly context: vscode.ExtensionContext) {
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    options: CustomLogsViewProviderOptions = {}
+  ) {
     this.payloadColumnsStore = createPayloadColumnsStore(context.workspaceState);
     this.orgManager = new OrgManager(context);
     this.session = createWebviewSession({
@@ -195,6 +206,9 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       onDiagnostic: diagnostic => this.webviewSurface.handleSessionDiagnostic(diagnostic)
     });
     this.disposables.push(onSfdxProjectFileChanged(() => void this.onProjectConfigChanged()));
+    if (options.trackCapture) {
+      this.disposables.push(options.trackCapture(this));
+    }
   }
 
   resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
@@ -426,19 +440,49 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       return;
     }
     if (message.action === 'stop') {
-      this.captureIntent = { ...this.captureIntent, wanted: false };
-      this.stopCapture();
-      const view = this.state.capture;
-      if (view) {
-        this.post({
-          type: 'customLogsCapture',
-          value: { ...view, capture: { state: 'stopped', outcome: 'aborted' }, wanted: false }
-        });
-      }
+      this.stopByUser();
       return;
     }
     this.captureIntent = { ...this.captureIntent, wanted: true, initial: message.initial };
     this.ensureCapture(await findCustomLogsProjectDir(), 'start');
+  }
+
+  public stopByUser(): void {
+    this.captureIntent = { ...this.captureIntent, wanted: false };
+    this.stopCapture();
+    const view = this.state.capture;
+    if (view) {
+      this.post({
+        type: 'customLogsCapture',
+        value: { ...view, capture: { state: 'stopped', outcome: 'aborted' }, wanted: false }
+      });
+    }
+  }
+
+  public getCaptureStatus(): CustomLogsCaptureStatus | undefined {
+    const run = this.capture;
+    if (!run || run.ended) {
+      return undefined;
+    }
+    return { sourceLabel: run.sourceLabel, capture: this.state.capture?.capture ?? { state: 'connecting' } };
+  }
+
+  public onDidChangeCaptureStatus(listener: (status: CustomLogsCaptureStatus | undefined) => void): vscode.Disposable {
+    this.captureStatusListeners.add(listener);
+    listener(this.getCaptureStatus());
+    return { dispose: () => void this.captureStatusListeners.delete(listener) };
+  }
+
+  private publishCaptureStatus(): void {
+    const status = this.getCaptureStatus();
+    const key = JSON.stringify(status ?? null);
+    if (key === this.publishedCaptureStatus) {
+      return;
+    }
+    this.publishedCaptureStatus = key;
+    for (const listener of [...this.captureStatusListeners]) {
+      listener(status);
+    }
   }
 
   private captureSelection(): string {
@@ -481,8 +525,14 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     if (this.capture && (trigger === 'page' || !this.capture.ended)) {
       return;
     }
-    const run: CaptureRun = { controller: new AbortController(), key: this.captureKey(), ended: false };
+    const run: CaptureRun = {
+      controller: new AbortController(),
+      key: this.captureKey(),
+      sourceLabel: source.label,
+      ended: false
+    };
     this.capture = run;
+    this.publishCaptureStatus();
     const initial = this.captureIntent.initial ?? 'none';
     this.captureIntent = { ...this.captureIntent, initial: undefined };
     void runtimeClient
@@ -500,6 +550,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       .then(
         () => {
           run.ended = true;
+          this.publishCaptureStatus();
         },
         error => this.failCapture(run, error)
       );
@@ -550,6 +601,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
   /** Core reports a run's own failure in an update; one that stops the run before it starts has none, so it shows here. */
   private failCapture(run: CaptureRun, error: unknown): void {
     run.ended = true;
+    this.publishCaptureStatus();
     if (this.capture !== run || isAbortError(error)) {
       return;
     }
@@ -573,6 +625,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
   private stopCapture(): void {
     this.capture?.controller.abort();
     this.capture = undefined;
+    this.publishCaptureStatus();
   }
 
   private async openLog(logId: string): Promise<void> {
@@ -891,6 +944,9 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       this.selectedOrg = message.selected;
     }
     void this.session.deliver(message, 'replayable');
+    if (message.type === 'customLogsCapture') {
+      this.publishCaptureStatus();
+    }
     if (RETARGETING.has(message.type)) {
       this.retarget();
     }

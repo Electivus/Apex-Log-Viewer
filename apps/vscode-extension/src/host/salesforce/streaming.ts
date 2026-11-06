@@ -1,16 +1,20 @@
 import type { Connection as JsforceConnection } from '@jsforce/jsforce-node';
-import { StreamingExtension, type Client as FayeClient, type Subscription } from '@jsforce/jsforce-node/lib/api/streaming';
+import {
+  StreamingExtension,
+  type Client as FayeClient,
+  type Subscription
+} from '@jsforce/jsforce-node/lib/api/streaming';
 import { createConnectionFromAuth as createBaseConnection, type JsforceConnectionLike } from './jsforce';
 import type { OrgAuth } from './types';
 
 export type { JsforceConnectionLike as Connection };
 
-export type StreamProcessor = (message: Record<string, unknown>) => { completed: boolean; payload?: unknown };
+export type StreamProcessor = (message: Record<string, unknown>) => void;
 
 export interface StreamingClient {
   handshake(): Promise<void>;
   replay(replayId: number): void;
-  subscribe(): Promise<void>;
+  subscribeAndAwaitAck(): Promise<void>;
   disconnect(): void;
 }
 
@@ -46,6 +50,7 @@ export async function createLoggingStreamingClient(
   let subscription: Subscription | undefined;
   let replayId: number = -1;
   let replayExtension: InstanceType<typeof StreamingExtension.Replay> | undefined;
+  let abandonSubscribe: ((reason: Error) => void) | undefined;
 
   const ensureClient = (): FayeClient => {
     if (client) {
@@ -72,26 +77,19 @@ export async function createLoggingStreamingClient(
       replayId = nextReplayId;
       replayExtension?.setReplay(String(nextReplayId));
     },
-    subscribe(): Promise<void> {
+    subscribeAndAwaitAck(): Promise<void> {
       const activeClient = ensureClient();
       return new Promise((resolve, reject) => {
-        try {
-          subscription = activeClient.subscribe(channel, (message: Record<string, unknown>) => {
-            const result = streamProcessor(message);
-            if (result?.completed) {
-              resolve();
-            }
-          });
-          (subscription as any)?.callback?.(() => {});
-          (subscription as any)?.errback?.((error: unknown) => {
-            reject(error instanceof Error ? error : new Error(String(error)));
-          });
-        } catch (error) {
-          reject(error);
-        }
+        abandonSubscribe = reject;
+        subscription = activeClient.subscribe(channel, streamProcessor);
+        (subscription as any).callback(() => resolve());
+        (subscription as any).errback((error: unknown) => {
+          reject(error instanceof Error ? error : new Error(String(error)));
+        });
       });
     },
     disconnect(): void {
+      abandonSubscribe?.(new Error('Disconnected before the subscription was acknowledged.'));
       try {
         subscription?.cancel?.();
       } catch {}

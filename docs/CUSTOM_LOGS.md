@@ -73,17 +73,17 @@ The built-in sources map no JSON payload. To add one, [replace the built-in sour
 
 Each source in the `sources` result also has these fields:
 
-| Field            | Meaning                                                                                                                                                                                                      |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `origin`         | `builtin`, or `config` for a project source. A project source that replaces a built-in source is `config`.                                                                                                   |
-| `shape`          | `transactions`, `entries`, or `events`.                                                                                                                                                                      |
-| `namespace`      | `Nebula` for `nebula-managed` and `nebula-events-managed`. Absent otherwise.                                                                                                                                 |
-| `objects`        | The object API names the source reads. For a `notInstalled` source, the names that detection looked for. An `events` source has one name, as `{ "event": "LogEntryEvent__e" }`.                              |
-| `hiddenFields`   | Mapping paths that Custom Logs dropped because describe does not return the field for this user, or, for an event source, because the stored describe does not list it. See [Permissions](#permissions).     |
-| `unmappedLevels` | Values of the level picklist that no level table maps. A level filter never matches them. See [Levels](#levels).                                                                                             |
-| `capabilities`   | `levelFilter` says whether `--min-level` works, and `userFilter` whether `--user` works. `apexLogLink` says whether the listed object maps `requestId`, so that `get` can look for the Apex debug log.       |
-| `payload`        | The mapped JSON payload field and its default columns, under `transaction`, `entry`, or both. An `events` source reports its payload under `entry`. An empty object when the source maps none.               |
-| `store`          | `events` sources only. What the local event store covers: the state, the directory to search, the oldest and newest event, the gaps, and the retention. See [The local event store](#the-local-event-store). |
+| Field            | Meaning                                                                                                                                                                                                                                                                                                   |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `origin`         | `builtin`, or `config` for a project source. A project source that replaces a built-in source is `config`.                                                                                                                                                                                                |
+| `shape`          | `transactions`, `entries`, or `events`.                                                                                                                                                                                                                                                                   |
+| `namespace`      | `Nebula` for `nebula-managed` and `nebula-events-managed`. Absent otherwise.                                                                                                                                                                                                                              |
+| `objects`        | The object API names the source reads. For a `notInstalled` source, the names that detection looked for. An `events` source has one name, as `{ "event": "LogEntryEvent__e" }`.                                                                                                                           |
+| `hiddenFields`   | Mapping paths that Custom Logs dropped because describe does not return the field for this user, or, for an event source, because the stored describe does not list it. See [Permissions](#permissions).                                                                                                  |
+| `unmappedLevels` | Values of the level picklist that no level table maps. A level filter never matches them. See [Levels](#levels).                                                                                                                                                                                          |
+| `capabilities`   | `levelFilter` says whether `--min-level` works, and `userFilter` whether `--user` works. `apexLogLink` says whether the listed object maps `requestId`, so that `get` can look for the Apex debug log.                                                                                                    |
+| `payload`        | The mapped JSON payload field and its default columns, under `transaction`, `entry`, or both. An `events` source reports its payload under `entry`, and an `entries` payload also lists its fields in `payload.entry.entries`, where `field` is the first one. An empty object when the source maps none. |
+| `store`          | `events` sources only. What the local event store covers: the state, the directory to search, the oldest and newest event, the gaps, and the retention. See [The local event store](#the-local-event-store).                                                                                              |
 
 The result also has `projectFile` (the `sfdx-project.json` that was read), `issues` (see [Configuration issues](#configuration-issues)), and `defaultSourceId` when exactly one source that a command can pick without `--source` is ready. An event source never counts.
 
@@ -144,7 +144,7 @@ The extension validates and completes this block in the editor with the schema `
 | `payload`             | No                      | A long text field that holds JSON. See [Payload](#payload).                                                                                                         |
 | `systemMessagePrefix` | No                      | 1 to 255 characters. An entry whose message starts with this text is the logger's own bookkeeping and has `system: true`. The panel hides those entries by default. |
 
-`event` takes the keys of `entry` except `parent`, because an event is not linked to a header. `object` is the platform event API name and ends in `__e`. `fields` has the `entry` roles, and `time` and `message` are required. `columns`, `details`, `payload`, and `systemMessagePrefix` work as they do for `entry`.
+`event` takes the keys of `entry` except `parent`, because an event is not linked to a header. `object` is the platform event API name and ends in `__e`. `fields` has the `entry` roles, and `time` and `message` are required. `columns`, `details`, `payload`, and `systemMessagePrefix` work as they do for `entry`. Under `event`, a role value is a field name or `{ "path": "<payload path>" }`, and `payload` also takes the `entries` form. See [Roles from a payload path](#roles-from-a-payload-path) and [Payload](#payload).
 
 ### Field paths
 
@@ -189,6 +189,22 @@ Roles are the fields whose meaning Custom Logs knows. The types are describe typ
 
 On entries, the level filter uses `levelOrdinal` when describe marks it filterable, and `level` otherwise. On headers, it uses a filterable `maxLevelOrdinal`, or else the level fields of their entries. When no field is usable, `capabilities.levelFilter` is `false` and `--min-level` fails with `CUSTOM_LOG_UNSUPPORTED_FILTER`.
 
+#### Roles from a payload path
+
+Under `event`, every role accepts a field name or an object with a `path`:
+
+```json
+"fields": {
+  "time": { "path": "timestamp" },
+  "message": { "path": "msg" },
+  "level": "Level__c"
+}
+```
+
+A path is a [payload path](#paths) of 1 to 255 characters. It reads the element of an `entries` payload, or the parsed document of a `field` payload. A time read from a path is an ISO-8601 string or epoch milliseconds. A path role needs a `payload`, because the path has nothing to read otherwise. A path never names an event field, even when it is spelled like one. `"Level__c"` reads the event field, and `{ "path": "Level__c" }` reads the JSON key `Level__c`. Record sources (`entry` and `transaction`) accept field names only.
+
+When the `message` path reads nothing, the row `title` and `message` fall back to the JSON text of the item. A row whose path roles read nothing has the `CreatedDate` of its event as its time and no level.
+
 ### Columns
 
 `columns` lists display-only fields. Each one becomes a column labelled from describe, and its value comes back in `extra`, keyed by the path as you wrote it. Any field type works except the compound types `address`, `location`, `base64`, `anyType`, and `complexvalue`. A text value in `extra`, a row title, and a text role in a row or an entry keep their first 255 characters (`CUSTOM_LOG_CELL_CHARS`). To read a long text field whole, map it as a detail or a payload.
@@ -224,6 +240,18 @@ On entries, the level filter uses `levelOrdinal` when describe marks it filterab
 
 `columns` lists the team's default payload columns. Each one is a JSON path of 1 to 255 characters, with `.` for nesting and `[n]` for array items. Columns that a user adds in the panel stay in the VS Code workspace state for that user. The extension never writes them to `sfdx-project.json`.
 
+An `event` source can also read each item of a JSON array as its own entry. Name one or more fields, each holding a complete JSON array, under `entries`:
+
+```json
+"payload": { "entries": ["Payload__c", "Payload2__c"], "columns": ["traceId", "level", "msg"] }
+```
+
+- Each element of each array is one row. Core reads the fields in the order you list them, and the elements in array order.
+- `columns` are relative to the element: write `traceId`, not `[0].traceId`.
+- `field` and `entries` never appear together.
+- `entries` lists 1 to 8 fields, and no field twice.
+- `entries` is available under `event` only.
+
 ### Levels
 
 Custom Logs has seven canonical levels, from lowest to highest: `FINEST`, `FINER`, `FINE`, `DEBUG`, `INFO`, `WARN`, and `ERROR`. Raw values map to them without configuration when they are one of these names, `WARNING` (to `WARN`), `FATAL` (to `ERROR`), or `TRACE` (to `FINEST`). Matching ignores case.
@@ -238,7 +266,7 @@ A raw value that no table maps has no `level`, and a level filter never matches 
 
 ### Configuration issues
 
-The parser reads each source on its own. A source with an error is skipped, and the other sources and the built-in sources still load. If a skipped source reused a built-in id, the built-in source is used again. `sources --json` returns every issue in `issues`, and the panel lists them as **Configuration issues**.
+The parser reads each source on its own. A source with an error is skipped, and the other sources and the built-in sources still load. If a skipped source reused a built-in id, the built-in source is used again. `sources --json` returns every issue in `issues`, and the panel lists them as **Configuration issues**: above the filter bar while a source is ready, or with the state of each source when none is.
 
 | Code              | Severity | Meaning                                                                                             |
 | ----------------- | -------- | --------------------------------------------------------------------------------------------------- |
@@ -248,6 +276,8 @@ The parser reads each source on its own. A source with an error is skipped, and 
 | `invalidValue`    | Error    | A value has the wrong form, for example an invalid API name or a `parent` without a `transaction`.  |
 | `duplicateId`     | Error    | Another source in the file already uses this `id`. The later source is skipped.                     |
 | `unknownKey`      | Warning  | Custom Logs does not know this key and ignores it. The key is a typo or comes from a newer version. |
+
+A role object without `path`, or a path role without a `payload`, is `missingRequired`. A `path` that is not a string, `field` beside `entries`, an empty, too long, or repeated `entries` list, or a path or `entries` under a record source is `invalidValue`.
 
 Each issue has a `pointer` (a JSON pointer such as `/plugins/electivus/customLogs/sources/0/entry/fields/time`), a `code`, a `severity`, and a `message`. The editor schema gives the same verdict. It rejects the cases that the parser calls errors, and it accepts unknown keys.
 
@@ -440,6 +470,84 @@ $ sf electivus custom-log list --source app-events --min-level ERROR --since 202
 
 The `list` call made no request to Salesforce. Pass the row `id` to `get --log-id` or `entry --entry-id`, with `--source app-events`.
 
+### A platform event that carries a batch of entries
+
+An application can publish one `AppLog__e` event whose `Payload__c` and `Payload2__c` fields each hold a JSON array of log items. Map each item as its own entry, and read the roles from the item:
+
+```json
+{
+  "id": "app-events",
+  "event": {
+    "object": "AppLog__e",
+    "fields": {
+      "time": { "path": "timestamp" },
+      "message": { "path": "msg" },
+      "level": { "path": "level" },
+      "user": { "path": "username" },
+      "transactionId": { "path": "traceId" },
+      "origin": { "path": "caller" }
+    },
+    "payload": { "entries": ["Payload__c", "Payload2__c"], "columns": ["traceId", "level", "msg"] }
+  }
+}
+```
+
+Suppose `Payload__c` holds two items and `Payload2__c` holds one. The id of the event is `E`, here `e-0mvu6sr74-0000000009-3f0c5a1e9b7d4c2e8a6f1b3d5c7e9a02`. The event gives three rows, newest first. The output below is abbreviated:
+
+```console
+$ sf electivus custom-log list --source app-events --json
+{
+  "status": 0,
+  "result": {
+    "rows": [
+      {
+        "id": "e-0mvu6sr74-0000000009-3f0c5a1e9b7d4c2e8a6f1b3d5c7e9a02-0002",
+        "title": "Execution resume",
+        "level": "INFO",
+        "transactionId": "t-2",
+        "payload": { "state": "parsed", "values": { "traceId": "t-2", "level": "INFO", "msg": "Execution resume", "cpuTime": 134, "heapSize": 26804 } }
+      },
+      {
+        "id": "e-0mvu6sr74-0000000009-3f0c5a1e9b7d4c2e8a6f1b3d5c7e9a02-0001",
+        "title": "{\"traceId\":\"t-1\",\"type\":\"metric\",\"name\":\"inbound_requests\",\"metrics\":[{\"name\":\"duration\",\"type\":\"TIMING\",\"value\":433}]}",
+        "transactionId": "t-1",
+        "payload": { "state": "parsed", "values": { "traceId": "t-1", "type": "metric", "name": "inbound_requests", "metrics[0].name": "duration", "metrics[0].value": 433 } }
+      },
+      {
+        "id": "e-0mvu6sr74-0000000009-3f0c5a1e9b7d4c2e8a6f1b3d5c7e9a02",
+        "title": "Gateway metric",
+        "user": "user@example.com",
+        "level": "INFO",
+        "transactionId": "t-1",
+        "payload": { "state": "parsed", "values": { "traceId": "t-1", "level": "INFO", "msg": "Gateway metric" } }
+      }
+    ],
+    "payloadFields": [
+      { "path": "traceId", "types": ["string"], "rows": 3 },
+      { "path": "level", "types": ["string"], "rows": 2 },
+      { "path": "msg", "types": ["string"], "rows": 2 }
+    ],
+    "nextCursor": null
+  }
+}
+```
+
+The first item has the id of the event. The later items add `-0001` and `-0002`. The second item has no `msg`, so its title is the JSON text of the item. `--min-level INFO` keeps the first and third rows, and `--user user@example.com` keeps the third. `--limit 2` ends the page inside the event, and the next page starts at `E`.
+
+`get --transaction-id` collects the entries of one transaction and leaves out the `t-2` entry of the same event:
+
+```console
+$ sf electivus custom-log get --source app-events --transaction-id t-1 --json
+```
+
+`result.log` is the `-0001` row, because it is the newest entry with `t-1`. `result.entries` holds `E` (sequence 1) and `E-0001` (sequence 2). `entry` returns the item itself as `rawPayload`:
+
+```console
+$ sf electivus custom-log entry --source app-events --entry-id e-0mvu6sr74-0000000009-3f0c5a1e9b7d4c2e8a6f1b3d5c7e9a02-0001 --json
+```
+
+`result.logId` is the `-0001` id, `result.entry.message` is the JSON text of the item, and `result.rawPayload` is `{ "state": "value", "format": "json", "value": "<the item, pretty-printed>" }`.
+
 ### Replace a built-in Nebula source
 
 The built-in Nebula sources map no payload. To read JSON that your code writes into `LogEntry__c.Message__c`, add a project source with the id `nebula`. It replaces the built-in source in this project, so `--source nebula` keeps working. Copy the whole built-in definition, because a project source does not merge with the built-in source:
@@ -575,7 +683,7 @@ apexlogs/orgs/<safe-org>/events/
 
 The store lives in the directory that holds `sfdx-project.json`, so a command run from a subdirectory uses the same store. When core finds no `sfdx-project.json`, it uses the directory the command runs in, or the folder that is open in VS Code. With neither, `capture` and `list` fail with `CUSTOM_LOG_STORE_UNAVAILABLE`.
 
-Each line holds the whole event as Salesforce delivered it: `id`, `uuid`, `seq`, `replayId`, `createdDate`, `receivedAt`, and a `payload` with every field of the message except the null ones. The `id` is the row id, which `entry --entry-id` accepts, so a search hit leads straight to the event. The `replayId` is for search only, and no result or id exposes it. Core writes the events to disk before it moves the stored position, so a crash of the process delivers an event again and never loses it. A power loss on macOS can still lose the last flush.
+Each line holds the whole event as Salesforce delivered it: `id`, `uuid`, `seq`, `replayId`, `createdDate`, `receivedAt`, and a `payload` with every field of the message except the null ones. The `id` is the row id, which `entry --entry-id` accepts, so a search hit leads straight to the event, or to its first entry when the source maps `entries`. The `replayId` is for search only, and no result or id exposes it. Core writes the events to disk before it moves the stored position, so a crash of the process delivers an event again and never loses it. A power loss on macOS can still lose the last flush.
 
 The store keeps every delivered field. Salesforce applies no field-level security to platform event fields, so the subscriber receives every value. Reads still follow the stored describe. A mapped field that the describe does not list shows as `hidden`, for example when someone removed the field from the event after the capture. A permission never causes it. Core never decodes the value of a `hidden` field. The value stays on disk, so a later remap can use it and a search can find it.
 
@@ -593,7 +701,7 @@ The store is plain text, so ripgrep and `jq` search the whole history. The `stor
 rg --no-ignore -g '*.ndjson' 'Order sync failed' "$(sf electivus custom-log sources --target-org my-org --json | jq -r '.result.sources[] | select(.id == "app-events") | .store.eventsRoot')"
 ```
 
-Pass `--no-ignore`, because the store ignores itself and ripgrep honors `events/.gitignore`. A plain `rg` finds nothing. Each line is JSON, so a message with quotes, backslashes, or line breaks appears in its escaped form. Pass the `id` of a hit to `custom-log entry --entry-id` with `--source` to read the decoded event.
+Pass `--no-ignore`, because the store ignores itself and ripgrep honors `events/.gitignore`. A plain `rg` finds nothing. Each line is JSON, so a message with quotes, backslashes, or line breaks appears in its escaped form. Pass the `id` of a hit to `custom-log entry --entry-id` with `--source` to read the decoded event. When the source maps `entries`, that id opens the event's first entry, which may not be the item that matched; the stored line holds every item.
 
 To bring the store up to date before a search, run `capture`. A search sees only what was captured.
 
@@ -601,13 +709,26 @@ To bring the store up to date before a search, run `capture`. A search sees only
 
 `list`, `get`, and `entry` read the store and make no request to the org. They resolve the username of the target org from the local Salesforce CLI authorization.
 
-- `list` returns one row for each event, newest first in publish order: `CreatedDate`, then the delivery order inside one publish, then the `uuid`. A Nebula transaction publishes its entries together, so they share one `CreatedDate`, and the mapped time column can look out of order.
+- `list` returns one row for each entry, newest first in publish order: `CreatedDate`, then the delivery order inside one publish, then the `uuid`. A Nebula transaction publishes its entries together, so they share one `CreatedDate`, and the mapped time column can look out of order. An event that maps no `entries` payload, or whose fields hold no array, is one entry.
+- Inside an event, later entries come first. An entry id is the event id, which has 55 characters, plus `-<ordinal>` (4 base36 digits) from the second entry on. The first entry has the id of the event. Ids of one source compare as text in list order. A page can end inside an event, and the cursor resumes there.
 - `--since` and `--until` bound the `CreatedDate` of the event. `--min-level` and `--user` run over the stored rows. They need a mapped `level` or `levelOrdinal`, or a mapped `user`, and fail with `CUSTOM_LOG_UNSUPPORTED_FILTER` otherwise.
-- `get --log-id` returns the event as `log` and its transaction in `entries`: the stored events with the same `transactionId` that are within one hour of it, in the order of the mapped `order`, then by position. An event with no `transactionId` value stands alone. `get --transaction-id` starts from the newest stored event with that value, which scans the store.
+- `get --log-id` returns the event as `log` and its transaction in `entries`: the stored events with the same `transactionId` that are within one hour of it, in the order of the mapped `order`, then by position. An event with no `transactionId` value stands alone. `get --transaction-id` starts from the newest stored entry with that value, which scans the store. It collects the entries of that transaction across events, and leaves out the entries of other transactions in the same event.
 - `get` looks for the Apex debug log of the request through the org. When the lookup fails, for example because the machine has no connection to the org, `apexLog` is `unavailable` with `reason: "offline"`, and the rest of the result is unaffected.
-- `entry` returns the full message, every mapped detail with its state, and the raw payload of one stored event.
+- `entry` returns the full message, every mapped detail with its state, and the raw payload of one stored entry. For an entry of an `entries` payload, `rawPayload` is the element. `logId` is the canonical id of the entry. A plain event id, such as the `id` of a stored line that `rg` found, opens the first entry of the event.
 - A source that was never captured answers `list` with an empty page and `store.state: "notCaptured"`. It is not an error. `get` and `entry` answer `CUSTOM_LOG_RECORD_NOT_FOUND`, and the message says to run `capture`.
 - A cursor from an event source belongs to the org of the stored position, the source, the mapping, and the filters. A record cursor does not work on an event source, and an event cursor does not work on a record source. Both fail with `CUSTOM_LOG_INVALID_CURSOR`.
+
+Only a JSON array expands. This table shows what the fields of an `entries` payload give:
+
+| The fields hold                                      | Entries                                                                                   |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Blank                                                | One, with the id of the event, and the payload state `empty`.                             |
+| Plain text                                           | One, `text`.                                                                              |
+| Broken JSON                                          | One, `invalid`.                                                                           |
+| A JSON object                                        | One, `parsed`. Path roles read the object.                                                |
+| `[]`                                                 | One, `parsed`, with no values.                                                            |
+| An array with non-object items                       | One entry for each item. Objects and arrays are `parsed`, scalars `text`, `null` `empty`. |
+| A first field with an array, and a second that fails | The items of the first field, then one `invalid` entry for the second field.              |
 
 ### Capture in the panel
 
@@ -615,9 +736,10 @@ Pick an event source in the **Source** list. The table shows the stored history 
 
 - **A source with a stored position resumes by itself.** Opening it, or opening the panel again, starts capture from the stored position. The strip shows **Catching up** and then **Live**.
 - **A source with no stored position asks once.** The strip says that no events from this org are stored, and nothing subscribes. **Load retained events** replays what Salesforce still keeps, at least 72 hours. **Only new events** starts with the events published from now on. The strip shows how many deliveries of the org's daily allocation remain and how many this run may use. After your choice, opening the source resumes by itself. A session that receives no event stores no position, so the strip asks again next time.
-- **A run has a delivery budget.** It may use about half of what remains of the org's daily allocation, or 5,000 deliveries when Salesforce does not report the allowance. The check runs between flushes, and Salesforce hands over a whole response at a time, so a run can pass the budget by one response. A run that reaches it stores what it has and stops. **Start** resumes from the stored position.
+- **A run has a delivery budget.** It may use about half of what remains of the org's daily allocation, or 5,000 deliveries when Salesforce does not report the allowance. The check runs between responses, and Salesforce hands over a whole response at a time, so a run can pass the budget by one response. A run that reaches it stores what it has and stops. **Start** resumes from the stored position.
 - **Stop and Start.** **Stop** ends capture for the selected org and source. It stays stopped until you press **Start** or pick another org or source. **Start** runs capture again.
 - **What keeps and what stops capture.** Refresh, a change of `since`, and hiding the panel keep capture running. A change of org or source, or of the level or user filter, restarts it. Closing the Custom Logs view or its editor tab stops the capture that surface started, and so does turning off `electivus.apexLogViewer.customLogs.enabled`. The view and the editor tab watch one capture run, and so do two sources over one event object. The run ends when its last watcher leaves.
+- **The status bar item.** While a capture started by this VS Code window runs, from the Custom Logs view or its editor tab, the status bar shows `Custom Logs: <source> · <state>`, with the state `Connecting`, `Catching up`, `Live`, `Reconnecting` or `Standby`, also while the panel or the tab is hidden. The view and the tab on one source show one capture. When they capture different sources, the item shows `Custom Logs: <n> captures` and its tooltip names each. Clicking it offers **Show Custom Logs**, which brings forward the surface that captures, and **Stop capture**. **Stop capture** does what **Stop** in the strip does, in every surface that captures, so a run the view and the tab share ends. The item disappears when the capture stops or ends, and when the setting is off. It shows only captures this window started, so a window that sees another process capture shows no item.
 
 The level and user filters change only which live rows the table shows. Capture stores every event. New rows appear in event-time order, and the table keeps the row you are looking at in place. Past 5,000 live rows, the panel reloads the newest page.
 
@@ -656,6 +778,8 @@ sf electivus custom-log capture --source app-events --target-org my-org --follow
 | `--max-time`              | Seconds, from 1 to 3,600. The default is 120. Stop after this long, even while events keep arriving. It cannot combine with `--follow`.                              |
 | `--initial retained\|new` | For an org that this project never captured. `retained`, the default, replays the events Salesforce still keeps. `new` starts with the events published from now on. |
 | `--min-level`, `--user`   | Need `--follow`. Print only the rows at or above the level, or logged by the user. The store keeps every event either way.                                           |
+
+A first capture cannot start at the last N events or since a time. Salesforce replays only from the newest event, from the earliest retained event, or from a known replay id, so any partial window still delivers from the start of the backlog. `--initial new` is the cheap start, and the run budget caps a `retained` run.
 
 By default `capture` drains. It resumes from the stored position and stops when the first of these happens:
 
@@ -703,7 +827,7 @@ A quiet stream that you capture at least every 72 hours raises no `retentionElap
 
 One process captures each event object at a time, so the org sees one subscription and delivers each event once. The process that holds `capture.lease` captures. The file names the holder: the surface (`vscode` or `cli`), the pid, the host, and the start time.
 
-A panel or a `--follow` run that finds the lease held stands by. It shows the stored rows, names the holder, and shows the rows that the holder stores. It checks the lease every 2 seconds. At the first check after the holder's process on the same host ends, it takes the lease and connects. In one measurement against a real org, 3.2 seconds passed between the end of the holder and the resumed capture. A drain that finds the lease held stops with `capturedElsewhere`.
+A panel or a `--follow` run that finds the lease held stands by. It shows the stored rows, names the holder, and shows the rows and the gaps that the holder stores. It checks the lease every 2 seconds. At the first check after the holder's process on the same host ends, it takes the lease and connects. In one measurement against a real org, 3.2 seconds passed between the end of the holder and the resumed capture. A drain that finds the lease held stops with `capturedElsewhere`.
 
 Core never takes a lease from a process that is still alive, from a process on another host, or from a lease it cannot read. An unreadable lease fails with `CUSTOM_LOG_STORE_UNAVAILABLE` and names the file. When the holder is gone and the lease stays, delete `capture.lease`. The hostname of a Mac can change between networks, so a dead local holder can then look like a process on another host. The strip says so in its lease note.
 
@@ -737,6 +861,7 @@ Core flattens a parsed payload into paths, in document order:
 - Array items get an index: `{"lines": [{"sku": "A1"}]}` becomes `lines[0].sku`, and a payload that is an array starts with one: `[{"status": 500}]` becomes `[0].status`.
 - Only scalar leaves become paths: strings, numbers, booleans, and `null`. Empty objects and empty arrays add no path.
 - Core does not escape a key that contains `.` or `[`, so such a key can give a path that reads two ways.
+- For an `entries` payload, the paths are relative to the element: `traceId`, not `[0].traceId`.
 
 ### Limits
 
@@ -749,7 +874,7 @@ To read the whole payload, use **Open full payload** in the panel, or the CLI. `
 
 ### Payload fields
 
-Each `list` and `get` page returns `payloadFields`, which lists every path seen in that page's payloads with the JSON `types` found at the path and the number of `rows` that have it. Core computes it before `--payload-fields` trims `values`, so it always describes whole payloads. The panel merges `payloadFields` across the pages it has loaded, and offers those paths in its **+ Field** picker and its filter input.
+Each `list` and `get` page returns `payloadFields`, which lists every path seen in that page's payloads with the JSON `types` found at the path and the number of `rows` that have it. Core computes it before `--payload-fields` trims `values`, so it always describes whole payloads. Array indexes are grouped as `[]`, as in the panel: `metrics[0].name`, `metrics[1].name` and the rest of the array are one `metrics[].name`, and `rows` counts the rows that have at least one item. Row `values` keep the indexed paths. The panel merges `payloadFields` across the pages it has loaded, and offers those paths in its **+ Field** picker and its filter input.
 
 ### Filters and sorts run over loaded rows
 
@@ -762,7 +887,7 @@ The panel groups array indexes as `[]`, so `[].status >= 500` matches a row when
 
 Conditions combine with `and` only. The status bar reads "Filtering N loaded rows · M match". Use **Load more** to bring more rows into the filter.
 
-In the CLI, `--payload-fields` keeps only the paths you name in each row's `values`. Filter with `jq`:
+In the CLI, `--payload-fields` keeps only the paths you name in each row's `values`. `metrics[].name` keeps the name of every item, and `metrics[0].name` the first one only. Filter with `jq`:
 
 ```bash
 sf electivus custom-log list --source app-log --target-org my-org --limit 200 --json \
@@ -847,7 +972,7 @@ The commands have no project flag. They read the `sfdx-project.json` of the proj
 - `--min-level` keeps rows at or above a level. A transaction counts at its highest level. Values are `FINEST`, `FINER`, `FINE`, `DEBUG`, `INFO`, `WARN`, and `ERROR`.
 - `--user` takes an exact username. The match ignores case.
 - `--since` keeps rows at or after a time, and `--until` keeps rows before a time. Each takes a duration before now (a positive whole number followed by `m`, `h`, or `d`, such as `30m`, `24h`, or `7d`) or an ISO-8601 instant with an offset, such as `2026-10-29T12:00:00Z`. A bare date such as `2026-10-29` means midnight UTC.
-- `--payload-fields` takes paths separated by commas, and you can repeat it. Paths match exactly.
+- `--payload-fields` takes paths separated by commas, and you can repeat it. A path matches exactly, except that `[]` stands for any array index, so `metrics[].name` keeps `metrics[0].name`, `metrics[1].name` and so on. Write `[]` for every array in the path, as `payloadFields` lists it.
 - `--transaction-id` takes the framework's own transaction id, such as Nebula's `TransactionId__c`. For an `entries` source, `get` then pages every entry with that transaction id.
 - `get --log-id` takes a list row `id`. For an `entries` source, any entry id of the transaction works.
 

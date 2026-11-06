@@ -4,7 +4,6 @@ import { promisify } from 'node:util';
 import { expect, type Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
 import { seedApexLog } from '../utils/seedLog';
-import { resolveSfCliInvocation } from '../utils/sfCli';
 import { createTempWorkspace } from '../utils/tempWorkspace';
 import { launchVsCode, resolveExtensionDevelopmentPath } from '../utils/vscode';
 import { test as base } from './alvPoolLease';
@@ -34,8 +33,7 @@ export const test = base.extend<Fixtures & Options>({
   },
 
   workspacePath: async ({ scratchAlias, poolLease }, use, testInfo) => {
-    const sfCli = await resolveSfCliInvocation();
-    const ws = await createTempWorkspace({ targetOrg: scratchAlias, sfCli: sfCli ?? undefined });
+    const ws = await createTempWorkspace({ targetOrg: scratchAlias });
     try {
       await use(ws.workspacePath);
     } finally {

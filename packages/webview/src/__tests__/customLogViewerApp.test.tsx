@@ -30,9 +30,8 @@ jest.mock('react-window', () => {
         })
       );
       const api = { element: null, scrollToRow: () => {} };
-      if (listRef && 'current' in listRef) {
-        (listRef as { current: unknown }).current = api;
-      }
+      // Like react-window's List: the handle reaches object and callback refs alike.
+      React.useImperativeHandle(listRef, () => api, []);
       return React.createElement('div', { 'data-testid': 'virtual-list', style, className }, items);
     }
   };
@@ -249,6 +248,16 @@ describe('Custom Log viewer app', () => {
       expect(screen.queryByRole('button', { name: 'Open Apex log' })).toBeNull();
       expect(screen.getByTestId('custom-log-apex-hint')).toHaveTextContent('You cannot read debug logs in this org.');
       expect(screen.getByTestId('custom-log-apex-hint')).not.toHaveTextContent('trace flag');
+    });
+
+    it('says the org could not be reached, not that the user lacks access, when the lookup was offline', () => {
+      mountViewer({ apexLog: { state: 'unavailable', reason: 'offline' } });
+
+      expect(screen.queryByRole('button', { name: 'Open Apex log' })).toBeNull();
+      expect(screen.getByTestId('custom-log-apex-hint')).toHaveTextContent(
+        'Could not reach the org to look up the Apex debug log for this request.'
+      );
+      expect(screen.getByTestId('custom-log-apex-hint')).not.toHaveTextContent('You cannot read debug logs');
     });
 
     it('pluralizes the header counts', () => {

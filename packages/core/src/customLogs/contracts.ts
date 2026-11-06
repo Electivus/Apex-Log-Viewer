@@ -69,7 +69,11 @@ export type CustomLogUnavailableReason =
   | 'notAnEvent'; // an `event` mapping names an object that is not a platform event
 
 /** A mapped JSON payload: the qualified field and the team's default columns from the mapping. */
-export type CustomLogPayloadInfo = { field: string; columns: string[] };
+/**
+ * The payload mapping of one level. `entries` is present when an event source expands the JSON
+ * arrays of several fields into rows: it lists those fields in order, and `field` is the first.
+ */
+export type CustomLogPayloadInfo = { field: string; columns: string[]; entries?: string[] };
 
 /**
  * One source as `sources` reports it. Every state carries every field, so a consumer reads one
@@ -104,11 +108,13 @@ export type CustomLogSourceInfo = {
 export type CustomLogSourceObjects = { transaction?: string; entry: string } | { event: string };
 
 /**
- * Event row and entry ids: opaque tokens `e-<9 base36>-<10 base36>-<32 hex>` (55 characters). Two
- * event ids of one source compare in list order: the larger string is newer. Pass them back to
- * `get --log-id` and `entry --entry-id` as is. No part of the id is a Salesforce replay id.
+ * Event row and entry ids: opaque tokens `e-<9 base36>-<10 base36>-<32 hex>`, 55 characters for an
+ * event's first or only entry, 60 for a later entry of an event whose payload lists several (the
+ * event id plus `-<ordinal, 4 base36>`; `-0000` is never issued). Two ids of one source compare in
+ * list order: the larger string is newer. Pass them back to `get --log-id` and `entry --entry-id`
+ * as is. No part of the id is a Salesforce replay id.
  */
-export const CUSTOM_LOG_EVENT_ID_PATTERN = /^e-[0-9a-z]{9}-[0-9a-z]{10}-[0-9a-f]{32}$/;
+export const CUSTOM_LOG_EVENT_ID_PATTERN = /^e-[0-9a-z]{9}-[0-9a-z]{10}-[0-9a-f]{32}(?:-(?!0000)[0-9a-z]{4})?$/;
 
 // ---------------------------------------------------------------------------------------------
 // the local event store, as every event result reports it
@@ -230,7 +236,11 @@ export type CustomLogPayloadView =
 
 export type CustomLogPayloadType = 'string' | 'number' | 'boolean' | 'null';
 
-/** One payload path seen on a page. The UI merges these across the pages it has loaded. */
+/**
+ * One payload path seen on a page, with array indexes grouped: `metrics[].name` stands for `metrics[0].name`,
+ * `metrics[1].name` and so on, and `rows` counts the rows that have any of them. The UI merges these across
+ * the pages it has loaded.
+ */
 export type CustomLogPayloadField = { path: string; types: CustomLogPayloadType[]; rows: number };
 
 /** A long text value read on demand. */
@@ -274,7 +284,10 @@ export type CustomLogListParams = CustomLogScope & {
   /** Opaque token from a previous `nextCursor`. Bound to the org, the source mapping and the filter that produced it. */
   cursor?: string;
   filter?: CustomLogFilter;
-  /** Keep only these paths in each row's payload `values` (CLI `--payload-fields`). `payloadFields` still lists every path. */
+  /**
+   * Keep only these paths in each row's payload `values` (CLI `--payload-fields`). `[]` stands for every array index,
+   * as in `metrics[].name`. `payloadFields` still lists every path.
+   */
   payloadFields?: string[];
 };
 

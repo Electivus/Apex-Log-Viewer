@@ -61,11 +61,17 @@ function countLabel(count: number, one: string, many: string): string {
   return count === 1 ? one : fillTemplate(many, { count });
 }
 
-const APEX_LOG_HINTS: Record<Exclude<CustomLogApexLogLink['state'], 'linked'>, (t: CustomLogsMessages) => string> = {
-  notFound: t => t.viewer.apexNotFound,
-  unavailable: t => t.viewer.apexUnavailable,
-  noRequestId: t => t.viewer.apexNoRequestId
-};
+function apexLogHint(link: Exclude<CustomLogApexLogLink, { state: 'linked' }>, t: CustomLogsMessages): string {
+  switch (link.state) {
+    case 'notFound':
+      return t.viewer.apexNotFound;
+    case 'unavailable':
+      // Only `noAccess` is about permissions; `offline` means the org could not be reached.
+      return link.reason === 'offline' ? t.viewer.apexOffline : t.viewer.apexUnavailable;
+    case 'noRequestId':
+      return t.viewer.apexNoRequestId;
+  }
+}
 
 export function CustomLogViewerHeader({
   t,
@@ -142,7 +148,7 @@ export function CustomLogViewerHeader({
             data-testid="custom-log-apex-hint"
           >
             <Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            {APEX_LOG_HINTS[apexLog.state](t)}
+            {apexLogHint(apexLog, t)}
           </span>
         ) : null}
         <Button

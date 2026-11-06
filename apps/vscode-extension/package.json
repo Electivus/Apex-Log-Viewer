@@ -344,7 +344,7 @@
           "ApexLog",
           "Salesforce Apex Log"
         ],
-        "firstLine": "^\\d{2}\\.\\d{2}.+?APEX_CODE,\\w.+$"
+        "firstLine": "^\\d+\\.\\d+ APEX_CODE,"
       }
     ],
     "menus": {
@@ -406,7 +406,7 @@
       "editor/title": [
         {
           "command": "electivus.apexLogViewer.log.openViewer",
-          "when": "resourceLangId == apexlog",
+          "when": "resourceLangId == apexlog || resourceExtname == .log && electivus.apexLogViewer.activeEditorIsApexLog",
           "group": "navigation@50",
           "icon": "$(open-preview)"
         }

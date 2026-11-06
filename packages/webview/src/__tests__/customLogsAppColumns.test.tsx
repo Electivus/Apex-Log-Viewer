@@ -40,9 +40,8 @@ jest.mock('react-window', () => {
         )
       );
       const api = { element: null, scrollToRow: () => {} };
-      if (listRef && 'current' in listRef) {
-        (listRef as { current: unknown }).current = api;
-      }
+      // Like react-window's List: the handle reaches object and callback refs alike.
+      React.useImperativeHandle(listRef, () => api, []);
       return React.createElement('div', { 'data-testid': 'virtual-list', style, className }, items);
     }
   };
@@ -553,6 +552,35 @@ describe('Custom Logs JSON columns', () => {
 
       fireEvent.click(within(screen.getByTestId('custom-logs-empty')).getByRole('button', { name: 'Configure' }));
       expect(posts(posted, 'customLogsOpenConfig')).toHaveLength(1);
+    });
+
+    it('still lists the mapping issues when another source is ready', () => {
+      mountApp({
+        sources: [
+          appLog,
+          { ...nebula, state: 'unavailable', reason: 'requiredFieldMissing', message: 'Message__c is missing' }
+        ],
+        selected: 'app-log',
+        issues: [
+          {
+            severity: 'error',
+            pointer: '/plugins/electivus/customLogs/sources/1/entry/fields/time',
+            message: 'Missing required key'
+          }
+        ]
+      });
+
+      expect(screen.getByRole('grid', { name: 'Custom logs' })).toBeInTheDocument();
+      const issues = screen.getByRole('region', { name: 'Configuration issues' });
+      expect(issues).toHaveTextContent(
+        '/plugins/electivus/customLogs/sources/1/entry/fields/time: Missing required key'
+      );
+    });
+
+    it('shows no issues section when the mapping has none', () => {
+      mountApp();
+
+      expect(screen.queryByTestId('custom-logs-config-issues')).toBeNull();
     });
 
     it('tells a Log__c collision from a missing install', () => {

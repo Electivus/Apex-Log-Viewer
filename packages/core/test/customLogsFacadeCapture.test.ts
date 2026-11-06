@@ -132,8 +132,12 @@ async function world(
   return { core, double, root, scope, location };
 }
 
-/** A drain that ends at its bound instead of after the 10 s of silence a real run waits for. */
-const DRAIN = { follow: false, initial: 'retained', maxDurationMs: 1_000 } as const;
+/**
+ * A drain that ends at its bound instead of after the 10 s of silence a real run waits for. The bound starts with the
+ * run, so it covers the lease, the allowance read and the handshake as well as the delivery: a loaded Windows runner
+ * once spent all of 1 s before the first event arrived.
+ */
+const DRAIN = { follow: false, initial: 'retained', maxDurationMs: 3_000 } as const;
 
 // ---------------------------------------------------------------------------------------------
 // the join: capture over the real adapter, then the offline read of the same source
@@ -142,7 +146,12 @@ test('capture stores a recorded event through the real CometD adapter, and list 
   const { core, double, scope } = await world(t, { events: 'single' });
   const updates: CustomLogCaptureUpdate[] = [];
 
-  const result = await core.customLog.capture({ ...scope, ...DRAIN }, { onUpdate: update => updates.push(update) });
+  // The only drain here that needs its row streamed before the bound. The run counts an event as stored before
+  // it finishes the write (cursor, gap check, coverage) and streams the row, so this bound covers the whole write.
+  const result = await core.customLog.capture(
+    { ...scope, ...DRAIN, maxDurationMs: 6_000 },
+    { onUpdate: update => updates.push(update) }
+  );
 
   assert.equal(result.source.id, SOURCE);
   assert.equal(result.outcome, 'timeLimit', 'the event was still being caught up when the bound passed');
@@ -209,7 +218,7 @@ test('a delivery without an EventUuid is counted, stored as a gap between the ev
 test('a second capture resumes after the stored cursor and stores nothing twice', async t => {
   const { core, double, scope } = await world(t, { events: 'single' });
   await core.customLog.capture({ ...scope, ...DRAIN });
-  const [{ data }] = recordedEvents('single') as [{ data: { event: { replayId: number } } }];
+  const { data } = recordedEvents('single')[0]!;
 
   const again = await core.customLog.capture({ ...scope, ...DRAIN });
 

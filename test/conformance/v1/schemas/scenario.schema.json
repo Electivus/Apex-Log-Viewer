@@ -6,71 +6,274 @@
   "additionalProperties": false,
   "required": ["schemaVersion", "id", "description", "operation", "request", "workspace", "doubles", "expected"],
   "properties": {
-    "schemaVersion": { "const": "1.0" },
-    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
-    "description": { "type": "string", "minLength": 1 },
-    "operation": { "enum": ["log.status", "log.list", "log.resolve", "log.triage"] },
-    "request": {
-      "oneOf": [
-        { "$ref": "#/$defs/statusRequest" },
-        { "$ref": "#/$defs/logListRequest" },
-        { "$ref": "#/$defs/logResolveRequest" },
-        { "$ref": "#/$defs/triageRequest" }
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "operation": {
+      "enum": [
+        "log.status",
+        "log.list",
+        "log.resolve",
+        "log.triage",
+        "customLog.list",
+        "customLog.get",
+        "customLog.entry"
       ]
     },
-    "workspace": { "$ref": "#/$defs/workspace" },
-    "doubles": { "$ref": "#/$defs/doubles" },
+    "request": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/statusRequest"
+        },
+        {
+          "$ref": "#/$defs/logListRequest"
+        },
+        {
+          "$ref": "#/$defs/logResolveRequest"
+        },
+        {
+          "$ref": "#/$defs/triageRequest"
+        },
+        {
+          "$ref": "#/$defs/customLogListRequest"
+        },
+        {
+          "$ref": "#/$defs/customLogGetRequest"
+        },
+        {
+          "$ref": "#/$defs/customLogEntryRequest"
+        }
+      ]
+    },
+    "workspace": {
+      "$ref": "#/$defs/workspace"
+    },
+    "doubles": {
+      "$ref": "#/$defs/doubles"
+    },
     "expected": {
       "oneOf": [
-        { "$ref": "#/$defs/statusSuccess" },
-        { "$ref": "#/$defs/logListSuccess" },
-        { "$ref": "#/$defs/logResolveSuccess" },
-        { "$ref": "#/$defs/triageSuccess" },
-        { "$ref": "#/$defs/failureOutcome" }
+        {
+          "$ref": "#/$defs/statusSuccess"
+        },
+        {
+          "$ref": "#/$defs/logListSuccess"
+        },
+        {
+          "$ref": "#/$defs/logResolveSuccess"
+        },
+        {
+          "$ref": "#/$defs/triageSuccess"
+        },
+        {
+          "$ref": "#/$defs/customLogListSuccess"
+        },
+        {
+          "$ref": "#/$defs/customLogGetSuccess"
+        },
+        {
+          "$ref": "#/$defs/customLogEntrySuccess"
+        },
+        {
+          "$ref": "#/$defs/failureOutcome"
+        }
       ]
     }
   },
   "allOf": [
     {
-      "if": { "properties": { "operation": { "const": "log.status" } }, "required": ["operation"] },
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "log.status"
+          }
+        },
+        "required": ["operation"]
+      },
       "then": {
         "properties": {
-          "request": { "$ref": "#/$defs/statusRequest" },
+          "request": {
+            "$ref": "#/$defs/statusRequest"
+          },
           "expected": {
-            "oneOf": [{ "$ref": "#/$defs/statusSuccess" }, { "$ref": "#/$defs/failureOutcome" }]
+            "oneOf": [
+              {
+                "$ref": "#/$defs/statusSuccess"
+              },
+              {
+                "$ref": "#/$defs/failureOutcome"
+              }
+            ]
           }
         }
       }
     },
     {
-      "if": { "properties": { "operation": { "const": "log.list" } }, "required": ["operation"] },
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "log.list"
+          }
+        },
+        "required": ["operation"]
+      },
       "then": {
         "properties": {
-          "request": { "$ref": "#/$defs/logListRequest" },
+          "request": {
+            "$ref": "#/$defs/logListRequest"
+          },
           "expected": {
-            "oneOf": [{ "$ref": "#/$defs/logListSuccess" }, { "$ref": "#/$defs/failureOutcome" }]
+            "oneOf": [
+              {
+                "$ref": "#/$defs/logListSuccess"
+              },
+              {
+                "$ref": "#/$defs/failureOutcome"
+              }
+            ]
           }
         }
       }
     },
     {
-      "if": { "properties": { "operation": { "const": "log.resolve" } }, "required": ["operation"] },
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "log.resolve"
+          }
+        },
+        "required": ["operation"]
+      },
       "then": {
         "properties": {
-          "request": { "$ref": "#/$defs/logResolveRequest" },
+          "request": {
+            "$ref": "#/$defs/logResolveRequest"
+          },
           "expected": {
-            "oneOf": [{ "$ref": "#/$defs/logResolveSuccess" }, { "$ref": "#/$defs/failureOutcome" }]
+            "oneOf": [
+              {
+                "$ref": "#/$defs/logResolveSuccess"
+              },
+              {
+                "$ref": "#/$defs/failureOutcome"
+              }
+            ]
           }
         }
       }
     },
     {
-      "if": { "properties": { "operation": { "const": "log.triage" } }, "required": ["operation"] },
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "log.triage"
+          }
+        },
+        "required": ["operation"]
+      },
       "then": {
         "properties": {
-          "request": { "$ref": "#/$defs/triageRequest" },
+          "request": {
+            "$ref": "#/$defs/triageRequest"
+          },
           "expected": {
-            "oneOf": [{ "$ref": "#/$defs/triageSuccess" }, { "$ref": "#/$defs/failureOutcome" }]
+            "oneOf": [
+              {
+                "$ref": "#/$defs/triageSuccess"
+              },
+              {
+                "$ref": "#/$defs/failureOutcome"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "customLog.list"
+          }
+        },
+        "required": ["operation"]
+      },
+      "then": {
+        "properties": {
+          "request": {
+            "$ref": "#/$defs/customLogListRequest"
+          },
+          "expected": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/customLogListSuccess"
+              },
+              {
+                "$ref": "#/$defs/failureOutcome"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "customLog.get"
+          }
+        },
+        "required": ["operation"]
+      },
+      "then": {
+        "properties": {
+          "request": {
+            "$ref": "#/$defs/customLogGetRequest"
+          },
+          "expected": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/customLogGetSuccess"
+              },
+              {
+                "$ref": "#/$defs/failureOutcome"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "customLog.entry"
+          }
+        },
+        "required": ["operation"]
+      },
+      "then": {
+        "properties": {
+          "request": {
+            "$ref": "#/$defs/customLogEntryRequest"
+          },
+          "expected": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/customLogEntrySuccess"
+              },
+              {
+                "$ref": "#/$defs/failureOutcome"
+              }
+            ]
           }
         }
       }
@@ -82,8 +285,14 @@
       "additionalProperties": false,
       "required": ["workspaceRoot"],
       "properties": {
-        "workspaceRoot": { "type": "string", "minLength": 1 },
-        "targetOrg": { "type": "string", "minLength": 1 }
+        "workspaceRoot": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetOrg": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "logListRequest": {
@@ -91,9 +300,19 @@
       "additionalProperties": false,
       "required": ["workspaceRoot", "username"],
       "properties": {
-        "workspaceRoot": { "type": "string", "minLength": 1 },
-        "username": { "type": "string", "minLength": 1 },
-        "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
+        "workspaceRoot": {
+          "type": "string",
+          "minLength": 1
+        },
+        "username": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        }
       }
     },
     "triageRequest": {
@@ -101,16 +320,28 @@
       "additionalProperties": false,
       "required": ["workspaceRoot", "username", "logIds", "logStartTimes"],
       "properties": {
-        "workspaceRoot": { "type": "string", "minLength": 1 },
-        "username": { "type": "string", "minLength": 1 },
+        "workspaceRoot": {
+          "type": "string",
+          "minLength": 1
+        },
+        "username": {
+          "type": "string",
+          "minLength": 1
+        },
         "logIds": {
           "type": "array",
           "minItems": 1,
-          "items": { "type": "string", "pattern": "^07L[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$" }
+          "items": {
+            "type": "string",
+            "pattern": "^07L[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$"
+          }
         },
         "logStartTimes": {
           "type": "object",
-          "additionalProperties": { "type": "string", "minLength": 10 }
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 10
+          }
         }
       }
     },
@@ -119,9 +350,18 @@
       "additionalProperties": false,
       "required": ["workspaceRoot", "targetOrg", "logId"],
       "properties": {
-        "workspaceRoot": { "type": "string", "minLength": 1 },
-        "targetOrg": { "type": "string", "minLength": 1 },
-        "logId": { "type": "string", "pattern": "^07L[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$" }
+        "workspaceRoot": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetOrg": {
+          "type": "string",
+          "minLength": 1
+        },
+        "logId": {
+          "type": "string",
+          "pattern": "^07L[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$"
+        }
       }
     },
     "statusSuccess": {
@@ -145,21 +385,65 @@
             "failedCount"
           ],
           "properties": {
-            "targetOrg": { "type": "string", "minLength": 1 },
-            "safeTargetOrg": { "type": "string", "minLength": 1 },
-            "workspaceRoot": { "type": "string", "minLength": 1 },
-            "apexlogsRoot": { "type": "string", "minLength": 1 },
-            "orgLogsRoot": { "type": "string", "minLength": 1 },
-            "stateFile": { "type": "string", "minLength": 1 },
-            "logCount": { "type": "integer", "minimum": 0 },
-            "hasState": { "type": "boolean" },
-            "lastSyncStartedAt": { "type": "string", "minLength": 1 },
-            "lastSyncCompletedAt": { "type": "string", "minLength": 1 },
-            "lastSyncedLogId": { "type": "string", "minLength": 1 },
-            "lastSyncedStartTime": { "type": "string", "minLength": 1 },
-            "downloadedCount": { "type": "integer", "minimum": 0 },
-            "cachedCount": { "type": "integer", "minimum": 0 },
-            "failedCount": { "type": "integer", "minimum": 0 }
+            "targetOrg": {
+              "type": "string",
+              "minLength": 1
+            },
+            "safeTargetOrg": {
+              "type": "string",
+              "minLength": 1
+            },
+            "workspaceRoot": {
+              "type": "string",
+              "minLength": 1
+            },
+            "apexlogsRoot": {
+              "type": "string",
+              "minLength": 1
+            },
+            "orgLogsRoot": {
+              "type": "string",
+              "minLength": 1
+            },
+            "stateFile": {
+              "type": "string",
+              "minLength": 1
+            },
+            "logCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "hasState": {
+              "type": "boolean"
+            },
+            "lastSyncStartedAt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "lastSyncCompletedAt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "lastSyncedLogId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "lastSyncedStartTime": {
+              "type": "string",
+              "minLength": 1
+            },
+            "downloadedCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cachedCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "failedCount": {
+              "type": "integer",
+              "minimum": 0
+            }
           }
         }
       }
@@ -176,16 +460,39 @@
             "additionalProperties": false,
             "required": ["id"],
             "properties": {
-              "id": { "type": "string", "minLength": 1 },
-              "startTime": { "type": "string", "minLength": 1 },
-              "operation": { "type": "string", "minLength": 1 },
-              "application": { "type": "string", "minLength": 1 },
-              "status": { "type": "string", "minLength": 1 },
-              "logLength": { "type": "integer", "minimum": 0 },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "startTime": {
+                "type": "string",
+                "minLength": 1
+              },
+              "operation": {
+                "type": "string",
+                "minLength": 1
+              },
+              "application": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "type": "string",
+                "minLength": 1
+              },
+              "logLength": {
+                "type": "integer",
+                "minimum": 0
+              },
               "logUser": {
                 "type": "object",
                 "additionalProperties": false,
-                "properties": { "name": { "type": "string", "minLength": 1 } }
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
               }
             }
           }
@@ -204,15 +511,26 @@
             "additionalProperties": false,
             "required": ["logId", "summary"],
             "properties": {
-              "logId": { "type": "string", "minLength": 1 },
-              "codeUnitStarted": { "type": "string", "minLength": 1 },
+              "logId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "codeUnitStarted": {
+                "type": "string",
+                "minLength": 1
+              },
               "summary": {
                 "type": "object",
                 "additionalProperties": false,
                 "required": ["hasErrors", "reasons"],
                 "properties": {
-                  "hasErrors": { "type": "boolean" },
-                  "primaryReason": { "type": "string", "minLength": 1 },
+                  "hasErrors": {
+                    "type": "boolean"
+                  },
+                  "primaryReason": {
+                    "type": "string",
+                    "minLength": 1
+                  },
                   "reasons": {
                     "type": "array",
                     "items": {
@@ -220,11 +538,26 @@
                       "additionalProperties": false,
                       "required": ["code", "severity", "summary"],
                       "properties": {
-                        "code": { "type": "string", "minLength": 1 },
-                        "severity": { "type": "string", "minLength": 1 },
-                        "summary": { "type": "string", "minLength": 1 },
-                        "line": { "type": "integer", "minimum": 0 },
-                        "eventType": { "type": "string", "minLength": 1 }
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "severity": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "summary": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "line": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "eventType": {
+                          "type": "string",
+                          "minLength": 1
+                        }
                       }
                     }
                   }
@@ -245,9 +578,17 @@
           "additionalProperties": false,
           "required": ["logId", "cached"],
           "properties": {
-            "logId": { "type": "string", "pattern": "^07L[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$" },
-            "path": { "type": "string", "minLength": 1 },
-            "cached": { "type": "boolean" }
+            "logId": {
+              "type": "string",
+              "pattern": "^07L[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$"
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "cached": {
+              "type": "boolean"
+            }
           }
         }
       }
@@ -262,8 +603,14 @@
           "additionalProperties": false,
           "required": ["code"],
           "properties": {
-            "code": { "type": "string", "minLength": 1 },
-            "message": { "type": "string", "minLength": 1 }
+            "code": {
+              "type": "string",
+              "minLength": 1
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         }
       }
@@ -278,7 +625,9 @@
           "minLength": 1,
           "pattern": "^(?![A-Za-z]:)(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$"
         },
-        "content": { "type": "string" }
+        "content": {
+          "type": "string"
+        }
       }
     },
     "workspace": {
@@ -286,8 +635,18 @@
       "additionalProperties": false,
       "required": ["before", "after"],
       "properties": {
-        "before": { "type": "array", "items": { "$ref": "#/$defs/workspaceFile" } },
-        "after": { "type": "array", "items": { "$ref": "#/$defs/workspaceFile" } }
+        "before": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/workspaceFile"
+          }
+        },
+        "after": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/workspaceFile"
+          }
+        }
       }
     },
     "processInteraction": {
@@ -295,26 +654,54 @@
       "additionalProperties": false,
       "required": ["id", "request"],
       "oneOf": [
-        { "required": ["response"], "properties": { "response": true } },
-        { "required": ["responses"], "properties": { "responses": true } }
+        {
+          "required": ["response"],
+          "properties": {
+            "response": true
+          }
+        },
+        {
+          "required": ["responses"],
+          "properties": {
+            "responses": true
+          }
+        }
       ],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
         "request": {
           "type": "object",
           "additionalProperties": false,
           "required": ["executable", "arguments"],
           "properties": {
-            "executable": { "type": "string", "minLength": 1 },
-            "arguments": { "type": "array", "items": { "type": "string" } },
-            "cwd": { "type": "string", "minLength": 1 }
+            "executable": {
+              "type": "string",
+              "minLength": 1
+            },
+            "arguments": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "cwd": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         },
-        "response": { "$ref": "#/$defs/processResponse" },
+        "response": {
+          "$ref": "#/$defs/processResponse"
+        },
         "responses": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/processResponse" }
+          "items": {
+            "$ref": "#/$defs/processResponse"
+          }
         }
       }
     },
@@ -323,9 +710,15 @@
       "additionalProperties": false,
       "required": ["exitCode", "stdout", "stderr"],
       "properties": {
-        "exitCode": { "type": "integer" },
-        "stdout": { "type": "string" },
-        "stderr": { "type": "string" }
+        "exitCode": {
+          "type": "integer"
+        },
+        "stdout": {
+          "type": "string"
+        },
+        "stderr": {
+          "type": "string"
+        }
       }
     },
     "httpInteraction": {
@@ -333,27 +726,55 @@
       "additionalProperties": false,
       "required": ["id", "request"],
       "oneOf": [
-        { "required": ["response"], "properties": { "response": true } },
-        { "required": ["responses"], "properties": { "responses": true } }
+        {
+          "required": ["response"],
+          "properties": {
+            "response": true
+          }
+        },
+        {
+          "required": ["responses"],
+          "properties": {
+            "responses": true
+          }
+        }
       ],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
         "request": {
           "type": "object",
           "additionalProperties": false,
           "required": ["method", "url"],
           "properties": {
-            "method": { "type": "string", "pattern": "^[A-Z]+$" },
-            "url": { "type": "string", "minLength": 1 },
-            "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+            "method": {
+              "type": "string",
+              "pattern": "^[A-Z]+$"
+            },
+            "url": {
+              "type": "string",
+              "minLength": 1
+            },
+            "headers": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
             "body": true
           }
         },
-        "response": { "$ref": "#/$defs/httpResponse" },
+        "response": {
+          "$ref": "#/$defs/httpResponse"
+        },
         "responses": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/httpResponse" }
+          "items": {
+            "$ref": "#/$defs/httpResponse"
+          }
         }
       }
     },
@@ -362,8 +783,17 @@
       "additionalProperties": false,
       "required": ["status", "headers", "body"],
       "properties": {
-        "status": { "type": "integer", "minimum": 100, "maximum": 599 },
-        "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+        "status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "body": true
       }
     },
@@ -372,8 +802,218 @@
       "additionalProperties": false,
       "required": ["process", "http"],
       "properties": {
-        "process": { "type": "array", "items": { "$ref": "#/$defs/processInteraction" } },
-        "http": { "type": "array", "items": { "$ref": "#/$defs/httpInteraction" } }
+        "process": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/processInteraction"
+          }
+        },
+        "http": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/httpInteraction"
+          }
+        }
+      }
+    },
+    "customLogFilter": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "minLevel": {
+          "enum": ["FINEST", "FINER", "FINE", "DEBUG", "INFO", "WARN", "ERROR"]
+        },
+        "user": {
+          "type": "string",
+          "minLength": 1
+        },
+        "since": {
+          "type": "string",
+          "minLength": 1
+        },
+        "until": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "customLogListRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["targetOrg", "projectDir"],
+      "properties": {
+        "targetOrg": {
+          "type": "string",
+          "minLength": 1
+        },
+        "projectDir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "filter": {
+          "$ref": "#/$defs/customLogFilter"
+        },
+        "payloadFields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "customLogGetRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["targetOrg", "projectDir"],
+      "properties": {
+        "targetOrg": {
+          "type": "string",
+          "minLength": 1
+        },
+        "projectDir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2000
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "minLevel": {
+          "enum": ["FINEST", "FINER", "FINE", "DEBUG", "INFO", "WARN", "ERROR"]
+        },
+        "payloadFields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "logId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "transactionId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["logId"],
+          "properties": {
+            "logId": true,
+            "transactionId": false
+          }
+        },
+        {
+          "required": ["transactionId"],
+          "properties": {
+            "transactionId": true,
+            "logId": false
+          }
+        }
+      ]
+    },
+    "customLogEntryRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["targetOrg", "projectDir", "entryId"],
+      "properties": {
+        "targetOrg": {
+          "type": "string",
+          "minLength": 1
+        },
+        "projectDir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "entryId": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "customLogListSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result"],
+      "properties": {
+        "result": {
+          "type": "object",
+          "required": ["source", "columns", "rows", "payloadFields", "nextCursor"],
+          "properties": {
+            "source": true,
+            "columns": true,
+            "rows": true,
+            "payloadFields": true,
+            "nextCursor": true
+          }
+        }
+      }
+    },
+    "customLogGetSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result"],
+      "properties": {
+        "result": {
+          "type": "object",
+          "required": ["source", "log", "entryColumns", "entries", "payloadFields", "nextCursor", "apexLog"],
+          "properties": {
+            "source": true,
+            "log": true,
+            "entryColumns": true,
+            "entries": true,
+            "payloadFields": true,
+            "nextCursor": true,
+            "apexLog": true
+          }
+        }
+      }
+    },
+    "customLogEntrySuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result"],
+      "properties": {
+        "result": {
+          "type": "object",
+          "required": ["source", "logId", "entry", "details", "rawPayload"],
+          "properties": {
+            "source": true,
+            "logId": true,
+            "entry": true,
+            "details": true,
+            "rawPayload": true
+          }
+        }
       }
     }
   }

@@ -15,6 +15,7 @@ import {
   type StreamingClient
 } from '../salesforce/streaming';
 import type { ReadApexLogResult } from '@alv/core';
+import type { ApexLogRow } from '../../shared/types';
 
 /**
  * Handles Apex log tailing mechanics independent of the webview.
@@ -23,8 +24,12 @@ export const DEFAULT_TAIL_BUFFER_LINES = 10000;
 export const MIN_TAIL_BUFFER_LINES = 1000;
 export const MAX_TAIL_BUFFER_LINES = 200000;
 
+const SUBSCRIBE_ACK_TIMEOUT_SECONDS = 30;
+
+type TailRun = { subscribed: boolean };
+
 export class TailService {
-  private tailRunning = false;
+  private run: TailRun | undefined;
   private tailHardStopTimer: NodeJS.Timeout | undefined;
   private seenLogIds = new Set<string>();
   private currentAuth: OrgAuth | undefined;
@@ -37,7 +42,6 @@ export class TailService {
   private windowActive = true;
   private streamingClient: StreamingClient | undefined;
   private connection: Connection | undefined;
-  private lastReplayId: number | undefined;
   private bufferLimit = DEFAULT_TAIL_BUFFER_LINES;
   private bufferedLines: string[] = [];
   private bufferedLinesOffset = 0;
@@ -61,7 +65,7 @@ export class TailService {
   }
 
   isRunning(): boolean {
-    return this.tailRunning;
+    return this.run?.subscribed === true;
   }
 
   getBufferedLines(): string[] {
@@ -78,7 +82,7 @@ export class TailService {
   }
 
   async start(debugLevel?: string): Promise<void> {
-    if (this.tailRunning) {
+    if (this.run) {
       logInfo('Tail: start requested but already running.');
       return;
     }
@@ -87,18 +91,27 @@ export class TailService {
       logWarn('Tail: start aborted; no debug level selected.');
       return;
     }
-    this.tailRunning = true;
+    const run: TailRun = { subscribed: false };
+    this.run = run;
+    const current = () => this.run === run && !this.disposed;
+    const startedAtMs = Date.now();
     this.seenLogIds.clear();
     this.logIdToPath.clear();
     this.currentDebugLevel = debugLevel;
     try {
       const auth = await this.getOrgAuth();
-      if (!this.tailRunning || this.disposed) {
+      if (!current()) {
         logWarn('Tail: start aborted while awaiting auth');
         return;
       }
       this.currentAuth = auth;
       logInfo('Tail: acquired auth for', auth.username || '(default)', 'at', auth.instanceUrl);
+
+      const primed = await this.primeSeenLogs(auth, startedAtMs);
+      if (!current()) {
+        logWarn('Tail: start aborted after priming');
+        return;
+      }
 
       try {
         // Ensure a TraceFlag of the default log type (DEVELOPER_LOG), updating the existing one if present
@@ -108,162 +121,131 @@ export class TailService {
         } else {
           logInfo('Tail: TraceFlag updated or already matching for level', debugLevel);
         }
-      } catch {
-        logWarn('Tail: ensure TraceFlag failed (continuing)');
-      }
-
-      try {
-        const recent = await runtimeClient.logsList({ username: this.selectedOrg ?? auth.username, limit: 20 });
-        logInfo('Tail: primed seen set with', recent.length, 'recent logs for level', debugLevel);
-        for (const r of recent) {
-          if (r && typeof r.Id === 'string') {
-            this.seenLogIds.add(r.Id);
-          }
-        }
-      } catch {
-        logWarn('Tail: prime recent logs failed; proceeding with empty seen set');
-      }
-
-      if (!this.tailRunning || this.disposed) {
-        logWarn('Tail: start aborted after priming');
-        return;
+      } catch (e) {
+        logWarn('Tail: ensure TraceFlag failed (continuing) ->', getErrorMessage(e));
       }
 
       this.connection = await this.getActiveConnection(auth);
-      this.post({ type: 'tailStatus', running: true });
-      logInfo('Tail: started; subscribing to /systemTopic/Logging…');
-
-      if (this.tailHardStopTimer) {
-        clearTimeout(this.tailHardStopTimer);
+      const client = await createLoggingStreamingClient(this.connection, message => this.onStreamMessage(message));
+      if (!current()) {
+        client.disconnect();
+        logWarn('Tail: start aborted before subscribing');
+        return;
       }
+      this.streamingClient = client;
+      logInfo('Tail: subscribing to /systemTopic/Logging…');
+      await this.waitForSubscription(client);
+      if (!current()) {
+        return;
+      }
+
+      run.subscribed = true;
+      this.post({ type: 'tailStatus', running: true });
+      logInfo('Tail: subscribed to /systemTopic/Logging');
       this.tailHardStopTimer = setTimeout(
         () => {
-          if (this.tailRunning && !this.disposed) {
-            logInfo('Tail: auto-stopping after 30 minutes.');
-            this.post({ type: 'error', message: localize('tailHardStop', 'Tail stopped after 30 minutes.') });
-            this.stop();
-          }
+          logInfo('Tail: auto-stopping after 30 minutes.');
+          this.post({ type: 'error', message: localize('tailHardStop', 'Tail stopped after 30 minutes.') });
+          this.stop();
         },
         30 * 60 * 1000
       );
-      // Create StreamingClient (uses API 36.0 for system topics automatically)
-      const processor: StreamProcessor = (message: Parameters<StreamProcessor>[0]) => {
-        try {
-          const errName = (message as any)?.errorName;
-          if (errName === 'streamListenerAborted') {
-            return { completed: true };
-          }
-          // Store replay id when available for short replays on reconnect
-          const replayIdRaw = (message as any)?.event?.replayId;
-          if (typeof replayIdRaw === 'number') {
-            this.lastReplayId = replayIdRaw;
-          } else if (typeof replayIdRaw === 'string' && /^\d+$/.test(replayIdRaw)) {
-            this.lastReplayId = Number(replayIdRaw);
-          }
-          const id: string | undefined = (message as any)?.sobject?.Id;
-          if (id && !this.seenLogIds.has(id)) {
-            // Process new log id asynchronously
-            void this.handleIncomingLogId(id);
-          }
-        } catch (e) {
-          const msg = getErrorMessage(e);
-          logWarn('Tail: streaming processor error ->', msg);
-        }
-        return { completed: false };
-      };
-      this.streamingClient = await createLoggingStreamingClient(this.connection, processor);
-      try {
-        await this.streamingClient.handshake();
-      } catch (e) {
-        const msg = getErrorMessage(e);
-        logError('Tail: handshake failed ->', msg);
-        this.post({ type: 'error', message: `Handshake failed: ${msg}` });
-        showOutput(true);
-        throw e;
-      }
-      try {
-        // Request replay from lastReplayId exactly (not sequential)
-        try {
-          if (typeof this.lastReplayId === 'number') {
-            this.streamingClient.replay(this.lastReplayId);
-            logInfo('Tail: requested replay from', this.lastReplayId);
-          } else {
-            // -1 means only new events
-            this.streamingClient.replay(-1);
-            logInfo('Tail: starting fresh with replay -1');
-          }
-        } catch (e) {
-          const msg = getErrorMessage(e);
-          logWarn('Tail: failed to set replay id ->', msg);
-        }
-        // Don't await subscribe; it resolves only when the processor returns completed or on timeout.
-        void this.streamingClient
-          .subscribe()
-          .then(() => logInfo('Tail: streaming subscribe completed.'))
-          .catch((err: any) => {
-            const msg = getErrorMessage(err);
-            // Treat generic subscribe timeout as expected end when long-running
-            if (/Socket timeout occurred/i.test(msg)) {
-              logInfo('Tail: subscribe timed out (socket); continuing.');
-              return;
-            }
-            logError('Tail: subscribe async error ->', msg);
-            this.post({ type: 'error', message: `Subscribe failed: ${msg}` });
-            showOutput(true);
-          });
-        logInfo('Tail: subscribed to /systemTopic/Logging (started)');
-      } catch (e) {
-        const msg = getErrorMessage(e);
-        logWarn('Tail: subscribe init failed ->', msg);
-        // If replayId is invalid/expired, retry once with -1
-        const isReplayError = /replay/i.test(msg) || /400::/.test(msg) || /invalid/i.test(msg);
-        if (isReplayError) {
-          try {
-            this.streamingClient.replay(-1);
-            logInfo('Tail: retrying subscribe with replay -1');
-            void this.streamingClient
-              .subscribe()
-              .then(() => logInfo('Tail: streaming subscribe completed (fallback).'))
-              .catch((err2: any) => {
-                const m2 = getErrorMessage(err2);
-                if (/Socket timeout occurred/i.test(m2)) {
-                  logInfo('Tail: subscribe fallback timed out (socket); continuing.');
-                  return;
-                }
-                logError('Tail: subscribe retry async error ->', m2);
-                this.post({ type: 'error', message: `Subscribe failed: ${m2}` });
-                showOutput(true);
-              });
-            logInfo('Tail: subscribed to /systemTopic/Logging (fallback started)');
-          } catch (e2) {
-            const m2 = getErrorMessage(e2);
-            logError('Tail: subscribe retry failed ->', m2);
-            this.post({ type: 'error', message: `Subscribe failed: ${m2}` });
-            showOutput(true);
-            throw e2;
-          }
-        } else {
-          this.post({ type: 'error', message: `Subscribe failed: ${msg}` });
-          showOutput(true);
-          throw e;
-        }
+      if (primed) {
+        void this.backfillStartWindow(run, auth);
       }
     } catch (e) {
       const msg = getErrorMessage(e);
+      if (!current()) {
+        logInfo('Tail: start abandoned after stop ->', msg);
+        return;
+      }
       logError('Tail: start failed ->', msg);
       this.post({ type: 'error', message: msg });
       showOutput(true);
-      this.post({ type: 'tailStatus', running: false });
-      if (this.tailHardStopTimer) {
-        clearTimeout(this.tailHardStopTimer);
-        this.tailHardStopTimer = undefined;
+      this.stop();
+    }
+  }
+
+  private async primeSeenLogs(auth: OrgAuth, startedAtMs: number): Promise<boolean> {
+    try {
+      const recent = await this.listRecentLogs(auth);
+      const primedAtMs = Date.now();
+      // ApexLog.StartTime has whole seconds.
+      const startedAtSecondMs = startedAtMs - (startedAtMs % 1000);
+      for (const { Id, StartTime } of recent) {
+        const startMs = Date.parse(StartTime);
+        const landedInStartWindow = startMs >= startedAtSecondMs && startMs <= primedAtMs;
+        if (!landedInStartWindow) {
+          this.seenLogIds.add(Id);
+        }
       }
-      this.tailRunning = false;
+      logInfo('Tail: primed seen set with', this.seenLogIds.size, 'of', recent.length, 'recent logs');
+      return true;
+    } catch {
+      logWarn('Tail: prime recent logs failed; proceeding with empty seen set');
+      return false;
+    }
+  }
+
+  private listRecentLogs(auth: OrgAuth): Promise<ApexLogRow[]> {
+    return runtimeClient.logsList({ username: this.selectedOrg ?? auth.username, limit: 20 });
+  }
+
+  private async waitForSubscription(client: StreamingClient): Promise<void> {
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              localize(
+                'tailSubscribeTimeout',
+                'Salesforce did not acknowledge the log subscription within {0} seconds.',
+                SUBSCRIBE_ACK_TIMEOUT_SECONDS
+              )
+            )
+          ),
+        SUBSCRIBE_ACK_TIMEOUT_SECONDS * 1000
+      );
+    });
+    try {
+      await client.handshake();
+      client.replay(-1);
+      await Promise.race([client.subscribeAndAwaitAck(), timedOut]);
+    } catch (e) {
+      throw new Error(`Subscribe failed: ${getErrorMessage(e)}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private onStreamMessage(message: Record<string, unknown>): void {
+    const id = (message as { sobject?: { Id?: string } }).sobject?.Id;
+    if (id && !this.seenLogIds.has(id)) {
+      void this.handleIncomingLogId(id);
+    }
+  }
+
+  /** Salesforce can skip a log that landed before the subscription went live, so list those once it is live. */
+  private async backfillStartWindow(run: TailRun, auth: OrgAuth): Promise<void> {
+    try {
+      const recent = await this.listRecentLogs(auth);
+      for (const { Id } of recent.reverse()) {
+        if (this.run !== run) {
+          return;
+        }
+        if (!this.seenLogIds.has(Id)) {
+          logInfo('Tail: backfilling log', Id);
+          await this.handleIncomingLogId(Id);
+        }
+      }
+    } catch (e) {
+      logWarn('Tail: backfill failed ->', getErrorMessage(e));
     }
   }
 
   stop(): void {
-    this.tailRunning = false;
+    this.run = undefined;
     try {
       if (this.streamingClient) {
         // sfdx-core types don’t expose disconnect; cast to any
@@ -277,7 +259,6 @@ export class TailService {
     }
     this.connection = undefined;
     this.currentAuth = undefined;
-    this.lastReplayId = undefined;
     if (this.tailHardStopTimer) {
       clearTimeout(this.tailHardStopTimer);
       this.tailHardStopTimer = undefined;
@@ -299,7 +280,7 @@ export class TailService {
 
   // Streaming supplies the notification and optional metadata; the shared lifecycle owns body acquisition.
   private async handleIncomingLogId(id: string): Promise<void> {
-    if (!this.tailRunning || this.disposed) {
+    if (!this.run || this.disposed) {
       return;
     }
     this.seenLogIds.add(id);
@@ -343,17 +324,6 @@ export class TailService {
       }
       lines.push(localize('tailSavedTo', 'Saved to {0}', filePath));
       logInfo('Tail: saved log', id, 'to', filePath);
-      if (id) {
-        this.post({
-          type: 'tailNewLog',
-          logId: id,
-          startTime: r?.StartTime,
-          operation: r?.Operation,
-          status: r?.Status,
-          logLength: typeof r?.LogLength === 'number' ? r.LogLength : undefined,
-          savedPath: filePath
-        });
-      }
     } else {
       logWarn(localize('tailSaveFailed', 'Tail: failed to save log to workspace (best-effort).'));
     }

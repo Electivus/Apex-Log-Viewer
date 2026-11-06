@@ -3,18 +3,27 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os';
 import {
   closeVsCodeApp,
+  concealVsCodeWindows,
   createMissingSupportExtensionsError,
+  hasExtensionHostStarted,
+  hasLanguagePackFor,
+  launchUntilExtensionHostStarts,
+  listVsCodeLogSessions,
   redactPreservedVsCodeUserData,
   resolveCachedSupportExtensionsDir,
   resolveCliSpawnInvocation,
   resolveExtensionDevelopmentPath,
+  resolveLanguagePackExtensionId,
   resolveSupportExtensionsLockPath,
   resolveVscodeCachePath,
   resolveVscodeDownloadTimeoutMs,
   resolveWindowSizeArg,
   resolveSupportExtensionIds,
   resolveVsCodeAuthLaunch,
-  resolveVsCodeCompositingLaunchArgs
+  resolveVsCodeCompositingLaunchArgs,
+  resolveVsCodeLocale,
+  shouldConcealVsCodeWindow,
+  waitForExtensionHostStart
 } from '../vscode';
 
 describe('macOS CI authentication homes', () => {
@@ -93,6 +102,52 @@ describe('resolveSupportExtensionIds', () => {
   });
 });
 
+describe('VS Code display language', () => {
+  test('takes a locale as --locale does, in lower case, and treats English as no locale', () => {
+    expect(resolveVsCodeLocale(' pt-BR ')).toBe('pt-br');
+    expect(resolveVsCodeLocale('de')).toBe('de');
+    expect(resolveVsCodeLocale('zh-CN')).toBe('zh-cn');
+    for (const english of [undefined, '', '  ', 'en', 'EN-us']) {
+      expect(resolveVsCodeLocale(english)).toBeUndefined();
+    }
+  });
+
+  test('rejects a locale that could carry another argument or a path', () => {
+    for (const value of ['pt-br --disable-extensions', 'pt_br', '../pt-br', 'portuguese', 'pt-br;rm']) {
+      expect(() => resolveVsCodeLocale(value)).toThrow(/Invalid VS Code locale/);
+    }
+  });
+
+  test("names Microsoft's language pack for the locale, which Chinese names by script", () => {
+    expect(resolveLanguagePackExtensionId('pt-br')).toBe('ms-ceintl.vscode-language-pack-pt-br');
+    expect(resolveLanguagePackExtensionId('de')).toBe('ms-ceintl.vscode-language-pack-de');
+    expect(resolveLanguagePackExtensionId('zh-cn')).toBe('ms-ceintl.vscode-language-pack-zh-hans');
+    expect(resolveLanguagePackExtensionId('zh-tw')).toBe('ms-ceintl.vscode-language-pack-zh-hant');
+    expect(resolveSupportExtensionIds([resolveLanguagePackExtensionId('pt-br')])).toEqual([
+      'ms-ceintl.vscode-language-pack-pt-br'
+    ]);
+  });
+
+  test('sees the language pack only once VS Code lists the locale in languagepacks.json', async () => {
+    const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-langpacks-'));
+    try {
+      expect(await hasLanguagePackFor(userDataDir, 'pt-br')).toBe(false);
+      await writeFile(path.join(userDataDir, 'languagepacks.json'), '{', 'utf8');
+      expect(await hasLanguagePackFor(userDataDir, 'pt-br')).toBe(false);
+      await writeFile(path.join(userDataDir, 'languagepacks.json'), JSON.stringify({ de: { hash: 'a' } }), 'utf8');
+      expect(await hasLanguagePackFor(userDataDir, 'pt-br')).toBe(false);
+      await writeFile(
+        path.join(userDataDir, 'languagepacks.json'),
+        JSON.stringify({ 'pt-br': { hash: 'b', translations: {} } }),
+        'utf8'
+      );
+      expect(await hasLanguagePackFor(userDataDir, 'pt-br')).toBe(true);
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('preserved VS Code user data', () => {
   test('redacts proxy credentials before preserving user settings for diagnostics', async () => {
     const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-vscode-redact-'));
@@ -128,6 +183,117 @@ describe('preserved VS Code user data', () => {
     } finally {
       await rm(userDataDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('VS Code extension host start', () => {
+  const STARTED = '2026-11-06 00:47:29.130 [info] Extension host with pid 23545 started\n';
+
+  async function writeExthostLog(userDataDir: string, session: string, text: string): Promise<void> {
+    const dir = path.join(userDataDir, 'logs', session, 'window1', 'exthost');
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, 'exthost.log'), text, 'utf8');
+  }
+
+  test('sees a start only in the extension host log of a session that the launch wrote', async () => {
+    const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-exthost-'));
+    try {
+      expect(await listVsCodeLogSessions(userDataDir)).toEqual([]);
+      expect(await hasExtensionHostStarted(userDataDir)).toBe(false);
+
+      // The language pack priming launch started its own extension host before the launch under test.
+      await writeExthostLog(userDataDir, '20261106T004700', STARTED);
+      const earlierSessions = new Set(await listVsCodeLogSessions(userDataDir));
+      expect(earlierSessions).toEqual(new Set(['20261106T004700']));
+      expect(await hasExtensionHostStarted(userDataDir, earlierSessions)).toBe(false);
+
+      await mkdir(path.join(userDataDir, 'logs', '20261106T004725', 'window1'), { recursive: true });
+      expect(await hasExtensionHostStarted(userDataDir, earlierSessions)).toBe(false);
+      await writeExthostLog(userDataDir, '20261106T004725', '2026-11-06 00:47:29.130 [info] Skipping acquiring lock\n');
+      expect(await hasExtensionHostStarted(userDataDir, earlierSessions)).toBe(false);
+      await writeExthostLog(userDataDir, '20261106T004725', STARTED);
+      expect(await hasExtensionHostStarted(userDataDir, earlierSessions)).toBe(true);
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test('waits for the start line, and gives up at the timeout', async () => {
+    const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-exthost-'));
+    try {
+      expect(await waitForExtensionHostStart({ userDataDir, timeoutMs: 30, pollMs: 5 })).toBe(false);
+
+      const waiting = waitForExtensionHostStart({ userDataDir, timeoutMs: 10_000, pollMs: 5 });
+      await new Promise(resolve => setTimeout(resolve, 20));
+      await writeExthostLog(userDataDir, '20261106T004725', STARTED);
+      await expect(waiting).resolves.toBe(true);
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  function fakeLaunches(starts: boolean[]) {
+    const launched: number[] = [];
+    const discarded: number[] = [];
+    const warnings: string[] = [];
+    return {
+      launched,
+      discarded,
+      warnings,
+      run: (attempts?: number) =>
+        launchUntilExtensionHostStarts({
+          launch: async () => {
+            launched.push(launched.length + 1);
+            return launched.length;
+          },
+          extensionHostStarted: async attempt => starts[attempt - 1] ?? false,
+          discard: async attempt => {
+            discarded.push(attempt);
+          },
+          attempts,
+          warn: message => warnings.push(message)
+        })
+    };
+  }
+
+  test('keeps the first launch when its extension host starts', async () => {
+    const fake = fakeLaunches([true]);
+    await expect(fake.run()).resolves.toBe(1);
+    expect(fake.launched).toEqual([1]);
+    expect(fake.discarded).toEqual([]);
+    expect(fake.warnings).toEqual([]);
+  });
+
+  test('relaunches VS Code once when the extension host does not start, and says so', async () => {
+    const fake = fakeLaunches([false, true]);
+    await expect(fake.run()).resolves.toBe(2);
+    expect(fake.launched).toEqual([1, 2]);
+    expect(fake.discarded).toEqual([1]);
+    expect(fake.warnings).toEqual(['[e2e] extension host did not start; relaunching VS Code']);
+  });
+
+  test('fails after the relaunch also has no extension host, with both windows closed', async () => {
+    const fake = fakeLaunches([false, false, true]);
+    await expect(fake.run()).rejects.toThrow('[e2e] The VS Code extension host did not start in 2 launch(es).');
+    expect(fake.launched).toEqual([1, 2]);
+    expect(fake.discarded).toEqual([1, 2]);
+    expect(fake.warnings).toHaveLength(1);
+  });
+
+  test('closes the window and does not relaunch when checking the extension host fails', async () => {
+    const discarded: string[] = [];
+    await expect(
+      launchUntilExtensionHostStarts({
+        launch: async () => 'window',
+        extensionHostStarted: async () => {
+          throw new Error('logs unreadable');
+        },
+        discard: async launched => {
+          discarded.push(launched);
+        }
+      })
+    ).rejects.toThrow('logs unreadable');
+    expect(discarded).toEqual(['window']);
   });
 });
 
@@ -175,34 +341,24 @@ describe('missing support extensions', () => {
 
 describe('resolveCliSpawnInvocation', () => {
   test('keeps direct CLI execution on non-Windows platforms', () => {
-    expect(resolveCliSpawnInvocation('/usr/local/bin/code', ['--install-extension', 'publisher.extension'], 'linux')).toEqual(
-      {
-        command: '/usr/local/bin/code',
-        args: ['--install-extension', 'publisher.extension']
-      }
-    );
+    expect(
+      resolveCliSpawnInvocation('/usr/local/bin/code', ['--install-extension', 'publisher.extension'], 'linux')
+    ).toEqual({
+      command: '/usr/local/bin/code',
+      args: ['--install-extension', 'publisher.extension']
+    });
   });
 
   test('keeps Windows .cmd CLIs as direct cross-spawn invocations', () => {
     expect(
       resolveCliSpawnInvocation(
         'C:\\VS Code\\bin\\code.cmd',
-        [
-          '--extensions-dir',
-          'C:\\Temp\\support extensions & cache',
-          '--install-extension',
-          'publisher.extension'
-        ],
+        ['--extensions-dir', 'C:\\Temp\\support extensions & cache', '--install-extension', 'publisher.extension'],
         'win32'
       )
     ).toEqual({
       command: 'C:\\VS Code\\bin\\code.cmd',
-      args: [
-        '--extensions-dir',
-        'C:\\Temp\\support extensions & cache',
-        '--install-extension',
-        'publisher.extension'
-      ]
+      args: ['--extensions-dir', 'C:\\Temp\\support extensions & cache', '--install-extension', 'publisher.extension']
     });
   });
 });
@@ -217,7 +373,9 @@ describe('VS Code cache paths', () => {
   test('defaults the VS Code cache path to the monorepo root .vscode-test directory', () => {
     delete process.env.VSCODE_TEST_CACHE_PATH;
 
-    expect(resolveVscodeCachePath('/workspace/alv/apps/vscode-extension')).toBe(path.join('/workspace/alv', '.vscode-test'));
+    expect(resolveVscodeCachePath('/workspace/alv/apps/vscode-extension')).toBe(
+      path.join('/workspace/alv', '.vscode-test')
+    );
   });
 
   test('honors VSCODE_TEST_CACHE_PATH when set', () => {
@@ -298,7 +456,9 @@ describe('resolveVscodeDownloadTimeoutMs', () => {
 
 describe('extension development path', () => {
   test('resolves the extension manifest from the monorepo app package', () => {
-    expect(resolveExtensionDevelopmentPath('/workspace/alv')).toBe(path.join('/workspace/alv', 'apps', 'vscode-extension'));
+    expect(resolveExtensionDevelopmentPath('/workspace/alv')).toBe(
+      path.join('/workspace/alv', 'apps', 'vscode-extension')
+    );
   });
 });
 
@@ -322,5 +482,69 @@ describe('resolveVsCodeCompositingLaunchArgs', () => {
   test('leaves the native compositor on other platforms', () => {
     expect(resolveVsCodeCompositingLaunchArgs('darwin')).toEqual([]);
     expect(resolveVsCodeCompositingLaunchArgs('win32')).toEqual([]);
+  });
+});
+
+describe('hidden VS Code window', () => {
+  test('conceals the native window on macOS and Windows unless ALV_E2E_SHOW_VSCODE opts in', () => {
+    for (const platform of ['darwin', 'win32'] as const) {
+      expect(shouldConcealVsCodeWindow({}, platform)).toBe(true);
+      expect(shouldConcealVsCodeWindow({ ALV_E2E_SHOW_VSCODE: '0' }, platform)).toBe(true);
+      expect(shouldConcealVsCodeWindow({ ALV_E2E_SHOW_VSCODE: '1' }, platform)).toBe(false);
+      expect(shouldConcealVsCodeWindow({ ALV_E2E_SHOW_VSCODE: 'TRUE' }, platform)).toBe(false);
+    }
+  });
+
+  test('leaves Linux to the Xvfb display chosen by the runner', () => {
+    expect(shouldConcealVsCodeWindow({}, 'linux')).toBe(false);
+  });
+
+  test('conceals existing windows and every window VS Code creates later', async () => {
+    const createWindow = () => {
+      const calls: string[] = [];
+      return {
+        calls,
+        isDestroyed: () => false,
+        setOpacity: (value: number) => calls.push(`opacity:${value}`),
+        setIgnoreMouseEvents: (value: boolean) => calls.push(`ignoreMouse:${value}`),
+        setFocusable: (value: boolean) => calls.push(`focusable:${value}`),
+        setSkipTaskbar: (value: boolean) => calls.push(`skipTaskbar:${value}`)
+      };
+    };
+    const existing = createWindow();
+    const destroyed = { ...createWindow(), isDestroyed: () => true };
+    const listeners: Array<(event: unknown, win: unknown) => void> = [];
+    const electronModule = {
+      app: { on: (_event: string, listener: (event: unknown, win: unknown) => void) => listeners.push(listener) },
+      BrowserWindow: { getAllWindows: () => [existing, destroyed] }
+    };
+    const app = {
+      evaluate: jest.fn(async (fn: (electron: unknown) => unknown) => fn(electronModule))
+    };
+
+    await concealVsCodeWindows(app as never);
+
+    const concealed = ['opacity:0', 'ignoreMouse:true', 'focusable:false', 'skipTaskbar:true'];
+    expect(existing.calls).toEqual(concealed);
+    expect(destroyed.calls).toEqual([]);
+    expect(listeners).toHaveLength(1);
+    const created = createWindow();
+    listeners[0]?.({}, created);
+    expect(created.calls).toEqual(concealed);
+  });
+
+  test('retries an evaluation the starting main process dropped', async () => {
+    const app = {
+      evaluate: jest
+        .fn()
+        .mockRejectedValueOnce(new Error('Resulting promise was garbage collected'))
+        .mockResolvedValueOnce(undefined)
+    };
+    await concealVsCodeWindows(app as never);
+    expect(app.evaluate).toHaveBeenCalledTimes(2);
+
+    const failing = { evaluate: jest.fn().mockRejectedValue(new Error('closed')) };
+    await expect(concealVsCodeWindows(failing as never)).rejects.toThrow('closed');
+    expect(failing.evaluate).toHaveBeenCalledTimes(3);
   });
 });

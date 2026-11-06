@@ -93,6 +93,15 @@ security controls detect risk.
 - Before any workflow `pnpm install --frozen-lockfile`, CI runs `node scripts/check-dependency-sources.mjs`
   to block unapproved dependency source types in both manifests and
   `pnpm-lock.yaml`, including arbitrary git, tarball, file, or URL sources.
+  It reads `pnpm-lock.yaml` as YAML and scans every key and value for those
+  sources, except a package's `deprecated` message, which is free text that
+  pnpm never resolves. A `link:` version of an importer dependency must point
+  at the workspace package it names; `link:` values elsewhere in the lockfile
+  are not checked. YAML that pnpm does not write (comments, anchors, aliases,
+  tags, merge keys, duplicate keys, multi-line quoted or flow values, tabs, a
+  line that starts with a Unicode space other than U+0020, or line breaks other
+  than LF and CRLF) fails the check instead of being skipped. So does a mapping
+  key longer than 1024 characters, which js-yaml writes as an explicit `? ` key.
 - CI also runs `pnpm audit signatures` so npm registry signature/attestation
   coverage is validated as part of the gated path.
 - Workflow files, package manifests, lockfiles, plugin packaging scripts, and

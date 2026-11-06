@@ -13,6 +13,7 @@ import {
 const LOG_ID = 'a015g00000Q2xYzAAB';
 const ENTRY_ID = 'a025g00000Hk1AbAAJ';
 const EVENT_ID = 'e-0r5jq8z3k-00000000a1-0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d';
+const ENTRY_OF_EVENT_ID = `${EVENT_ID}-0001`;
 
 test('mergePayloadFields unions types in core order, sums rows and keeps first-seen path order', () => {
   const loaded: CustomLogPayloadField[] = [
@@ -76,7 +77,7 @@ test('list parser accepts each webview message and echoes the mount sequence', (
 });
 
 test('a host accepts back a record id or an event id and nothing in between', () => {
-  const accepted = [LOG_ID, ENTRY_ID, 'a015g00000Q2xYz', EVENT_ID];
+  const accepted = [LOG_ID, ENTRY_ID, 'a015g00000Q2xYz', EVENT_ID, ENTRY_OF_EVENT_ID, `${EVENT_ID}-zzzz`];
   const rejected = [
     EVENT_ID.slice(1),
     EVENT_ID.slice(0, -1),
@@ -86,6 +87,14 @@ test('a host accepts back a record id or an event id and nothing in between', ()
     `${EVENT_ID}'`,
     ' ' + EVENT_ID,
     'e-' + LOG_ID,
+    `${EVENT_ID}-0000`,
+    `${EVENT_ID}-001`,
+    `${EVENT_ID}-00001`,
+    `${EVENT_ID}-000A`,
+    `${EVENT_ID}-`,
+    `${ENTRY_OF_EVENT_ID}-0001`,
+    `${ENTRY_OF_EVENT_ID}0`,
+    `${ENTRY_OF_EVENT_ID}'`,
     '',
     null,
     42
@@ -99,6 +108,10 @@ test('every host message that names a row takes an event id', () => {
   assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsOpenLog', logId: EVENT_ID }), {
     type: 'customLogsOpenLog',
     logId: EVENT_ID
+  });
+  assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsOpenLog', logId: ENTRY_OF_EVENT_ID }), {
+    type: 'customLogsOpenLog',
+    logId: ENTRY_OF_EVENT_ID
   });
   assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsOpenPayload', logId: EVENT_ID }), {
     type: 'customLogsOpenPayload',

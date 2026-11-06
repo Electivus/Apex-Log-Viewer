@@ -5,6 +5,7 @@ import { cn } from '../../lib/utils';
 import type { DataColumn, SortState } from '../../utils/customLogs/columns';
 import { fillTemplate } from '../../utils/customLogs/format';
 import type { DiscoveredField, PayloadFieldType } from '../../utils/customLogs/payloadRows';
+import { SCROLLBAR_GUTTER } from '../table/useVirtualListElement';
 import { ColumnHeaderMenu } from './ColumnHeaderMenu';
 import { PAYLOAD_TYPE_LABEL_KEY, PayloadFieldPicker } from './PayloadFieldPicker';
 
@@ -62,7 +63,11 @@ export function CustomLogsColumnsHeader({
   headerRef
 }: CustomLogsColumnsHeaderProps) {
   return (
-    <div ref={headerRef} role="row" className="shrink-0 overflow-hidden border-b border-border bg-card/70">
+    <div
+      ref={headerRef}
+      role="row"
+      className={cn('shrink-0 overflow-hidden border-b border-border bg-card/70', SCROLLBAR_GUTTER)}
+    >
       <div
         style={{ display: 'grid', gridTemplateColumns: gridTemplate, minWidth: totalWidth }}
         className="h-6 items-stretch"

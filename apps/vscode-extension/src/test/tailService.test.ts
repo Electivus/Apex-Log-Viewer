@@ -26,8 +26,10 @@ function loadTailService(stubs?: {
   streaming?: Record<string, unknown>;
   jsforce?: Record<string, unknown>;
   runtime?: Record<string, unknown>;
+  logger?: Record<string, unknown>;
 }) {
   return proxyquireStrict('../host/utils/tailService', {
+    ...(stubs?.logger ? { './logger': stubs.logger } : {}),
     '../salesforce/cli': stubs?.cli ?? {},
     '../salesforce/http': stubs?.http ?? {},
     '../salesforce/traceflags': stubs?.traceflags ?? {},
@@ -288,7 +290,7 @@ suite('TailService', () => {
     streaming.__setStreamingClientFactoryForTests(async () => ({
       handshake: async () => {},
       replay: () => {},
-      subscribe: async () => {},
+      subscribeAndAwaitAck: async () => {},
       disconnect: () => {}
     }));
     await service.start('DEBUG');
@@ -341,7 +343,7 @@ suite('TailService', () => {
         createLoggingStreamingClient: async () => ({
           handshake: async () => {},
           replay: () => {},
-          subscribe: async () => {},
+          subscribeAndAwaitAck: async () => {},
           disconnect: () => {}
         })
       }
@@ -394,7 +396,7 @@ suite('TailService', () => {
         createLoggingStreamingClient: async () => ({
           handshake: async () => {},
           replay: () => {},
-          subscribe: async () => {},
+          subscribeAndAwaitAck: async () => {},
           disconnect: () => {}
         })
       },
@@ -409,6 +411,335 @@ suite('TailService', () => {
     assert.deepEqual(requestedVersions, ['64.0']);
     assert.equal((service as any).connection?.version, '64.0');
     service.stop();
+  });
+
+  test('start logs why the trace flag could not be written and keeps tailing', async () => {
+    const infos: string[] = [];
+    const warnings: string[] = [];
+    const { TailService } = loadTailService({
+      logger: {
+        logInfo: (...parts: unknown[]) => infos.push(parts.join(' ')),
+        logWarn: (...parts: unknown[]) => warnings.push(parts.join(' ')),
+        logError: () => {},
+        showOutput: () => {}
+      },
+      traceflags: {
+        ensureUserTraceFlag: async () => {
+          throw new Error("Debug level 'MISSING' was not found.");
+        }
+      },
+      http: { getEffectiveApiVersion: () => '64.0' },
+      streaming: {
+        createConnectionFromAuth: async () => ({
+          version: '64.0',
+          tooling: { query: async () => ({ records: [] }) }
+        }),
+        createLoggingStreamingClient: async () => ({
+          handshake: async () => {},
+          replay: () => {},
+          subscribeAndAwaitAck: async () => {},
+          disconnect: () => {}
+        })
+      }
+    });
+    const service = new TailService(() => {});
+
+    await service.start('MISSING');
+
+    assert.ok(
+      warnings.includes("Tail: ensure TraceFlag failed (continuing) -> Debug level 'MISSING' was not found."),
+      `expected the failure reason in the warnings, got ${JSON.stringify(warnings)}`
+    );
+    assert.ok(
+      !infos.some(line => line.startsWith('Tail: TraceFlag ')),
+      `expected no trace flag success line, got ${JSON.stringify(infos)}`
+    );
+    assert.equal(service.isRunning(), true);
+    service.stop();
+  });
+
+  suite('start window', () => {
+    const NOW = Date.parse('2026-11-05T12:00:30.500Z');
+    const auth = { username: 'u@example.com', instanceUrl: 'https://example.com', accessToken: 't' };
+    const row = (id: string, startTime: string) => ({ Id: id, StartTime: startTime });
+    const OLD_ROW = row('07L000000000OLD', '2026-11-05T11:59:00.000+0000');
+    const SAME_SECOND_ROW = row('07L000000000WIN', '2026-11-05T12:00:30.000+0000');
+    const AFTER_PRIME_ROW = row('07L000000000NEW', '2026-11-05T12:00:32.000+0000');
+
+    function harness(options: { lists: Array<Array<{ Id: string; StartTime: string }> | Error> }) {
+      const posted: any[] = [];
+      const read: string[] = [];
+      let listCalls = 0;
+      let acknowledge!: () => void;
+      let refuse!: (error: Error) => void;
+      let processor!: (message: Record<string, unknown>) => void;
+      let disconnects = 0;
+      const client = {
+        handshake: async () => {},
+        replay: () => {},
+        subscribeAndAwaitAck: () =>
+          new Promise<void>((resolve, reject) => {
+            acknowledge = resolve;
+            refuse = reject;
+          }),
+        disconnect: () => {
+          disconnects += 1;
+          refuse?.(new Error('disconnected'));
+        }
+      };
+      const { TailService } = loadTailService({
+        traceflags: { ensureUserTraceFlag: async () => false },
+        http: { getEffectiveApiVersion: () => '64.0' },
+        streaming: {
+          createConnectionFromAuth: async () => ({
+            version: '64.0',
+            tooling: { query: async () => ({ records: [] }) }
+          }),
+          createLoggingStreamingClient: async (
+            _connection: unknown,
+            onMessage: (message: Record<string, unknown>) => void
+          ) => {
+            processor = onMessage;
+            return client;
+          }
+        },
+        runtime: {
+          runtimeClient: {
+            getOrgAuth: async () => auth,
+            logsList: async () => {
+              const next = options.lists[Math.min(listCalls, options.lists.length - 1)]!;
+              listCalls += 1;
+              if (next instanceof Error) {
+                throw next;
+              }
+              return [...next];
+            },
+            readApexLog: async ({ logId }: { logId: string }) => {
+              read.push(logId);
+              return {
+                logId,
+                resolvedUsername: auth.username,
+                source: 'remote',
+                persistence: 'failed',
+                persistenceError: new Error('not stored'),
+                body: `body of ${logId}`,
+                sizeBytes: 1,
+                truncated: false
+              };
+            }
+          }
+        }
+      });
+      const service = new TailService(m => posted.push(m));
+      return {
+        service,
+        posted,
+        read,
+        disconnects: () => disconnects,
+        listCalls: () => listCalls,
+        acknowledge: () => acknowledge(),
+        refuse: (error: Error) => refuse(error),
+        streamLog: (id: string) => processor({ sobject: { Id: id } }),
+        running: () => posted.filter(m => m.type === 'tailStatus' && m.running === true).length,
+        stopped: () => posted.filter(m => m.type === 'tailStatus' && m.running === false).length,
+        errors: () => posted.filter(m => m.type === 'error').map(m => m.message)
+      };
+    }
+
+    async function settle(): Promise<void> {
+      for (let turn = 0; turn < 20; turn += 1) {
+        await new Promise<void>(resolve => setImmediate(resolve));
+      }
+    }
+
+    async function until(condition: () => boolean, label: string): Promise<void> {
+      for (let turn = 0; turn < 200 && !condition(); turn += 1) {
+        await new Promise<void>(resolve => setImmediate(resolve));
+      }
+      assert.ok(condition(), `timed out waiting until ${label}`);
+    }
+
+    const originalNow = Date.now;
+    setup(() => {
+      Date.now = () => NOW;
+    });
+    teardown(() => {
+      Date.now = originalNow;
+    });
+
+    test('reports running only after Salesforce acknowledges the subscription', async () => {
+      const h = harness({ lists: [[OLD_ROW]] });
+      const started = h.service.start('DEBUG');
+      await until(() => h.listCalls() === 1, 'priming ran');
+      await settle();
+
+      assert.equal(h.running(), 0, 'no running status before the acknowledgement');
+      assert.equal(h.service.isRunning(), false, 'a view refresh must not report running either');
+
+      h.acknowledge();
+      await started;
+
+      assert.equal(h.running(), 1);
+      assert.equal(h.service.isRunning(), true);
+      h.service.stop();
+    });
+
+    test('shows a log written right after Start, before the subscription was live', async () => {
+      const h = harness({ lists: [[OLD_ROW], [AFTER_PRIME_ROW, OLD_ROW]] });
+      const started = h.service.start('DEBUG');
+      await until(() => h.listCalls() === 1, 'priming ran');
+      h.acknowledge();
+      await started;
+      await until(() => h.read.length === 1, 'the backfill read the log');
+
+      assert.deepEqual(h.read, [AFTER_PRIME_ROW.Id], 'the older primed log stays hidden');
+      assert.ok(
+        h.posted.some(m => m.type === 'tailData' && m.lines.includes(`body of ${AFTER_PRIME_ROW.Id}`)),
+        'the log body reaches the view'
+      );
+      h.service.stop();
+    });
+
+    test('shows a log that landed before priming finished, instead of treating it as already seen', async () => {
+      const h = harness({ lists: [[SAME_SECOND_ROW, OLD_ROW]] });
+      const started = h.service.start('DEBUG');
+      await until(() => h.listCalls() === 1, 'priming ran');
+      h.acknowledge();
+      await started;
+      await until(() => h.read.length === 1, 'the backfill read the log');
+
+      assert.deepEqual(h.read, [SAME_SECOND_ROW.Id]);
+      h.service.stop();
+    });
+
+    test('backfills several missed logs oldest first', async () => {
+      const h = harness({ lists: [[OLD_ROW], [AFTER_PRIME_ROW, SAME_SECOND_ROW, OLD_ROW]] });
+      const started = h.service.start('DEBUG');
+      await until(() => h.listCalls() === 1, 'priming ran');
+      h.acknowledge();
+      await started;
+      await until(() => h.read.length === 2, 'the backfill read both logs');
+
+      assert.deepEqual(h.read, [SAME_SECOND_ROW.Id, AFTER_PRIME_ROW.Id]);
+      h.service.stop();
+    });
+
+    test('a log the stream and the backfill both report is read once', async () => {
+      const h = harness({ lists: [[OLD_ROW], [AFTER_PRIME_ROW, OLD_ROW]] });
+      const started = h.service.start('DEBUG');
+      await until(() => h.listCalls() === 1, 'priming ran');
+      h.acknowledge();
+      h.streamLog(AFTER_PRIME_ROW.Id);
+      await started;
+      await until(() => h.listCalls() === 2, 'the backfill listed');
+      await until(() => h.read.length >= 1, 'the log was read');
+      h.streamLog(AFTER_PRIME_ROW.Id);
+      await settle();
+
+      assert.deepEqual(h.read, [AFTER_PRIME_ROW.Id]);
+      h.service.stop();
+    });
+
+    test('a failed priming shows no old logs as new', async () => {
+      const h = harness({ lists: [new Error('list failed'), [OLD_ROW]] });
+      const started = h.service.start('DEBUG');
+      await until(() => h.listCalls() === 1, 'priming ran');
+      h.acknowledge();
+      await started;
+      await settle();
+
+      assert.equal(h.running(), 1, 'streaming still starts');
+      assert.equal(h.listCalls(), 1, 'nothing to compare against, so no backfill');
+      assert.deepEqual(h.read, []);
+      h.service.stop();
+    });
+
+    test('a local clock behind Salesforce shows no recent log as new', async () => {
+      const startedLaterByServerClock = row('07L000000000AHD', '2026-11-05T12:05:00.000+0000');
+      const h = harness({ lists: [[startedLaterByServerClock, OLD_ROW]] });
+      const started = h.service.start('DEBUG');
+      await until(() => h.listCalls() === 1, 'priming ran');
+      h.acknowledge();
+      await started;
+      await until(() => h.listCalls() === 2, 'the backfill listed');
+      await settle();
+
+      assert.deepEqual(h.read, []);
+      h.service.stop();
+    });
+
+    test('a failed backfill leaves the live tail running', async () => {
+      const h = harness({ lists: [[OLD_ROW], new Error('list failed')] });
+      const started = h.service.start('DEBUG');
+      await until(() => h.listCalls() === 1, 'priming ran');
+      h.acknowledge();
+      await started;
+      await until(() => h.listCalls() === 2, 'the backfill listed');
+      await settle();
+
+      assert.equal(h.service.isRunning(), true);
+      assert.deepEqual(h.errors(), []);
+      h.service.stop();
+    });
+
+    test('a refused subscription reports the error and returns to Start without ever showing Stop', async () => {
+      const h = harness({ lists: [[OLD_ROW]] });
+      const started = h.service.start('DEBUG');
+      await until(() => h.listCalls() === 1, 'priming ran');
+      await settle();
+      h.refuse(new Error('403::Forbidden'));
+      await started;
+
+      assert.equal(h.running(), 0);
+      assert.equal(h.stopped(), 1);
+      assert.deepEqual(h.errors(), ['Subscribe failed: 403::Forbidden']);
+      assert.equal(h.service.isRunning(), false);
+      assert.equal(h.disconnects(), 1, 'the refused client is released');
+    });
+
+    test('a subscription that is never acknowledged times out, and Start works again', async () => {
+      const clock = new TestClock();
+      try {
+        const h = harness({ lists: [[OLD_ROW]] });
+        const started = h.service.start('DEBUG');
+        await until(() => h.listCalls() === 1, 'priming ran');
+        await clock.flushMicrotasks();
+        await clock.advanceBy(30_000);
+        await started;
+
+        assert.equal(h.running(), 0);
+        assert.equal(h.stopped(), 1);
+        assert.deepEqual(h.errors(), [
+          'Subscribe failed: Salesforce did not acknowledge the log subscription within 30 seconds.'
+        ]);
+
+        const restarted = h.service.start('DEBUG');
+        await clock.flushMicrotasks();
+        await until(() => h.listCalls() === 2, 'the second Start primed');
+        await clock.flushMicrotasks();
+        h.acknowledge();
+        await restarted;
+        assert.equal(h.running(), 1);
+        h.service.stop();
+      } finally {
+        clock.dispose();
+      }
+    });
+
+    test('Stop during Start ends the attempt with no running status and no error', async () => {
+      const h = harness({ lists: [[OLD_ROW]] });
+      const started = h.service.start('DEBUG');
+      await until(() => h.listCalls() === 1, 'priming ran');
+      await settle();
+
+      h.service.stop();
+      await started;
+
+      assert.equal(h.running(), 0);
+      assert.equal(h.stopped(), 1);
+      assert.deepEqual(h.errors(), []);
+      assert.equal(h.disconnects(), 1);
+    });
   });
 
   test('stop clears caches', () => {
@@ -430,13 +761,11 @@ suite('TailService', () => {
     };
     (service as any).connection = { instanceUrl: 'i' };
     (service as any).currentAuth = { username: 'u' } as any;
-    (service as any).lastReplayId = 1;
     service.stop();
     assert.equal(streamDisconnect, true);
     assert.equal((service as any).streamingClient, undefined);
     assert.equal((service as any).connection, undefined);
     assert.equal((service as any).currentAuth, undefined);
-    assert.equal((service as any).lastReplayId, undefined);
   });
 
   test('setBufferLimit clamps to the shared maximum and trims buffered replay lines', () => {
@@ -485,7 +814,7 @@ suite('TailService', () => {
     (service as any).seenLogIds.add('x');
     (service as any).logIdToPath.set('x', 'y');
     (service as any).bufferedLines = ['USER_DEBUG|stale'];
-    (service as any).tailRunning = true;
+    (service as any).run = { subscribed: true };
     await webview.emit({ type: 'selectOrg', target: 'newOrg' });
     assert.equal((service as any).seenLogIds.size, 0);
     assert.equal((service as any).logIdToPath.size, 0);
@@ -617,7 +946,7 @@ suite('TailService', () => {
       }
     });
     const retryService = new RetryingTailService(() => {});
-    (retryService as any).tailRunning = true;
+    (retryService as any).run = { subscribed: true };
     (retryService as any).currentAuth = { username: 'u', instanceUrl: 'i', accessToken: 't' };
     (retryService as any).emitLogWithHeader = async () => {};
     await (retryService as any).handleIncomingLogId('1');
@@ -1172,7 +1501,7 @@ suite('TailService', () => {
       });
       await clock.flushMicrotasks();
 
-      (provider as any).tailService.tailRunning = true;
+      (provider as any).tailService.run = { subscribed: true };
       postTailUpdate(provider, { type: 'tailStatus', running: true });
       await clock.flushMicrotasks();
 
@@ -1220,7 +1549,7 @@ suite('TailService', () => {
       });
       await clock.flushMicrotasks();
 
-      (provider as any).tailService.tailRunning = true;
+      (provider as any).tailService.run = { subscribed: true };
       postTailUpdate(provider, { type: 'tailStatus', running: true });
       view.fireDispose();
       await clock.flushMicrotasks();
@@ -1263,7 +1592,7 @@ suite('TailService', () => {
     provider.setSelectedOrg('tail-first@example.com');
     (provider as any).tailService.setOrg('tail-first@example.com');
     (provider as any).tailService.bufferedLines = ['USER_DEBUG|stale'];
-    (provider as any).tailService.tailRunning = true;
+    (provider as any).tailService.run = { subscribed: true };
     await provider.syncSelectedOrg('tail-second@example.com');
 
     assert.equal(provider.getSelectedOrg(), 'tail-second@example.com');

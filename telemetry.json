@@ -17,7 +17,7 @@
   },
   "events": {
     "extension.activate": {
-      "description": "Production extension activation completed.",
+      "description": "Production extension activation completed. durationMs runs until project detection and the expired-cache cleanup finish; registrationMs until views and commands are registered.",
       "properties": {
         "outcome": {
           "classification": "SystemMetaData",
@@ -40,6 +40,10 @@
       },
       "measurements": {
         "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "registrationMs": {
           "classification": "SystemMetaData",
           "purpose": "PerformanceAndHealth"
         }
@@ -724,7 +728,7 @@
       }
     },
     "debugFlags.apply": {
-      "description": "Debug-flag apply outcome.",
+      "description": "Debug-flag apply outcome, with the trace flag log type that was applied.",
       "properties": {
         "outcome": {
           "classification": "SystemMetaData",
@@ -743,6 +747,12 @@
           "purpose": "FeatureInsight",
           "required": true,
           "values": ["automatedProcess", "platformIntegration", "user"]
+        },
+        "logType": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["DEVELOPER_LOG", "USER_DEBUG"]
         }
       },
       "measurements": {
@@ -753,7 +763,7 @@
       }
     },
     "debugFlags.remove": {
-      "description": "Debug-flag removal outcome.",
+      "description": "Debug-flag removal outcome, with the trace flag log type that was removed.",
       "properties": {
         "outcome": {
           "classification": "SystemMetaData",
@@ -772,6 +782,12 @@
           "purpose": "FeatureInsight",
           "required": true,
           "values": ["automatedProcess", "platformIntegration", "user"]
+        },
+        "logType": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["DEVELOPER_LOG", "USER_DEBUG"]
         }
       },
       "measurements": {

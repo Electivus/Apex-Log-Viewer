@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import type { Messages } from '../../i18n';
 import { List, type ListImperativeAPI } from 'react-window';
 import { cn } from '../../lib/utils';
@@ -12,10 +12,15 @@ type TailListProps = {
   colorize: boolean;
   running: boolean;
   listRef: React.RefObject<ListImperativeAPI | null>;
+  /** Keep the newest line in view while true (Auto-scroll). */
+  follow: boolean;
   t: Messages;
   onAtBottomChange?: (atBottom: boolean) => void;
   virtualListComponent?: typeof List;
 };
+
+/** Distance from the end, in px, that still counts as being at the bottom. */
+const AT_BOTTOM_THRESHOLD = 4;
 
 export function TailList({
   lines,
@@ -25,6 +30,7 @@ export function TailList({
   colorize,
   running,
   listRef,
+  follow,
   t,
   onAtBottomChange,
   virtualListComponent
@@ -33,7 +39,17 @@ export function TailList({
   const rowHeightsRef = useRef<Record<number, number>>({});
   const [height, setHeight] = useState(420);
   const outerRef = useRef<HTMLDivElement | null>(null);
-  // Removed outerRef for List v2; use listRef.current.element instead
+  // react-window publishes its imperative handle before its scroll element exists, so
+  // `listRef.current.element` is still null after the first commit. Keep the element in
+  // state so the effects below run again once it is there.
+  const [listElement, setListElement] = useState<HTMLDivElement | null>(null);
+  const setVirtualListRef = useCallback(
+    (api: ListImperativeAPI | null) => {
+      listRef.current = api;
+      setListElement(api?.element ?? null);
+    },
+    [listRef]
+  );
   const [overscanCount, setOverscanCount] = useState<number>(8);
   const overscanBaseRef = useRef<number>(8);
   const overscanLastTopRef = useRef<number>(0);
@@ -41,6 +57,15 @@ export function TailList({
   const overscanDecayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const overscanLastSetRef = useRef<number>(8);
   const atBottomRef = useRef<boolean | null>(null);
+  const onAtBottomChangeRef = useRef(onAtBottomChange);
+  // Follow state: `followRef` mirrors the prop for callbacks, `stuckRef` says the view is
+  // pinned to the end, and `lastTopRef` is the scroll offset we last saw or set, so a
+  // user scroll that has not dispatched its scroll event yet is not undone.
+  const followRef = useRef(follow);
+  const stuckRef = useRef(false);
+  const lastTopRef = useRef(0);
+  const prevFollowRef = useRef(false);
+  const prevListElementRef = useRef<HTMLDivElement | null>(null);
   const VirtualList = virtualListComponent ?? List;
 
   const getItemSize = (index: number) => rowHeightsRef.current[index] ?? defaultRowHeight;
@@ -114,37 +139,66 @@ export function TailList({
     );
   };
 
-  const onRowsRendered = (_: { startIndex: number; stopIndex: number }) => {
-    // Reserved for future tail auto-paging; no-op today
-  };
+  // Pin the view to the end while following. The list's total height is an estimate that
+  // grows as rows are rendered and measured, so this runs again after each such change
+  // instead of trusting a single scrollToRow call.
+  const pinToEnd = useCallback(
+    (force: boolean) => {
+      const el = listElement;
+      if (!el || !followRef.current) return;
+      if (!force) {
+        if (!stuckRef.current) return;
+        const top = el.scrollTop;
+        const gap = el.scrollHeight - el.clientHeight - top;
+        // The user moved up and the scroll listener has not seen it yet: leave it to pause.
+        if (top < lastTopRef.current - 1 && gap > AT_BOTTOM_THRESHOLD) return;
+      }
+      const target = Math.max(0, el.scrollHeight - el.clientHeight);
+      if (el.scrollTop !== target) el.scrollTop = target;
+      lastTopRef.current = el.scrollTop;
+      stuckRef.current = true;
+      atBottomRef.current = true;
+    },
+    [listElement]
+  );
+
+  useLayoutEffect(() => {
+    onAtBottomChangeRef.current = onAtBottomChange;
+    followRef.current = follow;
+    const started = follow && (!prevFollowRef.current || prevListElementRef.current !== listElement);
+    prevFollowRef.current = follow;
+    prevListElementRef.current = listElement;
+    pinToEnd(started);
+  });
+
+  // The list renders more rows (and refines its height estimate) after each scroll.
+  const onRowsRendered = useCallback(() => pinToEnd(false), [pinToEnd]);
 
   // Empty state when nothing matches
   const showEmpty = filteredIndexes.length === 0;
 
-  // Detect whether the list is scrolled to the bottom and notify parent on changes
+  // Detect whether the list is scrolled to the bottom and notify parent on changes. This
+  // runs in the scroll event itself so a scroll up stops the pinning before the next render.
   React.useEffect(() => {
-    const el = listRef.current?.element;
+    const el = listElement;
     if (!el) return;
-    const threshold = 4; // px
-    const compute = () => {
-      const atBottom = el.scrollHeight - (el.scrollTop + el.clientHeight) <= threshold;
+    const onScroll = () => {
+      const top = el.scrollTop;
+      const atBottom = el.scrollHeight - (top + el.clientHeight) <= AT_BOTTOM_THRESHOLD;
+      stuckRef.current = atBottom;
+      lastTopRef.current = top;
       if (atBottomRef.current !== atBottom) {
         atBottomRef.current = atBottom;
-        onAtBottomChange?.(atBottom);
+        onAtBottomChangeRef.current?.(atBottom);
       }
-    };
-    compute();
-    const onScroll = () => {
-      // throttle to next frame
-      requestAnimationFrame(compute);
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, [onAtBottomChange, height, filteredIndexes.length]);
+  }, [listElement]);
 
   // Adaptive overscan based on scroll velocity
   React.useEffect(() => {
-    const el = listRef.current?.element;
+    const el = listElement;
     if (!el) return;
     const onScroll = () => {
       const now = performance.now();
@@ -174,7 +228,7 @@ export function TailList({
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, []);
+  }, [listElement]);
 
   return (
     <div ref={outerRef} className="flex-1">
@@ -188,7 +242,7 @@ export function TailList({
           </div>
         ) : (
           <VirtualList
-            listRef={listRef}
+            listRef={setVirtualListRef}
             style={{ height, width: '100%' }}
             rowCount={filteredIndexes.length}
             rowHeight={(index: number) => getItemSize(index)}
@@ -241,6 +295,9 @@ function RowContent({
 
   const commonStyle: React.CSSProperties = {
     whiteSpace: 'pre-wrap',
+    // Break a line with no spaces, such as the log's category header, instead of clipping it at the
+    // row's edge. The ResizeObserver above measures the taller row.
+    overflowWrap: 'anywhere',
     background: selected ? 'var(--vscode-editor-selectionBackground)' : 'transparent',
     outline: selected ? '1px solid var(--vscode-contrastActiveBorder, transparent)' : 'none',
     borderLeft: selected ? '3px solid var(--vscode-focusBorder)' : '3px solid transparent',

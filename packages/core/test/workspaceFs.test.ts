@@ -14,10 +14,12 @@ import {
   openDurableAppender,
   orgDirectory,
   pidLiveness,
+  renameReplacing,
   safeUsername,
   syncDirectory,
   tryAcquireLease,
   writeFileAtomic,
+  writeJsonAtomic,
   type Lease,
   type LeaseAttempt,
   type LeaseOwner,
@@ -33,7 +35,9 @@ async function withWorkspace(run: (root: string) => Promise<void>): Promise<void
   try {
     await run(root);
   } finally {
-    await fsp.rm(root, { recursive: true, force: true });
+    // Windows keeps a just-deleted file's name until every handle on it closes (an antivirus scan of a fresh
+    // lease file, for one), and removing its directory meanwhile fails with ENOTEMPTY or EBUSY; rm retries those.
+    await fsp.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 }
 
@@ -86,6 +90,69 @@ async function exitedPid(): Promise<number> {
   });
   return pid;
 }
+
+/** Makes the next `failures.length` renames fail with those codes, then lets renames through; returns the call count. */
+function failRenames(t: TestContext, failures: readonly string[]): { calls: () => number } {
+  let calls = 0;
+  const originalRename = fsp.rename;
+  t.mock.method(fsp, 'rename', async (from: fs.PathLike, to: fs.PathLike) => {
+    const code = failures[calls];
+    calls += 1;
+    if (code !== undefined) throw Object.assign(new Error(`${code}: rename`), { code });
+    return originalRename.call(fsp, from, to);
+  });
+  return { calls: () => calls };
+}
+
+test('renameReplacing retries a busy replace on win32 until it goes through', async t => {
+  await withWorkspace(async root => {
+    const target = path.join(root, 'checkpoint.json');
+    await fsp.writeFile(target, 'old\n');
+    await fsp.writeFile(`${target}.tmp`, 'new\n');
+    const renames = failRenames(t, ['EPERM', 'EACCES', 'EBUSY']);
+
+    await renameReplacing(`${target}.tmp`, target, 'win32', [1, 1, 1, 1]);
+
+    assert.equal(renames.calls(), 4);
+    assert.equal(await fsp.readFile(target, 'utf8'), 'new\n');
+  });
+});
+
+test('renameReplacing throws at once on other platforms and codes, and after the last retry on win32', async t => {
+  await withWorkspace(async root => {
+    const target = path.join(root, 'checkpoint.json');
+    await fsp.writeFile(`${target}.tmp`, 'new\n');
+
+    const linux = failRenames(t, ['EPERM']);
+    await assert.rejects(renameReplacing(`${target}.tmp`, target, 'linux', [1]), { code: 'EPERM' });
+    assert.equal(linux.calls(), 1, 'linux does not retry');
+    t.mock.restoreAll();
+
+    const missing = failRenames(t, ['ENOENT']);
+    await assert.rejects(renameReplacing(`${target}.tmp`, target, 'win32', [1]), { code: 'ENOENT' });
+    assert.equal(missing.calls(), 1, 'a missing file is not a busy one');
+    t.mock.restoreAll();
+
+    const held = failRenames(t, ['EBUSY', 'EBUSY', 'EBUSY']);
+    await assert.rejects(renameReplacing(`${target}.tmp`, target, 'win32', [1, 1]), { code: 'EBUSY' });
+    assert.equal(held.calls(), 3, 'one try and one retry per delay');
+    await assert.rejects(fsp.access(target), { code: 'ENOENT' }, 'the target was never replaced');
+  });
+});
+
+test('writeJsonAtomic replaces a file that a reader holds open while the write starts', async () => {
+  await withWorkspace(async root => {
+    const target = path.join(root, 'checkpoint.json');
+    await writeJsonAtomic(target, { seq: 1 });
+    // On win32 the replacing rename is refused while this handle is open, so the write must outlast it.
+    const reader = await fsp.open(target, 'r');
+    const write = writeJsonAtomic(target, { seq: 2 }, { syncDirectory: true });
+    await new Promise<void>(resolve => setTimeout(resolve, 30));
+    await reader.close();
+    await write;
+    assert.deepEqual(JSON.parse(await fsp.readFile(target, 'utf8')), { seq: 2 });
+  });
+});
 
 function leaseOwner(overrides: Partial<LeaseOwner>): LeaseOwner {
   return {

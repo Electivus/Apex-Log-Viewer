@@ -9,6 +9,11 @@ import { __resetToolingCachesForTests, __setToolingConnectionFactoryForTests } f
 jest.mock('../sfCli', () => ({ runSfJson: jest.fn() }));
 const cli = jest.mocked(runSfJson);
 
+// Each JWT session runs scripts/devhub-identity-credentials.js `secureDirectory`, which on Windows starts
+// powershell.exe to set the key directory's ACL, and these tests also generate an RSA key. A test takes about
+// 1 s on a Windows runner and has passed Jest's default 5 s on a loaded one, so they get 30 s.
+jest.setTimeout(30_000);
+
 function response(body: unknown, status = 200): Response {
   return { ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body) } as Response;
 }

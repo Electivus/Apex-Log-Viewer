@@ -12,6 +12,21 @@ export async function copySfPluginSkills(repoRoot = path.resolve(fileURLToPath(n
   await fs.cp(source, destination, { recursive: true });
 }
 
+const SF_PLUGIN_REFERENCE_FILES = [
+  ['docs/CUSTOM_LOGS.md', 'CUSTOM_LOGS.md'],
+  ['packages/core/schemas/sfdx-project.electivus.schema.json', 'sfdx-project.electivus.schema.json']
+];
+
+export async function copySfPluginReference(repoRoot = path.resolve(fileURLToPath(new URL('../', import.meta.url)))) {
+  const destination = path.join(repoRoot, 'packages/sf-plugin/reference');
+  await fs.rm(destination, { recursive: true, force: true });
+  await fs.mkdir(destination, { recursive: true });
+  for (const [from, to] of SF_PLUGIN_REFERENCE_FILES) {
+    await fs.copyFile(path.join(repoRoot, from), path.join(destination, to));
+  }
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   await copySfPluginSkills();
+  await copySfPluginReference();
 }

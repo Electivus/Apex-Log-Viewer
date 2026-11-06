@@ -11,8 +11,8 @@
  *
  * The run reports one public `CustomLogCaptureState`; every change goes through `nextState`:
  *
- *   lease held elsewhere ─► standby ─ poll: relay stored rows; the holder's pid dies ─┐
- *   lease won ◄────────────────────────────────────────────────────────────────────────┘
+ *   lease held elsewhere ─► standby ─ poll: relay stored rows and gaps; the holder's pid dies ─┐
+ *   lease won (re-read the store's gaps after a standby) ◄─────────────────────────────────────┘
  *     │ connecting: connect, org id, allowance and budget, describe → describe.json, purge, chooseStart
  *     │            a gap decided at start is written BEFORE any subscribe; `needsInitial` and a budget of 0 subscribe nothing
  *     ▼
@@ -21,13 +21,14 @@
  *     │  authRejected:   connect({ fresh }), backoff (fails after MAX_AUTH_REBUILDS without a `subscribed`)
  *     │  down / queue overflow ─► reconnecting{cause}
  *     │  deliveryLimit | clientLimit | forbidden | other ─► failed (own codes, CUSTOM_LOG_CAPTURE_FAILED)
- *   LeaseLostError on advance ─► release, stand by again
+ *   LeaseLostError on advance ─► show what the batch stored, release, stand by again
  *   last watcher leaves | budget spent | needsInitial ─► flush, clean end, release ─► stopped{outcome}
  *
  * Flush (I2 of store.ts): events queue; at FLUSH_MS after the first queued event, at FLUSH_MAX events,
  * or when the stream ends: `append` (durable) → `advance` with the cursor of the last delivered event →
  * close the open gap if a stored event is newer than its `after` → emit the rows. A screen never shows
- * an event that is not on disk. Flushes are single-flight: every trigger chains on one promise, so
+ * an event that is not on disk. A batch whose `append` resolved is emitted even when the lease turns out lost
+ * after it: no other process shows a row this one stored, because a duplicate delivery stores nothing. Flushes are single-flight: every trigger chains on one promise, so
  * `advance` calls land in the order `append` calls complete and a slow disk cannot put a cursor past
  * stored data. `last` (a `RunPosition`) is the run's one piece of position state: `last?.cursor` is what
  * the transport's `durableCursor()` answers, and `last` is what the clean end re-sends.
@@ -81,6 +82,7 @@ import {
   drainBoundOutcome,
   coveredUntilMs,
   firstEventWait,
+  newestHeldEvent,
   nextState,
   proofOnAck,
   proofOnDown,
@@ -102,7 +104,9 @@ import {
   type EventStore,
   type EventStoreLocation,
   type EventStoreWriter,
+  type GapReason,
   type StoreCoverage,
+  type StoreGap,
   type StoredEvent
 } from './store.js';
 import {
@@ -290,6 +294,9 @@ type RunEnd = { kind: 'outcome'; ending: CustomLogCaptureEnding } | { kind: 'fai
 
 type EpochExit = { kind: 'end'; end: RunEnd } | { kind: 'standby' };
 
+/** The lease a run won, and whether another process held it before the run took it. */
+type Won = { writer: EventStoreWriter; afterOtherHolder: boolean };
+
 /** Outcomes whose end of a live run writes the last position and the coverage once more. */
 const CLEAN_ENDS: ReadonlySet<CustomLogCaptureOutcome> = new Set(['quiet', 'aborted', 'timeLimit']);
 
@@ -414,8 +421,32 @@ function createRun(
     broadcast();
   };
 
+  /** The gaps `storeInfo` shows, to notice a gap that another process opened without storing a row. */
+  let shownGaps = '[]';
+  const gapsKey = (gaps: readonly StoreGap[]): string => JSON.stringify(gaps);
+
   const refreshStoreInfo = async (): Promise<void> => {
-    storeInfo = deps.storeInfo(await store.coverage());
+    const coverage = await store.coverage();
+    shownGaps = gapsKey(coverage.state === 'captured' ? coverage.gaps : []);
+    storeInfo = deps.storeInfo(coverage);
+  };
+
+  /** Refreshes the store view and tells the watchers when another process changed the store's gaps. */
+  const showForeignGaps = async (): Promise<void> => {
+    const before = shownGaps;
+    await refreshStoreInfo();
+    if (shownGaps !== before) broadcast();
+  };
+
+  const openAndShowGap = async (
+    writer: EventStoreWriter,
+    gap: { reason: GapReason; after?: string }
+  ): Promise<void> => {
+    const opened = await writer.openGap(gap);
+    if (!opened.created) return;
+    newGaps.push(storeGapOf(opened.gap));
+    await refreshStoreInfo();
+    broadcast();
   };
 
   const report = (runEvent: CaptureRunEvent): void => {
@@ -544,6 +575,9 @@ function createRun(
   // -------------------------------------------------------------------------------------------
   // lease: win it, or stand by and relay what the holder stores
 
+  /** True once this run has held the lease: winning it again means another process held it in between. */
+  let leaseHeldBefore = false;
+
   const newestPosition = async (): Promise<EventPosition | undefined> => {
     for await (const newest of store.newestFirst({})) return newest.position;
     return undefined;
@@ -556,20 +590,28 @@ function createRun(
       if (sentUpTo && compareNewestFirst(candidate.position, sentUpTo) >= 0) break;
       fresh.push(candidate);
     }
-    if (fresh.length === 0) return sentUpTo;
+    if (fresh.length === 0) {
+      // A gap the holder opens without storing a row reaches this run only through the store view.
+      if (gapsKey(await store.gaps()) !== shownGaps) await showForeignGaps();
+      return sentUpTo;
+    }
     fresh.reverse();
     await refreshStoreInfo();
     for (let start = 0; start < fresh.length; start += RELAY_CHUNK) fanOut(fresh.slice(start, start + RELAY_CHUNK));
     return fresh[fresh.length - 1]!.position;
   };
 
-  const acquire = async (): Promise<EventStoreWriter | undefined> => {
+  const acquire = async (): Promise<Won | undefined> => {
     let sentUpTo: EventPosition | undefined;
     let standingBy = false;
     for (;;) {
       if (isTerminal(stopRequest)) return undefined;
       const attempt = await store.openWriter(deps.surface);
-      if ('writer' in attempt) return attempt.writer;
+      if ('writer' in attempt) {
+        const afterOtherHolder = standingBy || leaseHeldBefore;
+        leaseHeldBefore = true;
+        return { writer: attempt.writer, afterOtherHolder };
+      }
       if (!standingBy) {
         standingBy = true;
         sentUpTo = await newestPosition();
@@ -605,10 +647,7 @@ function createRun(
       initial,
       now: clock.now()
     });
-    if (decision.gap) {
-      const opened = await writer.openGap(decision.gap);
-      if (opened.created) newGaps.push(storeGapOf(opened.gap));
-    }
+    if (decision.gap) await openAndShowGap(writer, decision.gap);
     reportStart(
       decision.kind === 'needsInitial' ? 'none' : decision.start.kind === 'after' ? 'position' : decision.start.kind
     );
@@ -645,16 +684,11 @@ function createRun(
     const flushBatch = async (batch: readonly BusEvent[]): Promise<void> => {
       const tail = batch[batch.length - 1];
       if (!tail || !writable()) return;
-      let newlyStored: readonly StoredEvent[];
+      let newlyStored: readonly StoredEvent[] = [];
       try {
         newlyStored = (await writer.append(batch)).stored;
-        const newest = newlyStored[newlyStored.length - 1];
-        const next: RunPosition = {
-          cursor: tail.cursor,
-          lastEvent: newest
-            ? { createdDate: newest.createdDate, uuid: newest.position.uuid }
-            : (last?.lastEvent ?? { createdDate: tail.createdDate, uuid: tail.uuid })
-        };
+        stored += newlyStored.length;
+        const next: RunPosition = { cursor: tail.cursor, lastEvent: newestHeldEvent(last?.lastEvent ?? tail, batch) };
         await writer.advance({
           orgId: session.orgId,
           transport: transport.name,
@@ -664,7 +698,6 @@ function createRun(
         });
         last = next;
         confirmedAt = clock.now().toISOString();
-        stored += newlyStored.length;
         const gap = await writer.openGapNow();
         if (gap) {
           const closing = newlyStored
@@ -675,9 +708,15 @@ function createRun(
         }
         if (newlyStored.length > 0) await refreshStoreInfo();
       } catch (error) {
-        if (error instanceof LeaseLostError) stop({ kind: 'leaseLost' });
-        else fail(error);
-        return;
+        if (!(error instanceof LeaseLostError)) {
+          fail(error);
+          return;
+        }
+        stop({ kind: 'leaseLost' });
+        // The rows are on disk, and the process that took the lease stores nothing when it receives them again,
+        // so this run is the only one that can show them. Its standby relay starts after them.
+        if (newlyStored.length === 0) return;
+        await refreshStoreInfo().catch(() => {});
       }
       if (newlyStored.length > 0) fanOut(newlyStored);
     };
@@ -717,11 +756,7 @@ function createRun(
       void schedule(async () => {
         if (!writable()) return;
         try {
-          const opened = await writer.openGap({
-            reason: 'malformedEvent',
-            ...(after !== undefined ? { after } : {})
-          });
-          if (opened.created) newGaps.push(storeGapOf(opened.gap));
+          await openAndShowGap(writer, { reason: 'malformedEvent', ...(after !== undefined ? { after } : {}) });
         } catch (error) {
           fail(error);
         }
@@ -837,8 +872,7 @@ function createRun(
             return;
           }
           const after = last?.lastEvent.createdDate;
-          const opened = await writer.openGap({ reason: 'cursorRejected', ...(after !== undefined ? { after } : {}) });
-          if (opened.created) newGaps.push(storeGapOf(opened.gap));
+          await openAndShowGap(writer, { reason: 'cursorRejected', ...(after !== undefined ? { after } : {}) });
           last = undefined;
           activeStart = RETAINED;
           await reconnect('transport', false);
@@ -911,8 +945,11 @@ function createRun(
   // -------------------------------------------------------------------------------------------
   // one lease from start to release
 
-  const epoch = async (writer: EventStoreWriter): Promise<EpochExit> => {
+  const epoch = async ({ writer, afterOtherHolder }: Won): Promise<EpochExit> => {
     try {
+      // The process that held the lease may have opened a gap after the last poll, and `openAndShowGap`
+      // does not show a gap that already exists. Read here, so that a failed read still releases the lease.
+      if (afterOtherHolder) await showForeignGaps();
       const prepared = await prepare(writer);
       if (prepared.decision.kind === 'needsInitial') stop({ kind: 'finish', ending: { outcome: 'needsInitial' } });
       else if (prepared.budget === 0) stop({ kind: 'finish', ending: { outcome: 'budget' } });
@@ -944,9 +981,9 @@ function createRun(
 
   const lifecycle = async (): Promise<RunEnd> => {
     for (;;) {
-      const writer = await acquire();
-      if (!writer) return endOf(stopRequest);
-      const exit = await epoch(writer);
+      const won = await acquire();
+      if (!won) return endOf(stopRequest);
+      const exit = await epoch(won);
       if (exit.kind === 'end') return exit.end;
       // The lease was taken from this process: look at it again, which stands by when someone else holds it.
     }

@@ -11,7 +11,7 @@ The Logs panel lists the Apex logs in the selected org. A user can refresh it, f
 - `logs-filters` narrows rows with the `User`, `Operation` and `Status` selects (labels look uppercase through CSS). Their options are the distinct values of the loaded rows plus `All`. `Clear filters` resets them, the search text and `Errors only`.
 - `logs-errors-only` limits rows to logs with failures. Matching rows show `logs-error-badge` and a `logs-reason-badge` such as `Fatal exception`.
 - `logs-columns` shows, hides and reorders columns in the `Columns` popover (a switch per column, `Move up`, `Move down`, `Reset to defaults`). A header's `[role="separator"][aria-label="Resize <Column>"]` resizes it. The layout persists to the user (Global) setting `electivus.apexLogViewer.logs.columns`.
-- `logs-download-all` asks `Download all Apex logs for the selected org?` in a modal, runs a forced full sync of every org log, and ends with `Bulk download finished. N logs are available locally (D downloaded, C already cached).`
+- `logs-download-all` asks `Download all Apex logs for the selected org?` in a modal, runs a forced full sync of every org log while its notification counts `Processed n/N logs…` and fills its bar as each log is saved, and ends with `Bulk download finished. N logs are available locally (D downloaded, C already cached).`
 - `logs-cleanup` uses `Clear logs` to choose `Delete my logs` or `Delete all org logs`, asks in a modal (`Delete your Apex logs for the selected org?`), and reports `Deleted N Apex log(s).`
 - `logs-open` opens a row in the Log Viewer with Enter or Space on the focused row, or its `Open` button (`button[aria-label="Open"]`).
 - `logs-replay` starts Apex Replay from the row button `Apex Replay` or Shift+Enter. This needs the Replay Debugger extension.
@@ -45,7 +45,7 @@ Preconditions:
 - The org keeps logs from earlier sessions and CI runs, so always search a fresh marker instead of counting rows.
 - Search waits for the background sync to cache the bodies. Assert with `expect(...).toBeVisible({ timeout: 180_000 })`, never a fixed sleep.
 - Rows are virtualized: rows outside the visible area are not in the DOM, so `[role="row"][tabindex="0"]` counts rendered rows only. The panel is short in the default window.
-- With the editor-area copy open, two frames match `h.logsFrame()` and it returns the first visible one. Close the panel (`View: Close Panel`) to drive the editor tab.
+- With the editor-area copy open, two frames match `h.logsFrame()` and it returns the first visible one. Close the panel (`View: Hide Panel`) to drive the editor tab.
 - The modals are VS Code dialogs. The session profile sets `window.dialogStyle: custom` so they render as `.monaco-dialog-box` on `page`; with the native default, Playwright cannot click them.
 - `Clear logs` → `Delete all org logs` deletes logs created by other users of the scratch org. That is acceptable in a harness org, but never do it with `--target-org` on a real org unless the user asked.
 - `logs-replay` needs `salesforce.salesforcedx-vscode-apex-replay-debugger`. The verify session does not install it, so a session-driven replay click proves only the missing-extension path. For the installed path, use `pnpm run test:e2e -- test/e2e/specs/replayDebugger.e2e.spec.ts`.

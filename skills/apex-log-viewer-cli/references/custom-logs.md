@@ -1,6 +1,6 @@
 # Read custom-log records
 
-`sf electivus custom-log` reads the records of a logging framework, such as Nebula Logger's `Log__c` and `LogEntry__c`, through the Salesforce API on every call. A record source has no local cache. An event source reads the local event store that `capture` fills. There is no project flag. Run it from the Salesforce project directory, because it reads the `sfdx-project.json` of the project that contains the current directory. The mapping format is in [Custom Logs](https://github.com/Electivus/Apex-Log-Viewer/blob/main/docs/CUSTOM_LOGS.md). Edit `sfdx-project.json` only when the user asks.
+`sf electivus custom-log` reads the records of a logging framework, such as Nebula Logger's `Log__c` and `LogEntry__c`, through the Salesforce API on every call. A record source has no local cache. An event source reads the local event store that `capture` fills. There is no project flag. Run it from the Salesforce project directory, because it reads the `sfdx-project.json` of the project that contains the current directory. The plugin ships the mapping format, so read it offline: `OCLIF_COLUMNS=1000 sf electivus custom-log sources --help` prints the installed `reference` directory, which holds `CUSTOM_LOGS.md` and the JSON Schema `sfdx-project.electivus.schema.json`. In PowerShell, run `$env:OCLIF_COLUMNS=1000; sf electivus custom-log sources --help`. Use `--help`, because `-h` prints no path, and keep the wide columns, because at 80 columns the path splits mid-word. If the help names no path, the plugin predates the reference: update it, or read the [mapping format on GitHub](https://github.com/Electivus/Apex-Log-Viewer/blob/main/docs/CUSTOM_LOGS.md). Edit `sfdx-project.json` only when the user asks.
 
 ## Pick a source
 
@@ -9,6 +9,8 @@
 - `ready`: the source can be read.
 - `notInstalled`: the objects of a built-in Nebula source are absent. With `hint: "collision"`, the org's `Log__c` is not Nebula Logger and needs a project source.
 - `unavailable`: `reason` is `objectNotFound`, `objectNotReadable`, `requiredFieldMissing`, `fieldTypeMismatch`, `metadataQueryRefused`, `notQueryable`, or `notAnEvent`, and `message` explains it. `notQueryable` means that a record mapping names a platform event, and `notAnEvent` means that an `event` mapping names a record object. Report the cause. Do not work around permissions. A user without Read access to a platform event gets `objectNotReadable`, and `capture` fails with `CUSTOM_LOG_SOURCE_UNAVAILABLE` before it subscribes.
+
+A source whose `payload` mapping names a field and columns reports them in `payload.transaction` and `payload.entry`. A plain-string mapping reports no columns, and a source that is not ready reports an empty `payload`. Pass the columns to `list` as `--payload-fields` to keep each row small, because without the flag a row keeps up to 200 payload paths. `list` reads `payload.transaction` on a source with a transaction header and `payload.entry` on any other, and `get` reads `payload.entry`. A column from the other level matches nothing and gives no error.
 
 `hiddenFields` lists mapped fields that this user cannot read. For an event source, a field is hidden only when the stored describe does not list it, because platform event fields have no field-level security. An empty value in one of them proves nothing. `capabilities.levelFilter` and `capabilities.userFilter` say whether `--min-level` and `--user` work, and `capabilities.apexLogLink` whether `get` can find the Apex debug log. A source with `shape: "events"` also has a `store` that says what the local history covers. `defaultSourceId` never names an event source. An issue with `severity: "error"` skips its source. Report its `pointer` and `message`.
 
@@ -49,9 +51,11 @@ sf electivus custom-log get --log-id a0A000000000001AAA --target-org my-org --mi
 
 ## Filter JSON payloads
 
-When a source in `sources` has a `payload` field, rows and entries have `payload.state`. The states are `parsed`, `invalid`, `text`, `empty`, and `hidden`. A `parsed` payload has `values`, keyed by flattened paths such as `orderId`, `http.status`, or `lines[0].sku`. Each page also returns `payloadFields`, which lists every path seen on that page.
+When a source in `sources` has a `payload` field, rows and entries have `payload.state`. The states are `parsed`, `invalid`, `text`, `empty`, and `hidden`. A `parsed` payload has `values`, keyed by flattened paths such as `orderId`, `http.status`, or `lines[0].sku`. Each page also returns `payloadFields`, which lists every path seen on that page with array indexes grouped as `[]`, such as `lines[].sku`.
 
-Salesforce cannot filter long text, so filter the loaded rows with `jq`. `--payload-fields` keeps only the named paths in `values`:
+An event source can map `payload.entries` (one or more fields that each hold a JSON array) so that each element is a row. Then `values` holds the paths of the element, relative to it, such as `traceId`. Roles can read these paths, so levels, users and transaction ids of such rows are per entry.
+
+Salesforce cannot filter long text, so filter the loaded rows with `jq`. `--payload-fields` keeps only the named paths in `values`. `lines[].sku` keeps the `sku` of every line, and `lines[0].sku` only the first:
 
 ```bash
 sf electivus custom-log list --target-org my-org --source app-log --since 7d --limit 200 --payload-fields orderId,http.status --json \
@@ -99,13 +103,15 @@ A source whose `shape` is `events` reads a platform event, such as `nebula-event
 
    `get` returns the event as `log` and the stored events of its transaction in `entries`. `entry` returns the full message, each detail, and the payload. An event id needs `--source`. Without it, the command fails with `CUSTOM_LOG_SOURCE_REQUIRED`.
 
-On the first run for an org, `--initial retained`, the default, replays up to 72 hours of events and spends allocation. `--initial new` starts with the events published from now on. Choose `retained` when the task needs events that were already published.
+   A source whose `payload.entry.entries` in `sources` is set reads each item of a JSON array as its own entry, so a row is an entry, not an event. The first entry has the 55-character event id, and each later entry adds `-<ordinal>` (60 characters). An `rg` hit's `id` passed to `entry --entry-id` opens the first entry of the event, and `logId` in the `entry` result is the canonical id. `get --transaction-id` groups per entry across events. `--min-level` and `--user` filter per entry. `rawPayload` of `entry` is the element.
+
+On the first run for an org, `--initial retained`, the default, replays up to 72 hours of events and spends allocation, up to the run budget. `--initial new` starts with the events published from now on. Choose `retained` when the task needs events that were already published. A first capture cannot start at the last N events or since a time: Salesforce replays only from the newest event, from the earliest retained event, or from a known replay id, so any partial window still delivers from the start of the backlog.
 
 `outcome` says why the run stopped:
 
 - `quiet`: the stream went quiet. It does not prove that the backlog was complete, so run `capture` again before you conclude that an event is absent. A drain that hears nothing over a stored position older than one hour, or on a first run, waits the whole `--max-time` (120 seconds by default) before it says `quiet`. Lower `--max-time` for a stream that you know is quiet, but keep it above 15 seconds, because a drain with a shorter limit ends `timeLimit`.
 - `timeLimit`: `--max-time` passed while events were still arriving. Run `capture` again to continue.
-- `budget`: the run used about half of the remaining daily allocation. Run `capture` again to continue from the stored position.
+- `budget`: the run used its delivery budget, which is about half of the remaining daily allocation, or 5,000 deliveries when Salesforce does not report the allowance, and that can be more than half of what remains. The run checks the budget as responses arrive, and Salesforce sends a whole response at a time, so it can pass the budget by one response. Run `capture` again to continue from the stored position.
 - `capturedElsewhere`: another process holds the capture lease and stores the events. `holder` names it: `surface` (`vscode` or `cli`), `pid`, `host`, and `since`, the time it took the lease. A VS Code window keeps capturing while its Custom Logs panel shows an event source, even hidden, so tell the user which process holds it. Search the store, or run `capture --follow` to stand by.
 
 `store.gaps` and `newGaps` list the intervals that may be missing. `reason` is `cursorRejected` when Salesforce rejected the stored position (the replay that follows stores each event once), `retentionElapsed` when the store covers nothing in the last 72 hours (an early stop with backlog left can cause it on a run more than 72 hours after its newest stored event), `orgChanged` when the username now names another org, and `malformedEvent` when Salesforce delivered a message that capture could not read as an event. `after` and `before` bound the interval, and `before` is absent while the gap is open. Report a gap when you conclude that an event is absent in or near it. Events older than Salesforce keeps are not recoverable. A `store.state` of `notCaptured` means that nothing is stored yet, and `list` returns an empty page.

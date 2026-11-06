@@ -15,7 +15,7 @@ import type { OrgItem } from '@alv/protocol/types';
 import { getMessages } from './i18n';
 import { CustomLogRowDetail } from './components/custom-logs/CustomLogRowDetail';
 import { CustomLogsCaptureStrip } from './components/custom-logs/CustomLogsCaptureStrip';
-import { CustomLogsEmptyState } from './components/custom-logs/CustomLogsEmptyState';
+import { CustomLogsConfigIssues, CustomLogsEmptyState } from './components/custom-logs/CustomLogsEmptyState';
 import { CustomLogsFilterBar, type FilterChip } from './components/custom-logs/CustomLogsFilterBar';
 import { CustomLogsStatusBar } from './components/custom-logs/CustomLogsStatusBar';
 import { CustomLogsTable } from './components/custom-logs/CustomLogsTable';
@@ -408,6 +408,12 @@ export function CustomLogsApp({
         />
       ) : (
         <>
+          {/* A broken source is skipped while another one is ready, so its issues stay visible here too. */}
+          <CustomLogsConfigIssues
+            t={t}
+            issues={issues}
+            className="max-h-24 shrink-0 overflow-auto border-b border-border px-3 py-1.5"
+          />
           <CustomLogsFilterBar
             t={t}
             chips={chips}

@@ -7,6 +7,7 @@ import {
   type ApexLogViewerCore,
   type AvailableLocalPathsResult,
   type CoreInstrumentation,
+  type LogSyncProgress,
   type PurgeApexLogsResult,
   type ReadApexLogResult
 } from '@alv/core';
@@ -62,6 +63,7 @@ import type {
 import type * as ui from '@alv/protocol/customLogsTypes';
 import type { ApexLogRow } from '@alv/protocol/types';
 
+import { getWorkspaceRoot } from '../host/utils/workspace';
 import { safeSendEvent } from '../shared/telemetry';
 import { getTelemetryErrorCode } from '../shared/telemetryErrorCodes';
 
@@ -257,6 +259,7 @@ export class CoreClient {
       options.core ??
       createApexLogViewerCore({
         surface: 'vscode',
+        projectPath: this.workspaceRoot,
         instrumentation: {
           onCall: event => {
             const properties: Record<string, string> = {
@@ -318,9 +321,13 @@ export class CoreClient {
     }));
   }
 
-  public logsSync(params: LogsSyncParams = {}, signal?: AbortSignal): Promise<LogsSyncResult> {
+  public logsSync(
+    params: LogsSyncParams = {},
+    signal?: AbortSignal,
+    onProgress?: (progress: LogSyncProgress) => void
+  ): Promise<LogsSyncResult> {
     const normalized = this.withWorkspaceRoot(params);
-    return this.call(signal, () => this.core.log.sync(normalized, { signal }));
+    return this.call(signal, () => this.core.log.sync(normalized, { signal, onProgress }));
   }
 
   public logsStatus(params: LogsStatusParams = {}, signal?: AbortSignal): Promise<LogsStatusResult> {
@@ -589,4 +596,4 @@ export class CoreClient {
   }
 }
 
-export const runtimeClient = new CoreClient();
+export const runtimeClient = new CoreClient({ workspaceRoot: getWorkspaceRoot });

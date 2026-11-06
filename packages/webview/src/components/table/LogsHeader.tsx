@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { LogsColumnKey } from '@alv/protocol/logsColumns';
 import { getLogsColumnLabel, LOGS_COLUMN_MIN_WIDTH_PX } from '../../utils/logsColumns';
+import { SCROLLBAR_GUTTER } from './useVirtualListElement';
 
 type SortKey = Exclude<LogsColumnKey, 'match'>;
 
@@ -121,7 +122,7 @@ export const LogsHeader = React.forwardRef<HTMLDivElement, Props>(
 
           <div
             role="separator"
-            aria-label={`Resize ${label}`}
+            aria-label={(t.columnsConfig?.resizeColumn ?? 'Resize {column}').replace('{column}', label)}
             aria-orientation="vertical"
             onPointerDown={e => startResize(key, e)}
             onDoubleClick={e => {
@@ -141,7 +142,13 @@ export const LogsHeader = React.forwardRef<HTMLDivElement, Props>(
     };
 
     return (
-      <div ref={ref} className="sticky top-0 z-10 overflow-x-hidden border-b border-border bg-card/80 backdrop-blur">
+      <div
+        ref={ref}
+        className={cn(
+          'sticky top-0 z-10 overflow-x-hidden border-b border-border bg-card/80 backdrop-blur',
+          SCROLLBAR_GUTTER
+        )}
+      >
         <div role="row" style={{ gridTemplateColumns: gridTemplate }} className="grid items-stretch">
           {columns.map(key => renderColumnHeader(key))}
           <div aria-hidden="true" />

@@ -1,6 +1,6 @@
 /**
  * Verification session host. verify.mjs bundles this file with esbuild and starts it detached
- * (under xvfb-run on headless Linux). It holds one real Salesforce org, one temporary workspace and
+ * (under xvfb-run on Linux unless ALV_E2E_SHOW_VSCODE=1). It holds one real Salesforce org, one temporary workspace and
  * one VS Code window running the extension under development, and serves step modules over a Unix
  * socket so an agent can drive the UI in small increments. Do not run it directly.
  */
@@ -11,18 +11,12 @@ import { pathToFileURL } from 'node:url';
 import { expect } from '@playwright/test';
 import type { Frame, Locator, Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
-import {
-  runCommand,
-  runCommandWhenAvailable,
-  executeCommandId,
-  openView
-} from '../../../../test/e2e/utils/commandPalette';
+import { runCommand, runCommandWhenAvailable, openView } from '../../../../test/e2e/utils/commandPalette';
 import { removePathBestEffort } from '../../../../test/e2e/utils/fsCleanup';
 import { closeQuickInputIfOpen, dismissAllNotifications } from '../../../../test/e2e/utils/notifications';
 import { applyE2eNetworkEnvironment } from '../../../../test/e2e/utils/proxy';
 import { ensureScratchOrg, type ScratchOrgResult } from '../../../../test/e2e/utils/scratchOrg';
 import { clearOrgApexLogs, seedApexErrorLog, seedApexLog } from '../../../../test/e2e/utils/seedLog';
-import { resolveSfCliInvocation } from '../../../../test/e2e/utils/sfCli';
 import { createTempWorkspace } from '../../../../test/e2e/utils/tempWorkspace';
 import * as tooling from '../../../../test/e2e/utils/tooling';
 import {
@@ -30,7 +24,8 @@ import {
   ensureAuxiliaryBarClosed,
   launchVsCode,
   redactPreservedVsCodeUserData,
-  resolveExtensionDevelopmentPath
+  resolveExtensionDevelopmentPath,
+  resolveVsCodeLocale
 } from '../../../../test/e2e/utils/vscode';
 import { waitForWebviewFrame } from '../../../../test/e2e/utils/webviews';
 import { openDebugFlagsFromLogs } from '../../../../test/e2e/specs/debugFlagsPanel.shared';
@@ -52,6 +47,8 @@ type SessionState = {
   userDataDir?: string;
   vscodePid?: number;
   seeded?: { marker: string; logId: string };
+  /** VS Code's display language when the session runs translated, such as `pt-br`; English when absent. */
+  locale?: string;
   build?: Record<string, string>;
 };
 
@@ -63,6 +60,7 @@ const statePath = path.join(sessionDir, 'session.json');
 const explicitTargetOrg = String(process.env.VERIFY_TARGET_ORG || '').trim();
 const seedOnStart = process.env.VERIFY_SEED === '1';
 const recordTrace = process.env.VERIFY_TRACE === '1';
+const locale = resolveVsCodeLocale(process.env.VERIFY_LOCALE);
 const idleMinutes = Math.max(1, Number(process.env.VERIFY_IDLE_MINUTES || 30) || 30);
 const startTimeoutMinutes = 15;
 
@@ -72,7 +70,8 @@ const state: SessionState = {
   socketPath,
   sessionDir,
   evidenceDir,
-  startedAt: new Date().toISOString()
+  startedAt: new Date().toISOString(),
+  ...(locale ? { locale } : {})
 };
 
 let scratch:
@@ -172,8 +171,7 @@ async function countFramesWith(selector: string): Promise<number> {
 /**
  * The Apex Debug Flags editor is a singleton, so an open one would satisfy the wait after a click that never reached
  * the host. Close it first: the only Debug Flags frame the helpers can then find is the one their own click opened.
- * A middle-click closes just that tab; `View: Close Editor` through the palette can run a broader close command,
- * because the palette matches by words and Enter takes its first row.
+ * A middle-click closes just that tab; `View: Close Editor` closes the active editor, which may be another one.
  */
 async function closeDebugFlagsEditor(): Promise<void> {
   const vscodePage = requirePage();
@@ -202,8 +200,6 @@ async function openDebugFlagsFromLogsAfterClosing(): Promise<Frame> {
 /**
  * Right after `Tail Logs` reveals the panel, a forced click on the Tail toolbar is lost (seen twice in a row),
  * so click with Playwright's actionability checks first, then fall back to Enter and a DOM click.
- * Tail opened before the Logs panel picks its org without the workspace target-org, and the Debug Flags editor
- * inherits it, so pin the session org first and refuse to return an editor that targets another org.
  */
 async function openDebugFlagsFromTailWithRetry(): Promise<Frame> {
   const vscodePage = requirePage();
@@ -215,17 +211,11 @@ async function openDebugFlagsFromTailWithRetry(): Promise<Frame> {
   await expect(button).toBeEnabled({ timeout: 180_000 });
   await dismissAllNotifications(vscodePage);
   await closeQuickInputIfOpen(vscodePage);
-  const org = tail.getByRole('combobox').first();
-  if (alias && ((await org.textContent()) || '').trim() !== alias) {
-    await org.click();
-    await tail
-      .locator('[role="listbox"]')
-      .last()
-      .getByRole('option', { name: alias, exact: true })
-      .first()
-      .click({ timeout: 30_000 });
-    await expect(org).toHaveText(alias, { timeout: 30_000 });
-    await expect(tail.getByRole('status')).toHaveCount(0, { timeout: 60_000 });
+  if (alias) {
+    await expect(
+      tail.getByRole('combobox').first(),
+      `Refusing to open Apex Debug Flags, which inherits Tail's org, unless Tail shows the session org '${alias}'`
+    ).toHaveText(alias, { timeout: 30_000 });
   }
   const attempts = [
     () => button.click({ timeout: 15_000 }),
@@ -310,7 +300,6 @@ function createHelpers() {
     runCommand: (title: string) => runCommand(requirePage(), title),
     runCommandWhenAvailable: (title: string, timeoutMs = 90_000) =>
       runCommandWhenAvailable(requirePage(), title, { timeoutMs }),
-    executeCommandId: (commandId: string) => executeCommandId(requirePage(), commandId),
     openView: (viewName: string) => openView(requirePage(), viewName),
     dismissNotifications: () => dismissAllNotifications(requirePage()),
     closeQuickInput: () => closeQuickInputIfOpen(requirePage()),
@@ -366,6 +355,7 @@ function publicSession() {
     workspacePath: state.workspacePath,
     evidenceDir: state.evidenceDir,
     seeded: state.seeded,
+    locale: state.locale,
     repoRoot
   };
 }
@@ -633,8 +623,7 @@ async function start(): Promise<void> {
   };
   log(`org ready: ${scratch.scratchAlias} (${auth.username ?? 'unknown user'})`);
 
-  const sfCli = await resolveSfCliInvocation();
-  workspace = await createTempWorkspace({ targetOrg: scratch.scratchAlias, sfCli: sfCli ?? undefined });
+  workspace = await createTempWorkspace({ targetOrg: scratch.scratchAlias });
   state.workspacePath = workspace.workspacePath;
   await writeState();
 
@@ -645,9 +634,11 @@ async function start(): Promise<void> {
   }
 
   log('launching VS Code with the extension under development...');
+  if (locale) log(`VS Code display language: ${locale} (language pack installed on first use)`);
   const launch = await launchVsCode({
     workspacePath: workspace.workspacePath,
-    extensionDevelopmentPath: resolveExtensionDevelopmentPath(repoRoot)
+    extensionDevelopmentPath: resolveExtensionDevelopmentPath(repoRoot),
+    ...(locale ? { locale } : {})
   });
   app = launch.app;
   page = launch.page;
@@ -674,7 +665,7 @@ async function start(): Promise<void> {
   if (activationErrors.length) {
     throw new Error(`The extension did not activate: ${activationErrors.join(' | ')}`);
   }
-  await runCommand(page, 'View: Close Panel').catch(() => {});
+  await runCommand(page, 'View: Hide Panel').catch(() => {});
   await closeQuickInputIfOpen(page);
   await dismissAllNotifications(page);
   await shot('ready');

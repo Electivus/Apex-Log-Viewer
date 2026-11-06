@@ -2,11 +2,13 @@ import type { LogsDeleteResult } from '@alv/core/contracts';
 import { Flags } from '@salesforce/sf-plugins-core';
 import { AlvCommand } from '../../../command.js';
 import { core } from '../../../core.js';
-import { dryRunFlag, targetOrgFlag, workspaceRootFlag, yesFlag } from '../../../flags.js';
+import { dryRunFlag, targetOrgFlag, yesFlag } from '../../../flags.js';
 import { resolveLogIds } from '../../../logDeleteIds.js';
 
 export default class LogDelete extends AlvCommand<LogsDeleteResult> {
   public static override readonly summary = 'Delete Apex logs with an explicit preview or confirmation.';
+  public static override readonly description =
+    "Deletes the ApexLog records in the org. Local copies under apexlogs/ stay available for offline search, as with the extension's Clear logs action.";
   public static override readonly flags = {
     'dry-run': dryRunFlag,
     'ids-file': Flags.file({ exists: true, summary: 'File containing Apex log ids.' }),
@@ -14,7 +16,14 @@ export default class LogDelete extends AlvCommand<LogsDeleteResult> {
     'log-id': Flags.string({ multiple: true, summary: 'Apex log id; repeat for multiple logs.' }),
     scope: Flags.option({ options: ['mine', 'all'] as const, default: 'mine', summary: 'Deletion scope.' })(),
     'target-org': targetOrgFlag,
-    'workspace-root': workspaceRootFlag,
+    // Accepted so existing scripts keep working; deletion never touches local files.
+    'workspace-root': Flags.directory({
+      deprecated: {
+        message: '--workspace-root has no effect: log delete removes org records only and keeps local copies.'
+      },
+      hidden: true,
+      summary: 'Ignored. Local copies are kept.'
+    }),
     yes: yesFlag
   };
 
@@ -28,8 +37,7 @@ export default class LogDelete extends AlvCommand<LogsDeleteResult> {
         ids,
         limit: flags.limit,
         scope: flags.scope,
-        targetOrg: flags['target-org'],
-        workspaceRoot: flags['workspace-root'] ?? process.cwd()
+        targetOrg: flags['target-org']
       })
     );
   }

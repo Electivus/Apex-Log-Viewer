@@ -1480,10 +1480,10 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
                     { cause: error }
                   )
           });
-        } finally {
-          completed += 1;
-          emit(callOptions, { operation: 'sync', phase: 'materializing', completed, total: rows.length });
         }
+        // A cancelled acquisition rethrows above, so only logs that were saved, found or failed count.
+        completed += 1;
+        emit(callOptions, { operation: 'sync', phase: 'materializing', completed, total: rows.length });
       });
       throwIfUnavailable('sync', callOptions?.signal);
       const newest = rows[0];
@@ -1492,6 +1492,8 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
       let lastSyncedLogId: string | undefined;
       let lastSyncedStartTime: string | undefined;
       let previousRawEntry: Record<string, unknown> | undefined;
+      // True only when this sync moved the checkpoint to a newer log; a repeat sync with nothing new leaves it.
+      let advanced = false;
       try {
         await withSyncStateLock(
           request.workspaceRoot,
@@ -1506,6 +1508,7 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
               (!latest?.lastSyncedStartTime ||
                 newest.startTime > latest.lastSyncedStartTime ||
                 (newest.startTime === latest.lastSyncedStartTime && newest.logId > (latest.lastSyncedLogId ?? '')));
+            advanced = Boolean(candidateIsNewer);
             lastSyncedLogId = candidateIsNewer ? newest.logId : latest?.lastSyncedLogId;
             lastSyncedStartTime = candidateIsNewer ? newest.startTime : latest?.lastSyncedStartTime;
 
@@ -1552,7 +1555,7 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
         downloaded,
         failures,
         checkpoint: {
-          advanced: successful,
+          advanced,
           lastLogId: lastSyncedLogId,
           lastStartTime: lastSyncedStartTime
         }

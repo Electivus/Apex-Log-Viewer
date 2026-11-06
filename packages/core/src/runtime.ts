@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+import { constants as fsConstants, promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -12,6 +12,7 @@ import type {
   DebugLevelListParams,
   DebugLevelUpdateParams,
   DebugLevelWriteResult,
+  DoctorCheck,
   DoctorParams,
   DoctorResult,
   LogsDeleteParams,
@@ -76,6 +77,20 @@ export { AlvError, awaitWithAbort };
 
 export type CoreCallOptions = {
   signal?: AbortSignal;
+};
+
+export type LogSyncProgress = {
+  /** `listing` while log rows are read from the org; `saving` while each listed log is stored locally. */
+  phase: 'listing' | 'saving';
+  /** Rows listed so far, or logs saved so far, failed ones included. */
+  completed: number;
+  /** The number of logs to save, once the listing has ended. */
+  total?: number;
+};
+
+export type LogSyncCallOptions = CoreCallOptions & {
+  /** The listing count, then each saved log. A callback that throws is ignored. */
+  onProgress?: (progress: LogSyncProgress) => void;
 };
 
 export type CaptureCallOptions = CoreCallOptions & {
@@ -245,8 +260,16 @@ export async function resolveLogDeleteIds(params: {
   return Array.from(new Set([...inlineIds, ...fileIds]));
 }
 
-async function getDefaultTargetOrg(): Promise<string | undefined> {
-  const aggregator = await ConfigAggregator.create();
+/** The project whose `.sf/config.json` can name the default org. Without one, the process working directory decides. */
+type ProjectPath = () => string | undefined;
+
+async function projectConfig(projectPath: ProjectPath | undefined): Promise<ConfigAggregator> {
+  const path = projectPath?.();
+  return ConfigAggregator.create(path ? { projectPath: path } : undefined);
+}
+
+async function getDefaultTargetOrg(projectPath: ProjectPath | undefined): Promise<string | undefined> {
+  const aggregator = await projectConfig(projectPath);
   return asString(aggregator.getPropertyValue<string>(OrgConfigProperties.TARGET_ORG));
 }
 
@@ -270,9 +293,10 @@ async function findAliasForUsername(username: string): Promise<string | undefine
 }
 
 async function resolveUsername(
-  usernameOrAlias?: string
+  usernameOrAlias: string | undefined,
+  projectPath: ProjectPath | undefined
 ): Promise<{ requested: string; username: string; alias?: string; source: string }> {
-  const requested = asString(usernameOrAlias) ?? (await getDefaultTargetOrg()) ?? '';
+  const requested = asString(usernameOrAlias) ?? (await getDefaultTargetOrg(projectPath)) ?? '';
   if (!requested) {
     throw new Error('No default Salesforce org is configured. Select an org or run "sf org login web".');
   }
@@ -322,7 +346,7 @@ type OrgConnections = {
   clear(): void;
 };
 
-function createOrgConnections(): OrgConnections {
+function createOrgConnections(projectPath: ProjectPath | undefined): OrgConnections {
   const byUsername = new Map<string, Promise<OrgConnection>>();
   const evict = (username: string, pending: Promise<OrgConnection>): void => {
     if (byUsername.get(username) === pending) byUsername.delete(username);
@@ -338,7 +362,7 @@ function createOrgConnections(): OrgConnections {
   return {
     async use(targetOrg, signal, run) {
       throwIfAborted(signal);
-      const resolved = await awaitWithAbort(resolveUsername(targetOrg), signal);
+      const resolved = await awaitWithAbort(resolveUsername(targetOrg, projectPath), signal);
       const cached = cachedConnection(resolved.username);
       const ctx = { ...(await awaitWithAbort(cached, signal)), alias: resolved.alias };
       try {
@@ -379,8 +403,8 @@ function toOrgAuth(token: unknown, url: unknown, username: string): OrgAuth {
   return { accessToken, instanceUrl, username };
 }
 
-async function getOrgAuthFromCore(params: OrgAuthParams = {}): Promise<OrgAuth> {
-  const resolved = await resolveUsername(params.username);
+async function getOrgAuthFromCore(params: OrgAuthParams, projectPath: ProjectPath | undefined): Promise<OrgAuth> {
+  const resolved = await resolveUsername(params.username, projectPath);
   const authInfo = await AuthInfo.create({ username: resolved.username });
   const fields = authInfo.getFields(true);
   return toOrgAuth(fields.accessToken, fields.instanceUrl, asString(authInfo.getUsername()) ?? resolved.username);
@@ -391,13 +415,12 @@ async function refreshOrgAuth(ctx: ConnectionContext): Promise<OrgAuth> {
   return toOrgAuth(ctx.connection.accessToken, ctx.connection.instanceUrl, ctx.username);
 }
 
-async function listOrgsNative(params: OrgListParams = {}): Promise<OrgListItem[]> {
+async function listOrgsNative(params: OrgListParams, projectPath: ProjectPath | undefined): Promise<OrgListItem[]> {
   const state = await stateAggregator(params.forceRefresh);
   const orgs = await state.orgs.readAll(false);
-  const defaultOrg = await getDefaultTargetOrg();
-  const defaultDevHub = asString(
-    (await ConfigAggregator.create()).getPropertyValue<string>(OrgConfigProperties.TARGET_DEV_HUB)
-  );
+  const config = await projectConfig(projectPath);
+  const defaultOrg = asString(config.getPropertyValue<string>(OrgConfigProperties.TARGET_ORG));
+  const defaultDevHub = asString(config.getPropertyValue<string>(OrgConfigProperties.TARGET_DEV_HUB));
   const mapped = orgs
     .map(fields => {
       const username = asString(fields.username);
@@ -427,10 +450,11 @@ async function listOrgsNative(params: OrgListParams = {}): Promise<OrgListItem[]
 
 async function resolveOrgNative(
   connections: OrgConnections,
-  params: OrgResolveParams = {},
+  params: OrgResolveParams,
+  projectPath: ProjectPath | undefined,
   signal?: AbortSignal
 ): Promise<OrgResolveResult> {
-  const resolved = await resolveUsername(params.targetOrg);
+  const resolved = await resolveUsername(params.targetOrg, projectPath);
   return connections.use(resolved.username, signal, async ctx => ({
     requested: resolved.requested,
     username: ctx.username,
@@ -1104,7 +1128,7 @@ async function traceFlagApplyNative(
   const expirationDate = sfDateTime(new Date(Date.now() + clampInt(params.ttlMinutes, 30, 1, 1440) * 60_000));
   if (params.dryRun || !params.confirmed) {
     return {
-      status: 'dry-run',
+      status: 'success',
       logType: params.logType,
       dryRun: true,
       created: false,
@@ -1177,7 +1201,7 @@ async function traceFlagRemoveNative(
   ).flat();
   if (params.dryRun || !params.confirmed) {
     return {
-      status: 'dry-run',
+      status: 'success',
       logType: params.logType,
       removedCount: 0,
       resolvedTargetCount: targetIds.length,
@@ -1204,8 +1228,59 @@ async function traceFlagRemoveNative(
   };
 }
 
-async function doctorNative(params: DoctorParams = {}): Promise<DoctorResult> {
-  const workspaceRoot = process.cwd();
+const LEGACY_LOG_FILE = /^.+_07L[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?\.log$/;
+
+function errorMessageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** Reads, never creates: a missing apexlogs/ is fine when the first sync can create it in the workspace. */
+async function checkWritableApexlogs(workspaceRoot: string, apexlogsRoot: string): Promise<DoctorCheck> {
+  try {
+    const stat = await fs.stat(apexlogsRoot);
+    if (!stat.isDirectory()) return { ok: false, message: `${apexlogsRoot} is not a directory` };
+    await fs.access(apexlogsRoot, fsConstants.W_OK);
+    return { ok: true, message: 'apexlogs is writable' };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') return { ok: false, message: errorMessageOf(error) };
+  }
+  try {
+    await fs.access(workspaceRoot, fsConstants.W_OK);
+    return {
+      ok: true,
+      message: 'apexlogs does not exist yet; the workspace is writable, so the first sync creates it'
+    };
+  } catch (error) {
+    return { ok: false, message: errorMessageOf(error) };
+  }
+}
+
+/** Reports the layout on disk: org folders under apexlogs/orgs and legacy `<user>_<logId>.log` files at the root. */
+async function checkCacheLayout(apexlogsRoot: string): Promise<DoctorCheck> {
+  const list = async (directory: string) => {
+    try {
+      return await fs.readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return undefined;
+      throw error;
+    }
+  };
+  try {
+    const root = await list(apexlogsRoot);
+    if (!root) return { ok: true, message: 'no apexlogs directory yet' };
+    const orgs = (await list(path.join(apexlogsRoot, 'orgs')))?.filter(entry => entry.isDirectory()).length ?? 0;
+    const legacy = root.filter(entry => entry.isFile() && LEGACY_LOG_FILE.test(entry.name)).length;
+    return {
+      ok: true,
+      message: `org-first layout with ${orgs} org folder(s)${legacy ? `; ${legacy} legacy log file(s) at the apexlogs root` : ''}`
+    };
+  } catch (error) {
+    return { ok: false, message: errorMessageOf(error) };
+  }
+}
+
+async function doctorNative(params: DoctorParams, projectPath: ProjectPath | undefined): Promise<DoctorResult> {
+  const workspaceRoot = path.resolve(asString(params.workspaceRoot) ?? process.cwd());
   const apexlogsRoot = resolveApexlogsRoot(workspaceRoot);
   const result: DoctorResult = {
     status: 'ok',
@@ -1214,19 +1289,23 @@ async function doctorNative(params: DoctorParams = {}): Promise<DoctorResult> {
     arch: process.arch,
     workspaceRoot,
     apexlogsRoot,
-    sf: { ok: true, message: '@salesforce/core is available' },
-    cacheLayout: { ok: true, message: 'org-first apexlogs layout is enabled' },
-    writableApexlogs: { ok: true, message: 'apexlogs is writable' }
+    sf: { ok: true, message: '' },
+    cacheLayout: await checkCacheLayout(apexlogsRoot),
+    writableApexlogs: await checkWritableApexlogs(workspaceRoot, apexlogsRoot)
   };
+  if (!result.writableApexlogs.ok || !result.cacheLayout.ok) result.status = 'error';
   try {
-    await fs.mkdir(apexlogsRoot, { recursive: true });
-    await fs.access(apexlogsRoot);
+    const orgs = await listOrgsNative({}, projectPath);
+    result.sf =
+      orgs.length > 0
+        ? { ok: true, message: `the Salesforce CLI auth store lists ${orgs.length} org(s)` }
+        : { ok: false, message: 'the Salesforce CLI auth store lists no org; run sf org login web' };
   } catch (error) {
-    result.status = 'error';
-    result.writableApexlogs = { ok: false, message: error instanceof Error ? error.message : String(error) };
+    result.sf = { ok: false, message: `the Salesforce CLI auth store could not be read: ${errorMessageOf(error)}` };
   }
+  if (!result.sf.ok && result.status === 'ok') result.status = 'warning';
   try {
-    const auth = await getOrgAuthFromCore({ username: params.targetOrg });
+    const auth = await getOrgAuthFromCore({ username: params.targetOrg }, projectPath);
     result.orgAuth = { ok: true, message: `authenticated as ${auth.username || '(unknown)'}` };
   } catch (error) {
     result.status = result.status === 'error' ? 'error' : 'warning';
@@ -1303,6 +1382,7 @@ export function createApexLogViewerCore(
     instrumentation?: CoreInstrumentation;
     apexLogRemote?: ApexLogRemote;
     surface?: CustomLogEnv['surface'];
+    projectPath?: ProjectPath;
   } = {}
 ) {
   const call = <T>(
@@ -1310,7 +1390,8 @@ export function createApexLogViewerCore(
     callOptions: CoreCallOptions | undefined,
     run: (signal?: AbortSignal) => Promise<T>
   ) => instrumentedCall(options.instrumentation, method, callOptions, run);
-  const connections = createOrgConnections();
+  const { projectPath } = options;
+  const connections = createOrgConnections(projectPath);
   const orgCall = <T>(
     method: string,
     targetOrg: string | undefined,
@@ -1333,7 +1414,7 @@ export function createApexLogViewerCore(
     targetOrg: string | undefined,
     signal: AbortSignal | undefined
   ): Promise<CustomLogEnv> => {
-    const { username } = await awaitWithAbort(resolveUsername(targetOrg), signal);
+    const { username } = await awaitWithAbort(resolveUsername(targetOrg, projectPath), signal);
     return {
       username,
       surface: options.surface ?? 'cli',
@@ -1424,19 +1505,19 @@ export function createApexLogViewerCore(
   return {
     logLifecycle,
     doctor: (params: DoctorParams = {}, callOptions?: CoreCallOptions) =>
-      call('doctor', callOptions, () => doctorNative(params)),
+      call('doctor', callOptions, () => doctorNative(params, projectPath)),
     org: {
       list: (params: OrgListParams = {}, callOptions?: CoreCallOptions) =>
         call('org.list', callOptions, () => {
           if (params.forceRefresh) connections.clear();
-          return listOrgsNative(params);
+          return listOrgsNative(params, projectPath);
         }),
       resolve: (params: OrgResolveParams = {}, callOptions?: CoreCallOptions) =>
-        call('org.resolve', callOptions, signal => resolveOrgNative(connections, params, signal)),
+        call('org.resolve', callOptions, signal => resolveOrgNative(connections, params, projectPath, signal)),
       getAuth: (params: OrgAuthParams = {}, callOptions?: CoreCallOptions) =>
         params.refresh
           ? orgCall('org.getAuth', params.username, callOptions, refreshOrgAuth)
-          : call('org.getAuth', callOptions, () => getOrgAuthFromCore(params))
+          : call('org.getAuth', callOptions, () => getOrgAuthFromCore(params, projectPath))
     },
     log: {
       list: (params: LogsListParams = {}, callOptions?: CoreCallOptions) =>
@@ -1463,10 +1544,11 @@ export function createApexLogViewerCore(
             logUser: row.logUser
           }));
         }),
-      sync: (params: LogsSyncParams = {}, callOptions?: CoreCallOptions) =>
+      sync: (params: LogsSyncParams = {}, callOptions?: LogSyncCallOptions) =>
         call('log.sync', callOptions, async signal => {
           const workspaceRoot = asString(params.workspaceRoot);
           if (!workspaceRoot) throw new AlvError('INVALID_ARGUMENT', 'workspaceRoot is required.');
+          const onProgress = callOptions?.onProgress;
           const result = await rawLogLifecycle.sync(
             {
               workspaceRoot,
@@ -1474,7 +1556,22 @@ export function createApexLogViewerCore(
               mode: params.forceFull ? 'full' : 'incremental',
               concurrency: params.concurrency
             },
-            { signal }
+            {
+              signal,
+              ...(onProgress
+                ? {
+                    observe: event => {
+                      // Each log's own acquisition reports under its operation; only the sync's events count.
+                      if (event.operation !== 'sync') return;
+                      if (event.phase === 'listing-remote') {
+                        onProgress({ phase: 'listing', completed: event.completed ?? 0 });
+                      } else if (event.phase === 'materializing') {
+                        onProgress({ phase: 'saving', completed: event.completed ?? 0, total: event.total });
+                      }
+                    }
+                  }
+                : {})
+            }
           );
           return {
             status: result.status,
