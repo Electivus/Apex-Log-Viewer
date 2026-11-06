@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, FileText, Search } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { cn } from '../../lib/utils';
+import { logViewerEn, type LogViewerMessages } from '../../i18n/logViewer';
 
 interface Props {
   fileName: string;
@@ -14,6 +15,7 @@ interface Props {
   activeMatchIndex?: number;
   onNextMatch?: () => void;
   onPreviousMatch?: () => void;
+  t?: LogViewerMessages;
 }
 
 export function LogViewerHeader({
@@ -25,7 +27,8 @@ export function LogViewerHeader({
   matchCount = 0,
   activeMatchIndex,
   onNextMatch,
-  onPreviousMatch
+  onPreviousMatch,
+  t = logViewerEn
 }: Props) {
   const hasQuery = search.trim().length > 0;
   const totalMatches = matchCount;
@@ -37,8 +40,8 @@ export function LogViewerHeader({
       <div className="flex min-w-0 items-center gap-3">
         <FileText className="h-5 w-5 text-sky-400" />
         <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-foreground">Apex Log Viewer</div>
-          <div className="truncate text-xs text-muted-foreground">{fileName || 'Debug Log Analysis'}</div>
+          <div className="truncate text-sm font-medium text-foreground">{t.title}</div>
+          <div className="truncate text-xs text-muted-foreground">{fileName || t.subtitle}</div>
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -59,7 +62,7 @@ export function LogViewerHeader({
                   }
                 }
               }}
-              placeholder="Search entries…"
+              placeholder={t.searchPlaceholder}
               className={cn('w-64 pl-8 text-sm', disabled && 'opacity-70')}
               disabled={disabled}
               type="search"
@@ -75,7 +78,7 @@ export function LogViewerHeader({
                   onClick={() => onPreviousMatch?.()}
                   disabled={disabled || totalMatches === 0}
                   className="h-6 w-6"
-                  aria-label="Previous match"
+                  aria-label={t.previousMatch}
                 >
                   <ChevronUp className="h-3.5 w-3.5" />
                 </Button>
@@ -85,7 +88,7 @@ export function LogViewerHeader({
                   onClick={() => onNextMatch?.()}
                   disabled={disabled || totalMatches === 0}
                   className="h-6 w-6"
-                  aria-label="Next match"
+                  aria-label={t.nextMatch}
                 >
                   <ChevronDown className="h-3.5 w-3.5" />
                 </Button>
@@ -95,7 +98,7 @@ export function LogViewerHeader({
         </div>
         <Button variant="outline" size="sm" onClick={onViewRaw} disabled={disabled} className="text-sm">
           <FileText className="mr-2 h-4 w-4" />
-          View Raw
+          {t.viewRaw}
         </Button>
       </div>
     </header>

@@ -9,6 +9,7 @@ import { LogViewerStatusBar } from '../components/log-viewer/LogViewerStatusBar'
 import { LogDiagnosticsSidebar } from '../components/log-viewer/LogDiagnosticsSidebar';
 import { LogEntryRow } from '../components/log-viewer/LogEntryRow';
 import { LogEntryList } from '../components/log-viewer/LogEntryList';
+import { logViewerPtBR } from '../i18n/logViewer';
 
 /** A test double for react-window's `List`, whose own return type the doubles do not match. */
 const asVirtualList = (component: (props: any) => React.ReactElement) =>
@@ -103,6 +104,26 @@ describe('Log viewer components', () => {
       expect(showing.textContent?.includes('1,234 entries')).toBe(true);
     });
 
+    it('says entry for one row and entries otherwise, in English and Portuguese', () => {
+      const counts = { total: 2, debug: 1, errors: 0, soql: 0, dml: 0 };
+      const { rerender } = render(
+        <LogViewerFilters active="debug" onChange={() => {}} counts={counts} locale="en-US" />
+      );
+      screen.getByText('1 entry');
+      rerender(<LogViewerFilters active="all" onChange={() => {}} counts={counts} locale="en-US" />);
+      screen.getByText('2 entries');
+      rerender(<LogViewerFilters active="error" onChange={() => {}} counts={counts} locale="en-US" />);
+      screen.getByText('0 entries');
+      rerender(
+        <LogViewerFilters active="debug" onChange={() => {}} counts={counts} locale="pt-BR" t={logViewerPtBR} />
+      );
+      screen.getByText('1 entrada');
+      screen.getByText('Exibindo:');
+      screen.getByText('Somente debug');
+      rerender(<LogViewerFilters active="all" onChange={() => {}} counts={counts} locale="pt-BR" t={logViewerPtBR} />);
+      screen.getByText('2 entradas');
+    });
+
     it('falls back to default locale when Number.toLocaleString throws', () => {
       const original = Number.prototype.toLocaleString;
       Number.prototype.toLocaleString = function mocked(locale?: string) {
@@ -146,6 +167,21 @@ describe('Log viewer components', () => {
       screen.getByText('Size: 1.5 KB');
       expect(screen.getByText(/Updated:/)).toHaveTextContent('Updated:');
       screen.getByText('Ready');
+    });
+
+    it('says Loading while the log is on its way and Not loaded after a failure, not Ready', () => {
+      const counts = { total: 0, debug: 0, errors: 0, soql: 0, dml: 0 };
+      const { rerender } = render(<LogViewerStatusBar counts={counts} locale="en-US" state="loading" />);
+      screen.getByText('Loading…');
+      expect(screen.queryByText('Ready')).toBeNull();
+      rerender(<LogViewerStatusBar counts={counts} locale="en-US" state="failed" />);
+      screen.getByText('Not loaded');
+      expect(screen.queryByText('Ready')).toBeNull();
+      rerender(
+        <LogViewerStatusBar counts={{ ...counts, total: 1234 }} locale="pt-BR" state="ready" t={logViewerPtBR} />
+      );
+      screen.getByText('Pronto');
+      screen.getByText('Total de linhas: 1.234');
     });
 
     it('omits updated timestamp when invalid and recovers from locale failure', () => {
