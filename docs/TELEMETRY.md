@@ -47,6 +47,7 @@ For maintainers
 
 Key runtime event families:
 
+- `extension.activate`: one per activation. `durationMs` runs from the start of activation until project detection and the expired-cache cleanup finish, and `registrationMs` until the views and commands are registered, which happens before anything is awaited.
 - `command.refresh`: command invocation timing for the main refresh workflow.
 - `logs.search`: outcome, latency, match count, pending count, and query-length bucket for the in-view search experience.
 - `cli.command`: coarse latency/outcome for `sf`/`sfdx` process execution.

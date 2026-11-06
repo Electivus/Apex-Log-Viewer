@@ -198,6 +198,44 @@ export function createMissingSupportExtensionsError(missingExtensionIds: string[
   );
 }
 
+const VSCODE_LOCALE_REGEX = /^[a-z]{2,3}(-[a-z0-9]{2,4})?$/;
+
+/**
+ * The display language for a launch, as `--locale` takes it (`pt-br`, `de`, `zh-cn`). Empty, `en` and `en-us`
+ * mean VS Code's own English, which needs no language pack.
+ */
+export function resolveVsCodeLocale(value: unknown): string | undefined {
+  const locale = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  if (!locale || locale === 'en' || locale === 'en-us') {
+    return undefined;
+  }
+  if (!VSCODE_LOCALE_REGEX.test(locale)) {
+    throw new Error(`[e2e] Invalid VS Code locale: ${JSON.stringify(value)}. Use a value such as pt-br, de or zh-cn.`);
+  }
+  return locale;
+}
+
+// Chinese language packs are named after the script, not the region.
+const LANGUAGE_PACK_NAMES: Record<string, string> = { 'zh-cn': 'zh-hans', 'zh-tw': 'zh-hant' };
+
+/** The Marketplace id of Microsoft's language pack for `locale`, for example `ms-ceintl.vscode-language-pack-pt-br`. */
+export function resolveLanguagePackExtensionId(locale: string): string {
+  return `ms-ceintl.vscode-language-pack-${LANGUAGE_PACK_NAMES[locale] ?? locale}`;
+}
+
+/** True once VS Code has listed a language pack for `locale` in the profile's `languagepacks.json`. */
+export async function hasLanguagePackFor(userDataDir: string, locale: string): Promise<boolean> {
+  try {
+    const raw = await readFile(path.join(userDataDir, 'languagepacks.json'), 'utf8');
+    const packs = JSON.parse(raw) as Record<string, unknown>;
+    return Boolean(packs && typeof packs === 'object' && packs[locale]);
+  } catch {
+    return false;
+  }
+}
+
 export function resolveCliSpawnInvocation(
   cliPath: string,
   cliArgs: string[] = [],
@@ -645,6 +683,52 @@ export async function resolveVsCodeAuthLaunch(
   };
 }
 
+const LANGUAGE_PACK_PRIME_TIMEOUT_MS = 90_000;
+
+/**
+ * VS Code applies `--locale` at startup only when the profile's `languagepacks.json` lists that language, and only a
+ * running VS Code writes that file. A fresh profile therefore needs one launch to write it before the real one.
+ */
+async function primeLanguagePack(args: {
+  vscodeExecutablePath: string;
+  userDataDir: string;
+  extensionsDir: string;
+  locale: string;
+  env: { [key: string]: string };
+}): Promise<void> {
+  const app = await electron.launch({
+    executablePath: args.vscodeExecutablePath,
+    args: [
+      `--user-data-dir=${args.userDataDir}`,
+      `--extensions-dir=${args.extensionsDir}`,
+      '--disable-workspace-trust',
+      '--skip-welcome',
+      '--skip-release-notes',
+      '--disable-updates',
+      '--no-sandbox',
+      ...resolveVsCodeCompositingLaunchArgs()
+    ],
+    env: args.env
+  });
+  try {
+    if (shouldConcealVsCodeWindow()) {
+      await concealVsCodeWindows(app).catch(() => {});
+    }
+    const deadline = Date.now() + LANGUAGE_PACK_PRIME_TIMEOUT_MS;
+    while (!(await hasLanguagePackFor(args.userDataDir, args.locale))) {
+      if (Date.now() > deadline) {
+        throw new Error(
+          `[e2e] VS Code did not register the ${args.locale} language pack in ${args.userDataDir} within ` +
+            `${LANGUAGE_PACK_PRIME_TIMEOUT_MS / 1000}s.`
+        );
+      }
+      await sleep(250);
+    }
+  } finally {
+    await closeVsCodeApp(app);
+  }
+}
+
 export async function launchVsCode(options: {
   workspacePath: string;
   extensionDevelopmentPath: string;
@@ -652,15 +736,18 @@ export async function launchVsCode(options: {
   windowSize?: Partial<VscodeWindowSize>;
   additionalExtensionDevelopmentPaths?: string[];
   env?: Record<string, string>;
+  /** VS Code's display language, such as `pt-br`. Installs Microsoft's language pack for it; English when unset. */
+  locale?: string;
 }): Promise<VscodeLaunch> {
   const authLaunch = await resolveVsCodeAuthLaunch();
   applyE2eNetworkEnvironment();
   const vscodeVersion = getVsCodeVersion();
   const vscodeCachePath = resolveVscodeCachePath(options.extensionDevelopmentPath);
-  const supportExtensionIds = await readExtensionReferences(
-    options.extensionDevelopmentPath,
-    options.extensionIds ?? []
-  );
+  const locale = resolveVsCodeLocale(options.locale);
+  const supportExtensionIds = await readExtensionReferences(options.extensionDevelopmentPath, [
+    ...(options.extensionIds ?? []),
+    ...(locale ? [resolveLanguagePackExtensionId(locale)] : [])
+  ]);
   const vscodeDownloadLockPath = path.join(vscodeCachePath, `.download-${sanitizeLockNamePart(vscodeVersion)}.lock`);
   const vscodeExecutablePath = await timeE2eStep(
     'vscode.download',
@@ -699,6 +786,20 @@ export async function launchVsCode(options: {
           })
       )
   );
+  const launchEnv = {
+    ...process.env,
+    ...options.env,
+    ...authLaunch.env,
+    LC_ALL: options.env?.LC_ALL || process.env.LC_ALL || 'C.UTF-8',
+    DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || '/dev/null',
+    NO_AT_BRIDGE: process.env.NO_AT_BRIDGE || '1'
+  };
+  if (locale) {
+    await timeE2eStep(
+      'vscode.primeLanguagePack',
+      async () => await primeLanguagePack({ vscodeExecutablePath, userDataDir, extensionsDir, locale, env: launchEnv })
+    );
+  }
   const args = [
     options.workspacePath,
     `--extensionDevelopmentPath=${options.extensionDevelopmentPath}`,
@@ -709,7 +810,8 @@ export async function launchVsCode(options: {
     '--skip-welcome',
     '--skip-release-notes',
     '--disable-updates',
-    '--no-sandbox'
+    '--no-sandbox',
+    ...(locale ? [`--locale=${locale}`] : [])
   ];
   args.push(...resolveVsCodeCompositingLaunchArgs());
   args.push(...resolveVsCodeProxyLaunchArgs());
@@ -725,14 +827,7 @@ export async function launchVsCode(options: {
       await electron.launch({
         executablePath: vscodeExecutablePath,
         args,
-        env: {
-          ...process.env,
-          ...options.env,
-          ...authLaunch.env,
-          LC_ALL: options.env?.LC_ALL || process.env.LC_ALL || 'C.UTF-8',
-          DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || '/dev/null',
-          NO_AT_BRIDGE: process.env.NO_AT_BRIDGE || '1'
-        }
+        env: launchEnv
       })
   );
 

@@ -691,6 +691,10 @@ describe('DebugFlags webview App', () => {
       expect(note()).toHaveTextContent('A DEVELOPER_LOG trace flag is also active on this target until');
       expect(note()).toHaveTextContent(/2098.*so this USER_DEBUG level does not apply until then\.$/);
       expect(screen.queryByTestId('debug-flags-other-log-type-switch')).toBeNull();
+      const expiration = screen.getByTestId('debug-flags-other-log-type-expiration');
+      expect(expiration).toHaveClass('whitespace-nowrap');
+      expect(expiration).toHaveTextContent(/^\S.*2098.*\S$/);
+      expect(expiration.textContent).not.toContain('{expiration}');
     });
 
     it('counts the matched special targets that carry the overriding DEVELOPER_LOG flag', () => {
@@ -720,6 +724,7 @@ describe('DebugFlags webview App', () => {
       sendMessage(bus, statusFor(user, { logType: 'DEVELOPER_LOG', isActive: false, otherLogType: activeUserDebug }));
 
       expect(note()).toHaveTextContent(/^A USER_DEBUG trace flag is active on this target until .*2099.*\./);
+      expect(screen.getByTestId('debug-flags-other-log-type-expiration')).toHaveClass('whitespace-nowrap');
       fireEvent.click(screen.getByTestId('debug-flags-other-log-type-switch'));
 
       expect(posted.filter(msg => msg.type === 'debugFlagsSelectTarget').pop()).toEqual({

@@ -69,6 +69,44 @@ async function tryWaitForDebugFlagsFrame(page: Page, timeoutMs: number): Promise
   }
 }
 
+async function countDebugFlagsFrames(page: Page): Promise<number> {
+  let count = 0;
+  for (const frame of page.frames()) {
+    if (
+      (await frame
+        .locator('[data-testid="debug-flags-user-search"]')
+        .count()
+        .catch(() => 0)) > 0
+    ) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+/**
+ * The Apex Debug Flags editor is a singleton, so an open one would satisfy the frame wait after a click that never
+ * reached the host. Close it first, so the only Debug Flags frame left to find is the one the next click opens.
+ * A middle-click closes just that tab.
+ */
+async function closeDebugFlagsEditor(page: Page): Promise<void> {
+  const tab = page.locator('.tabs-container .tab[aria-label^="Apex Debug Flags"]');
+  if ((await tab.count()) > 0) {
+    if (!(await page.locator('.part.editor').isVisible())) {
+      // A maximized panel hides the editor area, where the Debug Flags editor opens.
+      await runCommand(page, 'View: Toggle Maximized Panel');
+    }
+    await tab.first().click({ button: 'middle' });
+    await expect(tab).toHaveCount(0, { timeout: 30_000 });
+  }
+  await expect
+    .poll(() => countDebugFlagsFrames(page), {
+      message: 'no Apex Debug Flags frame is left before the click',
+      timeout: 30_000
+    })
+    .toBe(0);
+}
+
 export async function openDebugFlagsFromLogs(vscodePage: Page): Promise<Frame> {
   await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
   await closeQuickInputIfOpen(vscodePage);
@@ -106,18 +144,39 @@ export async function openDebugFlagsFromLogs(vscodePage: Page): Promise<Frame> {
   return await waitForDebugFlagsFrame(vscodePage, 180_000);
 }
 
+/**
+ * Proves that the Tail toolbar button opens Apex Debug Flags: the editor that `openDebugFlagsFromLogs` left open is
+ * closed first. Right after `Tail Logs` reveals the panel, a forced click on the button was lost twice in a row, so
+ * this clicks with Playwright's actionability checks, then falls back to Enter and a DOM click.
+ */
 export async function openDebugFlagsFromTail(vscodePage: Page): Promise<Frame> {
+  await closeDebugFlagsEditor(vscodePage);
   await runCommand(vscodePage, 'Electivus Apex Logs: Tail Logs');
   const tailFrame = await waitForWebviewFrame(
     vscodePage,
     async frame => await frame.locator('[data-testid="tail-open-debug-flags"]').first().isVisible(),
     { timeoutMs: 180_000 }
   );
-  await expect(tailFrame.locator('[data-testid="tail-open-debug-flags"]').first()).toBeEnabled({ timeout: 180_000 });
+  const openDebugFlags = tailFrame.locator('[data-testid="tail-open-debug-flags"]').first();
+  await expect(openDebugFlags).toBeEnabled({ timeout: 180_000 });
   await dismissAllNotifications(vscodePage);
   await closeQuickInputIfOpen(vscodePage);
-  await tailFrame.locator('[data-testid="tail-open-debug-flags"]').first().click({ force: true });
 
+  const attempts = [
+    () => openDebugFlags.click({ timeout: 15_000 }),
+    async () => {
+      await openDebugFlags.focus();
+      await openDebugFlags.press('Enter');
+    },
+    () => openDebugFlags.evaluate((button: HTMLButtonElement) => button.click())
+  ];
+  for (const attempt of attempts) {
+    await attempt().catch(() => {});
+    const frame = await tryWaitForDebugFlagsFrame(vscodePage, 10_000);
+    if (frame) {
+      return frame;
+    }
+  }
   return await waitForDebugFlagsFrame(vscodePage, 180_000);
 }
 

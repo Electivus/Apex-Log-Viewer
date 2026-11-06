@@ -397,6 +397,124 @@ test('a process that finds the lease held stands by, relays what the holder stor
   });
 });
 
+const checkpointAt = (n: number) => ({
+  orgId: '00D000000000001AAA',
+  transport: 'cometd' as const,
+  channel: '/event/App_Log__e',
+  cursor: cursorOf(n),
+  lastEvent: { createdDate: busEvent(n).createdDate, uuid: busEvent(n).uuid }
+});
+
+const shownGaps = (w: ReturnType<typeof watcher>) => {
+  const store = w.updates.at(-1)?.store;
+  return store?.state === 'captured' ? store.gaps : undefined;
+};
+
+test('a standby run shows a gap the lease holder opens without storing a row, once', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+    const holder = await openWriter(openStore(root), 'vscode');
+    await holder.append([busEvent(1)]);
+    await holder.advance(checkpointAt(1));
+    const { clock, deps, hub } = setup(store, { surface: 'cli' });
+    const w = watcher({ follow: true });
+    try {
+      const done = hub.watch(store.location, w.watcher, deps);
+      await until(() => standbyUpdate(w) !== undefined, 'the standby state');
+      assert.deepEqual(shownGaps(w), []);
+
+      const opened = await holder.openGap({ reason: 'cursorRejected', after: busEvent(1).createdDate });
+      await clock.advance(2_000);
+      await until(() => shownGaps(w)?.length === 1, 'the holder gap on the standby run');
+      assert.deepEqual(shownGaps(w), [
+        { reason: 'cursorRejected', after: busEvent(1).createdDate, detectedAt: opened.gap.detectedAt }
+      ]);
+      assert.equal(w.updates.at(-1)?.capture.state, 'standby');
+      assert.equal(w.rows().length, 0, 'a gap brings no row');
+
+      const sent = w.updates.length;
+      await clock.advance(2_000);
+      await clock.advance(2_000);
+      await new Promise<void>(resolve => setTimeout(resolve, 20));
+      assert.equal(w.updates.length, sent, 'an unchanged gap is not sent again');
+
+      w.abort();
+      assert.equal((await resultOf(done)).outcome, 'aborted');
+    } finally {
+      await holder.release();
+    }
+  });
+});
+
+test('a run that takes the lease over shows a gap the previous holder opened after the last standby poll', async () => {
+  await withProject(async root => {
+    const real = openStore(root);
+    // Polls see no gap, so only the read after winning the lease can show it.
+    const store: EventStore = { ...real, gaps: async () => [] };
+    const holder = await openWriter(openStore(root), 'vscode');
+    await holder.append([busEvent(1)]);
+    await holder.advance(checkpointAt(1));
+    const { clock, transport, deps, hub } = setup(store, { surface: 'cli' });
+    const w = watcher({ follow: true });
+    const done = hub.watch(store.location, w.watcher, deps);
+    await until(() => standbyUpdate(w) !== undefined, 'the standby state');
+
+    const opened = await holder.openGap({ reason: 'cursorRejected', after: busEvent(1).createdDate });
+    await clock.advance(2_000);
+    await new Promise<void>(resolve => setTimeout(resolve, 20));
+    assert.deepEqual(shownGaps(w), [], 'the poll read no gap');
+    await holder.release();
+    await clock.advance(2_000);
+
+    const attempt = await transport.opened(0);
+    assert.deepEqual(attempt.from, { kind: 'after', cursor: cursorOf(1) });
+    const takeover = w.updates.find(update => update.capture.state === 'connecting' && update !== w.updates[0]);
+    assert.ok(takeover, 'an update after the takeover');
+    assert.deepEqual(takeover.store.state === 'captured' ? takeover.store.gaps : undefined, [
+      { reason: 'cursorRejected', after: busEvent(1).createdDate, detectedAt: opened.gap.detectedAt }
+    ]);
+    assert.equal(w.rows().length, 0, 'before any event is stored');
+
+    w.abort();
+    assert.equal((await resultOf(done)).outcome, 'aborted');
+  });
+});
+
+test('a run that takes the lease over and cannot read the store view releases the lease', async () => {
+  await withProject(async root => {
+    const real = openStore(root);
+    let failReads = false;
+    const store: EventStore = {
+      ...real,
+      coverage: async () => {
+        if (failReads) throw new Error('EIO: the store view cannot be read');
+        return await real.coverage();
+      }
+    };
+    const holder = await openWriter(openStore(root), 'vscode');
+    await holder.append([busEvent(1)]);
+    await holder.advance(checkpointAt(1));
+    const { clock, transport, deps, hub } = setup(store, { surface: 'cli' });
+    const w = watcher({ follow: true });
+    const done = settledOf(hub.watch(store.location, w.watcher, deps));
+    await until(() => standbyUpdate(w) !== undefined, 'the standby state');
+
+    failReads = true;
+    await holder.release();
+    await clock.advance(2_000);
+
+    const settled = await done;
+    assert.ok('error' in settled, 'the run fails on the read after it took the lease');
+    assert.match(String(settled.error), /EIO/);
+    assert.equal(transport.attempts.length, 0, 'nothing subscribes');
+    assert.equal(
+      fs.existsSync(path.join(objectDirOf(root), 'capture.lease')),
+      false,
+      'the lease is released, so a later run is not left standing by'
+    );
+  });
+});
+
 test('a drain that finds the lease held ends at once with capturedElsewhere and names the holder', async () => {
   await withProject(async root => {
     const store = openStore(root);
@@ -514,6 +632,46 @@ test('a lease taken away mid-run sends the run to standby, drops the batch it co
       assert.equal(second.durableCursor(), cursorOf(2));
       w.abort();
       assert.equal((await resultOf(done)).outcome, 'aborted');
+    } finally {
+      await foreign.die();
+    }
+  });
+});
+
+test('a run that stores an event and then finds its lease taken shows that row once, and the re-delivery adds nothing', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+    await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
+    const { foreign, guarded } = await leaseTakenOnFirstAdvance(root, store);
+    try {
+      const { clock, transport, deps, hub } = setup(guarded);
+      const w = watcher({ follow: true });
+      const done = hub.watch(guarded.location, w.watcher, deps);
+      const first = await transport.opened(0);
+      first.subscribed();
+      first.events(busEvent(3));
+      await clock.advance(250);
+      await until(() => w.states().includes('standby'), 'the standby state after the lease was lost');
+
+      // The process that took the lease receives the event again and stores nothing, so only this run can show it.
+      assert.deepEqual(w.rows(), ['message 3']);
+      assert.equal((await readStored(store)).length, 3, 'the event is on disk');
+
+      await foreign.die();
+      await until(() => clock.pending > 0, 'the standby poll');
+      await clock.advance(2_000);
+      const second = await transport.opened(1);
+      second.subscribed();
+      second.events(busEvent(3));
+      await clock.advance(250);
+      await new Promise<void>(resolve => setTimeout(resolve, 20));
+      assert.deepEqual(w.rows(), ['message 3'], 'the stored event is not shown twice');
+
+      w.abort();
+      const result = await resultOf(done);
+      assert.equal(result.outcome, 'aborted');
+      assert.equal(result.stored, 1);
+      assert.equal(result.delivered, 2);
     } finally {
       await foreign.die();
     }

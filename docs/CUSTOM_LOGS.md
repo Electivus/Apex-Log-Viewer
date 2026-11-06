@@ -827,7 +827,7 @@ A quiet stream that you capture at least every 72 hours raises no `retentionElap
 
 One process captures each event object at a time, so the org sees one subscription and delivers each event once. The process that holds `capture.lease` captures. The file names the holder: the surface (`vscode` or `cli`), the pid, the host, and the start time.
 
-A panel or a `--follow` run that finds the lease held stands by. It shows the stored rows, names the holder, and shows the rows that the holder stores. It checks the lease every 2 seconds. At the first check after the holder's process on the same host ends, it takes the lease and connects. In one measurement against a real org, 3.2 seconds passed between the end of the holder and the resumed capture. A drain that finds the lease held stops with `capturedElsewhere`.
+A panel or a `--follow` run that finds the lease held stands by. It shows the stored rows, names the holder, and shows the rows and the gaps that the holder stores. It checks the lease every 2 seconds. At the first check after the holder's process on the same host ends, it takes the lease and connects. In one measurement against a real org, 3.2 seconds passed between the end of the holder and the resumed capture. A drain that finds the lease held stops with `capturedElsewhere`.
 
 Core never takes a lease from a process that is still alive, from a process on another host, or from a lease it cannot read. An unreadable lease fails with `CUSTOM_LOG_STORE_UNAVAILABLE` and names the file. When the holder is gone and the lease stays, delete `capture.lease`. The hostname of a Mac can change between networks, so a dead local holder can then look like a process on another host. The strip says so in its lease note.
 
