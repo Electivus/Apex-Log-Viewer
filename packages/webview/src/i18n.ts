@@ -75,6 +75,7 @@ export type Messages = {
     matchRequiresFullSearch: string;
     moveUp: string;
     moveDown: string;
+    resizeColumn?: string;
   };
   debugFlags?: {
     open: string;
@@ -118,10 +119,6 @@ export type Messages = {
     statusMixed?: string;
     noStatus: string;
     targetUnavailable?: string;
-    noticeCreated: string;
-    noticeUpdated: string;
-    noticeRemoved: string;
-    noticeNone: string;
     ttlHelper: string;
     managerTitle?: string;
     managerSubtitle?: string;
@@ -217,7 +214,8 @@ const en: Messages = {
     reset: 'Reset to defaults',
     matchRequiresFullSearch: 'Requires full log search',
     moveUp: 'Move up',
-    moveDown: 'Move down'
+    moveDown: 'Move down',
+    resizeColumn: 'Resize {column}'
   },
   debugFlags: {
     open: 'Debug Flags',
@@ -263,10 +261,6 @@ const en: Messages = {
     statusMixed: 'Mixed',
     noStatus: 'No active {logType} trace flag for this target.',
     targetUnavailable: 'This trace flag target is not available in this org.',
-    noticeCreated: 'Debug flag created successfully.',
-    noticeUpdated: 'Debug flag updated successfully.',
-    noticeRemoved: 'Debug flag removed successfully.',
-    noticeNone: 'No USER_DEBUG trace flag found for this target.',
     ttlHelper: 'Default is 30 minutes. Allowed range: 1-1440.',
     managerTitle: 'Debug Level Manager',
     managerSubtitle: 'Create from scratch, apply a preset, or edit an existing DebugLevel field by field.',
@@ -362,7 +356,8 @@ const ptBR: Messages = {
     reset: 'Restaurar padrão',
     matchRequiresFullSearch: 'Requer busca completa',
     moveUp: 'Mover para cima',
-    moveDown: 'Mover para baixo'
+    moveDown: 'Mover para baixo',
+    resizeColumn: 'Redimensionar {column}'
   },
   debugFlags: {
     open: 'Debug Flags',
@@ -408,10 +403,6 @@ const ptBR: Messages = {
     statusMixed: 'Misto',
     noStatus: 'Nenhuma trace flag {logType} ativa para este alvo.',
     targetUnavailable: 'Este alvo de trace flag não está disponível nesta org.',
-    noticeCreated: 'Debug flag criada com sucesso.',
-    noticeUpdated: 'Debug flag atualizada com sucesso.',
-    noticeRemoved: 'Debug flag removida com sucesso.',
-    noticeNone: 'Nenhuma trace flag USER_DEBUG encontrada para este alvo.',
     ttlHelper: 'Padrão de 30 minutos. Faixa permitida: 1-1440.',
     managerTitle: 'Gerenciador de DebugLevel',
     managerSubtitle: 'Crie do zero, aplique um preset ou edite um DebugLevel existente campo por campo.',

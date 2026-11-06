@@ -121,8 +121,8 @@ export class TailService {
         } else {
           logInfo('Tail: TraceFlag updated or already matching for level', debugLevel);
         }
-      } catch {
-        logWarn('Tail: ensure TraceFlag failed (continuing)');
+      } catch (e) {
+        logWarn('Tail: ensure TraceFlag failed (continuing) ->', getErrorMessage(e));
       }
 
       this.connection = await this.getActiveConnection(auth);
@@ -324,17 +324,6 @@ export class TailService {
       }
       lines.push(localize('tailSavedTo', 'Saved to {0}', filePath));
       logInfo('Tail: saved log', id, 'to', filePath);
-      if (id) {
-        this.post({
-          type: 'tailNewLog',
-          logId: id,
-          startTime: r?.StartTime,
-          operation: r?.Operation,
-          status: r?.Status,
-          logLength: typeof r?.LogLength === 'number' ? r.LogLength : undefined,
-          savedPath: filePath
-        });
-      }
     } else {
       logWarn(localize('tailSaveFailed', 'Tail: failed to save log to workspace (best-effort).'));
     }

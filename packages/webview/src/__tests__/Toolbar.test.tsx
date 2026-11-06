@@ -31,6 +31,7 @@ type ToolbarRenderOptions = {
   errorsOnly?: boolean;
   searchLoading?: boolean;
   searchMessage?: string;
+  query?: string;
 };
 
 function renderToolbar(overrides: ToolbarRenderOptions = {}) {
@@ -43,7 +44,8 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
     filterStatus = '',
     errorsOnly = false,
     searchLoading = false,
-    searchMessage
+    searchMessage,
+    query = 'initial'
   } = overrides;
 
   const t = getMessages('en');
@@ -90,7 +92,7 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
         orgs={orgs}
         selectedOrg="u1"
         onSelectOrg={() => {}}
-        query="initial"
+        query={query}
         onQueryChange={value => {
           queryChanges.push(value);
         }}
@@ -180,8 +182,16 @@ describe('Toolbar webview component', () => {
     expect(utils.userChanges).toEqual(['user:User B']);
   });
 
+  it('enables Clear filters when only search text is set, since it clears the search too', () => {
+    const utils = renderToolbar({ query: 'NullPointerException' });
+    const clearButton = screen.getByRole('button', { name: 'Clear filters' });
+    expect(clearButton).not.toBeDisabled();
+    fireEvent.click(clearButton);
+    expect(utils.clearCount()).toBe(1);
+  });
+
   it('disables clear action when no filters and captures query updates', () => {
-    const utils = renderToolbar();
+    const utils = renderToolbar({ query: '  ' });
     expect(screen.queryByLabelText(deprecatedFilterLabel)).toBeNull();
     const clearButton = screen.getByRole('button', { name: 'Clear filters' });
     expect(clearButton).toBeDisabled();

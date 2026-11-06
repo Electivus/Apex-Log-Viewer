@@ -388,6 +388,13 @@ test('core log sync preserves its public result while using the shared lifecycle
     assert.equal(result.failed, 0);
     assert.equal(result.checkpointAdvanced, true);
     assert.equal(result.lastSyncedLogId, logId);
+
+    // Nothing new: the sync succeeds but leaves the checkpoint where it was.
+    const again = await core.log.sync({ targetOrg: username, workspaceRoot });
+    assert.equal(again.status, 'success');
+    assert.equal(again.downloaded, 0);
+    assert.equal(again.checkpointAdvanced, false);
+    assert.equal(again.lastSyncedLogId, logId);
   } finally {
     core.dispose();
     await fs.rm(workspaceRoot, { recursive: true, force: true });
