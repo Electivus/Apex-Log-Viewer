@@ -266,7 +266,7 @@ A raw value that no table maps has no `level`, and a level filter never matches 
 
 ### Configuration issues
 
-The parser reads each source on its own. A source with an error is skipped, and the other sources and the built-in sources still load. If a skipped source reused a built-in id, the built-in source is used again. `sources --json` returns every issue in `issues`, and the panel lists them as **Configuration issues**.
+The parser reads each source on its own. A source with an error is skipped, and the other sources and the built-in sources still load. If a skipped source reused a built-in id, the built-in source is used again. `sources --json` returns every issue in `issues`, and the panel lists them as **Configuration issues**: above the filter bar while a source is ready, or with the state of each source when none is.
 
 | Code              | Severity | Meaning                                                                                             |
 | ----------------- | -------- | --------------------------------------------------------------------------------------------------- |

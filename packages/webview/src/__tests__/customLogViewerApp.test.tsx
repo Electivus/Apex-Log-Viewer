@@ -250,6 +250,16 @@ describe('Custom Log viewer app', () => {
       expect(screen.getByTestId('custom-log-apex-hint')).not.toHaveTextContent('trace flag');
     });
 
+    it('says the org could not be reached, not that the user lacks access, when the lookup was offline', () => {
+      mountViewer({ apexLog: { state: 'unavailable', reason: 'offline' } });
+
+      expect(screen.queryByRole('button', { name: 'Open Apex log' })).toBeNull();
+      expect(screen.getByTestId('custom-log-apex-hint')).toHaveTextContent(
+        'Could not reach the org to look up the Apex debug log for this request.'
+      );
+      expect(screen.getByTestId('custom-log-apex-hint')).not.toHaveTextContent('You cannot read debug logs');
+    });
+
     it('pluralizes the header counts', () => {
       mountViewer({ log: { ...log, counts: { entries: 1, errors: 2, warnings: 1 } } });
 

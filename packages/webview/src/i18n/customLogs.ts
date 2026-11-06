@@ -188,6 +188,7 @@ export type CustomLogsMessages = {
     apexLinked: string;
     apexNotFound: string;
     apexUnavailable: string;
+    apexOffline: string;
     apexNoRequestId: string;
     headerPayload: string;
     search: string;
@@ -442,6 +443,7 @@ export const customLogsEn: CustomLogsMessages = {
     apexLinked: 'Open the Apex debug log of the same request',
     apexNotFound: 'No Apex debug log for this request: no trace flag was active, or Salesforce already deleted it.',
     apexUnavailable: 'You cannot read debug logs in this org.',
+    apexOffline: 'Could not reach the org to look up the Apex debug log for this request.',
     apexNoRequestId: 'This log has no request id, so it cannot be linked to an Apex debug log.',
     headerPayload: 'Header payload',
     search: 'Search entries…',
@@ -699,6 +701,7 @@ export const customLogsPtBR: CustomLogsMessages = {
     apexNotFound:
       'Não há log de debug do Apex para esta requisição: nenhuma trace flag estava ativa ou o Salesforce já o excluiu.',
     apexUnavailable: 'Você não tem permissão para ler logs de debug nesta org.',
+    apexOffline: 'Não foi possível acessar a org para buscar o log de debug do Apex desta requisição.',
     apexNoRequestId: 'Este log não tem id de requisição, então não dá para ligá-lo a um log de debug do Apex.',
     headerPayload: 'Payload do cabeçalho',
     search: 'Buscar entradas…',
