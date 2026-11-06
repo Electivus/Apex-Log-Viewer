@@ -47,7 +47,7 @@ function parseFlags(argv) {
       const [key, inline] = arg.slice(2).split('=', 2);
       if (inline !== undefined) {
         flags[key] = inline;
-      } else if (['target-org', 'idle-minutes'].includes(key)) {
+      } else if (['target-org', 'idle-minutes', 'locale'].includes(key)) {
         flags[key] = argv[++i];
       } else {
         flags[key] = true;
@@ -345,6 +345,7 @@ async function start(flags) {
     VERIFY_TARGET_ORG: targetOrg,
     VERIFY_SEED: seed ? '1' : '0',
     VERIFY_TRACE: flags.trace ? '1' : '0',
+    VERIFY_LOCALE: typeof flags.locale === 'string' ? flags.locale : '',
     VERIFY_IDLE_MINUTES: String(flags['idle-minutes'] || process.env.VERIFY_IDLE_MINUTES || 30),
     ALV_NODE_BIN_PATH: process.env.ALV_NODE_BIN_PATH || process.execPath,
     SF_SCRATCH_POOL_OWNER: process.env.SF_SCRATCH_POOL_OWNER || `verify:${hostname()}`,
@@ -388,6 +389,7 @@ async function start(flags) {
             org: state.org,
             workspacePath: state.workspacePath,
             seeded: state.seeded,
+            ...(state.locale ? { locale: state.locale } : {}),
             evidenceDir: path.relative(repoRoot, state.evidenceDir)
           },
           null,

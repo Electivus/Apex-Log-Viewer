@@ -5,10 +5,12 @@ import {
   closeVsCodeApp,
   concealVsCodeWindows,
   createMissingSupportExtensionsError,
+  hasLanguagePackFor,
   redactPreservedVsCodeUserData,
   resolveCachedSupportExtensionsDir,
   resolveCliSpawnInvocation,
   resolveExtensionDevelopmentPath,
+  resolveLanguagePackExtensionId,
   resolveSupportExtensionsLockPath,
   resolveVscodeCachePath,
   resolveVscodeDownloadTimeoutMs,
@@ -16,6 +18,7 @@ import {
   resolveSupportExtensionIds,
   resolveVsCodeAuthLaunch,
   resolveVsCodeCompositingLaunchArgs,
+  resolveVsCodeLocale,
   shouldConcealVsCodeWindow
 } from '../vscode';
 
@@ -91,6 +94,52 @@ describe('resolveSupportExtensionIds', () => {
       'salesforce.'
     ]) {
       expect(() => resolveSupportExtensionIds([id])).toThrow(/Invalid VS Code Marketplace extension id/);
+    }
+  });
+});
+
+describe('VS Code display language', () => {
+  test('takes a locale as --locale does, in lower case, and treats English as no locale', () => {
+    expect(resolveVsCodeLocale(' pt-BR ')).toBe('pt-br');
+    expect(resolveVsCodeLocale('de')).toBe('de');
+    expect(resolveVsCodeLocale('zh-CN')).toBe('zh-cn');
+    for (const english of [undefined, '', '  ', 'en', 'EN-us']) {
+      expect(resolveVsCodeLocale(english)).toBeUndefined();
+    }
+  });
+
+  test('rejects a locale that could carry another argument or a path', () => {
+    for (const value of ['pt-br --disable-extensions', 'pt_br', '../pt-br', 'portuguese', 'pt-br;rm']) {
+      expect(() => resolveVsCodeLocale(value)).toThrow(/Invalid VS Code locale/);
+    }
+  });
+
+  test("names Microsoft's language pack for the locale, which Chinese names by script", () => {
+    expect(resolveLanguagePackExtensionId('pt-br')).toBe('ms-ceintl.vscode-language-pack-pt-br');
+    expect(resolveLanguagePackExtensionId('de')).toBe('ms-ceintl.vscode-language-pack-de');
+    expect(resolveLanguagePackExtensionId('zh-cn')).toBe('ms-ceintl.vscode-language-pack-zh-hans');
+    expect(resolveLanguagePackExtensionId('zh-tw')).toBe('ms-ceintl.vscode-language-pack-zh-hant');
+    expect(resolveSupportExtensionIds([resolveLanguagePackExtensionId('pt-br')])).toEqual([
+      'ms-ceintl.vscode-language-pack-pt-br'
+    ]);
+  });
+
+  test('sees the language pack only once VS Code lists the locale in languagepacks.json', async () => {
+    const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-langpacks-'));
+    try {
+      expect(await hasLanguagePackFor(userDataDir, 'pt-br')).toBe(false);
+      await writeFile(path.join(userDataDir, 'languagepacks.json'), '{', 'utf8');
+      expect(await hasLanguagePackFor(userDataDir, 'pt-br')).toBe(false);
+      await writeFile(path.join(userDataDir, 'languagepacks.json'), JSON.stringify({ de: { hash: 'a' } }), 'utf8');
+      expect(await hasLanguagePackFor(userDataDir, 'pt-br')).toBe(false);
+      await writeFile(
+        path.join(userDataDir, 'languagepacks.json'),
+        JSON.stringify({ 'pt-br': { hash: 'b', translations: {} } }),
+        'utf8'
+      );
+      expect(await hasLanguagePackFor(userDataDir, 'pt-br')).toBe(true);
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
     }
   });
 });

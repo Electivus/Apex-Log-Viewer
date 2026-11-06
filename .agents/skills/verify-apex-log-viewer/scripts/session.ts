@@ -30,7 +30,8 @@ import {
   ensureAuxiliaryBarClosed,
   launchVsCode,
   redactPreservedVsCodeUserData,
-  resolveExtensionDevelopmentPath
+  resolveExtensionDevelopmentPath,
+  resolveVsCodeLocale
 } from '../../../../test/e2e/utils/vscode';
 import { waitForWebviewFrame } from '../../../../test/e2e/utils/webviews';
 import { openDebugFlagsFromLogs } from '../../../../test/e2e/specs/debugFlagsPanel.shared';
@@ -52,6 +53,8 @@ type SessionState = {
   userDataDir?: string;
   vscodePid?: number;
   seeded?: { marker: string; logId: string };
+  /** VS Code's display language when the session runs translated, such as `pt-br`; English when absent. */
+  locale?: string;
   build?: Record<string, string>;
 };
 
@@ -63,6 +66,7 @@ const statePath = path.join(sessionDir, 'session.json');
 const explicitTargetOrg = String(process.env.VERIFY_TARGET_ORG || '').trim();
 const seedOnStart = process.env.VERIFY_SEED === '1';
 const recordTrace = process.env.VERIFY_TRACE === '1';
+const locale = resolveVsCodeLocale(process.env.VERIFY_LOCALE);
 const idleMinutes = Math.max(1, Number(process.env.VERIFY_IDLE_MINUTES || 30) || 30);
 const startTimeoutMinutes = 15;
 
@@ -72,7 +76,8 @@ const state: SessionState = {
   socketPath,
   sessionDir,
   evidenceDir,
-  startedAt: new Date().toISOString()
+  startedAt: new Date().toISOString(),
+  ...(locale ? { locale } : {})
 };
 
 let scratch:
@@ -366,6 +371,7 @@ function publicSession() {
     workspacePath: state.workspacePath,
     evidenceDir: state.evidenceDir,
     seeded: state.seeded,
+    locale: state.locale,
     repoRoot
   };
 }
@@ -645,9 +651,11 @@ async function start(): Promise<void> {
   }
 
   log('launching VS Code with the extension under development...');
+  if (locale) log(`VS Code display language: ${locale} (language pack installed on first use)`);
   const launch = await launchVsCode({
     workspacePath: workspace.workspacePath,
-    extensionDevelopmentPath: resolveExtensionDevelopmentPath(repoRoot)
+    extensionDevelopmentPath: resolveExtensionDevelopmentPath(repoRoot),
+    ...(locale ? { locale } : {})
   });
   app = launch.app;
   page = launch.page;

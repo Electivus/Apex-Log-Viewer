@@ -4,6 +4,7 @@
 
 ### Maintenance
 
+- Verify skill: `verify.mjs start --locale pt-br` runs VS Code and the extension in another display language. The harness installs Microsoft's language pack for it and opens the fresh profile once so VS Code registers the pack, so translated panels and notices can be checked in the product. E2E code can pass the same `locale` to `launchVsCode`.
 - Telemetry: the Debug Flags `debugFlags.apply` and `debugFlags.remove` events now carry `logType` (`DEVELOPER_LOG` or `USER_DEBUG`), so usage shows how often people move away from the `DEVELOPER_LOG` default. `telemetry.json` and `docs/TELEMETRY.md` declare the new property.
 - E2E: `pnpm run test:e2e -- <spec>` and `pnpm run test:e2e:cli -- <spec>` run only that spec again; the runners drop the `--` that pnpm forwards, which made Playwright ignore the filter and run the whole suite.
 - E2E: keep VS Code hidden during Playwright runs by default. Linux runs use Xvfb even when a `DISPLAY` exists, and macOS and Windows make the native window transparent and click-through. Set `ALV_E2E_SHOW_VSCODE=1` to watch a run.
