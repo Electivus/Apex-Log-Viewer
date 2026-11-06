@@ -11,12 +11,7 @@ import { pathToFileURL } from 'node:url';
 import { expect } from '@playwright/test';
 import type { Frame, Locator, Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
-import {
-  runCommand,
-  runCommandWhenAvailable,
-  executeCommandId,
-  openView
-} from '../../../../test/e2e/utils/commandPalette';
+import { runCommand, runCommandWhenAvailable, openView } from '../../../../test/e2e/utils/commandPalette';
 import { removePathBestEffort } from '../../../../test/e2e/utils/fsCleanup';
 import { closeQuickInputIfOpen, dismissAllNotifications } from '../../../../test/e2e/utils/notifications';
 import { applyE2eNetworkEnvironment } from '../../../../test/e2e/utils/proxy';
@@ -177,8 +172,7 @@ async function countFramesWith(selector: string): Promise<number> {
 /**
  * The Apex Debug Flags editor is a singleton, so an open one would satisfy the wait after a click that never reached
  * the host. Close it first: the only Debug Flags frame the helpers can then find is the one their own click opened.
- * A middle-click closes just that tab; `View: Close Editor` through the palette can run a broader close command,
- * because the palette matches by words and Enter takes its first row.
+ * A middle-click closes just that tab; `View: Close Editor` closes the active editor, which may be another one.
  */
 async function closeDebugFlagsEditor(): Promise<void> {
   const vscodePage = requirePage();
@@ -207,8 +201,6 @@ async function openDebugFlagsFromLogsAfterClosing(): Promise<Frame> {
 /**
  * Right after `Tail Logs` reveals the panel, a forced click on the Tail toolbar is lost (seen twice in a row),
  * so click with Playwright's actionability checks first, then fall back to Enter and a DOM click.
- * Tail opened before the Logs panel picks its org without the workspace target-org, and the Debug Flags editor
- * inherits it, so pin the session org first and refuse to return an editor that targets another org.
  */
 async function openDebugFlagsFromTailWithRetry(): Promise<Frame> {
   const vscodePage = requirePage();
@@ -220,17 +212,11 @@ async function openDebugFlagsFromTailWithRetry(): Promise<Frame> {
   await expect(button).toBeEnabled({ timeout: 180_000 });
   await dismissAllNotifications(vscodePage);
   await closeQuickInputIfOpen(vscodePage);
-  const org = tail.getByRole('combobox').first();
-  if (alias && ((await org.textContent()) || '').trim() !== alias) {
-    await org.click();
-    await tail
-      .locator('[role="listbox"]')
-      .last()
-      .getByRole('option', { name: alias, exact: true })
-      .first()
-      .click({ timeout: 30_000 });
-    await expect(org).toHaveText(alias, { timeout: 30_000 });
-    await expect(tail.getByRole('status')).toHaveCount(0, { timeout: 60_000 });
+  if (alias) {
+    await expect(
+      tail.getByRole('combobox').first(),
+      `Refusing to open Apex Debug Flags, which inherits Tail's org, unless Tail shows the session org '${alias}'`
+    ).toHaveText(alias, { timeout: 30_000 });
   }
   const attempts = [
     () => button.click({ timeout: 15_000 }),
@@ -315,7 +301,6 @@ function createHelpers() {
     runCommand: (title: string) => runCommand(requirePage(), title),
     runCommandWhenAvailable: (title: string, timeoutMs = 90_000) =>
       runCommandWhenAvailable(requirePage(), title, { timeoutMs }),
-    executeCommandId: (commandId: string) => executeCommandId(requirePage(), commandId),
     openView: (viewName: string) => openView(requirePage(), viewName),
     dismissNotifications: () => dismissAllNotifications(requirePage()),
     closeQuickInput: () => closeQuickInputIfOpen(requirePage()),
@@ -682,7 +667,7 @@ async function start(): Promise<void> {
   if (activationErrors.length) {
     throw new Error(`The extension did not activate: ${activationErrors.join(' | ')}`);
   }
-  await runCommand(page, 'View: Close Panel').catch(() => {});
+  await runCommand(page, 'View: Hide Panel').catch(() => {});
   await closeQuickInputIfOpen(page);
   await dismissAllNotifications(page);
   await shot('ready');

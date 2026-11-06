@@ -57,6 +57,8 @@ function createExtensionHarness(options: {
   const webviewProviderRegistrations: Array<{ viewId: string; options?: any }> = [];
   const customLogsRegistrations: Array<{ logsSelectedOrg: () => string | undefined }> = [];
   const clipboardWrites: string[] = [];
+  const codeLensSelectors: unknown[] = [];
+  const apexLogEditorContextRegistrations: number[] = [];
 
   const vscodeStub = {
     version: '1.90.0',
@@ -105,7 +107,10 @@ function createExtensionHarness(options: {
       executeCommand: async () => undefined
     },
     languages: {
-      registerCodeLensProvider: () => createDisposable()
+      registerCodeLensProvider: (selector: unknown) => {
+        codeLensSelectors.push(selector);
+        return createDisposable();
+      }
     }
   };
 
@@ -195,6 +200,12 @@ function createExtensionHarness(options: {
     './provider/SfLogsViewProvider': { SfLogsViewProvider: FakeLogsViewProvider },
     './provider/SfLogTailViewProvider': { SfLogTailViewProvider: FakeTailViewProvider },
     './provider/ApexLogCodeLensProvider': { ApexLogCodeLensProvider: FakeCodeLensProvider },
+    './host/apexLogEditorContext': {
+      registerApexLogEditorContext: () => {
+        apexLogEditorContextRegistrations.push(1);
+        return createDisposable();
+      }
+    },
     './host/customLogsFeature': {
       registerCustomLogsFeature: (_context: unknown, logsSelectedOrg: () => string | undefined) => {
         customLogsRegistrations.push({ logsSelectedOrg });
@@ -329,7 +340,9 @@ function createExtensionHarness(options: {
     logsRefreshCalls,
     webviewProviderRegistrations,
     customLogsRegistrations,
-    clipboardWrites
+    clipboardWrites,
+    codeLensSelectors,
+    apexLogEditorContextRegistrations
   };
 }
 
@@ -460,6 +473,20 @@ suite('extension activation gating', () => {
     const refreshEvent = harness.events.find(event => event.name === 'command.refresh');
     assert.deepEqual(refreshEvent?.props, { outcome: 'invoked' });
     assert.equal(typeof refreshEvent?.measurements?.durationMs, 'number');
+  });
+
+  test('offers Open in Apex Log Viewer for Apex logs that open in the Log language mode', async () => {
+    const harness = createExtensionHarness({});
+
+    await harness.extension.activate(createContext());
+
+    assert.deepEqual(harness.codeLensSelectors, [
+      [
+        { scheme: 'file', language: 'apexlog' },
+        { scheme: 'file', language: 'log' }
+      ]
+    ]);
+    assert.equal(harness.apexLogEditorContextRegistrations.length, 1, 'the editor-title button needs its context key');
   });
 
   test('registers retained sidebar webviews', async () => {

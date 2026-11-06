@@ -41,20 +41,10 @@ export default async function ({ page, h, expect, session, args }) {
   let stepError;
   try {
     await idle();
-    // Tail opened before the Logs panel resolves its org from the extension host's working directory, not the
-    // workspace target-org (#1224), so pin the session org.
-    const org = tail.getByRole('combobox').first();
-    if (((await org.textContent()) || '').trim() !== session.org.alias) {
-      await org.click();
-      await tail
-        .locator('[role="listbox"]')
-        .last()
-        .getByRole('option', { name: session.org.alias, exact: true })
-        .first()
-        .click({ timeout: 30_000 });
-      await expect(org).toHaveText(session.org.alias, { timeout: 30_000 });
-      await idle();
-    }
+    await expect(
+      tail.getByRole('combobox').first(),
+      `Refusing to press Start, which writes a trace flag, unless Tail shows the session org '${session.org.alias}'`
+    ).toHaveText(session.org.alias, { timeout: 30_000 });
     // A tail left running by an earlier step would skip Start, and its flag changes would look like the baseline.
     await stopTail();
     debugOnlyWasOn = (await debugOnly.getAttribute('aria-checked')) === 'true';
@@ -104,10 +94,6 @@ export default async function ({ page, h, expect, session, args }) {
       `Tail did not start on ${session.org.alias} with level ${await levelText()} (see Gotchas in features/tail.md)`
     ).toBeVisible({ timeout: 60_000 });
 
-    // Stop appears before the /systemTopic/Logging subscription is live, and Salesforce does not stream a log
-    // written in that window (#1225: one written 70 ms after "subscribed" never arrived). The UI shows no
-    // readiness signal, so wait a few seconds before writing the log.
-    await h.sleep(5_000);
     // h.seedLog() would renew the seed flag Tail just moved (or, after a Start at another level, fail on
     // Tail's overlapping flag), so run the anonymous Apex directly; Tail's own trace flag makes the log.
     const marker = `ALV_TAIL_MARKER_${Date.now()}`;

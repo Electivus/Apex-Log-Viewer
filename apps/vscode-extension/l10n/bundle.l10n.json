@@ -85,6 +85,7 @@
   "Select an authenticated org": "Select an authenticated org",
   "Starting Apex Replay Debugger…": "Starting Apex Replay Debugger…",
   "Syncing logs from the selected org…": "Syncing logs from the selected org…",
+  "Salesforce did not acknowledge the log subscription within {0} seconds.": "Salesforce did not acknowledge the log subscription within {0} seconds.",
   "Tail stopped after 30 minutes.": "Tail stopped after 30 minutes.",
   "Tail: failed to save log to workspace (best-effort).": "Tail: failed to save log to workspace (best-effort).",
   "The trace flag target \"{0}\" is not available in this org.": "The trace flag target \"{0}\" is not available in this org.",
