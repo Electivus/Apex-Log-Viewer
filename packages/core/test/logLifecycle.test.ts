@@ -1253,8 +1253,9 @@ test('Apex Log Lifecycle merges a concurrent shared sync-state writer without re
 
     const result = await syncing;
     const document = JSON.parse(await fs.readFile(stateFile, 'utf8'));
+    // The other writer's newer checkpoint stays, so this sync did not advance it.
     assert.deepEqual(result.checkpoint, {
-      advanced: true,
+      advanced: false,
       lastLogId: newerLogId,
       lastStartTime: '2026-07-21T12:00:00.000Z'
     });

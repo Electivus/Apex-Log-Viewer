@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+import { constants as fsConstants, promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -12,6 +12,7 @@ import type {
   DebugLevelListParams,
   DebugLevelUpdateParams,
   DebugLevelWriteResult,
+  DoctorCheck,
   DoctorParams,
   DoctorResult,
   LogsDeleteParams,
@@ -1113,7 +1114,7 @@ async function traceFlagApplyNative(
   const expirationDate = sfDateTime(new Date(Date.now() + clampInt(params.ttlMinutes, 30, 1, 1440) * 60_000));
   if (params.dryRun || !params.confirmed) {
     return {
-      status: 'dry-run',
+      status: 'success',
       logType: params.logType,
       dryRun: true,
       created: false,
@@ -1186,7 +1187,7 @@ async function traceFlagRemoveNative(
   ).flat();
   if (params.dryRun || !params.confirmed) {
     return {
-      status: 'dry-run',
+      status: 'success',
       logType: params.logType,
       removedCount: 0,
       resolvedTargetCount: targetIds.length,
@@ -1213,8 +1214,59 @@ async function traceFlagRemoveNative(
   };
 }
 
+const LEGACY_LOG_FILE = /^.+_07L[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?\.log$/;
+
+function errorMessageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** Reads, never creates: a missing apexlogs/ is fine when the first sync can create it in the workspace. */
+async function checkWritableApexlogs(workspaceRoot: string, apexlogsRoot: string): Promise<DoctorCheck> {
+  try {
+    const stat = await fs.stat(apexlogsRoot);
+    if (!stat.isDirectory()) return { ok: false, message: `${apexlogsRoot} is not a directory` };
+    await fs.access(apexlogsRoot, fsConstants.W_OK);
+    return { ok: true, message: 'apexlogs is writable' };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') return { ok: false, message: errorMessageOf(error) };
+  }
+  try {
+    await fs.access(workspaceRoot, fsConstants.W_OK);
+    return {
+      ok: true,
+      message: 'apexlogs does not exist yet; the workspace is writable, so the first sync creates it'
+    };
+  } catch (error) {
+    return { ok: false, message: errorMessageOf(error) };
+  }
+}
+
+/** Reports the layout on disk: org folders under apexlogs/orgs and legacy `<user>_<logId>.log` files at the root. */
+async function checkCacheLayout(apexlogsRoot: string): Promise<DoctorCheck> {
+  const list = async (directory: string) => {
+    try {
+      return await fs.readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return undefined;
+      throw error;
+    }
+  };
+  try {
+    const root = await list(apexlogsRoot);
+    if (!root) return { ok: true, message: 'no apexlogs directory yet' };
+    const orgs = (await list(path.join(apexlogsRoot, 'orgs')))?.filter(entry => entry.isDirectory()).length ?? 0;
+    const legacy = root.filter(entry => entry.isFile() && LEGACY_LOG_FILE.test(entry.name)).length;
+    return {
+      ok: true,
+      message: `org-first layout with ${orgs} org folder(s)${legacy ? `; ${legacy} legacy log file(s) at the apexlogs root` : ''}`
+    };
+  } catch (error) {
+    return { ok: false, message: errorMessageOf(error) };
+  }
+}
+
 async function doctorNative(params: DoctorParams, projectPath: ProjectPath | undefined): Promise<DoctorResult> {
-  const workspaceRoot = process.cwd();
+  const workspaceRoot = path.resolve(asString(params.workspaceRoot) ?? process.cwd());
   const apexlogsRoot = resolveApexlogsRoot(workspaceRoot);
   const result: DoctorResult = {
     status: 'ok',
@@ -1223,17 +1275,21 @@ async function doctorNative(params: DoctorParams, projectPath: ProjectPath | und
     arch: process.arch,
     workspaceRoot,
     apexlogsRoot,
-    sf: { ok: true, message: '@salesforce/core is available' },
-    cacheLayout: { ok: true, message: 'org-first apexlogs layout is enabled' },
-    writableApexlogs: { ok: true, message: 'apexlogs is writable' }
+    sf: { ok: true, message: '' },
+    cacheLayout: await checkCacheLayout(apexlogsRoot),
+    writableApexlogs: await checkWritableApexlogs(workspaceRoot, apexlogsRoot)
   };
+  if (!result.writableApexlogs.ok || !result.cacheLayout.ok) result.status = 'error';
   try {
-    await fs.mkdir(apexlogsRoot, { recursive: true });
-    await fs.access(apexlogsRoot);
+    const orgs = await listOrgsNative({}, projectPath);
+    result.sf =
+      orgs.length > 0
+        ? { ok: true, message: `the Salesforce CLI auth store lists ${orgs.length} org(s)` }
+        : { ok: false, message: 'the Salesforce CLI auth store lists no org; run sf org login web' };
   } catch (error) {
-    result.status = 'error';
-    result.writableApexlogs = { ok: false, message: error instanceof Error ? error.message : String(error) };
+    result.sf = { ok: false, message: `the Salesforce CLI auth store could not be read: ${errorMessageOf(error)}` };
   }
+  if (!result.sf.ok && result.status === 'ok') result.status = 'warning';
   try {
     const auth = await getOrgAuthFromCore({ username: params.targetOrg }, projectPath);
     result.orgAuth = { ok: true, message: `authenticated as ${auth.username || '(unknown)'}` };
