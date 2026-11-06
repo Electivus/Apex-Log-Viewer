@@ -18,7 +18,7 @@ export type DiscoveredField = {
   path: string;
   types: CustomLogPayloadType[];
   type: PayloadFieldType;
-  /** Loaded rows that carry the path. For a grouped array path, the largest count of any index. */
+  /** Loaded rows that carry the path. Core groups array indexes before it counts, so for `tags[]` it is the rows with any tag. */
   rows: number;
   /** Percent of loaded rows, 0 to 100. */
   share: number;

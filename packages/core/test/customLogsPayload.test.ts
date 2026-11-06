@@ -7,6 +7,7 @@ import {
   decodePayload,
   docOfText,
   readEntrySlot,
+  groupArrayIndexes,
   selectPayloadPaths,
   summarizePayloadFields,
   toLongValue,
@@ -115,6 +116,46 @@ test('selectPayloadPaths trims a parsed view and lets the other states through',
   assert.deepEqual((onlyA as typeof view).cutValues, []);
   assert.deepEqual(selectPayloadPaths({ state: 'text' }, new Set(['a'])), { state: 'text' });
   assert.deepEqual(selectPayloadPaths({ state: 'hidden' }, new Set()), { state: 'hidden' });
+});
+
+test('the page summary groups array indexes, so a long array is one path counted once per row', () => {
+  const views = [
+    parsed('{"metrics":[{"name":"a","value":1},{"name":"b","value":2},{"name":"c","value":"x"}],"tags":["t1","t2"]}'),
+    parsed('{"metrics":[{"name":"d"}],"grid":[[1,2],[3]]}'),
+    parsed('[{"status":200},{"status":502}]')
+  ];
+
+  assert.deepEqual(summarizePayloadFields(views), [
+    { path: 'metrics[].name', types: ['string'], rows: 2 },
+    { path: 'metrics[].value', types: ['string', 'number'], rows: 1 },
+    { path: 'tags[]', types: ['string'], rows: 1 },
+    { path: 'grid[][]', types: ['number'], rows: 1 },
+    { path: '[].status', types: ['number'], rows: 1 }
+  ]);
+  assert.equal(groupArrayIndexes('metrics[12].tags[0]'), 'metrics[].tags[]');
+  assert.equal(groupArrayIndexes('order.id'), 'order.id');
+});
+
+test('selectPayloadPaths keeps every item for a [] path and one item for an indexed path', () => {
+  const long = 'y'.repeat(CUSTOM_LOG_PAYLOAD_LIMITS.valueChars + 1);
+  const view = parsed(`{"metrics":[{"name":"a","note":"${long}"},{"name":"b"}],"grid":[[1,2],[3]],"seq":7}`);
+
+  const grouped = selectPayloadPaths(view, new Set(['metrics[].name', 'metrics[].note', 'grid[][]']));
+  const indexed = selectPayloadPaths(view, new Set(['metrics[1].name', 'seq']));
+  // `[]` stands for every index of the path, as in the panel: a path that mixes `[]` and `[0]` names nothing.
+  const mixed = selectPayloadPaths(view, new Set(['grid[0][]']));
+
+  assert.deepEqual((grouped as typeof view).values, {
+    'metrics[0].name': 'a',
+    'metrics[0].note': long.slice(0, CUSTOM_LOG_PAYLOAD_LIMITS.valueChars),
+    'metrics[1].name': 'b',
+    'grid[0][0]': 1,
+    'grid[0][1]': 2,
+    'grid[1][0]': 3
+  });
+  assert.deepEqual((grouped as typeof view).cutValues, ['metrics[0].note']);
+  assert.deepEqual((indexed as typeof view).values, { 'metrics[1].name': 'b', seq: 7 });
+  assert.deepEqual((mixed as typeof view).values, {});
 });
 
 test('customLogTextFormat, exported for the extension, is the rule a long value uses', () => {

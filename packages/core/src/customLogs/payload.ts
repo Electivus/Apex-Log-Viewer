@@ -203,15 +203,35 @@ function typeOf(value: CustomLogScalar): CustomLogPayloadType {
   return value === null ? 'null' : (typeof value as CustomLogPayloadType);
 }
 
-/** Paths seen across one page's parsed views, with the JSON types found at each and how many rows have them, in first-seen order. */
+const ARRAY_INDEX = /\[\d+\]/g;
+
+/**
+ * A path with every array index written `[]`: `metrics[0].name` and `metrics[1].name` are both
+ * `metrics[].name`. The panel groups paths the same way, so `[]` means the same thing in its filter,
+ * in `payload.columns` and in `--payload-fields`.
+ */
+export function groupArrayIndexes(path: string): string {
+  return path.includes('[') ? path.replace(ARRAY_INDEX, '[]') : path;
+}
+
+/**
+ * Paths seen across one page's parsed views, with the JSON types found at each and how many rows have
+ * them, in first-seen order. Array indexes are grouped (`groupArrayIndexes`), so a long array is one
+ * path, and a row counts once for it whatever the number of items.
+ */
 export function summarizePayloadFields(views: readonly CustomLogPayloadView[]): CustomLogPayloadField[] {
   const seen = new Map<string, { types: Set<CustomLogPayloadType>; rows: number }>();
   for (const view of views) {
     if (view.state !== 'parsed') continue;
-    for (const [path, value] of Object.entries(view.values)) {
+    const inRow = new Set<string>();
+    for (const [indexed, value] of Object.entries(view.values)) {
+      const path = groupArrayIndexes(indexed);
       const field = seen.get(path) ?? { types: new Set(), rows: 0 };
       field.types.add(typeOf(value));
-      field.rows++;
+      if (!inRow.has(path)) {
+        inRow.add(path);
+        field.rows++;
+      }
       seen.set(path, field);
     }
   }
@@ -222,13 +242,18 @@ export function summarizePayloadFields(views: readonly CustomLogPayloadView[]): 
   }));
 }
 
-/** `payloadFields` (CLI `--payload-fields`): keep only these paths in a parsed view's `values`. Other states pass through. */
+/**
+ * `payloadFields` (CLI `--payload-fields`): keep only these paths in a parsed view's `values`. A path
+ * is kept when `keep` names it exactly (`metrics[0].name`) or grouped (`metrics[].name`, every item).
+ * Other states pass through.
+ */
 export function selectPayloadPaths(view: CustomLogPayloadView, keep: ReadonlySet<string>): CustomLogPayloadView {
   if (view.state !== 'parsed') return view;
+  const kept = (path: string): boolean => keep.has(path) || keep.has(groupArrayIndexes(path));
   return {
     ...view,
-    values: Object.fromEntries(Object.entries(view.values).filter(([path]) => keep.has(path))),
-    cutValues: view.cutValues.filter(path => keep.has(path))
+    values: Object.fromEntries(Object.entries(view.values).filter(([path]) => kept(path))),
+    cutValues: view.cutValues.filter(kept)
   };
 }
 

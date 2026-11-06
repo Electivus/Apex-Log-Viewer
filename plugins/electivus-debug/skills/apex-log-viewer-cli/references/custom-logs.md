@@ -51,11 +51,11 @@ sf electivus custom-log get --log-id a0A000000000001AAA --target-org my-org --mi
 
 ## Filter JSON payloads
 
-When a source in `sources` has a `payload` field, rows and entries have `payload.state`. The states are `parsed`, `invalid`, `text`, `empty`, and `hidden`. A `parsed` payload has `values`, keyed by flattened paths such as `orderId`, `http.status`, or `lines[0].sku`. Each page also returns `payloadFields`, which lists every path seen on that page.
+When a source in `sources` has a `payload` field, rows and entries have `payload.state`. The states are `parsed`, `invalid`, `text`, `empty`, and `hidden`. A `parsed` payload has `values`, keyed by flattened paths such as `orderId`, `http.status`, or `lines[0].sku`. Each page also returns `payloadFields`, which lists every path seen on that page with array indexes grouped as `[]`, such as `lines[].sku`.
 
 An event source can map `payload.entries` (one or more fields that each hold a JSON array) so that each element is a row. Then `values` holds the paths of the element, relative to it, such as `traceId`. Roles can read these paths, so levels, users and transaction ids of such rows are per entry.
 
-Salesforce cannot filter long text, so filter the loaded rows with `jq`. `--payload-fields` keeps only the named paths in `values`:
+Salesforce cannot filter long text, so filter the loaded rows with `jq`. `--payload-fields` keeps only the named paths in `values`. `lines[].sku` keeps the `sku` of every line, and `lines[0].sku` only the first:
 
 ```bash
 sf electivus custom-log list --target-org my-org --source app-log --since 7d --limit 200 --payload-fields orderId,http.status --json \
