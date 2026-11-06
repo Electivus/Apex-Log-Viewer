@@ -34,7 +34,7 @@ Explain observed missing capabilities. Do not install or update software just to
 
 The first sync enumerates available logs and saves their bodies. Later syncs fetch activity since the shared checkpoint. Reuse the corpus for multiple searches; discover transactions by local content rather than listing and downloading individual logs.
 
-Salesforce CLI wraps values in `result`. **An outer `status: 0` can contain a partial sync.** Read `result.status`, `failed`, `failures`, and `checkpointAdvanced`. Failure entries contain log IDs and stable codes. Repeating sync can recover a partial run; diagnose persistent authentication or disk failures rather than retrying indefinitely.
+Salesforce CLI wraps values in `result`. **An outer `status: 0` can contain a partial sync.** Read `result.status`, `failed`, and `failures`; `checkpointAdvanced` is `true` only when this sync moved the checkpoint to a newer log, so it is `false` both after a partial sync and when there was nothing new. Failure entries contain log IDs and stable codes. Repeating sync can recover a partial run; diagnose persistent authentication or disk failures rather than retrying indefinitely.
 
 Use `orgLogsRoot` as the canonical search directory and consider legacy files under `apexlogsRoot`. On older plugins derive the canonical path from `log status`'s `apexlogsRoot` and `safeTargetOrg`. Read [references/local-search.md](references/local-search.md) for search recipes, org isolation and empty-result diagnosis.
 
