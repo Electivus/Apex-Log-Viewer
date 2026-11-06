@@ -7,6 +7,7 @@ import {
   type ApexLogViewerCore,
   type AvailableLocalPathsResult,
   type CoreInstrumentation,
+  type LogSyncProgress,
   type PurgeApexLogsResult,
   type ReadApexLogResult
 } from '@alv/core';
@@ -320,9 +321,13 @@ export class CoreClient {
     }));
   }
 
-  public logsSync(params: LogsSyncParams = {}, signal?: AbortSignal): Promise<LogsSyncResult> {
+  public logsSync(
+    params: LogsSyncParams = {},
+    signal?: AbortSignal,
+    onProgress?: (progress: LogSyncProgress) => void
+  ): Promise<LogsSyncResult> {
     const normalized = this.withWorkspaceRoot(params);
-    return this.call(signal, () => this.core.log.sync(normalized, { signal }));
+    return this.call(signal, () => this.core.log.sync(normalized, { signal, onProgress }));
   }
 
   public logsStatus(params: LogsStatusParams = {}, signal?: AbortSignal): Promise<LogsStatusResult> {

@@ -1480,10 +1480,10 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
                     { cause: error }
                   )
           });
-        } finally {
-          completed += 1;
-          emit(callOptions, { operation: 'sync', phase: 'materializing', completed, total: rows.length });
         }
+        // A cancelled acquisition rethrows above, so only logs that were saved, found or failed count.
+        completed += 1;
+        emit(callOptions, { operation: 'sync', phase: 'materializing', completed, total: rows.length });
       });
       throwIfUnavailable('sync', callOptions?.signal);
       const newest = rows[0];

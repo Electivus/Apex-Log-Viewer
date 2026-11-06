@@ -132,7 +132,7 @@ const ptBrByLegacyKey = {
   downloadAllLogsSummaryCancelledDuringSync:
     'Download em massa cancelado durante a sincronização dos logs da org selecionada.',
   downloadAllLogsNoLogs: 'Nenhum log Apex foi encontrado para a org selecionada.',
-  downloadAllLogsSummaryCancelled: 'Download em massa cancelado. Processados {0}/{1}. Sucesso: {2}, falhas: {3}.',
+  downloadAllLogsSummaryCancelledAfter: 'Download em massa cancelado após processar {0} de {1} logs.',
   downloadAllLogsSummaryPartial: 'Download em massa concluído com sucesso parcial. Sucesso: {0}, falhas: {1}.',
   downloadAllLogsSummarySuccess:
     'Download em massa concluído. {0} logs estão disponíveis localmente ({1} baixados, {2} já em cache).',

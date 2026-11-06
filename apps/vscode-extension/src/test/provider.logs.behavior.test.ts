@@ -1619,6 +1619,80 @@ suite('SfLogsViewProvider behavior', () => {
     assert.equal(errorCalls.length, 0, 'should not show hard error toast for listing abort');
   });
 
+  test('downloadAllLogs moves its progress bar as core saves each log', async () => {
+    const { SfLogsViewProvider, cli, vscode: vscodeMock } = createProviderHarness();
+    const provider = new SfLogsViewProvider(makeContext());
+    cli.logsSync = async (_params: any, _signal?: AbortSignal, onProgress?: (progress: any) => void) => {
+      onProgress?.({ phase: 'listing', completed: 0 });
+      for (let completed = 0; completed <= 3; completed++) {
+        onProgress?.({ phase: 'saving', completed, total: 3 });
+      }
+      return {
+        status: 'success',
+        downloaded: 2,
+        cached: 1,
+        failed: 0,
+        checkpointAdvanced: true,
+        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json'
+      };
+    };
+    const reports: Array<{ increment?: number; message?: string }> = [];
+    vscodeMock.window.showWarningMessage = async (...args: any[]) => args[2];
+    vscodeMock.window.showInformationMessage = async () => undefined;
+    vscodeMock.window.withProgress = async (_opts: any, task: any) =>
+      task(
+        { report: (value: { increment?: number; message?: string }) => reports.push(value) },
+        { onCancellationRequested: () => {}, isCancellationRequested: false }
+      );
+
+    await (provider as any).downloadAllLogs();
+
+    assert.equal(reports.at(-1)?.message, 'Processed 3/3 logs…');
+    assert.equal(
+      reports.reduce((sum, report) => sum + (report.increment ?? 0), 0),
+      100,
+      'the bar fills once, as the logs are saved'
+    );
+  });
+
+  test('downloadAllLogs says how many logs a cancelled download processed', async () => {
+    const { SfLogsViewProvider, cli, vscode: vscodeMock } = createProviderHarness();
+    const provider = new SfLogsViewProvider(makeContext());
+    let cancel: (() => void) | undefined;
+    cli.logsSync = async (_params: any, signal?: AbortSignal, onProgress?: (progress: any) => void) => {
+      onProgress?.({ phase: 'saving', completed: 0, total: 4 });
+      await new Promise(resolve => setTimeout(resolve, 120));
+      onProgress?.({ phase: 'saving', completed: 2, total: 4 });
+      cancel?.();
+      assert.equal(signal?.aborted, true);
+      throw new Error('The operation was aborted');
+    };
+    const reports: Array<{ increment?: number; message?: string }> = [];
+    const warnings: string[] = [];
+    vscodeMock.window.showWarningMessage = async (...args: any[]) => {
+      warnings.push(String(args[0]));
+      return args[2];
+    };
+    vscodeMock.window.showErrorMessage = async (message: string) => {
+      throw new Error(`unexpected error toast: ${message}`);
+    };
+    vscodeMock.window.withProgress = async (_opts: any, task: any) =>
+      task(
+        { report: (value: { increment?: number; message?: string }) => reports.push(value) },
+        {
+          onCancellationRequested: (listener: () => void) => {
+            cancel = listener;
+          },
+          isCancellationRequested: false
+        }
+      );
+
+    await (provider as any).downloadAllLogs();
+
+    assert.equal(reports.at(-1)?.message, 'Processed 2/4 logs…');
+    assert.equal(warnings.at(-1), 'Bulk download cancelled after processing 2 of 4 logs.');
+  });
+
   test('openDebugFlags opens debug flags panel', async () => {
     const { SfLogsViewProvider, DebugFlagsPanel } = createProviderHarness();
     const opened: Array<{ selectedOrg?: string; sourceView?: string }> = [];
