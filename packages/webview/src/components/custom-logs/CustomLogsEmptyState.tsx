@@ -25,6 +25,46 @@ function describeSource(t: CustomLogsMessages, source: CustomLogSourceView): str
   }
 }
 
+/** The mapping issues of `sfdx-project.json`, or nothing when there are none. */
+export function CustomLogsConfigIssues({
+  t,
+  issues,
+  className
+}: {
+  t: CustomLogsMessages;
+  issues: readonly CustomLogConfigIssueView[];
+  className?: string;
+}) {
+  if (issues.length === 0) return null;
+  return (
+    <section
+      aria-label={t.empty.issues}
+      data-testid="custom-logs-config-issues"
+      className={className ? `flex flex-col gap-1 ${className}` : 'flex flex-col gap-1'}
+    >
+      <h3 className="text-xs font-semibold tracking-wide text-muted-foreground">{t.empty.issues}</h3>
+      <ul className="flex flex-col gap-1 text-xs">
+        {issues.map((issue, index) => (
+          <li
+            key={`${issue.pointer}-${index}`}
+            className={
+              issue.severity === 'error'
+                ? 'flex items-start gap-1.5 text-destructive'
+                : 'flex items-start gap-1.5 text-amber-400'
+            }
+          >
+            <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
+            <span>
+              <b>{issue.severity === 'error' ? t.empty.issueError : t.empty.issueWarning}</b>{' '}
+              <code className="font-mono">{issue.pointer}</code>: {issue.message}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** Shown when no source can list rows: what each source reports, the mapping issues, and a way to fix the mapping. */
 export function CustomLogsEmptyState({ t, sources, issues, onConfigure }: CustomLogsEmptyStateProps) {
   const reasons = sources
@@ -43,29 +83,7 @@ export function CustomLogsEmptyState({ t, sources, issues, onConfigure }: Custom
           ))}
         </ul>
       ) : null}
-      {issues.length > 0 ? (
-        <section aria-label={t.empty.issues} className="flex flex-col gap-1">
-          <h3 className="text-xs font-semibold tracking-wide text-muted-foreground">{t.empty.issues}</h3>
-          <ul className="flex flex-col gap-1 text-xs">
-            {issues.map((issue, index) => (
-              <li
-                key={`${issue.pointer}-${index}`}
-                className={
-                  issue.severity === 'error'
-                    ? 'flex items-start gap-1.5 text-destructive'
-                    : 'flex items-start gap-1.5 text-amber-400'
-                }
-              >
-                <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
-                <span>
-                  <b>{issue.severity === 'error' ? t.empty.issueError : t.empty.issueWarning}</b>{' '}
-                  <code className="font-mono">{issue.pointer}</code>: {issue.message}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      <CustomLogsConfigIssues t={t} issues={issues} />
       <div>
         <Button type="button" variant="secondary" className="flex items-center gap-2" onClick={onConfigure}>
           <Settings className="h-4 w-4" aria-hidden="true" />
