@@ -286,7 +286,8 @@ function lockPackageSource(packageMeta) {
 // The reader accepts only the YAML subset that pnpm writes (block mappings and
 // sequences, single-line flow collections, plain/quoted/block scalars) and fails
 // closed on anything else: comments, anchors, aliases, tags, merge keys, duplicate
-// keys, multi-line flow or quoted scalars, tabs, control characters, and line
+// keys, explicit `? ` keys, multi-line flow or quoted scalars, tabs, control
+// characters, lines that start with a Unicode space other than U+0020, and line
 // breaks other than LF or CRLF. Anything it cannot read the way a YAML parser
 // would is reported, never skipped.
 
@@ -328,12 +329,23 @@ function scalarNode(lineNumber, value, segments = [{ lineNumber, text: value }])
   return { kind: 'scalar', lineNumber, value, segments };
 }
 
+// YAML separates and indents with U+0020 only (tabs are rejected up front).
+// String.prototype.trim() also strips Unicode spaces such as U+00A0 and U+3000,
+// which YAML reads as content, so the reader never uses it.
+function trimSpaces(text) {
+  return trimEndSpaces(text.replace(/^ +/u, ''));
+}
+
+function trimEndSpaces(text) {
+  return text.replace(/ +$/u, '');
+}
+
 function indentOf(text) {
-  return text.length - text.trimStart().length;
+  return /^ */u.exec(text)[0].length;
 }
 
 function isBlank(text) {
-  return text.trim() === '';
+  return /^ *$/u.test(text);
 }
 
 function isSequenceEntry(text, indent) {
@@ -402,16 +414,16 @@ function assertPlainScalar(value, lineNumber, inFlow) {
   if ('-?:'.includes(first) && (value.length === 1 || value[1] === ' ' || (inFlow && ',[]{}'.includes(value[1])))) {
     throw new PnpmLockSyntaxError(lineNumber, `plain scalar starts with indicator ${first}`);
   }
-  if (/\s#/u.test(value)) {
+  if (value.includes(' #')) {
     throw new PnpmLockSyntaxError(lineNumber, 'comment');
   }
-  if (/:(?:\s|$)/u.test(value)) {
+  if (/:(?: |$)/u.test(value)) {
     throw new PnpmLockSyntaxError(lineNumber, 'unexpected mapping indicator in a plain scalar');
   }
   if (inFlow && /[[\]{}]/u.test(value)) {
     throw new PnpmLockSyntaxError(lineNumber, 'flow indicator in a plain scalar');
   }
-  if (value !== value.trim()) {
+  if (value !== trimSpaces(value)) {
     throw new PnpmLockSyntaxError(lineNumber, 'unexpected whitespace around a plain scalar');
   }
 }
@@ -433,7 +445,7 @@ function readFlowScalar(text, start, lineNumber) {
     if (char === ':' && (end + 1 === text.length || ' ,[]{}'.includes(text[end + 1]))) break;
     end += 1;
   }
-  const value = text.slice(start, end).trimEnd();
+  const value = trimEndSpaces(text.slice(start, end));
   assertPlainScalar(value, lineNumber, true);
   return { node: scalarNode(lineNumber, value), end: start + value.length };
 }
@@ -502,7 +514,7 @@ function readFlowSequence(text, start, lineNumber) {
 function readInlineValue(text, lineNumber) {
   if (text[0] === '{' || text[0] === '[' || text[0] === "'" || text[0] === '"') {
     const { node, end } = readFlowNode(text, 0, lineNumber);
-    if (text.slice(end).trim() !== '') {
+    if (!isBlank(text.slice(end))) {
       throw new PnpmLockSyntaxError(lineNumber, 'unexpected text after a value');
     }
     return node;
@@ -522,7 +534,15 @@ class PnpmLockReader {
       this.position += 1;
     }
     const line = this.lines[this.position];
-    if (line && line.text.trimStart().startsWith('#')) {
+    if (!line) return line;
+    const content = line.text.slice(indentOf(line.text));
+    // Fail closed when a structural line starts with any other Unicode space,
+    // even though YAML would read it as content: no pnpm key starts with one.
+    if (/^\s/u.test(content)) {
+      const codePoint = content.codePointAt(0).toString(16).toUpperCase().padStart(4, '0');
+      throw new PnpmLockSyntaxError(line.lineNumber, `non-space whitespace U+${codePoint} in the indentation`);
+    }
+    if (content.startsWith('#')) {
       throw new PnpmLockSyntaxError(line.lineNumber, 'comment');
     }
     return line;
@@ -557,7 +577,7 @@ class PnpmLockReader {
         throw new PnpmLockSyntaxError(line.lineNumber, 'unexpected indentation');
       }
       this.position += 1;
-      const text = line.text.trimEnd();
+      const text = trimEndSpaces(line.text);
       const { key, rest } = this.readKey(text, indent, line.lineNumber);
       if (keys.has(key.value)) {
         throw new PnpmLockSyntaxError(line.lineNumber, `duplicate key ${key.value}`);
@@ -578,8 +598,15 @@ class PnpmLockReader {
 
   readKey(text, indent, lineNumber) {
     const body = text.slice(indent);
+    // js-yaml writes a key longer than 1024 characters as an explicit `? key`
+    // followed by `: value`. pnpm caps the peer suffix of a lockfile key at 1000
+    // characters, so only a long package name and a near-limit suffix reach it;
+    // this repository's longest key has 258. Such a lockfile fails closed here.
     if (body.startsWith('? ') || body === '?') {
-      throw new PnpmLockSyntaxError(lineNumber, 'complex mapping key');
+      throw new PnpmLockSyntaxError(
+        lineNumber,
+        'explicit "? " mapping key, which pnpm writes only for a key over 1024 characters'
+      );
     }
     let key;
     let afterKey;
@@ -603,7 +630,7 @@ class PnpmLockReader {
     if (afterKey !== ':' && !afterKey.startsWith(': ')) {
       throw new PnpmLockSyntaxError(lineNumber, 'mapping entry without a key');
     }
-    return { key, rest: afterKey.slice(1).trim() };
+    return { key, rest: trimSpaces(afterKey.slice(1)) };
   }
 
   readNestedBlock(indent, lineNumber) {
@@ -625,10 +652,7 @@ class PnpmLockReader {
         throw new PnpmLockSyntaxError(line.lineNumber, 'unexpected indentation');
       }
       this.position += 1;
-      const item = line.text
-        .trimEnd()
-        .slice(indent + 1)
-        .trim();
+      const item = trimSpaces(line.text.slice(indent + 1));
       if (!item || item[0] === '|' || item[0] === '>') {
         throw new PnpmLockSyntaxError(line.lineNumber, 'unsupported sequence entry');
       }

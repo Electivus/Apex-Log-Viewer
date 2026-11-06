@@ -834,7 +834,11 @@ test('pnpm lockfile: allows a deprecation message with a URL in every scalar sty
     'folded block':
       'deprecated: >-\n      See https://github.com/aws/aws-sdk-js-v3/issues/8393\n        and github:aws/aws-sdk-js-v3',
     'block with an indentation indicator':
-      'deprecated: |2-\n        Indented: https://github.com/aws/aws-sdk-js-v3/issues/8393\n      next https://example.com/x'
+      'deprecated: |2-\n        Indented: https://github.com/aws/aws-sdk-js-v3/issues/8393\n      next https://example.com/x',
+    // YAML reads U+00A0 and U+3000 as content, not indentation.
+    'plain with Unicode spaces': 'deprecated: \u00a0Moved\u00a0to\u3000https://example.com/x\u00a0',
+    'block literal with Unicode spaces':
+      'deprecated: |-\n      \u00a0\u00a0Moved to https://example.com/x\n      \u3000see notes\n      \u00a0'
   };
   for (const [style, deprecated] of Object.entries(styles)) {
     await t.test(style, () => {
@@ -976,6 +980,24 @@ test('pnpm lockfile: a deprecation message cannot hide a source on the lines aft
     'line separator': {
       deprecated: `deprecated: see the notice\u2028    ${evilResolution}`,
       expected: /unsupported YAML \(unsupported character U\+2028\)/
+    },
+    // YAML indents only with U+0020. JavaScript's trim() also strips these, so a
+    // reader that counted them would keep the next package inside the message.
+    'package indented with no-break spaces after a block message': {
+      deprecated: `deprecated: |-\n      see the notice\n  \u00a0\u00a0\u00a0\u00a0evil@1.0.0:\n      ${evilResolution}`,
+      expected: /unsupported YAML \(non-space whitespace U\+00A0 in the indentation\)/
+    },
+    'package indented with ideographic spaces after a block message': {
+      deprecated: `deprecated: |-\n      see the notice\n  \u3000\u3000\u3000\u3000evil@1.0.0:\n      ${evilResolution}`,
+      expected: /unsupported YAML \(non-space whitespace U\+3000 in the indentation\)/
+    },
+    'field indented with no-break spaces after a plain message': {
+      deprecated: `deprecated: see the notice\n  \u00a0\u00a0tarball: https://evil.example/core.tgz`,
+      expected: /unsupported YAML \(non-space whitespace U\+00A0 in the indentation\)/
+    },
+    'line of no-break spaces inside a block message': {
+      deprecated: `deprecated: |-\n      see the notice\n\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\n      ${evilResolution}`,
+      expected: /unsupported YAML \(non-space whitespace U\+00A0 in the indentation\)/
     }
   };
   for (const [name, { deprecated, expected }] of Object.entries(cases)) {
@@ -995,7 +1017,16 @@ test('pnpm lockfile: fails closed on YAML that pnpm does not write', async t => 
     alias: ['  tslib@2.8.1: *shared', /\(plain scalar starts with indicator \*\)/],
     tag: ['  tslib@2.8.1: !!map {}', /\(plain scalar starts with indicator !\)/],
     'merge key': ['  tslib@2.8.1:\n    <<: {dependencies: {}}', /\(merge key\)/],
-    'complex key': ['  ? tslib@2.8.1\n  : {}', /\(complex mapping key\)/],
+    'explicit key': [
+      '  ? tslib@2.8.1\n  : {}',
+      /\(explicit "\? " mapping key, which pnpm writes only for a key over 1024 characters\)/
+    ],
+    // The shape js-yaml writes for a key over 1024 characters, value on the `:` line.
+    'key over 1024 characters': [
+      `  ? tslib@2.8.1(${'a'.repeat(1030)})\n  : dependencies:\n      foo: 1.0.0\n\n  tslib@2.8.1: {}`,
+      /\(explicit "\? " mapping key, which pnpm writes only for a key over 1024 characters\)/
+    ],
+    'complex key in a flow mapping': ['  tslib@2.8.1: {[a]: b}', /\(complex mapping key\)/],
     'block scalar header with a comment': [
       '  tslib@2.8.1:\n    notice: |- # note\n      text',
       /\(unsupported block scalar header\)/
