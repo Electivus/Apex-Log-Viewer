@@ -6,7 +6,6 @@ import { test } from '../fixtures/alvPoolLease';
 import { runCommandWhenAvailable } from '../utils/commandPalette';
 import { closeQuickInputIfOpen, dismissAllNotifications } from '../utils/notifications';
 import { seedApexLog } from '../utils/seedLog';
-import { resolveSfCliInvocation } from '../utils/sfCli';
 import { createTempWorkspace } from '../utils/tempWorkspace';
 import { getOrgAuth } from '../utils/tooling';
 import { launchVsCode, resolveExtensionDevelopmentPath } from '../utils/vscode';
@@ -109,10 +108,8 @@ async function writeReport(userDataDir: string): Promise<void> {
 test('host congestion lab: click-to-start wait in the extension host queue', async ({ scratchAlias }) => {
   for (let i = 0; i < seedLogs; i++) await seedApexLog(scratchAlias);
   const auth = await getOrgAuth(scratchAlias);
-  const sfCli = await resolveSfCliInvocation();
   const ws = await createTempWorkspace({
     targetOrg: scratchAlias,
-    sfCli: sfCli ?? undefined,
     settings: { 'electivus.apexLogViewer.logging.trace': true }
   });
   if (emptyDayDirs > 0 && auth.username) await createEmptyDayDirs(ws.workspacePath, auth.username, emptyDayDirs);

@@ -17,7 +17,6 @@ import { closeQuickInputIfOpen, dismissAllNotifications } from '../../../../test
 import { applyE2eNetworkEnvironment } from '../../../../test/e2e/utils/proxy';
 import { ensureScratchOrg, type ScratchOrgResult } from '../../../../test/e2e/utils/scratchOrg';
 import { clearOrgApexLogs, seedApexErrorLog, seedApexLog } from '../../../../test/e2e/utils/seedLog';
-import { resolveSfCliInvocation } from '../../../../test/e2e/utils/sfCli';
 import { createTempWorkspace } from '../../../../test/e2e/utils/tempWorkspace';
 import * as tooling from '../../../../test/e2e/utils/tooling';
 import {
@@ -624,8 +623,7 @@ async function start(): Promise<void> {
   };
   log(`org ready: ${scratch.scratchAlias} (${auth.username ?? 'unknown user'})`);
 
-  const sfCli = await resolveSfCliInvocation();
-  workspace = await createTempWorkspace({ targetOrg: scratch.scratchAlias, sfCli: sfCli ?? undefined });
+  workspace = await createTempWorkspace({ targetOrg: scratch.scratchAlias });
   state.workspacePath = workspace.workspacePath;
   await writeState();
 

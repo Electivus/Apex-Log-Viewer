@@ -10,6 +10,7 @@ import { createRequire } from 'node:module';
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { evidenceName, hasTargetOrg, scratchStrategy } from './sfArgs.mjs';
 
 const skillDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = path.resolve(skillDir, '..', '..', '..');
@@ -192,13 +193,12 @@ function preflightChecks() {
   try {
     const { resolveDevHubConfig } = repoRequire('./scripts/devhub-auth.js');
     const config = resolveDevHubConfig(process.env, { allowLocalAlias: true });
-    const strategy =
-      String(process.env.SF_SCRATCH_STRATEGY || '').trim() || (process.env.SF_SCRATCH_POOL_NAME ? 'pool' : 'single');
-    const poolOk = strategy !== 'pool' || Boolean(String(process.env.SF_SCRATCH_POOL_NAME || '').trim());
+    const { strategy, poolName, error: strategyError } = scratchStrategy(process.env);
+    const poolOk = strategy !== 'pool' || Boolean(poolName);
     add(
-      poolOk,
+      !strategyError && poolOk,
       `Dev Hub configured (${config.mode === 'alias' ? `alias ${config.alias}` : 'JWT'}, strategy ${strategy})`,
-      strategy === 'pool' ? `pool ${process.env.SF_SCRATCH_POOL_NAME || 'MISSING SF_SCRATCH_POOL_NAME'}` : ''
+      strategyError ?? (strategy === 'pool' ? `pool ${poolName || 'MISSING SF_SCRATCH_POOL_NAME'}` : '')
     );
   } catch (error) {
     add(false, 'Dev Hub configured', `${error.message} (or pass start --target-org <alias>)`);
@@ -347,7 +347,6 @@ async function start(flags) {
     VERIFY_TRACE: flags.trace ? '1' : '0',
     VERIFY_LOCALE: typeof flags.locale === 'string' ? flags.locale : '',
     VERIFY_IDLE_MINUTES: String(flags['idle-minutes'] || process.env.VERIFY_IDLE_MINUTES || 30),
-    ALV_NODE_BIN_PATH: process.env.ALV_NODE_BIN_PATH || process.execPath,
     SF_SCRATCH_POOL_OWNER: process.env.SF_SCRATCH_POOL_OWNER || `verify:${hostname()}`,
     ALV_E2E_TIMING: process.env.ALV_E2E_TIMING || '1'
   };
@@ -451,7 +450,7 @@ function sf(positional) {
     fail('sf plugin is not built; run pnpm run build:sf-plugin');
   }
   const args = [...positional];
-  if (!args.some(arg => ['--target-org', '-o'].includes(arg) || arg.startsWith('--target-org='))) {
+  if (!hasTargetOrg(args)) {
     args.push('--target-org', state.org.alias);
   }
   const result = spawnSync(process.execPath, [bin, 'electivus', ...args], {
@@ -459,12 +458,7 @@ function sf(positional) {
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024
   });
-  const name = `sf-${
-    args
-      .filter(arg => !arg.startsWith('-'))
-      .slice(0, 2)
-      .join('-') || 'command'
-  }`;
+  const name = evidenceName(args);
   const record = {
     command: `node packages/sf-plugin/bin/run.js electivus ${args.join(' ')}`,
     cwd: state.workspacePath,

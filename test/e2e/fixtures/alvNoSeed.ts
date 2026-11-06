@@ -1,7 +1,6 @@
 import path from 'node:path';
 import { expect, type Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
-import { resolveSfCliInvocation } from '../utils/sfCli';
 import { createTempWorkspace } from '../utils/tempWorkspace';
 import { launchVsCode, resolveExtensionDevelopmentPath } from '../utils/vscode';
 import { test as base } from './alvPoolLease';
@@ -20,8 +19,7 @@ export const test = base.extend<Fixtures & Options>({
   supportExtensionIds: [[], { option: true }],
 
   workspacePath: async ({ scratchAlias, poolLease }, use, testInfo) => {
-    const sfCli = await resolveSfCliInvocation();
-    const ws = await createTempWorkspace({ targetOrg: scratchAlias, sfCli: sfCli ?? undefined });
+    const ws = await createTempWorkspace({ targetOrg: scratchAlias });
     try {
       await use(ws.workspacePath);
     } finally {

@@ -5,7 +5,6 @@ import { runCommand, runCommandWhenAvailable } from '../utils/commandPalette';
 import { emitDocsTailLog, prepareDocsScreenshotScenario } from '../utils/docsScenario';
 import { dismissAllNotifications } from '../utils/notifications';
 import { ensureScratchOrg } from '../utils/scratchOrg';
-import { resolveSfCliInvocation } from '../utils/sfCli';
 import { createTempWorkspace } from '../utils/tempWorkspace';
 import { ensureDebugFlagsTestUser, getOrgAuth, getUserDebugTraceFlag, removeUserDebugTraceFlags } from '../utils/tooling';
 import { ensureAuxiliaryBarClosed, launchVsCode, resolveExtensionDevelopmentPath } from '../utils/vscode';
@@ -207,10 +206,8 @@ test('captures README screenshots from a realistic scratch-org scenario', async 
     await removeUserDebugTraceFlags(auth, debugUser.id).catch(() => {});
 
     console.info('[docs] Creating temporary workspace...');
-    const sfCli = await resolveSfCliInvocation();
     const workspace = await createTempWorkspace({
       targetOrg: scratch.scratchAlias,
-      sfCli: sfCli ?? undefined,
       settings: {
         'electivus.apexLogViewer.logs.columns': screenshotFriendlyColumns
       }
