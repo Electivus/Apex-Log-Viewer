@@ -34,7 +34,9 @@ suite('Apex log language', () => {
 
   suiteTeardown(async () => {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
-    await rm(dir, { recursive: true, force: true });
+    // On Windows, VS Code can keep a handle on the folder for a moment after its editors close, and rmdir then
+    // fails with EBUSY. fs.rm retries EBUSY, EPERM and ENOTEMPTY when given maxRetries.
+    await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   test('detects ApexLog from the header line when the file name says nothing', async () => {
