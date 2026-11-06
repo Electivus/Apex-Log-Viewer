@@ -35,9 +35,8 @@ jest.mock('react-window', () => {
           rowComponent({ ...rowProps, index, style: { height: rowHeight } })
         )
       );
-      if (listRef && 'current' in listRef) {
-        (listRef as { current: unknown }).current = { element: mockScroller, scrollToRow: () => {} };
-      }
+      // Like react-window's List: the handle reaches object and callback refs alike.
+      React.useImperativeHandle(listRef, () => ({ element: mockScroller, scrollToRow: () => {} }), []);
       return React.createElement('div', { 'data-testid': 'virtual-list', style, className }, items);
     }
   };

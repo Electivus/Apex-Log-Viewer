@@ -618,4 +618,86 @@ suite('DebugFlagsPanel', () => {
       ['status', 'USER_DEBUG']
     ]);
   });
+
+  test('apply and remove telemetry record the chosen log type', async () => {
+    const events: Array<{ name: string; properties?: Record<string, string> }> = [];
+    let fail = false;
+    const { DebugFlagsPanel } = loadDebugFlagsPanel({
+      telemetry: {
+        safeSendEvent: (name: string, properties?: Record<string, string>) => {
+          events.push({ name, properties });
+        }
+      },
+      runtime: {
+        runtimeClient: {
+          getOrgAuth: async () => ({
+            username: 'user@example.com',
+            instanceUrl: 'https://example.com',
+            accessToken: 'x'
+          }),
+          traceFlagStatus: async (params: any) => statusFor(params.target, params.logType),
+          traceFlagApply: async (params: any) => {
+            if (fail) {
+              throw new Error('apply failed');
+            }
+            return {
+              status: 'success',
+              logType: params.logType,
+              dryRun: false,
+              created: true,
+              createdCount: 1,
+              updatedCount: 0,
+              resolvedTargetCount: 1
+            };
+          },
+          traceFlagRemove: async (params: any) => {
+            if (fail) {
+              throw new Error('remove failed');
+            }
+            return {
+              status: 'success',
+              logType: params.logType,
+              dryRun: false,
+              removedCount: 1,
+              resolvedTargetCount: 1
+            };
+          }
+        }
+      }
+    });
+    const { send } = panelReceivingMessages(DebugFlagsPanel);
+    const applyAndRemove = async (logType: 'DEVELOPER_LOG' | 'USER_DEBUG') => {
+      await send({
+        type: 'debugFlagsApply',
+        target: traceFlagTarget,
+        logType,
+        debugLevelName: 'ALV_E2E',
+        ttlMinutes: 30
+      });
+      await send({ type: 'debugFlagsRemove', target: traceFlagTarget, logType });
+    };
+
+    await applyAndRemove('USER_DEBUG');
+    await applyAndRemove('DEVELOPER_LOG');
+    fail = true;
+    await applyAndRemove('USER_DEBUG');
+
+    assert.deepEqual(
+      events.map(event => [event.name, event.properties?.outcome, event.properties?.logType]),
+      [
+        ['debugFlags.apply', 'ok', 'USER_DEBUG'],
+        ['debugFlags.remove', 'ok', 'USER_DEBUG'],
+        ['debugFlags.apply', 'ok', 'DEVELOPER_LOG'],
+        ['debugFlags.remove', 'ok', 'DEVELOPER_LOG'],
+        ['debugFlags.apply', 'error', 'USER_DEBUG'],
+        ['debugFlags.remove', 'error', 'USER_DEBUG']
+      ]
+    );
+    assert.deepEqual(events[0]?.properties, {
+      outcome: 'ok',
+      sourceView: 'logs',
+      targetType: 'user',
+      logType: 'USER_DEBUG'
+    });
+  });
 });

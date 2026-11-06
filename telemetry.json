@@ -724,7 +724,7 @@
       }
     },
     "debugFlags.apply": {
-      "description": "Debug-flag apply outcome.",
+      "description": "Debug-flag apply outcome, with the trace flag log type that was applied.",
       "properties": {
         "outcome": {
           "classification": "SystemMetaData",
@@ -743,6 +743,12 @@
           "purpose": "FeatureInsight",
           "required": true,
           "values": ["automatedProcess", "platformIntegration", "user"]
+        },
+        "logType": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["DEVELOPER_LOG", "USER_DEBUG"]
         }
       },
       "measurements": {
@@ -753,7 +759,7 @@
       }
     },
     "debugFlags.remove": {
-      "description": "Debug-flag removal outcome.",
+      "description": "Debug-flag removal outcome, with the trace flag log type that was removed.",
       "properties": {
         "outcome": {
           "classification": "SystemMetaData",
@@ -772,6 +778,12 @@
           "purpose": "FeatureInsight",
           "required": true,
           "values": ["automatedProcess", "platformIntegration", "user"]
+        },
+        "logType": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["DEVELOPER_LOG", "USER_DEBUG"]
         }
       },
       "measurements": {

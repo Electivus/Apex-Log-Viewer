@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
-import { List, type ListImperativeAPI } from 'react-window';
+import { List } from 'react-window';
 import type { ApexLogRow } from '@alv/protocol/types';
 import type { LogsColumnKey, NormalizedLogsColumnsConfig } from '@alv/protocol/logsColumns';
 import type { LogDiagnostic } from '@alv/protocol/logTriage';
 import { LOGS_COLUMN_DEFAULT_TRACK, LOGS_COLUMN_MIN_WIDTH_PX } from '../utils/logsColumns';
 import { LogsHeader } from './table/LogsHeader';
 import { LogRow } from './table/LogRow';
+import { SCROLLBAR_GUTTER, syncHeaderScroll, useVirtualListElement } from './table/useVirtualListElement';
 
 export type LogHeadEntry = {
   hasErrors?: boolean;
@@ -79,7 +80,7 @@ export function LogsTable({
   viewportBottomInsetPx?: number;
   fullLogSearchEnabled: boolean;
 }) {
-  const listRef = useRef<ListImperativeAPI | null>(null);
+  const { setListRef, element: listElement } = useVirtualListElement();
   const outerRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLDivElement | null>(null);
   const defaultRowHeight = 32;
@@ -245,17 +246,16 @@ export function LogsTable({
     };
   }, [viewportBottomInsetPx]);
 
-  // Adaptive overscan based on scroll velocity
+  // Header follows the horizontal scroll; overscan adapts to scroll velocity
   useEffect(() => {
-    const el = listRef.current?.element;
+    const el = listElement;
     if (!el) return;
+    syncHeaderScroll(el, headerRef.current);
     const onScroll = () => {
       const now = performance.now();
       const dt = now - (overscanLastTsRef.current || now);
       const dy = Math.abs(el.scrollTop - (overscanLastTopRef.current || 0));
-      if (headerRef.current && headerRef.current.scrollLeft !== el.scrollLeft) {
-        headerRef.current.scrollLeft = el.scrollLeft;
-      }
+      syncHeaderScroll(el, headerRef.current);
       if (dt > 16) {
         const v = dy / dt; // px per ms
         let next = overscanBaseRef.current;
@@ -280,7 +280,7 @@ export function LogsTable({
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, []);
+  }, [listElement]);
 
   return (
     <div ref={outerRef} className="relative overflow-hidden">
@@ -308,10 +308,11 @@ export function LogsTable({
         }}
       />
       <VirtualList
+        className={SCROLLBAR_GUTTER}
         style={{ height: measuredListHeight, width: '100%' }}
         rowCount={rows.length}
         rowHeight={(index: number) => getItemSize(index)}
-        listRef={listRef}
+        listRef={setListRef}
         rowProps={listRowProps}
         overscanCount={overscanCount}
         rowComponent={renderRow}
