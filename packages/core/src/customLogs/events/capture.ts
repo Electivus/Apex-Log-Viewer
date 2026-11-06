@@ -11,8 +11,8 @@
  *
  * The run reports one public `CustomLogCaptureState`; every change goes through `nextState`:
  *
- *   lease held elsewhere ─► standby ─ poll: relay stored rows; the holder's pid dies ─┐
- *   lease won ◄────────────────────────────────────────────────────────────────────────┘
+ *   lease held elsewhere ─► standby ─ poll: relay stored rows and gaps; the holder's pid dies ─┐
+ *   lease won (re-read the store's gaps after a standby) ◄─────────────────────────────────────┘
  *     │ connecting: connect, org id, allowance and budget, describe → describe.json, purge, chooseStart
  *     │            a gap decided at start is written BEFORE any subscribe; `needsInitial` and a budget of 0 subscribe nothing
  *     ▼
@@ -105,6 +105,7 @@ import {
   type EventStoreWriter,
   type GapReason,
   type StoreCoverage,
+  type StoreGap,
   type StoredEvent
 } from './store.js';
 import {
@@ -292,6 +293,9 @@ type RunEnd = { kind: 'outcome'; ending: CustomLogCaptureEnding } | { kind: 'fai
 
 type EpochExit = { kind: 'end'; end: RunEnd } | { kind: 'standby' };
 
+/** The lease a run won, and whether another process held it before the run took it. */
+type Won = { writer: EventStoreWriter; afterOtherHolder: boolean };
+
 /** Outcomes whose end of a live run writes the last position and the coverage once more. */
 const CLEAN_ENDS: ReadonlySet<CustomLogCaptureOutcome> = new Set(['quiet', 'aborted', 'timeLimit']);
 
@@ -416,8 +420,21 @@ function createRun(
     broadcast();
   };
 
+  /** The gaps `storeInfo` shows, to notice a gap that another process opened without storing a row. */
+  let shownGaps = '[]';
+  const gapsKey = (gaps: readonly StoreGap[]): string => JSON.stringify(gaps);
+
   const refreshStoreInfo = async (): Promise<void> => {
-    storeInfo = deps.storeInfo(await store.coverage());
+    const coverage = await store.coverage();
+    shownGaps = gapsKey(coverage.state === 'captured' ? coverage.gaps : []);
+    storeInfo = deps.storeInfo(coverage);
+  };
+
+  /** Refreshes the store view and tells the watchers when another process changed the store's gaps. */
+  const showForeignGaps = async (): Promise<void> => {
+    const before = shownGaps;
+    await refreshStoreInfo();
+    if (shownGaps !== before) broadcast();
   };
 
   const openAndShowGap = async (
@@ -557,6 +574,9 @@ function createRun(
   // -------------------------------------------------------------------------------------------
   // lease: win it, or stand by and relay what the holder stores
 
+  /** True once this run has held the lease: winning it again means another process held it in between. */
+  let leaseHeldBefore = false;
+
   const newestPosition = async (): Promise<EventPosition | undefined> => {
     for await (const newest of store.newestFirst({})) return newest.position;
     return undefined;
@@ -569,20 +589,28 @@ function createRun(
       if (sentUpTo && compareNewestFirst(candidate.position, sentUpTo) >= 0) break;
       fresh.push(candidate);
     }
-    if (fresh.length === 0) return sentUpTo;
+    if (fresh.length === 0) {
+      // A gap the holder opens without storing a row reaches this run only through the store view.
+      if (gapsKey(await store.gaps()) !== shownGaps) await showForeignGaps();
+      return sentUpTo;
+    }
     fresh.reverse();
     await refreshStoreInfo();
     for (let start = 0; start < fresh.length; start += RELAY_CHUNK) fanOut(fresh.slice(start, start + RELAY_CHUNK));
     return fresh[fresh.length - 1]!.position;
   };
 
-  const acquire = async (): Promise<EventStoreWriter | undefined> => {
+  const acquire = async (): Promise<Won | undefined> => {
     let sentUpTo: EventPosition | undefined;
     let standingBy = false;
     for (;;) {
       if (isTerminal(stopRequest)) return undefined;
       const attempt = await store.openWriter(deps.surface);
-      if ('writer' in attempt) return attempt.writer;
+      if ('writer' in attempt) {
+        const afterOtherHolder = standingBy || leaseHeldBefore;
+        leaseHeldBefore = true;
+        return { writer: attempt.writer, afterOtherHolder };
+      }
       if (!standingBy) {
         standingBy = true;
         sentUpTo = await newestPosition();
@@ -910,8 +938,11 @@ function createRun(
   // -------------------------------------------------------------------------------------------
   // one lease from start to release
 
-  const epoch = async (writer: EventStoreWriter): Promise<EpochExit> => {
+  const epoch = async ({ writer, afterOtherHolder }: Won): Promise<EpochExit> => {
     try {
+      // The process that held the lease may have opened a gap after the last poll, and `openAndShowGap`
+      // does not show a gap that already exists. Read here, so that a failed read still releases the lease.
+      if (afterOtherHolder) await showForeignGaps();
       const prepared = await prepare(writer);
       if (prepared.decision.kind === 'needsInitial') stop({ kind: 'finish', ending: { outcome: 'needsInitial' } });
       else if (prepared.budget === 0) stop({ kind: 'finish', ending: { outcome: 'budget' } });
@@ -943,9 +974,9 @@ function createRun(
 
   const lifecycle = async (): Promise<RunEnd> => {
     for (;;) {
-      const writer = await acquire();
-      if (!writer) return endOf(stopRequest);
-      const exit = await epoch(writer);
+      const won = await acquire();
+      if (!won) return endOf(stopRequest);
+      const exit = await epoch(won);
       if (exit.kind === 'end') return exit.end;
       // The lease was taken from this process: look at it again, which stands by when someone else holds it.
     }

@@ -397,6 +397,124 @@ test('a process that finds the lease held stands by, relays what the holder stor
   });
 });
 
+const checkpointAt = (n: number) => ({
+  orgId: '00D000000000001AAA',
+  transport: 'cometd' as const,
+  channel: '/event/App_Log__e',
+  cursor: cursorOf(n),
+  lastEvent: { createdDate: busEvent(n).createdDate, uuid: busEvent(n).uuid }
+});
+
+const shownGaps = (w: ReturnType<typeof watcher>) => {
+  const store = w.updates.at(-1)?.store;
+  return store?.state === 'captured' ? store.gaps : undefined;
+};
+
+test('a standby run shows a gap the lease holder opens without storing a row, once', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+    const holder = await openWriter(openStore(root), 'vscode');
+    await holder.append([busEvent(1)]);
+    await holder.advance(checkpointAt(1));
+    const { clock, deps, hub } = setup(store, { surface: 'cli' });
+    const w = watcher({ follow: true });
+    try {
+      const done = hub.watch(store.location, w.watcher, deps);
+      await until(() => standbyUpdate(w) !== undefined, 'the standby state');
+      assert.deepEqual(shownGaps(w), []);
+
+      const opened = await holder.openGap({ reason: 'cursorRejected', after: busEvent(1).createdDate });
+      await clock.advance(2_000);
+      await until(() => shownGaps(w)?.length === 1, 'the holder gap on the standby run');
+      assert.deepEqual(shownGaps(w), [
+        { reason: 'cursorRejected', after: busEvent(1).createdDate, detectedAt: opened.gap.detectedAt }
+      ]);
+      assert.equal(w.updates.at(-1)?.capture.state, 'standby');
+      assert.equal(w.rows().length, 0, 'a gap brings no row');
+
+      const sent = w.updates.length;
+      await clock.advance(2_000);
+      await clock.advance(2_000);
+      await new Promise<void>(resolve => setTimeout(resolve, 20));
+      assert.equal(w.updates.length, sent, 'an unchanged gap is not sent again');
+
+      w.abort();
+      assert.equal((await resultOf(done)).outcome, 'aborted');
+    } finally {
+      await holder.release();
+    }
+  });
+});
+
+test('a run that takes the lease over shows a gap the previous holder opened after the last standby poll', async () => {
+  await withProject(async root => {
+    const real = openStore(root);
+    // Polls see no gap, so only the read after winning the lease can show it.
+    const store: EventStore = { ...real, gaps: async () => [] };
+    const holder = await openWriter(openStore(root), 'vscode');
+    await holder.append([busEvent(1)]);
+    await holder.advance(checkpointAt(1));
+    const { clock, transport, deps, hub } = setup(store, { surface: 'cli' });
+    const w = watcher({ follow: true });
+    const done = hub.watch(store.location, w.watcher, deps);
+    await until(() => standbyUpdate(w) !== undefined, 'the standby state');
+
+    const opened = await holder.openGap({ reason: 'cursorRejected', after: busEvent(1).createdDate });
+    await clock.advance(2_000);
+    await new Promise<void>(resolve => setTimeout(resolve, 20));
+    assert.deepEqual(shownGaps(w), [], 'the poll read no gap');
+    await holder.release();
+    await clock.advance(2_000);
+
+    const attempt = await transport.opened(0);
+    assert.deepEqual(attempt.from, { kind: 'after', cursor: cursorOf(1) });
+    const takeover = w.updates.find(update => update.capture.state === 'connecting' && update !== w.updates[0]);
+    assert.ok(takeover, 'an update after the takeover');
+    assert.deepEqual(takeover.store.state === 'captured' ? takeover.store.gaps : undefined, [
+      { reason: 'cursorRejected', after: busEvent(1).createdDate, detectedAt: opened.gap.detectedAt }
+    ]);
+    assert.equal(w.rows().length, 0, 'before any event is stored');
+
+    w.abort();
+    assert.equal((await resultOf(done)).outcome, 'aborted');
+  });
+});
+
+test('a run that takes the lease over and cannot read the store view releases the lease', async () => {
+  await withProject(async root => {
+    const real = openStore(root);
+    let failReads = false;
+    const store: EventStore = {
+      ...real,
+      coverage: async () => {
+        if (failReads) throw new Error('EIO: the store view cannot be read');
+        return await real.coverage();
+      }
+    };
+    const holder = await openWriter(openStore(root), 'vscode');
+    await holder.append([busEvent(1)]);
+    await holder.advance(checkpointAt(1));
+    const { clock, transport, deps, hub } = setup(store, { surface: 'cli' });
+    const w = watcher({ follow: true });
+    const done = settledOf(hub.watch(store.location, w.watcher, deps));
+    await until(() => standbyUpdate(w) !== undefined, 'the standby state');
+
+    failReads = true;
+    await holder.release();
+    await clock.advance(2_000);
+
+    const settled = await done;
+    assert.ok('error' in settled, 'the run fails on the read after it took the lease');
+    assert.match(String(settled.error), /EIO/);
+    assert.equal(transport.attempts.length, 0, 'nothing subscribes');
+    assert.equal(
+      fs.existsSync(path.join(objectDirOf(root), 'capture.lease')),
+      false,
+      'the lease is released, so a later run is not left standing by'
+    );
+  });
+});
+
 test('a drain that finds the lease held ends at once with capturedElsewhere and names the holder', async () => {
   await withProject(async root => {
     const store = openStore(root);
