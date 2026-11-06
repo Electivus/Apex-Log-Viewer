@@ -874,7 +874,7 @@ To read the whole payload, use **Open full payload** in the panel, or the CLI. `
 
 ### Payload fields
 
-Each `list` and `get` page returns `payloadFields`, which lists every path seen in that page's payloads with the JSON `types` found at the path and the number of `rows` that have it. Core computes it before `--payload-fields` trims `values`, so it always describes whole payloads. The panel merges `payloadFields` across the pages it has loaded, and offers those paths in its **+ Field** picker and its filter input.
+Each `list` and `get` page returns `payloadFields`, which lists every path seen in that page's payloads with the JSON `types` found at the path and the number of `rows` that have it. Core computes it before `--payload-fields` trims `values`, so it always describes whole payloads. Array indexes are grouped as `[]`, as in the panel: `metrics[0].name`, `metrics[1].name` and the rest of the array are one `metrics[].name`, and `rows` counts the rows that have at least one item. Row `values` keep the indexed paths. The panel merges `payloadFields` across the pages it has loaded, and offers those paths in its **+ Field** picker and its filter input.
 
 ### Filters and sorts run over loaded rows
 
@@ -887,7 +887,7 @@ The panel groups array indexes as `[]`, so `[].status >= 500` matches a row when
 
 Conditions combine with `and` only. The status bar reads "Filtering N loaded rows · M match". Use **Load more** to bring more rows into the filter.
 
-In the CLI, `--payload-fields` keeps only the paths you name in each row's `values`. Filter with `jq`:
+In the CLI, `--payload-fields` keeps only the paths you name in each row's `values`. `metrics[].name` keeps the name of every item, and `metrics[0].name` the first one only. Filter with `jq`:
 
 ```bash
 sf electivus custom-log list --source app-log --target-org my-org --limit 200 --json \
@@ -972,7 +972,7 @@ The commands have no project flag. They read the `sfdx-project.json` of the proj
 - `--min-level` keeps rows at or above a level. A transaction counts at its highest level. Values are `FINEST`, `FINER`, `FINE`, `DEBUG`, `INFO`, `WARN`, and `ERROR`.
 - `--user` takes an exact username. The match ignores case.
 - `--since` keeps rows at or after a time, and `--until` keeps rows before a time. Each takes a duration before now (a positive whole number followed by `m`, `h`, or `d`, such as `30m`, `24h`, or `7d`) or an ISO-8601 instant with an offset, such as `2026-10-29T12:00:00Z`. A bare date such as `2026-10-29` means midnight UTC.
-- `--payload-fields` takes paths separated by commas, and you can repeat it. Paths match exactly.
+- `--payload-fields` takes paths separated by commas, and you can repeat it. A path matches exactly, except that `[]` stands for any array index, so `metrics[].name` keeps `metrics[0].name`, `metrics[1].name` and so on. Write `[]` for every array in the path, as `payloadFields` lists it.
 - `--transaction-id` takes the framework's own transaction id, such as Nebula's `TransactionId__c`. For an `entries` source, `get` then pages every entry with that transaction id.
 - `get --log-id` takes a list row `id`. For an `entries` source, any entry id of the transaction works.
 

@@ -26,5 +26,6 @@ export const cursorFlag = Flags.string({
 export const payloadFieldsFlag = Flags.string({
   multiple: true,
   delimiter: ',',
-  summary: 'Keep only these JSON payload paths in each row, for example orderId,http.status.'
+  summary:
+    'Keep only these JSON payload paths in each row, for example orderId,http.status. [] stands for every array index, as in metrics[].name.'
 });

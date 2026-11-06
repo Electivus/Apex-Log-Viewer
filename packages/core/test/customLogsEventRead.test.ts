@@ -423,6 +423,34 @@ test('list trims row payloads to the requested paths and still summarizes every 
   );
 });
 
+test('list keeps every item of an array for a [] path and lists the array once in the summary', async t => {
+  const metrics = Array.from({ length: 30 }, (_, index) => ({ name: `m${index}`, value: index }));
+  const events = [
+    logEvent(1, T0, { payload: { order: 'O-1', metrics } }),
+    logEvent(2, T0 + MINUTE, { payload: { order: 'O-2', metrics: [{ name: 'only', value: 'n/a' }] } }),
+    logEvent(3, T0 + 2 * MINUTE, { payload: { order: 'O-3' } })
+  ];
+  const { core, scope } = await world(t, { events });
+
+  const grouped = await core.customLog.list({ ...scope, payloadFields: ['metrics[].name'] });
+  const indexed = await core.customLog.list({ ...scope, payloadFields: ['metrics[1].name', 'order'] });
+
+  const values = (result: typeof grouped) =>
+    result.rows.map(row => (row.payload?.state === 'parsed' ? row.payload.values : undefined));
+  assert.deepEqual(values(grouped), [
+    {},
+    { 'metrics[0].name': 'only' },
+    Object.fromEntries(metrics.map((metric, index) => [`metrics[${index}].name`, metric.name]))
+  ]);
+  assert.deepEqual(values(indexed), [{ order: 'O-3' }, { order: 'O-2' }, { order: 'O-1', 'metrics[1].name': 'm1' }]);
+  assert.deepEqual(grouped.payloadFields, [
+    { path: 'order', types: ['string'], rows: 3 },
+    { path: 'metrics[].name', types: ['string'], rows: 2 },
+    { path: 'metrics[].value', types: ['string', 'number'], rows: 2 }
+  ]);
+  assert.deepEqual(indexed.payloadFields, grouped.payloadFields, 'the summary does not depend on --payload-fields');
+});
+
 // ---------------------------------------------------------------------------------------------
 // Cursors
 

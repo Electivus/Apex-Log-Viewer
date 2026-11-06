@@ -236,7 +236,11 @@ export type CustomLogPayloadView =
 
 export type CustomLogPayloadType = 'string' | 'number' | 'boolean' | 'null';
 
-/** One payload path seen on a page. The UI merges these across the pages it has loaded. */
+/**
+ * One payload path seen on a page, with array indexes grouped: `metrics[].name` stands for `metrics[0].name`,
+ * `metrics[1].name` and so on, and `rows` counts the rows that have any of them. The UI merges these across
+ * the pages it has loaded.
+ */
 export type CustomLogPayloadField = { path: string; types: CustomLogPayloadType[]; rows: number };
 
 /** A long text value read on demand. */
@@ -280,7 +284,10 @@ export type CustomLogListParams = CustomLogScope & {
   /** Opaque token from a previous `nextCursor`. Bound to the org, the source mapping and the filter that produced it. */
   cursor?: string;
   filter?: CustomLogFilter;
-  /** Keep only these paths in each row's payload `values` (CLI `--payload-fields`). `payloadFields` still lists every path. */
+  /**
+   * Keep only these paths in each row's payload `values` (CLI `--payload-fields`). `[]` stands for every array index,
+   * as in `metrics[].name`. `payloadFields` still lists every path.
+   */
   payloadFields?: string[];
 };
 

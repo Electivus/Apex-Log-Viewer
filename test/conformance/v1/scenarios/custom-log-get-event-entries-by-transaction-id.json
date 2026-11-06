@@ -209,17 +209,17 @@
           "rows": 1
         },
         {
-          "path": "metrics[0].name",
+          "path": "metrics[].name",
           "types": ["string"],
           "rows": 1
         },
         {
-          "path": "metrics[0].type",
+          "path": "metrics[].type",
           "types": ["string"],
           "rows": 1
         },
         {
-          "path": "metrics[0].value",
+          "path": "metrics[].value",
           "types": ["number"],
           "rows": 1
         }
