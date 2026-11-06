@@ -1,5 +1,7 @@
 import React from 'react';
 import { formatBytes } from '../../utils/format';
+import { logViewerEn, type LogViewerMessages } from '../../i18n/logViewer';
+import { fillTemplate } from '../../utils/customLogs/format';
 
 interface Props {
   counts: {
@@ -14,6 +16,9 @@ interface Props {
     sizeBytes?: number;
     modifiedAt?: string;
   };
+  /** `loading` while the log content is on its way, `failed` when it could not be read. */
+  state?: 'loading' | 'failed' | 'ready';
+  t?: LogViewerMessages;
 }
 
 function formatNumber(n: number, locale: string) {
@@ -24,25 +29,25 @@ function formatNumber(n: number, locale: string) {
   }
 }
 
-export function LogViewerStatusBar({ counts, locale, metadata }: Props) {
+export function LogViewerStatusBar({ counts, locale, metadata, state = 'ready', t = logViewerEn }: Props) {
   const modified = metadata?.modifiedAt ? new Date(metadata.modifiedAt) : undefined;
   return (
     <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 bg-card/40 px-5 py-2 text-[11px] text-muted-foreground">
       <div className="flex flex-wrap items-center gap-4">
-        <span>Total Lines: {formatNumber(counts.total, locale)}</span>
-        <span>Debug Statements: {formatNumber(counts.debug, locale)}</span>
-        <span>Error Events: {formatNumber(counts.errors, locale)}</span>
-        <span>SOQL Queries: {formatNumber(counts.soql, locale)}</span>
-        <span>DML Operations: {formatNumber(counts.dml, locale)}</span>
+        <span>{fillTemplate(t.status.totalLines, { count: formatNumber(counts.total, locale) })}</span>
+        <span>{fillTemplate(t.status.debugStatements, { count: formatNumber(counts.debug, locale) })}</span>
+        <span>{fillTemplate(t.status.errorEvents, { count: formatNumber(counts.errors, locale) })}</span>
+        <span>{fillTemplate(t.status.soqlQueries, { count: formatNumber(counts.soql, locale) })}</span>
+        <span>{fillTemplate(t.status.dmlOperations, { count: formatNumber(counts.dml, locale) })}</span>
       </div>
       <div className="flex items-center gap-3 text-[11px]">
         {typeof metadata?.sizeBytes === 'number' && (
-          <span>Size: {formatBytes(metadata.sizeBytes)}</span>
+          <span>{fillTemplate(t.status.size, { size: formatBytes(metadata.sizeBytes) })}</span>
         )}
         {modified && !Number.isNaN(modified.getTime()) && (
-          <span>Updated: {modified.toLocaleString(locale || undefined)}</span>
+          <span>{fillTemplate(t.status.updated, { date: modified.toLocaleString(locale || undefined) })}</span>
         )}
-        <span>Ready</span>
+        <span>{t.status[state]}</span>
       </div>
     </footer>
   );

@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import { AlvError, ApexLogLifecycleError, createApexLogViewerCore, parseApexLogIds } from '../src/index.ts';
 import type { ApexLogRemote } from '../src/logLifecycle.ts';
+import type { LogSyncProgress } from '../src/index.ts';
 import { awaitWithAbort, deleteApexLogIds, runLimited } from '../src/runtime.ts';
 
 function unavailableApexLogRemote(): ApexLogRemote {
@@ -388,6 +389,108 @@ test('core log sync preserves its public result while using the shared lifecycle
     assert.equal(result.failed, 0);
     assert.equal(result.checkpointAdvanced, true);
     assert.equal(result.lastSyncedLogId, logId);
+
+    // Nothing new: the sync succeeds but leaves the checkpoint where it was.
+    const again = await core.log.sync({ targetOrg: username, workspaceRoot });
+    assert.equal(again.status, 'success');
+    assert.equal(again.downloaded, 0);
+    assert.equal(again.checkpointAdvanced, false);
+    assert.equal(again.lastSyncedLogId, logId);
+  } finally {
+    core.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('core log sync reports the listing and each saved log through onProgress', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-core-sync-progress-'));
+  const username = 'sync-progress@example.com';
+  const logIds = ['07L000000000031AAA', '07L000000000032AAA', '07L000000000033AAA'];
+  const remote: ApexLogRemote = {
+    async resolveOrg() {
+      return { username };
+    },
+    async listLogs() {
+      return logIds.map((logId, index) => ({ logId, startTime: `2026-07-20T13:0${index}:00.000Z` }));
+    },
+    async readBody({ logId }) {
+      if (logId === logIds[1]) throw new Error('body unavailable');
+      return `body of ${logId}`;
+    }
+  };
+  const core = createApexLogViewerCore({ apexLogRemote: remote });
+  const events: LogSyncProgress[] = [];
+
+  try {
+    const result = await core.log.sync(
+      { targetOrg: username, workspaceRoot, concurrency: 1 },
+      { onProgress: progress => events.push(progress) }
+    );
+    assert.equal(result.downloaded, 2);
+    assert.equal(result.failed, 1);
+    assert.deepEqual(events, [
+      { phase: 'listing', completed: 0 },
+      { phase: 'saving', completed: 0, total: 3 },
+      { phase: 'saving', completed: 1, total: 3 },
+      { phase: 'saving', completed: 2, total: 3 },
+      { phase: 'saving', completed: 3, total: 3 }
+    ]);
+
+    // A callback that throws does not fail the sync.
+    const again = await core.log.sync(
+      { targetOrg: username, workspaceRoot, forceFull: true },
+      {
+        onProgress: () => {
+          throw new Error('listener failed');
+        }
+      }
+    );
+    assert.equal(again.cached, 2);
+  } finally {
+    core.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('core log sync progress does not count downloads that were cancelled', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-core-sync-cancel-progress-'));
+  const username = 'sync-cancel-progress@example.com';
+  const logIds = ['07L000000000034AAA', '07L000000000035AAA', '07L000000000036AAA'];
+  const controller = new AbortController();
+  let started = 0;
+  const remote: ApexLogRemote = {
+    async resolveOrg() {
+      return { username };
+    },
+    async listLogs() {
+      return logIds.map((logId, index) => ({ logId, startTime: `2026-07-20T14:0${index}:00.000Z` }));
+    },
+    readBody(_request, signal) {
+      started += 1;
+      // Cancel once every download is in flight, before any body returns.
+      if (started === logIds.length) queueMicrotask(() => controller.abort());
+      return new Promise<string>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      });
+    }
+  };
+  const core = createApexLogViewerCore({ apexLogRemote: remote });
+  const events: LogSyncProgress[] = [];
+
+  try {
+    await assert.rejects(
+      core.log.sync(
+        { targetOrg: username, workspaceRoot, concurrency: 3 },
+        { signal: controller.signal, onProgress: progress => events.push(progress) }
+      ),
+      error => error instanceof AlvError && error.code === 'ABORTED'
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(started, 3);
+    assert.deepEqual(
+      events.filter(event => event.phase === 'saving'),
+      [{ phase: 'saving', completed: 0, total: 3 }]
+    );
   } finally {
     core.dispose();
     await fs.rm(workspaceRoot, { recursive: true, force: true });

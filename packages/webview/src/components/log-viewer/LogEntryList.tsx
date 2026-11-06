@@ -3,6 +3,7 @@ import { List, type ListImperativeAPI } from 'react-window';
 import type { ParsedLogEntry, LogCategory } from '../../utils/logViewerParser';
 import type { LogViewerMappedDiagnostic } from '../../utils/logViewerDiagnostics';
 import { LogEntryRow } from './LogEntryRow';
+import { logViewerEn } from '../../i18n/logViewer';
 
 export type LogEntryDiagnosticSummary = {
   entryId: number;
@@ -21,6 +22,7 @@ interface Props {
   listRef?: React.RefObject<ListImperativeAPI | null>;
   virtualListComponent?: typeof List;
   RowComponent?: typeof LogEntryRow;
+  noEntriesText?: string;
 }
 
 export function LogEntryList({
@@ -34,7 +36,8 @@ export function LogEntryList({
   searchTerm,
   listRef,
   virtualListComponent,
-  RowComponent
+  RowComponent,
+  noEntriesText = logViewerEn.noEntriesMatch
 }: Props) {
   const defaultRowHeight = 64;
   const rowHeightsRef = useRef<Record<number, number>>({});
@@ -163,7 +166,7 @@ export function LogEntryList({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/60 bg-background/60 shadow-inner">
       {entries.length === 0 ? (
-        <div className="px-6 py-8 text-sm text-muted-foreground">No entries match the current filters.</div>
+        <div className="px-6 py-8 text-sm text-muted-foreground">{noEntriesText}</div>
       ) : (
         <VirtualList
           listRef={resolvedListRef}

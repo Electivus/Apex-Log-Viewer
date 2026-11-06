@@ -8,6 +8,8 @@ suite('integration: API version from workspace', () => {
     assert.ok(ext, 'extension should be discoverable by id');
 
     const exports = await ext!.activate();
+    // Activation registers views and commands first and reads sfdx-project.json in the background.
+    await exports?.whenProjectReady?.();
     const version = exports && typeof exports.getApiVersion === 'function' ? exports.getApiVersion() : undefined;
     // Expect our activation to have read sample-workspace/sfdx-project.json
     assert.equal(version, '60.0');

@@ -34,7 +34,8 @@ export default async function ({ h, expect, session, args }) {
 
   const viewer = await h.viewerFrame(180_000);
   await expect(viewer.locator(`text=${logId}`).first()).toBeVisible({ timeout: 60_000 });
-  const viewerSearch = viewer.locator('input[placeholder="Search entries…"]');
+  // The placeholder follows the display language (`Buscar entradas…` in pt-BR); the input type does not.
+  const viewerSearch = viewer.locator('input[type="search"]');
   await viewerSearch.fill(query);
   await expect(viewer.locator(`text=${query}`).first()).toBeVisible({ timeout: 60_000 });
   const viewerShot = await h.shot('log-viewer-open', viewer);

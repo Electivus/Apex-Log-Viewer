@@ -4,6 +4,8 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
 import type { LogViewerMappedDiagnostic } from '../../utils/logViewerDiagnostics';
+import { logViewerEn, type LogViewerMessages } from '../../i18n/logViewer';
+import { fillTemplate } from '../../utils/customLogs/format';
 
 type SeverityFilter = 'all' | 'error' | 'warning';
 type TriageState = 'loading' | 'unavailable' | 'empty' | 'ready';
@@ -16,6 +18,7 @@ interface Props {
   onSelectDiagnostic: (id: number) => void;
   primaryReason?: string;
   triageState: TriageState;
+  t?: LogViewerMessages;
 }
 
 export function LogDiagnosticsSidebar({
@@ -25,8 +28,10 @@ export function LogDiagnosticsSidebar({
   onFilterChange,
   onSelectDiagnostic,
   primaryReason,
-  triageState
+  triageState,
+  t: messages = logViewerEn
 }: Props) {
+  const t = messages.diagnostics;
   const visibleDiagnostics = diagnostics.filter(diagnostic => {
     if (filter === 'all') {
       return true;
@@ -40,9 +45,11 @@ export function LogDiagnosticsSidebar({
       <div className="mb-1 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">
           <ScanSearch className="h-3.5 w-3.5" />
-          <span>Diagnostics</span>
+          <span>{t.title}</span>
         </div>
-        <span className="text-[11px] text-muted-foreground">{diagnostics.length} total</span>
+        <span className="text-[11px] text-muted-foreground">
+          {fillTemplate(t.total, { count: diagnostics.length })}
+        </span>
       </div>
       <div className="flex items-center gap-1">
         <Button
@@ -51,7 +58,7 @@ export function LogDiagnosticsSidebar({
           onClick={() => onFilterChange('all')}
           className={cn('h-7 px-2 text-[11px]', filter === 'all' ? 'bg-slate-600 text-white' : 'text-muted-foreground')}
         >
-          All
+          {t.all}
         </Button>
         <Button
           size="sm"
@@ -59,7 +66,7 @@ export function LogDiagnosticsSidebar({
           onClick={() => onFilterChange('error')}
           className={cn('h-7 px-2 text-[11px]', filter === 'error' ? 'bg-rose-600 text-white' : 'text-muted-foreground')}
         >
-          Errors
+          {t.errors}
         </Button>
         <Button
           size="sm"
@@ -67,26 +74,26 @@ export function LogDiagnosticsSidebar({
           onClick={() => onFilterChange('warning')}
           className={cn('h-7 px-2 text-[11px]', filter === 'warning' ? 'bg-amber-600 text-white' : 'text-muted-foreground')}
         >
-          Warnings
+          {t.warnings}
         </Button>
       </div>
       <div className="rounded-md border border-border/60 bg-background/80">
         {triageState === 'loading' ? (
-          <div className="flex h-32 items-center justify-center p-4 text-sm text-muted-foreground">Loading diagnostics…</div>
+          <div className="flex h-32 items-center justify-center p-4 text-sm text-muted-foreground">{t.loading}</div>
         ) : triageState === 'unavailable' ? (
-          <div className="flex h-32 items-center justify-center p-4 text-sm text-muted-foreground">Diagnostics unavailable.</div>
+          <div className="flex h-32 items-center justify-center p-4 text-sm text-muted-foreground">{t.unavailable}</div>
         ) : triageState === 'empty' ? (
-          <div className="flex h-32 items-center justify-center p-4 text-sm text-muted-foreground">No diagnostics found.</div>
+          <div className="flex h-32 items-center justify-center p-4 text-sm text-muted-foreground">{t.none}</div>
         ) : diagnostics.length === 0 && summaryText ? (
           <div className="space-y-3 p-4">
             <div className="flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">
               <AlertCircle className="h-3.5 w-3.5" />
-              <span>Summary</span>
+              <span>{t.summary}</span>
             </div>
             <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-sm text-foreground">{summaryText}</div>
           </div>
         ) : visibleDiagnostics.length === 0 ? (
-          <div className="flex h-32 items-center justify-center p-4 text-sm text-muted-foreground">No diagnostics found.</div>
+          <div className="flex h-32 items-center justify-center p-4 text-sm text-muted-foreground">{t.none}</div>
         ) : (
           <ul className="max-h-[calc(100vh-220px)] overflow-y-auto p-2 text-sm">
             {visibleDiagnostics.map(diagnostic => {
@@ -111,13 +118,13 @@ export function LogDiagnosticsSidebar({
                       <span className="ml-auto flex items-center gap-1">
                         <Filter className="h-3 w-3 text-muted-foreground" />
                         <Badge variant="outline" className={cn('text-[10px]', isError ? 'border-red-500/40 text-red-200' : 'border-amber-500/40 text-amber-200')}>
-                          {diagnostic.severity}
+                          {t.severity[diagnostic.severity]}
                         </Badge>
                       </span>
                     </div>
                     <div className="break-words text-foreground">{diagnostic.summary}</div>
                     <div className="mt-1 text-xs text-muted-foreground">
-                      {displayLineNumber !== undefined ? `Line ${displayLineNumber}` : 'Unmapped'}
+                      {displayLineNumber !== undefined ? fillTemplate(t.line, { line: displayLineNumber }) : t.unmapped}
                     </div>
                   </button>
                 </li>

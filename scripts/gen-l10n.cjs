@@ -40,6 +40,24 @@ const ptBrByLegacyKey = {
   'customLogs.payload.empty': 'Este registro não tem payload.',
   'customLogs.payload.hidden': 'Você não tem permissão para ler este payload.',
   'customLogs.payload.unmapped': 'Esta fonte não mapeia um payload.',
+  'customLogs.status.text': '$(broadcast) Logs Personalizados: {0} · {1}',
+  'customLogs.status.action': 'Clique para mostrar o painel ou parar a captura.',
+  'customLogs.status.many': '$(broadcast) Logs Personalizados: {0} capturas',
+  'customLogs.status.many.action': 'Clique para mostrar o painel ou parar todas as capturas desta janela.',
+  'customLogs.status.connecting': 'Conectando',
+  'customLogs.status.connecting.detail': 'Conectando a {0} para capturar seus eventos.',
+  'customLogs.status.standby': 'Em espera',
+  'customLogs.status.standby.detail':
+    'Outra janela do VS Code ou comando sf está capturando {0}; os novos eventos aparecem aqui.',
+  'customLogs.status.catchingUp': 'Recuperando',
+  'customLogs.status.catchingUp.detail': 'Carregando eventos de {0} publicados antes.',
+  'customLogs.status.live': 'Ao vivo',
+  'customLogs.status.live.detail':
+    'Capturando {0}. Cada novo evento conta na cota diária de entregas de eventos da org.',
+  'customLogs.status.reconnecting': 'Reconectando',
+  'customLogs.status.reconnecting.detail': 'Reconectando a {0} (tentativa {1}).',
+  'customLogs.status.reveal': 'Mostrar Logs Personalizados',
+  'customLogs.status.stop': 'Parar captura',
   'customLogs.configure.noWorkspace': 'Abra um projeto Salesforce para configurar os Logs Personalizados.',
   'customLogs.configure.noProjectFile':
     'Os Logs Personalizados leem suas fontes de plugins.electivus.customLogs no sfdx-project.json, que este workspace não tem.',
@@ -114,7 +132,7 @@ const ptBrByLegacyKey = {
   downloadAllLogsSummaryCancelledDuringSync:
     'Download em massa cancelado durante a sincronização dos logs da org selecionada.',
   downloadAllLogsNoLogs: 'Nenhum log Apex foi encontrado para a org selecionada.',
-  downloadAllLogsSummaryCancelled: 'Download em massa cancelado. Processados {0}/{1}. Sucesso: {2}, falhas: {3}.',
+  downloadAllLogsSummaryCancelledAfter: 'Download em massa cancelado após processar {0} de {1} logs.',
   downloadAllLogsSummaryPartial: 'Download em massa concluído com sucesso parcial. Sucesso: {0}, falhas: {1}.',
   downloadAllLogsSummarySuccess:
     'Download em massa concluído. {0} logs estão disponíveis localmente ({1} baixados, {2} já em cache).',

@@ -1253,8 +1253,9 @@ test('Apex Log Lifecycle merges a concurrent shared sync-state writer without re
 
     const result = await syncing;
     const document = JSON.parse(await fs.readFile(stateFile, 'utf8'));
+    // The other writer's newer checkpoint stays, so this sync did not advance it.
     assert.deepEqual(result.checkpoint, {
-      advanced: true,
+      advanced: false,
       lastLogId: newerLogId,
       lastStartTime: '2026-07-21T12:00:00.000Z'
     });
@@ -1393,7 +1394,7 @@ test('Apex Log Lifecycle retries when a shared sync-state lock is released befor
   try {
     await fs.mkdir(stateDirectory, { recursive: true });
     await fs.writeFile(lockFile, 'completed-external-writer', { flag: 'wx' });
-    fs.lstat = async target => {
+    fs.lstat = (async (target: Parameters<typeof fs.lstat>[0]) => {
       if (!releasedDuringInspection && path.resolve(String(target)) === path.resolve(lockFile)) {
         releasedDuringInspection = true;
         await fs.rm(lockFile);
@@ -1402,7 +1403,7 @@ test('Apex Log Lifecycle retries when a shared sync-state lock is released befor
         throw error;
       }
       return originalLstat(target);
-    };
+    }) as typeof fs.lstat;
 
     const result = await lifecycle.sync({ workspaceRoot, targetOrg: 'released-lock@example.com' });
 

@@ -3,6 +3,8 @@ import { AlertOctagon, Bug, Database, Edit3, Filter, Eye } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
+import { logViewerEn, type LogViewerMessages } from '../../i18n/logViewer';
+import { fillTemplate } from '../../utils/customLogs/format';
 
 export type LogFilter = 'all' | 'debug' | 'error' | 'soql' | 'dml';
 
@@ -17,6 +19,7 @@ interface Props {
     dml: number;
   };
   locale: string;
+  t?: LogViewerMessages;
 }
 
 function formatCount(n: number, locale: string) {
@@ -27,7 +30,7 @@ function formatCount(n: number, locale: string) {
   }
 }
 
-export function LogViewerFilters({ active, onChange, counts, locale }: Props) {
+export function LogViewerFilters({ active, onChange, counts, locale, t = logViewerEn }: Props) {
   const showing =
     active === 'debug'
       ? counts.debug
@@ -44,7 +47,7 @@ export function LogViewerFilters({ active, onChange, counts, locale }: Props) {
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-2 text-muted-foreground">
           <Filter className="h-4 w-4" />
-          <span>Filters:</span>
+          <span>{t.filters}</span>
         </div>
         <Button
           size="sm"
@@ -56,7 +59,7 @@ export function LogViewerFilters({ active, onChange, counts, locale }: Props) {
           )}
         >
           <Bug className="h-3.5 w-3.5" />
-          Debug Only
+          {t.debugOnly}
         </Button>
         <Button
           size="sm"
@@ -70,7 +73,7 @@ export function LogViewerFilters({ active, onChange, counts, locale }: Props) {
           )}
         >
           <AlertOctagon className="h-3.5 w-3.5" />
-          Errors
+          {t.errors}
         </Button>
         <Button
           size="sm"
@@ -103,9 +106,9 @@ export function LogViewerFilters({ active, onChange, counts, locale }: Props) {
       </div>
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Eye className="h-4 w-4" />
-        <span>Showing:</span>
+        <span>{t.showing}</span>
         <Badge variant="secondary" className="bg-muted/50 text-foreground">
-          {formatCount(showing, locale)} entries
+          {fillTemplate(showing === 1 ? t.entriesOne : t.entriesOther, { count: formatCount(showing, locale) })}
         </Badge>
       </div>
     </div>

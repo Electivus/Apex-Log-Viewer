@@ -4,10 +4,7 @@ import { createTempWorkspace } from '../tempWorkspace';
 
 describe('createTempWorkspace', () => {
   test('uses the autonomous core without persisting a Salesforce CLI path setting', async () => {
-    const workspace = await createTempWorkspace({
-      targetOrg: 'ALV_E2E',
-      sfCli: { sfBinPath: '/unused/sf', nodeBinPath: '/unused/node' }
-    });
+    const workspace = await createTempWorkspace({ targetOrg: 'ALV_E2E' });
     try {
       const gitignore = await readFile(path.join(workspace.workspacePath, '.gitignore'), 'utf8');
       const settings = JSON.parse(

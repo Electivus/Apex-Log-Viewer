@@ -27,7 +27,6 @@ function shouldKeepTempWorkspace(): boolean {
 
 export async function createTempWorkspace(options: {
   targetOrg: string;
-  sfCli?: { sfBinPath: string; nodeBinPath: string };
   settings?: Record<string, unknown>;
 }): Promise<TempWorkspace> {
   return await timeE2eStep('workspace.create', async () => {

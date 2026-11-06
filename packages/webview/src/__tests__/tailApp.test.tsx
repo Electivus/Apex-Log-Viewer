@@ -174,6 +174,40 @@ describe('Tail webview App', () => {
     await screen.findByText('USER_DEBUG|keep-this-line');
   });
 
+  it('pauses Auto-scroll when the user scrolls up and resumes it at the bottom', async () => {
+    const { vscode, getSavedState } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<TailApp vscode={vscode} messageBus={bus} />);
+
+    send(bus, { type: 'init', locale: 'en' });
+    send(bus, {
+      type: 'tailData',
+      lines: Array.from({ length: 40 }, (_, i) => `13:00:${String(i).padStart(2, '0')}.000|INFO|line-${i}`)
+    });
+    await screen.findByText('13:00:00.000|INFO|line-0');
+
+    const autoScroll = screen.getByRole('switch', { name: 'Auto-scroll' });
+    expect(autoScroll).toHaveAttribute('aria-checked', 'true');
+
+    const list = screen.getByRole('list');
+    Object.defineProperty(list, 'clientHeight', { configurable: true, value: 200 });
+    Object.defineProperty(list, 'scrollHeight', { configurable: true, value: 1000 });
+    const scrollListTo = (top: number) => {
+      act(() => {
+        list.scrollTop = top;
+        fireEvent.scroll(list);
+      });
+    };
+
+    scrollListTo(300);
+    await waitFor(() => expect(autoScroll).toHaveAttribute('aria-checked', 'false'));
+    expect((getSavedState() as any)?.autoScroll).toBe(false);
+
+    scrollListTo(800);
+    await waitFor(() => expect(autoScroll).toHaveAttribute('aria-checked', 'true'));
+    expect((getSavedState() as any)?.autoScroll).toBe(true);
+  });
+
   it('restores and persists tail UI state through the VS Code webview api', async () => {
     const { vscode, posted, getSavedState } = createVsCodeMock({
       query: 'persisted tail query',

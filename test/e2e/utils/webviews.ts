@@ -84,3 +84,52 @@ export async function waitForWebviewFrame(
     throw new Error(sawWebviews ? 'Timed out waiting for matching webview frame.' : 'Timed out waiting for any webview frame.');
   });
 }
+
+type PageBox = { x: number; y: number; width: number; height: number };
+
+/** Waits until an element's box on the page reads the same several times in a row. */
+export async function waitForStablePagePosition(
+  target: { boundingBox(): Promise<PageBox | null> },
+  options?: { timeoutMs?: number; intervalMs?: number; stableReads?: number }
+): Promise<void> {
+  const timeoutMs = options?.timeoutMs ?? 10_000;
+  const intervalMs = options?.intervalMs ?? 100;
+  const stableReads = options?.stableReads ?? 3;
+  const deadline = Date.now() + timeoutMs;
+  let lastKey: string | undefined;
+  let sameReads = 0;
+  while (true) {
+    const box = await target.boundingBox();
+    const key = box ? [box.x, box.y, box.width, box.height].map(value => Math.round(value)).join(',') : undefined;
+    sameReads = key !== undefined && key === lastKey ? sameReads + 1 : key !== undefined ? 1 : 0;
+    lastKey = key;
+    if (sameReads >= stableReads) {
+      return;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `The element did not keep the same position on the page for ${stableReads} reads within ${timeoutMs} ms (last box: ${lastKey ?? 'none'}).`
+      );
+    }
+    await sleep(intervalMs);
+  }
+}
+
+/**
+ * Waits until a click on `target`, an element inside a webview, reaches the webview.
+ *
+ * VS Code webviews are out-of-process iframes, and Chromium routes a click to one of them by the hit-test data of the
+ * last frame the workbench drew, not by the current DOM. Right after a layout change such as
+ * `View: Toggle Maximized Panel`, that data can still describe the old layout, and a click aimed at the element's new
+ * place goes to the workbench instead. So wait until the element stops moving, then for the workbench to draw twice.
+ */
+export async function waitForWebviewClickTarget(
+  page: Pick<Page, 'evaluate'>,
+  target: { boundingBox(): Promise<PageBox | null> },
+  options?: { timeoutMs?: number; intervalMs?: number; stableReads?: number }
+): Promise<void> {
+  await waitForStablePagePosition(target, options);
+  await page.evaluate(
+    () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+  );
+}

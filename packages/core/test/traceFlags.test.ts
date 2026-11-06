@@ -242,6 +242,17 @@ test('trace flag remove deletes only the flags of the requested type', async t =
   );
 });
 
+test('trace flag apply and remove previews report success with dryRun, like the other mutating calls', async t => {
+  const { core, salesforce } = await traceFlagOrg(t, 'preview@example.com', { DEVELOPER_LOG: '7tf000000000001AAA' });
+
+  const apply = await core.traceFlag.apply({ targetOrg: 'preview@example.com', target, debugLevelName: 'ALV_DEBUG' });
+  const remove = await core.traceFlag.remove({ targetOrg: 'preview@example.com', target, dryRun: true });
+
+  assert.deepEqual([apply.status, apply.dryRun], ['success', true]);
+  assert.deepEqual([remove.status, remove.dryRun, remove.traceFlagIds], ['success', true, ['7tf000000000001AAA']]);
+  assert.deepEqual(traceFlagWrites(salesforce.requests), []);
+});
+
 test('trace flag calls reject a log type Salesforce does not define before reading any trace flag', async t => {
   const { core, salesforce } = await traceFlagOrg(t, 'invalid@example.com', {});
   const logType = "USER_DEBUG' OR LogType != '" as TraceFlagLogType;

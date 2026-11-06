@@ -27,7 +27,7 @@ Run `pnpm run test:conformance` to execute the v1 scenarios through `createApexL
 - `pnpm run test:webview`: executes the React webview suites under Jest with a jsdom environment (fast, no VS Code host required).
 - `pnpm run test:extension:node`: executes Node-only extension tests under Mocha without launching VS Code.
 - `pnpm run test:conformance`: executes the core behavioral contract scenarios through its public facade.
-- `pnpm run test:shifted-clock`: runs the Custom Logs event suites with the wall clock moved by +45, +400 and -1 days, so a test that depends on today's date fails now and not next month. `node scripts/test-shifted-clock.mjs --days 31,90` picks other shifts and `--all` runs every core and plugin test file. It also runs in `test:scripts`.
+- `pnpm run test:shifted-clock`: runs the Custom Logs event suites with the wall clock moved by +45, +400 and -1 days, so a test that depends on today's date fails now and not next month. `node scripts/test-shifted-clock.mjs --days 31,90` picks other shifts and `--all` runs every core and plugin test file. Each failure prints its assertion message, its location and, for a test file whose process died, its exit code. It also runs in `test:scripts`.
 - `pnpm run test:unit`: fast path; runs Jest first and then the VS Code-hosted unit scope.
 - `pnpm run test:integration`: installs dependency extensions if needed and runs integration tests.
 - `pnpm run test:all`: runs the Jest webview suites, the Node-only extension lane, and then both VS Code-hosted scopes.
@@ -114,6 +114,8 @@ The CLI suite then validates the plugin surface through `packages/sf-plugin/bin/
 2. `sf electivus log status --json` reports the synced scratch-org metadata
 
 The VS Code suite launches the extension host and validates the Logs panel + Log Viewer webview UX against the same seeded org, including panel search through local saved log files.
+
+After the workbench loads, the harness waits up to 60 seconds for the extension host to write `Extension host with pid <n> started` to `logs/<session>/window1/exthost/exthost.log` in the launch's user-data-dir. When it does not, VS Code shows "Extension host did not start in 10 seconds" and never activates the extension, so the harness prints the window log's extension host lines, closes VS Code, and launches it once more with a fresh user-data-dir. The run output then shows `[e2e] extension host did not start; relaunching VS Code`. If the second launch has no extension host either, the test fails at once instead of waiting for a webview.
 
 ### Run locally
 

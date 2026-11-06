@@ -24,6 +24,8 @@ export type OrgAuth = {
 
 export type DoctorParams = {
   targetOrg?: string;
+  /** Defaults to the current directory. */
+  workspaceRoot?: string;
 };
 
 export type DoctorCheck = {

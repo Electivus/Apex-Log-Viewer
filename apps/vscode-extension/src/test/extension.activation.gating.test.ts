@@ -37,6 +37,8 @@ function createExtensionHarness(options: {
   initialLogsSelectedOrg?: string;
   initialTailSelectedOrg?: string;
   logsViewResolved?: boolean;
+  findSalesforceProjectInfo?: () => Promise<unknown>;
+  clearExpiredCache?: () => Promise<void>;
 }) {
   const commands = new Map<string, RegisteredCommand>();
   const events: Array<{ name: string; props?: Record<string, string>; measurements?: Record<string, number> }> = [];
@@ -57,6 +59,8 @@ function createExtensionHarness(options: {
   const webviewProviderRegistrations: Array<{ viewId: string; options?: any }> = [];
   const customLogsRegistrations: Array<{ logsSelectedOrg: () => string | undefined }> = [];
   const clipboardWrites: string[] = [];
+  const codeLensSelectors: unknown[] = [];
+  const apexLogEditorContextRegistrations: number[] = [];
 
   const vscodeStub = {
     version: '1.90.0',
@@ -105,7 +109,10 @@ function createExtensionHarness(options: {
       executeCommand: async () => undefined
     },
     languages: {
-      registerCodeLensProvider: () => createDisposable()
+      registerCodeLensProvider: (selector: unknown) => {
+        codeLensSelectors.push(selector);
+        return createDisposable();
+      }
     }
   };
 
@@ -195,6 +202,12 @@ function createExtensionHarness(options: {
     './provider/SfLogsViewProvider': { SfLogsViewProvider: FakeLogsViewProvider },
     './provider/SfLogTailViewProvider': { SfLogTailViewProvider: FakeTailViewProvider },
     './provider/ApexLogCodeLensProvider': { ApexLogCodeLensProvider: FakeCodeLensProvider },
+    './host/apexLogEditorContext': {
+      registerApexLogEditorContext: () => {
+        apexLogEditorContextRegistrations.push(1);
+        return createDisposable();
+      }
+    },
     './host/customLogsFeature': {
       registerCustomLogsFeature: (_context: unknown, logsSelectedOrg: () => string | undefined) => {
         customLogsRegistrations.push({ logsSelectedOrg });
@@ -279,7 +292,7 @@ function createExtensionHarness(options: {
     './host/utils/cacheManager': {
       CacheManager: {
         init: () => undefined,
-        clearExpired: async () => undefined,
+        clearExpired: options.clearExpiredCache ?? (async () => undefined),
         delete: async () => undefined
       }
     },
@@ -303,7 +316,7 @@ function createExtensionHarness(options: {
       }
     },
     './host/utils/workspace': {
-      findSalesforceProjectInfo: async () => options.salesforceProject,
+      findSalesforceProjectInfo: options.findSalesforceProjectInfo ?? (async () => options.salesforceProject),
       isApexLogDocument: () => options.isApexLogDocument ?? true,
       getLogIdFromLogFilePath: () => options.logId
     }
@@ -329,7 +342,9 @@ function createExtensionHarness(options: {
     logsRefreshCalls,
     webviewProviderRegistrations,
     customLogsRegistrations,
-    clipboardWrites
+    clipboardWrites,
+    codeLensSelectors,
+    apexLogEditorContextRegistrations
   };
 }
 
@@ -360,7 +375,8 @@ suite('extension activation gating', () => {
       return 1;
     };
 
-    await harness.extension.activate(createContext());
+    const exports = await harness.extension.activate(createContext());
+    await exports.whenProjectReady();
 
     assert.deepEqual(harness.setApiVersionCalls, []);
     assert.equal(harness.timeoutCallbacks.length, 0, 'should not schedule CLI preload outside Salesforce projects');
@@ -413,7 +429,8 @@ suite('extension activation gating', () => {
       return 1;
     };
 
-    await harness.extension.activate(createContext());
+    const exports = await harness.extension.activate(createContext());
+    await exports.whenProjectReady();
 
     assert.deepEqual(harness.setApiVersionCalls, ['60.0']);
     assert.equal(harness.timeoutCallbacks.length, 0, 'the autonomous extension should not preload the Salesforce CLI');
@@ -422,6 +439,86 @@ suite('extension activation gating', () => {
     assert.equal(activationEvent?.props?.hasSalesforceProject, 'true');
 
     assert.deepEqual(harness.orgListCalls, []);
+  });
+
+  test('registers views and commands before project detection and the cache cleanup finish', async () => {
+    const pending = new Promise<never>(() => undefined);
+    const harness = createExtensionHarness({
+      salesforceProject: {
+        workspaceRoot: path.join(process.cwd(), 'workspace-salesforce'),
+        projectFilePath: path.join(process.cwd(), 'workspace-salesforce', 'sfdx-project.json'),
+        sourceApiVersion: '60.0'
+      },
+      findSalesforceProjectInfo: () => pending,
+      clearExpiredCache: () => pending
+    });
+
+    const activation = harness.extension.activate(createContext());
+    const settled = await Promise.race([
+      Promise.resolve(activation).then(() => 'activated'),
+      new Promise(resolve => setImmediate(() => resolve('pending')))
+    ]);
+
+    assert.equal(settled, 'activated', 'activate must not wait for project detection or the cache cleanup');
+    assert.deepEqual(
+      harness.webviewProviderRegistrations.map(registration => registration.viewId),
+      ['electivus.apexLogViewer.logsView', 'electivus.apexLogViewer.tailView']
+    );
+    for (const command of [
+      'electivus.apexLogViewer.logs.refresh',
+      'electivus.apexLogViewer.org.select',
+      'electivus.apexLogViewer.tail.start',
+      'electivus.apexLogViewer.logs.openEditor',
+      'electivus.apexLogViewer.tail.openEditor',
+      'electivus.apexLogViewer.log.openViewer',
+      'electivus.apexLogViewer.output.show',
+      'electivus.apexLogViewer.diagnostics.copy'
+    ]) {
+      assert.ok(harness.commands.has(command), `${command} should be registered while detection is pending`);
+    }
+    assert.deepEqual(harness.setApiVersionCalls, [], 'the API version arrives with project detection');
+    assert.equal(
+      harness.events.find(event => event.name === 'extension.activate'),
+      undefined,
+      'the activation event waits for project detection, which it reports'
+    );
+  });
+
+  test('applies sourceApiVersion when project detection finishes after registration', async () => {
+    let resolveProject!: (value: unknown) => void;
+    const harness = createExtensionHarness({
+      findSalesforceProjectInfo: () =>
+        new Promise(resolve => {
+          resolveProject = resolve;
+        })
+    });
+
+    const exports = await harness.extension.activate(createContext());
+    assert.ok(harness.commands.has('electivus.apexLogViewer.logs.refresh'));
+    assert.deepEqual(harness.setApiVersionCalls, []);
+
+    resolveProject({
+      workspaceRoot: path.join(process.cwd(), 'workspace-salesforce'),
+      projectFilePath: path.join(process.cwd(), 'workspace-salesforce', 'sfdx-project.json'),
+      sourceApiVersion: '61.0'
+    });
+    await exports.whenProjectReady();
+
+    assert.deepEqual(harness.setApiVersionCalls, ['61.0']);
+    const activationEvent = harness.events.find(event => event.name === 'extension.activate');
+    assert.equal(activationEvent?.props?.hasSalesforceProject, 'true');
+    assert.equal(typeof activationEvent?.measurements?.durationMs, 'number');
+    assert.equal(typeof activationEvent?.measurements?.registrationMs, 'number');
+    assert.ok(
+      activationEvent!.measurements!.registrationMs! <= activationEvent!.measurements!.durationMs!,
+      'registration finishes within the activation span'
+    );
+
+    await harness.commands.get('electivus.apexLogViewer.diagnostics.copy')!();
+    assert.ok(
+      harness.clipboardWrites[0]?.includes('"sourceApiVersion": "61.0"'),
+      'diagnostics report the project detected after registration'
+    );
   });
 
   test('syncs the selected logs org into tail before refreshing the tail view', async () => {
@@ -460,6 +557,20 @@ suite('extension activation gating', () => {
     const refreshEvent = harness.events.find(event => event.name === 'command.refresh');
     assert.deepEqual(refreshEvent?.props, { outcome: 'invoked' });
     assert.equal(typeof refreshEvent?.measurements?.durationMs, 'number');
+  });
+
+  test('offers Open in Apex Log Viewer for Apex logs that open in the Log language mode', async () => {
+    const harness = createExtensionHarness({});
+
+    await harness.extension.activate(createContext());
+
+    assert.deepEqual(harness.codeLensSelectors, [
+      [
+        { scheme: 'file', language: 'apexlog' },
+        { scheme: 'file', language: 'log' }
+      ]
+    ]);
+    assert.equal(harness.apexLogEditorContextRegistrations.length, 1, 'the editor-title button needs its context key');
   });
 
   test('registers retained sidebar webviews', async () => {

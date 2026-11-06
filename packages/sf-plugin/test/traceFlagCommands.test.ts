@@ -69,6 +69,22 @@ test('trace-flag commands reject a log type Salesforce does not define', async (
   }
 });
 
+test('trace-flag apply accepts --ttl-minutes from 1 to 1440 and rejects longer lifetimes', async () => {
+  const capture = stub('apply');
+  const apply = (ttl: string) =>
+    new TraceFlagApply(
+      ['--debug-level', 'ALV_DEBUG', '--target-org', 'acme-dev', '--current-user', '--ttl-minutes', ttl, '--json'],
+      config
+    ).run();
+
+  await apply('1440');
+  assert.equal(capture.params?.ttlMinutes, 1440);
+
+  capture.params = undefined;
+  await assert.rejects(apply('1441'), /1440/);
+  assert.equal(capture.params, undefined);
+});
+
 const USER = { type: 'user', userId: '005000000000001AAA' } as const;
 const PLATFORM_INTEGRATION = { type: 'platformIntegration' } as const;
 
