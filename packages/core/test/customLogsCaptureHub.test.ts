@@ -638,6 +638,46 @@ test('a lease taken away mid-run sends the run to standby, drops the batch it co
   });
 });
 
+test('a run that stores an event and then finds its lease taken shows that row once, and the re-delivery adds nothing', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+    await seedCheckpoint(store, [busEvent(1), busEvent(2)]);
+    const { foreign, guarded } = await leaseTakenOnFirstAdvance(root, store);
+    try {
+      const { clock, transport, deps, hub } = setup(guarded);
+      const w = watcher({ follow: true });
+      const done = hub.watch(guarded.location, w.watcher, deps);
+      const first = await transport.opened(0);
+      first.subscribed();
+      first.events(busEvent(3));
+      await clock.advance(250);
+      await until(() => w.states().includes('standby'), 'the standby state after the lease was lost');
+
+      // The process that took the lease receives the event again and stores nothing, so only this run can show it.
+      assert.deepEqual(w.rows(), ['message 3']);
+      assert.equal((await readStored(store)).length, 3, 'the event is on disk');
+
+      await foreign.die();
+      await until(() => clock.pending > 0, 'the standby poll');
+      await clock.advance(2_000);
+      const second = await transport.opened(1);
+      second.subscribed();
+      second.events(busEvent(3));
+      await clock.advance(250);
+      await new Promise<void>(resolve => setTimeout(resolve, 20));
+      assert.deepEqual(w.rows(), ['message 3'], 'the stored event is not shown twice');
+
+      w.abort();
+      const result = await resultOf(done);
+      assert.equal(result.outcome, 'aborted');
+      assert.equal(result.stored, 1);
+      assert.equal(result.delivered, 2);
+    } finally {
+      await foreign.die();
+    }
+  });
+});
+
 test('a run that wins a lost lease back reports the allowance from before its first delivery, and its updates carry the new read', async () => {
   await withProject(async root => {
     const store = openStore(root);

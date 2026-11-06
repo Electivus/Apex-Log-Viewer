@@ -21,13 +21,14 @@
  *     │  authRejected:   connect({ fresh }), backoff (fails after MAX_AUTH_REBUILDS without a `subscribed`)
  *     │  down / queue overflow ─► reconnecting{cause}
  *     │  deliveryLimit | clientLimit | forbidden | other ─► failed (own codes, CUSTOM_LOG_CAPTURE_FAILED)
- *   LeaseLostError on advance ─► release, stand by again
+ *   LeaseLostError on advance ─► show what the batch stored, release, stand by again
  *   last watcher leaves | budget spent | needsInitial ─► flush, clean end, release ─► stopped{outcome}
  *
  * Flush (I2 of store.ts): events queue; at FLUSH_MS after the first queued event, at FLUSH_MAX events,
  * or when the stream ends: `append` (durable) → `advance` with the cursor of the last delivered event →
  * close the open gap if a stored event is newer than its `after` → emit the rows. A screen never shows
- * an event that is not on disk. Flushes are single-flight: every trigger chains on one promise, so
+ * an event that is not on disk. A batch whose `append` resolved is emitted even when the lease turns out lost
+ * after it: no other process shows a row this one stored, because a duplicate delivery stores nothing. Flushes are single-flight: every trigger chains on one promise, so
  * `advance` calls land in the order `append` calls complete and a slow disk cannot put a cursor past
  * stored data. `last` (a `RunPosition`) is the run's one piece of position state: `last?.cursor` is what
  * the transport's `durableCursor()` answers, and `last` is what the clean end re-sends.
@@ -683,9 +684,10 @@ function createRun(
     const flushBatch = async (batch: readonly BusEvent[]): Promise<void> => {
       const tail = batch[batch.length - 1];
       if (!tail || !writable()) return;
-      let newlyStored: readonly StoredEvent[];
+      let newlyStored: readonly StoredEvent[] = [];
       try {
         newlyStored = (await writer.append(batch)).stored;
+        stored += newlyStored.length;
         const next: RunPosition = { cursor: tail.cursor, lastEvent: newestHeldEvent(last?.lastEvent ?? tail, batch) };
         await writer.advance({
           orgId: session.orgId,
@@ -696,7 +698,6 @@ function createRun(
         });
         last = next;
         confirmedAt = clock.now().toISOString();
-        stored += newlyStored.length;
         const gap = await writer.openGapNow();
         if (gap) {
           const closing = newlyStored
@@ -707,9 +708,15 @@ function createRun(
         }
         if (newlyStored.length > 0) await refreshStoreInfo();
       } catch (error) {
-        if (error instanceof LeaseLostError) stop({ kind: 'leaseLost' });
-        else fail(error);
-        return;
+        if (!(error instanceof LeaseLostError)) {
+          fail(error);
+          return;
+        }
+        stop({ kind: 'leaseLost' });
+        // The rows are on disk, and the process that took the lease stores nothing when it receives them again,
+        // so this run is the only one that can show them. Its standby relay starts after them.
+        if (newlyStored.length === 0) return;
+        await refreshStoreInfo().catch(() => {});
       }
       if (newlyStored.length > 0) fanOut(newlyStored);
     };
