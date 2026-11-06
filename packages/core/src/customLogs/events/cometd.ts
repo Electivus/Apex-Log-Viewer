@@ -35,6 +35,7 @@ type FayeExtension = {
   incoming?(message: FayeMessage, callback: (message: FayeMessage) => void): void;
   outgoing?(message: FayeMessage, callback: (message: FayeMessage) => void): void;
 };
+type FayeEnvelope = { timer?: NodeJS.Timeout | null };
 type FayeDeferred = { callback(listener: () => void): unknown; errback(listener: () => void): unknown };
 type FayeClient = {
   subscribe(channel: string, listener: (data: unknown) => void): unknown;
@@ -45,7 +46,8 @@ type FayeClient = {
   on(event: 'transport:down' | 'transport:up', listener: () => void): unknown;
   removeListener(event: 'transport:down' | 'transport:up', listener: () => void): unknown;
   _dispatcher?: {
-    _envelopes?: Record<string, { timer?: NodeJS.Timeout | null }>;
+    /** A plain object up to Faye 1.4.1, a `Map` from 1.4.2. */
+    _envelopes?: Map<string, FayeEnvelope> | Record<string, FayeEnvelope>;
     close?(): void;
   };
 };
@@ -169,10 +171,12 @@ function stopClient(client: FayeClient): Promise<void> {
  * Faye resends a request nobody answered every few seconds, forever, and has no way to cancel it, so
  * a stopped client whose connection dropped keeps a timer (and, while the server is unreachable, a
  * request) alive. jsforce reaches into `_dispatcher` the same way; with nothing there this does nothing.
+ * Faye 1.4.2 made `_envelopes` a `Map`, which `Object.values` reads as empty, so both shapes are read.
  */
 function cancelRetries(client: FayeClient): void {
   const dispatcher = client._dispatcher;
-  for (const envelope of Object.values(dispatcher?._envelopes ?? {})) {
+  const envelopes = dispatcher?._envelopes;
+  for (const envelope of envelopes instanceof Map ? envelopes.values() : Object.values(envelopes ?? {})) {
     if (envelope.timer) clearTimeout(envelope.timer);
   }
   dispatcher?.close?.();

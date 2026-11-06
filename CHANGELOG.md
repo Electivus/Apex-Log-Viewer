@@ -4,6 +4,7 @@
 
 ### Maintenance
 
+- Refresh JSforce to 3.13.1 and Faye to 1.4.3. Faye 1.4.2 and later keep pending requests in a `Map`, which hid them from the Custom Logs capture's stop, so a stopped capture whose connection had dropped kept retrying for seconds; the stop now cancels those retries under both Faye shapes. Faye 1.4.2 itself is skipped because it raises unhandled rejections when a transport fails to connect.
 - CI: `pnpm run check-types` and `pnpm run compile` now type-check the webview tests and the core and Salesforce CLI plugin tests, so a type error there fails the build before a test run. Fixes the type errors these gates found, including the Tail panel's debug-level selection, which read a field TypeScript could not narrow.
 - E2E: the Debug Flags spec now proves that the Tail toolbar button opens Apex Debug Flags. `openDebugFlagsFromTail` closes the editor that the Logs step left open, then clicks without `force`, with Enter and DOM-click fallbacks. Before, the open editor satisfied the wait, so the spec passed even when the click never reached the extension.
 - Telemetry: the Debug Flags `debugFlags.apply` and `debugFlags.remove` events now carry `logType` (`DEVELOPER_LOG` or `USER_DEBUG`), so usage shows how often people move away from the `DEVELOPER_LOG` default. `telemetry.json` and `docs/TELEMETRY.md` declare the new property.

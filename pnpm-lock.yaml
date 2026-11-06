@@ -26,8 +26,8 @@ importers:
   .:
     devDependencies:
       '@jsforce/jsforce-node':
-        specifier: 3.10.25
-        version: 3.10.25
+        specifier: 3.13.1
+        version: 3.13.1
       '@playwright/test':
         specifier: ^1.64.1
         version: 1.64.1
@@ -81,7 +81,7 @@ importers:
         version: 3.1.0
       '@vscode/vsce':
         specifier: ^4.1.0
-        version: 4.1.0
+        version: 4.1.0(supports-color@8.1.1)
       autoprefixer:
         specifier: ^10.6.1
         version: 10.6.1(postcss@8.5.28)
@@ -182,8 +182,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/protocol
       '@jsforce/jsforce-node':
-        specifier: 3.10.25
-        version: 3.10.25
+        specifier: 3.13.1
+        version: 3.13.1
       '@vscode/extension-telemetry':
         specifier: ^1.5.2
         version: 1.5.2(tslib@2.8.1)
@@ -1584,8 +1584,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@jsforce/jsforce-node@3.10.25':
-    resolution: {integrity: sha512-L4GfTOzmGBypjG1O7aTxwbk4DTKitU7yvnnqQE7wypFyEyHH9VR6cVZxi4+Gfk7cmItHRHAV7MyBTFfrP5DaHA==}
+  '@jsforce/jsforce-node@3.13.1':
+    resolution: {integrity: sha512-vpHhwc+Wcufk9vARzL4oxYSzg8ndNButSn88D6pMImjns7/NTkwPZ9qQwD2F/P4c+A0lwTyDl4Alry0BMgFsTg==}
     engines: {node: '>=22'}
 
   '@jsonjoy.com/base64@1.1.2':
@@ -2338,6 +2338,7 @@ packages:
   '@smithy/core@3.29.1':
     resolution: {integrity: sha512-qoiY4nrk5OCu1+eIR1VB8l5DmON/oKiqrd5zZFAhXJXjJlLWQusKEW/SkBDAtGDcPaz86m9kfcE1lngU0GlM6A==}
     engines: {node: '>=18.0.0'}
+    deprecated: Deprecated due to a bug in custom logger data redaction. See https://github.com/aws/aws-sdk-js-v3/issues/8393.
 
   '@smithy/credential-provider-imds@4.4.6':
     resolution: {integrity: sha512-B2WQ/PV/H6Jeg3lrIq6bKUfa6Hy01mtK7CGs6lhjzHA6k4aagldH6T6eEjnzKl4HI0cJnAsxfJ19pgb5PV+CVQ==}
@@ -2984,9 +2985,6 @@ packages:
     resolution: {integrity: sha512-BNoCY6SXXPQ7gF2opIP4GBE+Xw7U+pHMYKuzjgCN3GwiaIR09UUeKfheyIry77QtrCBlC0KK0q5/TER/tYh3PQ==}
     engines: {node: '>= 0.4'}
 
-  asap@2.0.6:
-    resolution: {integrity: sha512-BSHWgDSAiKs50o2Re8ppvp3seVHXSRM44cdSsT9FfNEUUZLOGWVCsiWaRPWM1Znn+mqZ1OfVZ3z3DWEzSp7hRA==}
-
   async-function@1.0.0:
     resolution: {integrity: sha512-hsU18Ae8CDTR6Kgu9DYf0EbCr/a5iGL0rytQDobUcdpYOKokk8LEjVphnXkDkgpi0wYVsqrXuP0bZxJaTqdgoA==}
     engines: {node: '>= 0.4'}
@@ -3368,11 +3366,11 @@ packages:
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
 
-  csv-parse@5.6.0:
-    resolution: {integrity: sha512-l3nz3euub2QMg5ouu5U09Ew9Wf6/wQ8I++ch1loQ0ljmzhmfZYrH9fflS22i/PQEvsPvxCwxgz5q7UB8K1JO4Q==}
+  csv-parse@7.0.3:
+    resolution: {integrity: sha512-YFd3QM/yo17vH91L1IOZuvl09zM0zEEtdfTcOCKWcMdM++MNaQSyp09slXyFCLaPXvHstQFx/xC8myiFHSMUvw==}
 
-  csv-stringify@6.6.0:
-    resolution: {integrity: sha512-YW32lKOmIBgbxtu3g5SaiqWNwa/9ISQt2EcgOq0+RAIFufFp9is6tqNnKahqE5kuKvrnYAzs28r+s6pXJR8Vcw==}
+  csv-stringify@6.9.0:
+    resolution: {integrity: sha512-6b3e29CILFfSQ2nDRuZMRROzQOpPuJ+s8zPB5H7eK5ncXBbFOyVuRLU5Sx/zAUmVri3Ly49GyC8NEme4SVSAbA==}
 
   data-urls@5.0.0:
     resolution: {integrity: sha512-ZYP5VBHshaDAiVZxjbRVcFJpc+4xGgT0bK3vzy1HLN8jTO975HEbuYzZJcHoQEY5K1a0z8YayJkyVETa08eNTg==}
@@ -3737,12 +3735,8 @@ packages:
     resolution: {integrity: sha512-CzbClwlXAuiRQAlUyfqPgvPoNKTckTPGfwZV4ZdAhVcP2lh9KUxJg2b5GkE7XbjKQ3YJnQ9z6D9ntLAlB+tP8g==}
     engines: {node: '>=0.8.0'}
 
-  faye@1.4.1:
-    resolution: {integrity: sha512-Cg/khikhqlvumHO3efwx2tps2ZgQRjUMrO24G0quz7MMzRYYaEjU224YFXOeuPIvanRegIchVxj6pmHK1W0ikA==}
-    engines: {node: '>=0.8.0'}
-
-  faye@1.4.2:
-    resolution: {integrity: sha512-EYXh+CK69jyu9zwzqbnZkOjbwwSB0MnXvR43GmoOfqgSNfsiKyg4A4G8vyFn68MF9lR5Q4evF6we/2VNMUERKw==}
+  faye@1.4.3:
+    resolution: {integrity: sha512-MVbPkUDW31a8tWgdGppHrkuV8+/9eq5u5T5AnrS95HU52YJyy9sx1DYGY7xRL0u/suckuctgxRMunTXIDdxRTg==}
     engines: {node: '>=14'}
 
   fb-watchman@2.0.2:
@@ -3993,6 +3987,7 @@ packages:
   http-call@5.3.0:
     resolution: {integrity: sha512-ahwimsC23ICE4kPl9xTBjKB4inbRaeLyZeRunC/1Jy/Z6X8tv22MEAjK+KBOMSVLaqXPTTmd8638waVIKLGx2w==}
     engines: {node: '>=8.0.0'}
+    deprecated: Renamed to @heroku/http-call — please install @heroku/http-call instead.
 
   http-parser-js@0.5.10:
     resolution: {integrity: sha512-Pysuw9XpUq5dVc/2SMHpuTY01RFl8fttgcyunjL7eEMhGM3cI4eOmiCycJDVCo/7O7ClfQD3SaI6ftDzqOXYMA==}
@@ -7520,13 +7515,14 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@jsforce/jsforce-node@3.10.25':
+  '@jsforce/jsforce-node@3.13.1':
     dependencies:
       '@sindresorhus/is': 4.6.0
       base64url: 3.0.1
-      csv-parse: 5.6.0
-      csv-stringify: 6.6.0
-      faye: 1.4.1
+      cross-spawn: 7.0.6
+      csv-parse: 7.0.3
+      csv-stringify: 6.9.0
+      faye: 1.4.3
       form-data: 4.0.6
       multistream: 3.1.0
       undici: 8.12.3
@@ -8190,13 +8186,13 @@ snapshots:
 
   '@salesforce/core@8.32.4':
     dependencies:
-      '@jsforce/jsforce-node': 3.10.25
+      '@jsforce/jsforce-node': 3.13.1
       '@salesforce/kit': 3.2.6
       '@salesforce/ts-types': 2.0.12
       ajv: 8.20.0
       change-case: 4.1.2
       fast-levenshtein: 3.0.0
-      faye: 1.4.2
+      faye: 1.4.3
       form-data: 4.0.6
       js2xmlparser: 4.0.2
       jsonwebtoken: 9.0.3
@@ -8212,13 +8208,13 @@ snapshots:
 
   '@salesforce/core@9.2.0':
     dependencies:
-      '@jsforce/jsforce-node': 3.10.25
+      '@jsforce/jsforce-node': 3.13.1
       '@salesforce/kit': 4.0.0
       '@salesforce/ts-types': 3.2.0
       ajv: 8.20.0
       change-case: 4.1.2
       fast-levenshtein: 3.0.0
-      faye: 1.4.2
+      faye: 1.4.3
       form-data: 4.0.6
       js2xmlparser: 4.0.2
       jsonwebtoken: 9.0.3
@@ -8262,7 +8258,7 @@ snapshots:
 
   '@salesforce/ts-types@3.2.0': {}
 
-  '@secretlint/core@10.2.2':
+  '@secretlint/core@10.2.2(supports-color@8.1.1)':
     dependencies:
       '@secretlint/profiler': 10.2.2
       '@secretlint/types': 10.2.2
@@ -8844,11 +8840,11 @@ snapshots:
       '@vscode/vsce-sign-win32-arm64': 2.0.6
       '@vscode/vsce-sign-win32-x64': 2.0.6
 
-  '@vscode/vsce@4.1.0':
+  '@vscode/vsce@4.1.0(supports-color@8.1.1)':
     dependencies:
       '@azure/identity': 4.14.1
       '@napi-rs/keyring': 1.3.0
-      '@secretlint/core': 10.2.2
+      '@secretlint/core': 10.2.2(supports-color@8.1.1)
       '@secretlint/secretlint-rule-no-dotenv': 10.2.2
       '@secretlint/secretlint-rule-preset-recommend': 10.2.2
       '@secretlint/source-creator': 10.2.2
@@ -8964,8 +8960,6 @@ snapshots:
       es-errors: 1.3.0
       get-intrinsic: 1.3.0
       is-array-buffer: 3.0.5
-
-  asap@2.0.6: {}
 
   async-function@1.0.0: {}
 
@@ -9381,9 +9375,9 @@ snapshots:
 
   csstype@3.2.3: {}
 
-  csv-parse@5.6.0: {}
+  csv-parse@7.0.3: {}
 
-  csv-stringify@6.6.0: {}
+  csv-stringify@6.9.0: {}
 
   data-urls@5.0.0:
     dependencies:
@@ -9840,16 +9834,7 @@ snapshots:
     dependencies:
       websocket-driver: 0.7.5
 
-  faye@1.4.1:
-    dependencies:
-      asap: 2.0.6
-      csprng: 0.1.2
-      faye-websocket: 0.11.4
-      safe-buffer: 5.2.1
-      tough-cookie: 6.0.2
-      tunnel-agent: 0.6.0
-
-  faye@1.4.2:
+  faye@1.4.3:
     dependencies:
       csprng: 0.1.2
       faye-websocket: 0.11.4

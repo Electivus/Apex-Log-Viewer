@@ -97,7 +97,7 @@
     "test:agent-plugin:mcp": "node scripts/test-agent-plugin-mcp.mjs"
   },
   "devDependencies": {
-    "@jsforce/jsforce-node": "3.10.25",
+    "@jsforce/jsforce-node": "3.13.1",
     "@playwright/test": "^1.64.1",
     "@tailwindcss/cli": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.1",
