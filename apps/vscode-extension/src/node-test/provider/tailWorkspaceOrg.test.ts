@@ -50,7 +50,8 @@ suite('Tail opened before Logs', () => {
   const saved = {
     home: process.env.HOME,
     userProfile: process.env.USERPROFILE,
-    keychain: process.env.SF_USE_GENERIC_UNIX_KEYCHAIN
+    keychain: process.env.SF_USE_GENERIC_UNIX_KEYCHAIN,
+    disableLogFile: process.env.SF_DISABLE_LOG_FILE
   };
   let home: string;
   let workspace: string;
@@ -61,6 +62,9 @@ suite('Tail opened before Logs', () => {
     process.env.HOME = home;
     process.env.USERPROFILE = home;
     process.env.SF_USE_GENERIC_UNIX_KEYCHAIN = 'true';
+    // The extension sets this at activation. Without it, @salesforce/core's logger starts a worker thread that creates
+    // .sf/sf-<date>.log under this temporary home whenever it gets to it, which can be while teardown deletes the home.
+    process.env.SF_DISABLE_LOG_FILE = 'true';
     await saveOrgs();
     writeTargetOrg(home, GLOBAL_ORG);
     writeTargetOrg(workspace, WORKSPACE_ALIAS);
@@ -74,6 +78,11 @@ suite('Tail opened before Logs', () => {
       delete process.env.SF_USE_GENERIC_UNIX_KEYCHAIN;
     } else {
       process.env.SF_USE_GENERIC_UNIX_KEYCHAIN = saved.keychain;
+    }
+    if (saved.disableLogFile === undefined) {
+      delete process.env.SF_DISABLE_LOG_FILE;
+    } else {
+      process.env.SF_DISABLE_LOG_FILE = saved.disableLogFile;
     }
     fs.rmSync(home, { recursive: true, force: true });
   });
