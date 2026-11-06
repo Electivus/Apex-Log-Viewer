@@ -23,13 +23,16 @@ import {
 } from '../src/customLogs/queries.ts';
 import { toSourceInfo } from '../src/customLogs/catalog.ts';
 import { resolveDefinition } from '../src/customLogs/resolve.ts';
-import type { CatalogEntry, ResolvedSource } from '../src/customLogs/resolved.ts';
+import { isEventSource, type CatalogEntry, type ResolvedRecordSource } from '../src/customLogs/resolved.ts';
 import { parseSinceExpression } from '../src/customLogs/since.ts';
 import { describeFixture } from './support/describeFixtures.ts';
 
-function ready(entry: CatalogEntry): ResolvedSource {
+/** Every source here maps Salesforce records, which is what the query planners take. */
+function ready(entry: CatalogEntry): ResolvedRecordSource {
   assert.equal(entry.state, 'ready', JSON.stringify(entry));
-  return (entry as Extract<CatalogEntry, { state: 'ready' }>).source;
+  const { source } = entry as Extract<CatalogEntry, { state: 'ready' }>;
+  assert.ok(!isEventSource(source), `${source.id} maps records`);
+  return source;
 }
 
 const unlocked = ready(resolveDefinition(NEBULA_PRESET.definition, 'builtin', '', describeFixture('unlocked-admin')));

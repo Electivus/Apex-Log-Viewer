@@ -171,6 +171,38 @@ export async function syncDirectory(
   }
 }
 
+const WIN32_BUSY_RENAME_CODES: ReadonlySet<string> = new Set(['EPERM', 'EACCES', 'EBUSY']);
+
+/** How long a replacing rename waits before each retry on win32: about 1.6 s in all. */
+export const WIN32_RENAME_RETRY_DELAYS_MS: readonly number[] = [5, 10, 20, 40, 80, 160, 320, 480, 480];
+
+/**
+ * `rename` that replaces `to`. On win32 the replace is refused with EPERM, EACCES or EBUSY while another
+ * handle has `to` open: a reader of the same file in this or another process (the panel, the CLI, a
+ * standby capture), an indexer or an antivirus scan. Those handles close within milliseconds, so the
+ * rename is retried after each delay of `delaysMs`, then the last error is thrown. Every other platform
+ * and code throws at once.
+ */
+export async function renameReplacing(
+  from: string,
+  to: string,
+  platform: NodeJS.Platform = process.platform,
+  delaysMs: readonly number[] = WIN32_RENAME_RETRY_DELAYS_MS
+): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await fs.rename(from, to);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const delay = delaysMs[attempt];
+      const busy = platform === 'win32' && code !== undefined && WIN32_BUSY_RENAME_CODES.has(code);
+      if (!busy || delay === undefined) throw error;
+      await new Promise<void>(resolve => setTimeout(resolve, delay));
+    }
+  }
+}
+
 export type WriteFileAtomicOptions = Readonly<{
   /**
    * Make the write survive an OS crash: the temporary file is `datasync`ed before it is renamed or
@@ -181,8 +213,9 @@ export type WriteFileAtomicOptions = Readonly<{
 }>;
 
 /**
- * Temp file in the same directory, then `rename` (replace) or `link` (create-if-absent). Returns false
- * when `keepExisting` is set and a regular file already exists.
+ * Temp file in the same directory, then `rename` (replace, retried on win32 while a reader holds the
+ * file: `renameReplacing`) or `link` (create-if-absent). Returns false when `keepExisting` is set and a
+ * regular file already exists.
  */
 export async function writeFileAtomic(
   filePath: string,
@@ -208,7 +241,7 @@ export async function writeFileAtomic(
         throw error;
       }
     } else {
-      await fs.rename(temporaryPath, filePath);
+      await renameReplacing(temporaryPath, filePath);
     }
     if (options?.syncDirectory) await syncDirectory(path.dirname(filePath));
     return true;
