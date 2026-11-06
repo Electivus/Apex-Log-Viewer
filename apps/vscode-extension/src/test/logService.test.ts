@@ -88,6 +88,38 @@ suite('LogService', () => {
     assert.deepEqual(commandCalls, [{ command: 'sf.launch.replay.debugger.logfile', path: '/tmp/replay.log' }]);
   });
 
+  test('debugLog titles its progress notification in the display language', async () => {
+    const titles: unknown[] = [];
+    const stub = vscodeStub();
+    stub.window.withProgress = async (options: unknown, task: (progress: unknown, token: unknown) => unknown) => {
+      titles.push((options as { title?: unknown }).title);
+      return task({}, { onCancellationRequested: () => undefined, isCancellationRequested: false });
+    };
+    const { LogService } = proxyquireStrict('../host/services/logService', {
+      vscode: stub,
+      '../utils/localize': {
+        localize: (key: string, message: string) =>
+          key === 'replayStarting' ? 'Iniciando o Apex Replay Debugger...' : message
+      },
+      '../../runtime/runtimeClient': {
+        runtimeClient: {
+          requireLocalLogPath: async () => ({
+            logId: '07L000000000003AAA',
+            resolvedUsername: 'replay@example.com',
+            source: 'remote',
+            persistence: 'written',
+            localPath: '/tmp/replay.log'
+          })
+        }
+      },
+      '../utils/replayDebugger': { ensureReplayDebuggerAvailable: async () => true }
+    });
+
+    await new LogService().debugLog('07L000000000003AAA', 'replay@example.com');
+
+    assert.deepEqual(titles, ['Iniciando o Apex Replay Debugger...']);
+  });
+
   test('ensureLogsSaved maps lifecycle acquisition outcomes for requested logs', async () => {
     const existingId = '07L000000000004AAA';
     const downloadedId = '07L000000000005AAA';
