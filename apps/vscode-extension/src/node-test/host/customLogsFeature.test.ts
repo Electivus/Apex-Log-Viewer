@@ -8,6 +8,7 @@ const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 const SETTING = 'electivus.apexLogViewer.customLogs.enabled';
 const VIEW_ID = 'electivus.apexLogViewer.customLogsView';
 const COMMANDS = [
+  'electivus.apexLogViewer.customLogs.captureStatus',
   'electivus.apexLogViewer.customLogs.configure',
   'electivus.apexLogViewer.customLogs.openEditor',
   'electivus.apexLogViewer.customLogs.refresh'
@@ -24,9 +25,16 @@ function load(options: { enabled: boolean; logsOrg?: string }) {
   const events: string[] = [];
   const watchers = { started: 0, disposed: 0 };
   const documents = { registered: 0, disposed: 0 };
-  const editor = { initialized: 0, closed: 0, shows: [] as Array<{ selectedOrg?: string }> };
+  const editor = {
+    initialized: 0,
+    closed: 0,
+    shows: [] as Array<{ selectedOrg?: string } | undefined>,
+    trackCapture: undefined as ((tab: never) => { dispose(): void }) | undefined
+  };
   const viewer = { initialized: 0, closedAll: 0 };
   const configured: number[] = [];
+  const statusItems: Array<{ shown: boolean; disposed: boolean; command?: string }> = [];
+  const quickPick = { answer: undefined as string | undefined, offered: [] as string[] };
 
   const vscodeStub = {
     Disposable: {
@@ -38,7 +46,24 @@ function load(options: { enabled: boolean; logsOrg?: string }) {
         return { dispose: () => void listeners.delete(listener) };
       }
     },
+    StatusBarAlignment: { Left: 1 },
     window: {
+      createStatusBarItem: () => {
+        const item = {
+          shown: false,
+          disposed: false,
+          command: undefined as string | undefined,
+          show: () => void (item.shown = true),
+          hide: () => void (item.shown = false),
+          dispose: () => void (item.disposed = true)
+        };
+        statusItems.push(item);
+        return item;
+      },
+      showQuickPick: async (items: string[]) => {
+        quickPick.offered = items;
+        return quickPick.answer;
+      },
       registerWebviewViewProvider: (id: string, _provider: unknown, registration: { webviewOptions: object }) => {
         assert.equal(views.has(id), false, `VS Code refuses to register ${id} twice`);
         views.set(id, registration.webviewOptions);
@@ -95,14 +120,24 @@ function load(options: { enabled: boolean; logsOrg?: string }) {
         return { dispose: () => void (documents.disposed += 1) };
       }
     },
+    './customLogsStatusBar': proxyquireStrict('../../host/customLogsStatusBar', {
+      vscode: vscodeStub,
+      './customLogsCaptureStatus': proxyquireStrict('../../host/customLogsCaptureStatus', {
+        './utils/localize': { localize: (_key: string, message: string) => message }
+      }),
+      './utils/localize': { localize: (_key: string, message: string) => message }
+    }),
     './utils/customLogsConfig': { openCustomLogsConfig: async () => void configured.push(1) },
     './utils/error': { getErrorMessage: (error: unknown) => String(error) },
     './utils/logger': { logWarn: () => undefined },
     '../panel/CustomLogsEditorPanel': {
       CustomLogsEditorPanel: {
-        initialize: () => void (editor.initialized += 1),
+        initialize: (_context: unknown, track: (tab: never) => { dispose(): void }) => {
+          editor.initialized += 1;
+          editor.trackCapture = track;
+        },
         close: () => void (editor.closed += 1),
-        show: async (showOptions: { selectedOrg?: string }) => void editor.shows.push(showOptions),
+        show: async (showOptions?: { selectedOrg?: string }) => void editor.shows.push(showOptions),
         getDiagnosticState: () => undefined
       }
     },
@@ -141,7 +176,9 @@ function load(options: { enabled: boolean; logsOrg?: string }) {
     editor,
     viewer,
     configured,
-    listeners
+    listeners,
+    statusItems,
+    quickPick
   };
 }
 
@@ -192,6 +229,54 @@ suite('Custom Logs feature switch', () => {
     assert.equal(host.editor.closed, 1, 'the Custom Logs editor tab closes');
     assert.equal(host.viewer.closedAll, 1, 'the transaction viewers close');
     assert.deepEqual(host.feature.getWebviewDiagnosticStates(), []);
+  });
+
+  test('the capture status item stays hidden without a capture, offers Show and Stop on click, and is disposed when the setting turns off', async () => {
+    const host = load({ enabled: true });
+    const [item] = host.statusItems;
+
+    assert.equal(item?.shown, false);
+    assert.equal(item?.command, 'electivus.apexLogViewer.customLogs.captureStatus');
+    host.quickPick.answer = 'Show Custom Logs';
+    await host.commands.get('electivus.apexLogViewer.customLogs.captureStatus')!();
+    assert.deepEqual(host.quickPick.offered, ['Show Custom Logs', 'Stop capture']);
+    assert.ok(host.executed.includes('workbench.view.extension.electivus-apex-log-viewer-custom-logs'));
+
+    host.change(SETTING, false);
+
+    assert.equal(item?.disposed, true);
+  });
+
+  test('the item shows a capture of the editor tab, Show brings the tab forward and Stop stops it', async () => {
+    const host = load({ enabled: true });
+    const [item] = host.statusItems;
+    const tab = {
+      listener: undefined as ((status: unknown) => void) | undefined,
+      stops: 0,
+      onDidChangeCaptureStatus(listener: (status: unknown) => void) {
+        this.listener = listener;
+        listener(undefined);
+        return { dispose: () => undefined };
+      },
+      stopByUser() {
+        this.stops += 1;
+        this.listener?.(undefined);
+      }
+    };
+
+    host.editor.trackCapture!(tab as never);
+    tab.listener!({ sourceLabel: 'App events', capture: { state: 'live', basis: 'quiet' } });
+    assert.equal(item?.shown, true, 'a capture the editor tab started shows');
+
+    host.quickPick.answer = 'Show Custom Logs';
+    await host.commands.get('electivus.apexLogViewer.customLogs.captureStatus')!();
+    assert.deepEqual(host.editor.shows, [undefined], 'Show reveals the tab, not the bottom view');
+    assert.equal(host.executed.length, 0);
+
+    host.quickPick.answer = 'Stop capture';
+    await host.commands.get('electivus.apexLogViewer.customLogs.captureStatus')!();
+    assert.equal(tab.stops, 1);
+    assert.equal(item?.shown, false);
   });
 
   test('can be turned on again after it was turned off', () => {
