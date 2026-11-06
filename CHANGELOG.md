@@ -39,6 +39,8 @@
 
 ### Fixes
 
+- Tail/Debug Flags: Tail, and the Apex Debug Flags editor opened from it, now start on the workspace's `target-org` when they open before the Logs panel. They used the `target-org` of the extension host's working directory or the global one, so Start and Apply could write a trace flag to another org ([#1224](https://github.com/Electivus/Apex-Log-Viewer/issues/1224)).
+- Tail: `Stop` now appears only after Salesforce acknowledges the log subscription, and Tail lists and shows any log written since Start. A log written right after Start was never shown ([#1225](https://github.com/Electivus/Apex-Log-Viewer/issues/1225)).
 - Logs and Custom Logs: the column headers scroll with the rows again. The table attached its scroll sync before the virtual list had an element, so the headers stayed put and sat over the wrong columns. Both tables now also reserve the scrollbar's width in the header, so a vertical scrollbar no longer shifts the columns after the flexible one left of their headers.
 - Tail: wrap a line that has no spaces, such as the log's category header (`APEX_CODE,DEBUG;APEX_PROFILING,ERROR;...`), instead of cutting it off at the panel's right edge.
 - Custom Logs: keep the stored position's `lastEvent` at the newest event after a replay that ends in events the store already holds. In a store with no open gap, the next gap could name an older time, and a retention gap could open early.
