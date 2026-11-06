@@ -1,0 +1,106 @@
+name: diag-cometd-crash
+on:
+  push:
+    branches:
+      - diag/cometd-win-crash
+permissions:
+  contents: read
+jobs:
+  hammer:
+    name: hammer (${{ matrix.shard }})
+    runs-on: windows-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { shard: load-a, concurrency: 3, burners: 1, cdb: '' }
+          - { shard: load-b, concurrency: 3, burners: 1, cdb: '' }
+          - { shard: heavy, concurrency: 4, burners: 4, cdb: '' }
+          - { shard: debugger, concurrency: 2, burners: 1, cdb: '1' }
+    env:
+      DIAG_OUT: D:\diag
+      DIAG_SHARD: ${{ matrix.shard }}
+      DIAG_MINUTES: '45'
+      DIAG_CONCURRENCY: ${{ matrix.concurrency }}
+      DIAG_BURNERS: ${{ matrix.burners }}
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Enable crash dumps
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force D:\diag\dumps | Out-Null
+          $key = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'
+          New-Item $key -Force | Out-Null
+          New-ItemProperty $key -Name DumpFolder -PropertyType ExpandString -Value 'D:\diag\dumps' -Force | Out-Null
+          New-ItemProperty $key -Name DumpType -PropertyType DWord -Value 2 -Force | Out-Null
+          New-ItemProperty $key -Name DumpCount -PropertyType DWord -Value 12 -Force | Out-Null
+          New-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting' -Name Disabled -PropertyType DWord -Value 0 -Force | Out-Null
+          Get-Service WerSvc | Format-List Name,Status,StartType
+          Set-Service WerSvc -StartupType Manual
+          Start-Service WerSvc
+          Get-Service WerSvc | Format-List Name,Status,StartType
+          Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe' -ErrorAction Continue
+      - name: Self-test a fail-fast dump
+        shell: pwsh
+        run: |
+          $code = @'
+          Add-Type -MemberDefinition '[DllImport("kernel32.dll")] public static extern void RaiseFailFastException(IntPtr a, IntPtr b, uint c);' -Name N -Namespace W
+          [W.N]::RaiseFailFastException([IntPtr]::Zero, [IntPtr]::Zero, 0)
+          '@
+          $p = Start-Process pwsh -ArgumentList '-NoProfile','-Command',$code -PassThru -Wait
+          "self-test exit code: $($p.ExitCode)"
+          Start-Sleep -Seconds 10
+          Get-ChildItem D:\diag\dumps | Format-Table Name,Length
+          Remove-Item D:\diag\dumps\* -Force -ErrorAction SilentlyContinue
+          exit 0
+      - name: Bundle the child without tsx
+        run: pnpm exec esbuild packages/core/test/support/cometdAbortChild.ts --bundle --platform=node --format=cjs --external:@salesforce/core --outfile=packages/core/test/support/.cometdAbortChild.plain.cjs --log-level=warning
+      - name: Hammer
+        shell: pwsh
+        working-directory: packages/core
+        run: |
+          if ('${{ matrix.cdb }}' -eq '1') {
+            $env:DIAG_CDB = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe'
+            $env:DIAG_VARIANTS = 'tsx,plain'
+          }
+          node --version
+          node --import tsx ../../.diag/hammer.ts
+          exit 0
+      - name: Analyze dumps
+        if: always()
+        shell: pwsh
+        run: |
+          $dumps = @(Get-ChildItem D:\diag\dumps\*.dmp -ErrorAction SilentlyContinue)
+          "dumps: $($dumps.Count)"
+          if ($dumps.Count -eq 0) { exit 0 }
+          $version = node --version
+          Invoke-WebRequest "https://nodejs.org/dist/$version/win-x64/node_pdb.zip" -OutFile D:\diag\node_pdb.zip
+          Expand-Archive D:\diag\node_pdb.zip D:\diag\pdb -Force
+          Remove-Item D:\diag\node_pdb.zip
+          $env:_NT_SYMBOL_PATH = 'D:\diag\pdb;srv*D:\diag\sym*https://msdl.microsoft.com/download/symbols'
+          $cdb = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe'
+          foreach ($dump in ($dumps | Select-Object -First 8)) {
+            "===== $($dump.Name) $($dump.Length)"
+            & $cdb -z $dump.FullName -lines -c '.exr -1; .ecxr; kn 60; !analyze -v; ~*kn 40; q' 2>&1 | Tee-Object -FilePath "D:\diag\$($dump.BaseName).analysis" | Select-Object -Last 400
+          }
+          Remove-Item D:\diag\pdb,D:\diag\sym -Recurse -Force -ErrorAction SilentlyContinue
+          exit 0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: diag-${{ matrix.shard }}
+          retention-days: 3
+          if-no-files-found: warn
+          path: |
+            D:\diag\results-*.jsonl
+            D:\diag\*.analysis
+            D:\diag\dumps\*.dmp
