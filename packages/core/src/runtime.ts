@@ -78,6 +78,20 @@ export type CoreCallOptions = {
   signal?: AbortSignal;
 };
 
+export type LogSyncProgress = {
+  /** `listing` while log rows are read from the org; `saving` while each listed log is stored locally. */
+  phase: 'listing' | 'saving';
+  /** Rows listed so far, or logs saved so far, failed ones included. */
+  completed: number;
+  /** The number of logs to save, once the listing has ended. */
+  total?: number;
+};
+
+export type LogSyncCallOptions = CoreCallOptions & {
+  /** The listing count, then each saved log. A callback that throws is ignored. */
+  onProgress?: (progress: LogSyncProgress) => void;
+};
+
 export type CaptureCallOptions = CoreCallOptions & {
   /** Every state change and every durable batch of the capture. */
   onUpdate?: (update: CustomLogCaptureUpdate) => void;
@@ -1474,10 +1488,11 @@ export function createApexLogViewerCore(
             logUser: row.logUser
           }));
         }),
-      sync: (params: LogsSyncParams = {}, callOptions?: CoreCallOptions) =>
+      sync: (params: LogsSyncParams = {}, callOptions?: LogSyncCallOptions) =>
         call('log.sync', callOptions, async signal => {
           const workspaceRoot = asString(params.workspaceRoot);
           if (!workspaceRoot) throw new AlvError('INVALID_ARGUMENT', 'workspaceRoot is required.');
+          const onProgress = callOptions?.onProgress;
           const result = await rawLogLifecycle.sync(
             {
               workspaceRoot,
@@ -1485,7 +1500,22 @@ export function createApexLogViewerCore(
               mode: params.forceFull ? 'full' : 'incremental',
               concurrency: params.concurrency
             },
-            { signal }
+            {
+              signal,
+              ...(onProgress
+                ? {
+                    observe: event => {
+                      // Each log's own acquisition reports under its operation; only the sync's events count.
+                      if (event.operation !== 'sync') return;
+                      if (event.phase === 'listing-remote') {
+                        onProgress({ phase: 'listing', completed: event.completed ?? 0 });
+                      } else if (event.phase === 'materializing') {
+                        onProgress({ phase: 'saving', completed: event.completed ?? 0, total: event.total });
+                      }
+                    }
+                  }
+                : {})
+            }
           );
           return {
             status: result.status,
