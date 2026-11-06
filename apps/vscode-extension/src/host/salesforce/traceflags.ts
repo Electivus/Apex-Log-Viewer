@@ -395,7 +395,7 @@ export async function getActiveUserDebugLevel(auth: OrgAuth): Promise<string | u
     await resolveTraceFlagTarget(auth, target),
     DEFAULT_TRACE_FLAG_LOG_TYPE
   );
-  const activeDebugLevel = status.traceFlagId ? status.debugLevelName : undefined;
+  const activeDebugLevel = status.isActive ? status.debugLevelName : undefined;
   if (enabled && ttl > 0) {
     activeUserDebugLevelCache.set(cacheKey, {
       value: activeDebugLevel,
@@ -947,24 +947,17 @@ export async function ensureUserTraceFlag(
   developerName: string,
   ttlMinutes: number = 30
 ): Promise<boolean> {
-  // Returns true if created a new TraceFlag, false if updated or not possible.
-  try {
-    const userId = await getCurrentUserId(auth);
-    if (!userId) {
-      try {
-        logTrace('ensureUserTraceFlag: no user id');
-      } catch {}
-      return false;
-    }
-    const result = await upsertTraceFlag(auth, {
-      target: { type: 'user', userId },
-      logType: DEFAULT_TRACE_FLAG_LOG_TYPE,
-      debugLevelName: developerName,
-      ttlMinutes
-    });
-    return result.created;
-  } catch (_e) {
-    // Swallow errors to avoid breaking tail; caller can log a warning.
-    return false;
+  // Returns true if it created a new TraceFlag, false if it updated the existing one.
+  // Throws when the flag could not be written, so the caller can report the failure.
+  const userId = await getCurrentUserId(auth);
+  if (!userId) {
+    throw new Error('Could not resolve the current user id.');
   }
+  const result = await upsertTraceFlag(auth, {
+    target: { type: 'user', userId },
+    logType: DEFAULT_TRACE_FLAG_LOG_TYPE,
+    debugLevelName: developerName,
+    ttlMinutes
+  });
+  return result.created;
 }

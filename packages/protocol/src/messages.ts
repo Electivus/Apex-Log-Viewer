@@ -72,16 +72,7 @@ export type ExtensionToWebviewMessage =
   | { type: 'tailStatus'; running: boolean }
   | { type: 'tailData'; lines: string[] }
   | { type: 'tailReset' }
-  | { type: 'tailConfig'; tailBufferSize: number }
-  | {
-      type: 'tailNewLog';
-      logId: string;
-      startTime?: string;
-      operation?: string;
-      status?: string;
-      logLength?: number;
-      savedPath?: string;
-    };
+  | { type: 'tailConfig'; tailBufferSize: number };
 
 const MAX_ORG_IDENTIFIER_LENGTH = 320;
 const MAX_LOG_ID_LENGTH = 128;
