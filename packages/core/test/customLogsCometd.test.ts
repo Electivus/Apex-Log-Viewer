@@ -397,8 +397,8 @@ test('stopping a connected subscription disconnects the client and delivers noth
 
 test('stopping before the handshake completes still disconnects the client once it connects', async t => {
   const { double, run } = await openRun(t, { handshake: { delayMs: 300 } });
-  await new Promise(resolve => setTimeout(resolve, 30));
-  assert.equal(double.handshakes, 1);
+  // Wait for the handshake to reach the double instead of a fixed pause, which a loaded runner can outlast.
+  await eventually(() => double.handshakes === 1);
 
   await run.stop();
 
