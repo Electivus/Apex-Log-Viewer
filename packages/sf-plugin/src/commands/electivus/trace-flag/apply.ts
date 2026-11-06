@@ -15,7 +15,11 @@ export default class TraceFlagApply extends AlvCommand<TraceFlagApplyResult> {
     'log-type': traceFlagLogTypeFlag,
     'platform-integration': Flags.boolean({ default: false, summary: 'Target Platform Integration.' }),
     'target-org': targetOrgFlag,
-    'ttl-minutes': Flags.integer({ min: 1, summary: 'Trace flag lifetime in minutes.' }),
+    'ttl-minutes': Flags.integer({
+      max: 1440,
+      min: 1,
+      summary: 'Trace flag lifetime in minutes, 1 to 1440 (default 30).'
+    }),
     'user-id': Flags.string({ summary: 'Target a Salesforce user id.' }),
     yes: yesFlag
   };

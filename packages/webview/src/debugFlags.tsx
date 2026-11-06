@@ -204,12 +204,20 @@ export function DebugFlagsApp({
           setOrgs(msg.data || []);
           setSelectedOrg(msg.selected);
           break;
-        case 'debugFlagsUsers':
+        case 'debugFlagsUsers': {
           if (String(msg.query || '') !== queryRef.current) {
             return;
           }
-          setUsers(msg.data || []);
+          const nextUsers = msg.data || [];
+          setUsers(nextUsers);
+          // The host drops a selected user that the new search no longer lists, so drop it here too.
+          const current = selectedTargetRef.current;
+          if (current?.type === 'user' && !nextUsers.some(user => user.id === current.userId)) {
+            setSelectedTarget(undefined);
+            setStatus(undefined);
+          }
           break;
+        }
         case 'debugFlagsDebugLevels': {
           const values = msg.data || [];
           setDebugLevels(values);
@@ -802,6 +810,7 @@ export function DebugFlagsApp({
               onChange={setDebugLevel}
               options={debugLevels.map(level => ({ value: level, label: level }))}
               placeholderLabel={t.tail?.select ?? 'Select'}
+              testId="debug-flags-debug-level"
               disabled={loading.orgs || loading.action}
             />
             <div className="flex flex-col gap-1">
