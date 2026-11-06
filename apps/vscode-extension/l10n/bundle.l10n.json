@@ -93,6 +93,7 @@
   "Salesforce CLI command timed out after {0} seconds: {1}": "Salesforce CLI command timed out after {0} seconds: {1}",
   "Salesforce CLI is not authenticated. Run \"sf org login web\" to authenticate.": "Salesforce CLI is not authenticated. Run \"sf org login web\" to authenticate.",
   "Salesforce CLI not found. Install Salesforce CLI (sf).": "Salesforce CLI not found. Install Salesforce CLI (sf).",
+  "Salesforce did not acknowledge the log subscription within {0} seconds.": "Salesforce did not acknowledge the log subscription within {0} seconds.",
   "Saved to {0}": "Saved to {0}",
   "Select a debug level": "Select a debug level",
   "Select an authenticated org": "Select an authenticated org",

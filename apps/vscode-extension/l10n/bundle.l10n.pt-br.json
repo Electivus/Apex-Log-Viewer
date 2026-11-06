@@ -89,6 +89,7 @@
   "Salesforce CLI command timed out after {0} seconds: {1}": "Comando do Salesforce CLI expirou após {0} segundos: {1}",
   "Salesforce CLI is not authenticated. Run \"sf org login web\" to authenticate.": "O Salesforce CLI não está autenticado. Execute \"sf org login web\" para autenticar.",
   "Salesforce CLI not found. Install Salesforce CLI (sf).": "Salesforce CLI não encontrada. Instale o Salesforce CLI (sf).",
+  "Salesforce did not acknowledge the log subscription within {0} seconds.": "O Salesforce não confirmou a assinatura de logs em {0} segundos.",
   "Saved to {0}": "Salvo em {0}",
   "Select a debug level": "Selecione um nível de depuração",
   "Select an authenticated org": "Selecione uma org autenticada",
