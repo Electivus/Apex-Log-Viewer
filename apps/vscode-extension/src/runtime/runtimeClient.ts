@@ -62,6 +62,7 @@ import type {
 import type * as ui from '@alv/protocol/customLogsTypes';
 import type { ApexLogRow } from '@alv/protocol/types';
 
+import { getWorkspaceRoot } from '../host/utils/workspace';
 import { safeSendEvent } from '../shared/telemetry';
 import { getTelemetryErrorCode } from '../shared/telemetryErrorCodes';
 
@@ -257,6 +258,7 @@ export class CoreClient {
       options.core ??
       createApexLogViewerCore({
         surface: 'vscode',
+        projectPath: this.workspaceRoot,
         instrumentation: {
           onCall: event => {
             const properties: Record<string, string> = {
@@ -589,4 +591,4 @@ export class CoreClient {
   }
 }
 
-export const runtimeClient = new CoreClient();
+export const runtimeClient = new CoreClient({ workspaceRoot: getWorkspaceRoot });

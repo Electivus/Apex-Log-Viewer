@@ -4,6 +4,7 @@
 
 ### Maintenance
 
+- Telemetry: the Debug Flags `debugFlags.apply` and `debugFlags.remove` events now carry `logType` (`DEVELOPER_LOG` or `USER_DEBUG`), so usage shows how often people move away from the `DEVELOPER_LOG` default. `telemetry.json` and `docs/TELEMETRY.md` declare the new property.
 - E2E: `pnpm run test:e2e -- <spec>` and `pnpm run test:e2e:cli -- <spec>` run only that spec again; the runners drop the `--` that pnpm forwards, which made Playwright ignore the filter and run the whole suite.
 - E2E: keep VS Code hidden during Playwright runs by default. Linux runs use Xvfb even when a `DISPLAY` exists, and macOS and Windows make the native window transparent and click-through. Set `ALV_E2E_SHOW_VSCODE=1` to watch a run.
 - Custom Logs: say a platform event is kept for at least 72 hours, in the panel's first-use note and catching-up text and in the docs, because Salesforce may purge later and a `-2` replay can cost more than the docs said; warn against a `-2` replay of `ALV_Test_Backlog__e`.
@@ -38,8 +39,10 @@
 
 ### Fixes
 
-- Custom Logs: a panel or `--follow` run on standby now shows a gap that the capturing process opens without storing an event, at its next 2-second check. Before, the gap stayed off the strip until that process stored another event. A run that takes the capture over also shows a gap the previous holder opened just before it stopped.
+- Tail/Debug Flags: Tail, and the Apex Debug Flags editor opened from it, now start on the workspace's `target-org` when they open before the Logs panel. They used the `target-org` of the extension host's working directory or the global one, so Start and Apply could write a trace flag to another org ([#1224](https://github.com/Electivus/Apex-Log-Viewer/issues/1224)).
+- Tail: `Stop` now appears only after Salesforce acknowledges the log subscription, and Tail lists and shows any log written since Start. A log written right after Start was never shown ([#1225](https://github.com/Electivus/Apex-Log-Viewer/issues/1225)).
 - Logs and Custom Logs: the column headers scroll with the rows again. The table attached its scroll sync before the virtual list had an element, so the headers stayed put and sat over the wrong columns. Both tables now also reserve the scrollbar's width in the header, so a vertical scrollbar no longer shifts the columns after the flexible one left of their headers.
+- Tail: wrap a line that has no spaces, such as the log's category header (`APEX_CODE,DEBUG;APEX_PROFILING,ERROR;...`), instead of cutting it off at the panel's right edge.
 - Custom Logs: keep the stored position's `lastEvent` at the newest event after a replay that ends in events the store already holds. In a store with no open gap, the next gap could name an older time, and a retention gap could open early.
 - Custom Logs: show a possible gap on the capture strip as soon as capture records it. A gap from a rejected position, an unreadable delivery, a start past the 72-hour retention, or another org now shows at once. Before, it stayed off the strip until a later event was stored, so a replay of events the store already held left the strip on `Live` with no warning.
 - CLI: `sf electivus debug-level create` and `update` no longer fail without `--language`. `create` defaults the language to `en_US`. `update` now changes only the fields you pass, instead of resetting every other category and the label, and no longer needs `--developer-name`. Without `--yes`, both commands check the picklist values against the org, so the preview fails on a value the real call would reject; a preview now needs a reachable org, and `create` without `--developer-name` exits 2.
@@ -48,6 +51,7 @@
 - Log Viewer: keep the status bar fully visible; the entries table now ends above it at any editor size instead of overlapping it with its horizontal scrollbar.
 - Logs: hide logs that matched only the previous search text as soon as you change the search, instead of listing them until the new full-log search finishes.
 - Salesforce: reuse one connection per org instead of rebuilding it for every action, so Logs and Debug Flags stop repeating the API-version request and the auth-file rewrite on each call (every call paid both on pt-BR or de-DE systems), and the calls within one `sf electivus` command share one connection; a session Salesforce rejects is rebuilt from the saved login and retried once.
+- Custom Logs: a panel or `--follow` run on standby now shows a gap that the capturing process opens without storing an event, at its next 2-second check. Before, the gap stayed off the strip until that process stored another event. A run that takes the capture over also shows a gap the previous holder opened just before it stopped.
 - Logs, search, sync and triage: locate a saved Apex log by probing its canonical day directory first and index the local store at most once per request, instead of walking every day directory for every log and re-reading already-saved bodies.
 
 ### Performance

@@ -6,7 +6,7 @@ What we collect
 
 - Coarse command and workflow outcomes such as `ok`, `error`, `cancel`, `partial`, or `invoked`.
 - Coarse performance timings such as `durationMs`.
-- Small cardinality buckets such as `scope`, `view`, `sourceView`, `targetType`, and org-count buckets.
+- Small cardinality buckets such as `scope`, `view`, `sourceView`, `targetType`, `logType`, and org-count buckets.
 - Coarse error codes such as `ENOENT`, `ETIMEDOUT`, `CLI_NOT_FOUND`, and `AUTH_FAILED`.
 - Coarse plugin method names such as `org_list`, `org_auth`, `logs_list`, `logs_sync`, and `logs_triage`.
 - Search-specific finite counters such as `matchCount` and `pendingCount`, plus bucketed `queryLength`.
@@ -52,6 +52,7 @@ Key runtime event families:
 - `cli.command`: coarse latency/outcome for `sf`/`sfdx` process execution.
 - `core.request`: coarse latency/outcome for calls into the shared core bundled in the extension host. A Custom Logs capture is not timed as a request, because a subscription that stays open for hours would skew the latency data. A failure inside a capture update callback is reported as `core.request` with the method `custom_log_capture_callback`.
 - `customLogs.capture.start` and `customLogs.capture.end`: one pair for each Custom Logs platform event capture run, however many panels watch it. `start` carries `from`, which is `position`, `retained`, `new`, `standby`, or `none`. `end` carries `outcome`, an optional error `code`, and the counts `durationMs`, `delivered`, `stored`, `gaps`, `reconnects`, and `dropped`. Neither event carries an event payload, an id, a cursor, an object name, or an org value.
+- `debugFlags.apply` and `debugFlags.remove`: the outcome of applying or removing trace flags in the Apex Debug Flags panel. Both carry `sourceView`, `targetType`, and `logType`, which is `DEVELOPER_LOG` or `USER_DEBUG`, plus `durationMs`; `remove` also counts `removedCount` when it succeeds. The share of `USER_DEBUG` shows how often people move away from the `DEVELOPER_LOG` default. Neither event carries a user, a debug level name, or a trace flag id.
 - `host.responsiveness`: one event per five-minute window with webview messages, local desktop hosts only. `waitP50Ms`, `waitP90Ms`, and `waitMaxMs` are the time from the webview's `postMessage` to the start of our host handler; `loopP50Ms`, `loopP99Ms`, and `loopMaxMs` are how late a 20 ms extension host timer fired. The Output channel logs each measured wait as `<Surface>: <type> waited <N> ms in the extension host queue` (`Logs`, `Tail`, `LogViewer`, or `DebugFlags`), at info level from 250 ms and as a `[trace]` line otherwise.
 
 KQL quick queries
