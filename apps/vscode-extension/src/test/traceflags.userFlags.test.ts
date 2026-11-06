@@ -395,6 +395,51 @@ suite('traceflags user management', () => {
     assert.equal(traceFlagQueryCount, 1, 'expected active debug level lookup to stay cached');
   });
 
+  test('getActiveUserDebugLevel ignores an expired trace flag', async () => {
+    (workspace.getConfiguration as any) = () => ({ get: () => undefined });
+    installHttpsStub(req => {
+      if (req.method === 'GET' && req.path.includes('/services/data/v')) {
+        const soql = decodeSoql(req.path);
+        if (soql.includes("FROM User WHERE Username = 'user@example.com'")) {
+          return { statusCode: 200, body: { records: [{ Id: '005000000000001AAA' }] } };
+        }
+        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000001AAA'")) {
+          return {
+            statusCode: 200,
+            body: {
+              records: [
+                {
+                  Id: '7tf000000000001AAA',
+                  StartDate: '2026-03-25T00:00:00.000+0000',
+                  ExpirationDate: '2026-03-25T01:00:00.000+0000',
+                  DebugLevel: { DeveloperName: 'ALV_EXPIRED' }
+                }
+              ]
+            }
+          };
+        }
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    assert.equal(await getActiveUserDebugLevel(auth), undefined);
+  });
+
+  test('ensureUserTraceFlag rejects when the trace flag cannot be written', async () => {
+    installHttpsStub(req => {
+      const soql = decodeSoql(req.path);
+      if (req.method === 'GET' && soql.includes("FROM User WHERE Username = 'user@example.com'")) {
+        return { statusCode: 200, body: { records: [{ Id: '005000000000001AAA' }] } };
+      }
+      if (req.method === 'GET' && soql.includes('FROM DebugLevel')) {
+        return { statusCode: 200, body: { records: [] } };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    await assert.rejects(ensureUserTraceFlag(auth, 'MISSING_LEVEL'), /Debug level 'MISSING_LEVEL' was not found/);
+  });
+
   test('upsertUserTraceFlag invalidates the cached active debug level', async () => {
     (workspace.getConfiguration as any) = () => ({ get: () => undefined });
     let traceFlagQueryCount = 0;
