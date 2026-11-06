@@ -120,9 +120,11 @@ test('get takes a log id or a transaction id, never both and never neither', asy
   });
 
   await new CustomLogGet(['--transaction-id', 'ae12d024', '--source', 'nebula', '--json'], config).run();
-  assert.equal(capture.params?.transactionId, 'ae12d024');
-  assert.equal('logId' in (capture.params ?? {}), false);
-  assert.equal(capture.params?.source, 'nebula');
+  // The deepEqual above narrowed `capture.params` to the first call's shape; the stub has replaced it since.
+  const byTransaction = capture.params as Record<string, unknown> | undefined;
+  assert.equal(byTransaction?.transactionId, 'ae12d024');
+  assert.equal('logId' in (byTransaction ?? {}), false);
+  assert.equal(byTransaction?.source, 'nebula');
 
   await assert.rejects(new CustomLogGet(['--json'], config).run(), /exactly one|One of the following/i);
   await assert.rejects(

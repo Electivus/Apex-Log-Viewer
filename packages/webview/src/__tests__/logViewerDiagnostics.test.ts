@@ -44,14 +44,14 @@ describe('logViewerDiagnostics', () => {
     ]);
 
     expect(result.orderedDiagnostics).toHaveLength(4);
-    expect(result.mappedEntries[0].diagnostics).toEqual([
+    expect(result.mappedEntries[0]!.diagnostics).toEqual([
       expect.objectContaining({
         summary: 'mapped-1',
         mappedEntryId: 0,
         mappedLineNumber: 1
       })
     ]);
-    expect(result.mappedEntries[2].diagnostics).toEqual([
+    expect(result.mappedEntries[2]!.diagnostics).toEqual([
       expect.objectContaining({
         summary: 'mapped-10',
         mappedEntryId: 2,
@@ -73,14 +73,14 @@ describe('logViewerDiagnostics', () => {
       { code: 'dml_failure', severity: 'warning', summary: 'unmapped', line: 99 }
     ]);
 
-    expect(result.mappedEntries[1].diagnostics).toEqual([
+    expect(result.mappedEntries[1]!.diagnostics).toEqual([
       expect.objectContaining({
         summary: 'mapped-2',
         mappedEntryId: 1,
         mappedLineNumber: 2
       })
     ]);
-    expect(result.mappedEntries[2].diagnostics).toEqual([
+    expect(result.mappedEntries[2]!.diagnostics).toEqual([
       expect.objectContaining({
         summary: 'mapped-3',
         mappedEntryId: 2,
@@ -102,7 +102,7 @@ describe('logViewerDiagnostics', () => {
       { code: 'dml_failure', severity: 'warning', summary: 'still-unmapped', line: 99 }
     ]);
 
-    expect(result.mappedEntries[1].diagnostics).toEqual([
+    expect(result.mappedEntries[1]!.diagnostics).toEqual([
       expect.objectContaining({
         summary: 'exact-line',
         mappedEntryId: 1,
@@ -126,7 +126,7 @@ describe('logViewerDiagnostics', () => {
       { code: 'suspicious_error_payload', severity: 'warning', summary: 'warning-third', line: 4 }
     ]);
 
-    expect(result.mappedEntries[0].diagnostics.map(d => d.summary)).toEqual([
+    expect(result.mappedEntries[0]!.diagnostics.map(d => d.summary)).toEqual([
       'error-one',
       'warning-first',
       'warning-second',
@@ -167,12 +167,12 @@ describe('logViewerDiagnostics', () => {
       { code: 'rollback_detected', severity: 'warning', summary: 'for-12', line: 12 }
     ]);
 
-    expect(result.mappedEntries[0].diagnostics.map(d => d.summary)).toEqual([
+    expect(result.mappedEntries[0]!.diagnostics.map(d => d.summary)).toEqual([
       'for-11-primary',
       'for-11-secondary'
     ]);
-    expect(result.mappedEntries[1].diagnostics).toEqual([]);
-    expect(result.mappedEntries[2].diagnostics).toEqual([
+    expect(result.mappedEntries[1]!.diagnostics).toEqual([]);
+    expect(result.mappedEntries[2]!.diagnostics).toEqual([
       expect.objectContaining({ summary: 'for-12', mappedEntryId: 2 })
     ]);
   });
@@ -209,8 +209,8 @@ describe('logViewerDiagnostics', () => {
       }
     ]);
 
-    expect(result.mappedEntries[0].diagnostics).toEqual([]);
-    expect(result.mappedEntries[1].diagnostics).toEqual([
+    expect(result.mappedEntries[0]!.diagnostics).toEqual([]);
+    expect(result.mappedEntries[1]!.diagnostics).toEqual([
       expect.objectContaining({
         summary: 'maps-to-exception',
         mappedEntryId: 1,

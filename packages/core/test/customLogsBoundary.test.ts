@@ -20,7 +20,7 @@ test('code outside customLogs/ imports only its api and contracts modules', () =
     .filter(file => !file.startsWith(CUSTOM_LOGS + path.sep))
     .flatMap(file =>
       [...fs.readFileSync(file, 'utf8').matchAll(SPECIFIER)]
-        .map(match => match[1])
+        .map(match => match[1] ?? '')
         .filter(specifier => specifier.startsWith('.'))
         .map(specifier => path.resolve(path.dirname(file), specifier))
         .filter(target => target.startsWith(CUSTOM_LOGS + path.sep) && !ENTRY_POINTS.has(target))
@@ -40,7 +40,7 @@ test('only logLifecycle.ts and customLogs/events/store.ts import localStore/work
     .filter(file => !WORKSPACE_FS_IMPORTERS.has(file))
     .flatMap(file =>
       [...fs.readFileSync(file, 'utf8').matchAll(SPECIFIER)]
-        .map(match => match[1])
+        .map(match => match[1] ?? '')
         .filter(specifier => specifier.startsWith('.'))
         .map(specifier => path.resolve(path.dirname(file), specifier).replace(/\.(?:js|ts)$/, ''))
         .filter(target => target === WORKSPACE_FS)

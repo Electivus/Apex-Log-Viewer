@@ -131,7 +131,7 @@ class ScriptedProcessDouble {
 
   public constructor(interactions: ProcessInteraction[]) {
     assertUnambiguousRequests(interactions, 'process');
-    this.#remaining = queueInteractions(interactions);
+    this.#remaining = queueInteractions<ProcessRequest, ProcessResponse>(interactions);
   }
 
   public run(request: ProcessRequest): ProcessResponse {
@@ -152,7 +152,7 @@ class ScriptedHttpDouble {
 
   public constructor(interactions: HttpInteraction[]) {
     assertUnambiguousRequests(interactions, 'HTTP');
-    this.#remaining = queueInteractions(interactions);
+    this.#remaining = queueInteractions<HttpRequest, HttpResponse>(interactions);
   }
 
   public request(request: HttpRequest): HttpResponse {
