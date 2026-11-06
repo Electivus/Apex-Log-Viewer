@@ -480,6 +480,41 @@ test('a run that takes the lease over shows a gap the previous holder opened aft
   });
 });
 
+test('a run that takes the lease over and cannot read the store view releases the lease', async () => {
+  await withProject(async root => {
+    const real = openStore(root);
+    let failReads = false;
+    const store: EventStore = {
+      ...real,
+      coverage: async () => {
+        if (failReads) throw new Error('EIO: the store view cannot be read');
+        return await real.coverage();
+      }
+    };
+    const holder = await openWriter(openStore(root), 'vscode');
+    await holder.append([busEvent(1)]);
+    await holder.advance(checkpointAt(1));
+    const { clock, transport, deps, hub } = setup(store, { surface: 'cli' });
+    const w = watcher({ follow: true });
+    const done = settledOf(hub.watch(store.location, w.watcher, deps));
+    await until(() => standbyUpdate(w) !== undefined, 'the standby state');
+
+    failReads = true;
+    await holder.release();
+    await clock.advance(2_000);
+
+    const settled = await done;
+    assert.ok('error' in settled, 'the run fails on the read after it took the lease');
+    assert.match(String(settled.error), /EIO/);
+    assert.equal(transport.attempts.length, 0, 'nothing subscribes');
+    assert.equal(
+      fs.existsSync(path.join(objectDirOf(root), 'capture.lease')),
+      false,
+      'the lease is released, so a later run is not left standing by'
+    );
+  });
+});
+
 test('a drain that finds the lease held ends at once with capturedElsewhere and names the holder', async () => {
   await withProject(async root => {
     const store = openStore(root);

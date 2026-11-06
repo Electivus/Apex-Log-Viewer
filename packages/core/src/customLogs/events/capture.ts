@@ -293,6 +293,9 @@ type RunEnd = { kind: 'outcome'; ending: CustomLogCaptureEnding } | { kind: 'fai
 
 type EpochExit = { kind: 'end'; end: RunEnd } | { kind: 'standby' };
 
+/** The lease a run won, and whether another process held it before the run took it. */
+type Won = { writer: EventStoreWriter; afterOtherHolder: boolean };
+
 /** Outcomes whose end of a live run writes the last position and the coverage once more. */
 const CLEAN_ENDS: ReadonlySet<CustomLogCaptureOutcome> = new Set(['quiet', 'aborted', 'timeLimit']);
 
@@ -597,18 +600,16 @@ function createRun(
     return fresh[fresh.length - 1]!.position;
   };
 
-  const acquire = async (): Promise<EventStoreWriter | undefined> => {
+  const acquire = async (): Promise<Won | undefined> => {
     let sentUpTo: EventPosition | undefined;
     let standingBy = false;
     for (;;) {
       if (isTerminal(stopRequest)) return undefined;
       const attempt = await store.openWriter(deps.surface);
       if ('writer' in attempt) {
-        // The process that held the lease may have opened a gap after the last poll, and `openAndShowGap`
-        // does not show a gap that already exists.
-        if (standingBy || leaseHeldBefore) await showForeignGaps();
+        const afterOtherHolder = standingBy || leaseHeldBefore;
         leaseHeldBefore = true;
-        return attempt.writer;
+        return { writer: attempt.writer, afterOtherHolder };
       }
       if (!standingBy) {
         standingBy = true;
@@ -937,8 +938,11 @@ function createRun(
   // -------------------------------------------------------------------------------------------
   // one lease from start to release
 
-  const epoch = async (writer: EventStoreWriter): Promise<EpochExit> => {
+  const epoch = async ({ writer, afterOtherHolder }: Won): Promise<EpochExit> => {
     try {
+      // The process that held the lease may have opened a gap after the last poll, and `openAndShowGap`
+      // does not show a gap that already exists. Read here, so that a failed read still releases the lease.
+      if (afterOtherHolder) await showForeignGaps();
       const prepared = await prepare(writer);
       if (prepared.decision.kind === 'needsInitial') stop({ kind: 'finish', ending: { outcome: 'needsInitial' } });
       else if (prepared.budget === 0) stop({ kind: 'finish', ending: { outcome: 'budget' } });
@@ -970,9 +974,9 @@ function createRun(
 
   const lifecycle = async (): Promise<RunEnd> => {
     for (;;) {
-      const writer = await acquire();
-      if (!writer) return endOf(stopRequest);
-      const exit = await epoch(writer);
+      const won = await acquire();
+      if (!won) return endOf(stopRequest);
+      const exit = await epoch(won);
       if (exit.kind === 'end') return exit.end;
       // The lease was taken from this process: look at it again, which stands by when someone else holds it.
     }
