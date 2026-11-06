@@ -35,7 +35,9 @@ async function withWorkspace(run: (root: string) => Promise<void>): Promise<void
   try {
     await run(root);
   } finally {
-    await fsp.rm(root, { recursive: true, force: true });
+    // Windows keeps a just-deleted file's name until every handle on it closes (an antivirus scan of a fresh
+    // lease file, for one), and removing its directory meanwhile fails with ENOTEMPTY or EBUSY; rm retries those.
+    await fsp.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 }
 
