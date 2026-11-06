@@ -1,6 +1,8 @@
-import { runCommandWhenAvailable } from '../commandPalette';
+import { openView, runCommand, runCommandWhenAvailable, waitForCommandAvailable } from '../commandPalette';
 
-function createComposableLocator(...delegates: Array<{ waitFor: (...args: any[]) => Promise<void>; fill: (...args: any[]) => Promise<void> }>) {
+function createComposableLocator(
+  ...delegates: Array<{ waitFor: (...args: any[]) => Promise<void>; fill: (...args: any[]) => Promise<void> }>
+) {
   return {
     waitFor: async (...args: any[]) => {
       let lastError: unknown;
@@ -43,10 +45,41 @@ function createFakePage(
     keyboardShortcutMissesQuickInput?: boolean;
     quickInputWaitFailuresBeforeVisible?: number;
     quickAccessClickError?: Error;
+    /** Rows the palette lists for a query, as a label or a translated label with its English alias; by default only the queried label. */
+    labelsFor?: (query: string) => Array<string | { label: string; alias: string }>;
   }
 ) {
-  const keyboardPress = jest.fn(async () => {});
-  const waitForTimeout = jest.fn(async () => {});
+  let lastQuery = '';
+  let focusedIndex = 0;
+  const filled: string[] = [];
+  const executed: string[] = [];
+  const labelsFor = options?.labelsFor ?? ((query: string) => [query.replace(/^>\s*/, '')]);
+  const currentRows = () =>
+    labelsFor(lastQuery).map(row => (typeof row === 'string' ? { label: row, alias: '' } : row));
+  const currentLabels = () => currentRows().map(row => row.label);
+  const keyboardPress = jest.fn(async (key: string) => {
+    if (key === 'ArrowDown') {
+      focusedIndex = Math.min(focusedIndex + 1, currentLabels().length - 1);
+    } else if (key === 'ArrowUp') {
+      focusedIndex = Math.max(focusedIndex - 1, 0);
+    } else if (key === 'Enter') {
+      executed.push(currentLabels()[focusedIndex] ?? '');
+    }
+  });
+  const recordFill = (value: string) => {
+    lastQuery = value;
+    focusedIndex = 0;
+    filled.push(value);
+  };
+  const readRows = jest.fn(async () =>
+    currentRows().map((row, index) => ({ index, ...row, focused: index === focusedIndex }))
+  );
+  // A virtual clock: each wait advances Date.now, so the helpers' deadlines pass without real waiting.
+  let now = Date.now();
+  jest.spyOn(Date, 'now').mockImplementation(() => now);
+  const waitForTimeout = jest.fn(async (ms: number) => {
+    now += ms;
+  });
   const strictModeError = new Error('strict mode violation');
   const quickInputMissingError = new Error('Timed out waiting for quick input');
   let quickInputVisible = !options?.keyboardShortcutMissesQuickInput;
@@ -70,7 +103,7 @@ function createFakePage(
       throw quickInputMissingError;
     }
   });
-  const comboboxFill = jest.fn(async () => {});
+  const comboboxFill = jest.fn(async (value: string) => recordFill(value));
   const textboxWaitFor = jest.fn(async () => {
     if (quickInputWaitFailuresBeforeVisible > 0) {
       quickInputWaitFailuresBeforeVisible -= 1;
@@ -80,9 +113,9 @@ function createFakePage(
       throw quickInputMissingError;
     }
   });
-  const textboxFill = jest.fn(async () => {});
+  const textboxFill = jest.fn(async (value: string) => recordFill(value));
   const isVisible = jest.fn(async () => noMatchVisibility.shift() ?? false);
-  const quickAccessClick = jest.fn(async () => {
+  const quickAccessClick = jest.fn(async (_options?: { timeout?: number }) => {
     if (options?.quickAccessClickError) {
       throw options.quickAccessClickError;
     }
@@ -114,6 +147,9 @@ function createFakePage(
 
   const widgetLocator = {
     locator: jest.fn((selector: string) => {
+      if (selector === '.monaco-list-row') {
+        return { evaluateAll: readRows };
+      }
       if (selector !== 'input') {
         throw new Error(`Unexpected widget selector: ${selector}`);
       }
@@ -170,7 +206,10 @@ function createFakePage(
     comboboxFill,
     textboxWaitFor,
     textboxFill,
-    isVisible
+    isVisible,
+    readRows,
+    filled,
+    executed
   };
 }
 
@@ -181,6 +220,10 @@ function expectBriefQuickInputWait(waitFor: jest.Mock): void {
   expect(firstCallOptions.timeout).toBeGreaterThan(0);
   expect(firstCallOptions.timeout).toBeLessThan(15_000);
 }
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
 describe('runCommandWhenAvailable', () => {
   test('retries until the command appears and executes from the successful command-palette session', async () => {
@@ -201,7 +244,8 @@ describe('runCommandWhenAvailable', () => {
       modifierShortcut,
       'Enter'
     ]);
-    expect(fake.waitForTimeout.mock.calls.map(call => call[0])).toEqual([50, 500, 50, 500, 50]);
+    expect(fake.waitForTimeout.mock.calls.map(call => call[0])).toEqual([50, 500, 50, 500, 50, 50]);
+    expect(fake.executed).toEqual(['Electivus Apex Logs: Refresh Logs']);
     expectBriefQuickInputWait(fake.comboboxWaitFor);
   });
 
@@ -239,8 +283,8 @@ describe('runCommandWhenAvailable', () => {
     expectBriefQuickInputWait(fake.comboboxWaitFor);
     expect(fake.getByRole).toHaveBeenCalledWith('button', { name: /Open Quick Access/i });
     expect(fake.quickAccessClick).toHaveBeenCalledWith({ timeout: expect.any(Number) });
-    expect(fake.quickAccessClick.mock.calls[0][0].timeout).toBeGreaterThan(0);
-    expect(fake.quickAccessClick.mock.calls[0][0].timeout).toBeLessThan(15_000);
+    expect(fake.quickAccessClick.mock.calls[0]?.[0]?.timeout).toBeGreaterThan(0);
+    expect(fake.quickAccessClick.mock.calls[0]?.[0]?.timeout).toBeLessThan(15_000);
     expect(fake.comboboxWaitFor).toHaveBeenLastCalledWith({ state: 'visible', timeout: 15_000 });
     expect(fake.comboboxFill).toHaveBeenCalledWith('> Electivus Apex Logs: Refresh Logs');
   });
@@ -258,5 +302,116 @@ describe('runCommandWhenAvailable', () => {
     expect(fake.comboboxWaitFor).toHaveBeenNthCalledWith(1, { state: 'visible', timeout: expect.any(Number) });
     expect(fake.comboboxWaitFor).toHaveBeenLastCalledWith({ state: 'visible', timeout: 15_000 });
     expect(fake.comboboxFill).toHaveBeenCalledWith('> Electivus Apex Logs: Refresh Logs');
+  });
+
+  test('runs the exact command when the palette lists a longer label first', async () => {
+    const fake = createFakePage([false], {
+      labelsFor: () => ['Electivus Apex Logs: Refresh Custom Logs', 'Electivus Apex Logs: Refresh Logs']
+    });
+
+    await runCommandWhenAvailable(fake.page, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 1_000 });
+
+    expect(fake.executed).toEqual(['Electivus Apex Logs: Refresh Logs']);
+    expect(fake.keyboardPress.mock.calls.map(call => call[0]).slice(-2)).toEqual(['ArrowDown', 'Enter']);
+  });
+
+  test('keeps waiting while the palette lists only other commands', async () => {
+    const fake = createFakePage([false, false], {
+      labelsFor: () => ['Electivus Apex Logs: Refresh Custom Logs']
+    });
+
+    await expect(
+      runCommandWhenAvailable(fake.page, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 1 })
+    ).rejects.toThrow(
+      'Timed out waiting for command to appear in palette: "Electivus Apex Logs: Refresh Logs"; the palette last listed "Electivus Apex Logs: Refresh Custom Logs"'
+    );
+    expect(fake.executed).toEqual([]);
+  });
+});
+
+describe('runCommand', () => {
+  test('moves to the row labelled exactly as requested before pressing Enter', async () => {
+    const fake = createFakePage([false], {
+      labelsFor: () => [
+        'View: Close All Editor Groups',
+        'View: Close All Editors',
+        'View: Close All Editors in Group',
+        'View: Close Editor'
+      ]
+    });
+
+    await runCommand(fake.page, 'View: Close Editor');
+
+    expect(fake.executed).toEqual(['View: Close Editor']);
+    expect(fake.keyboardPress.mock.calls.map(call => call[0]).slice(1)).toEqual([
+      'ArrowDown',
+      'ArrowDown',
+      'ArrowDown',
+      'Enter'
+    ]);
+  });
+
+  test('finds the command by its English title when VS Code shows a translated one', async () => {
+    const fake = createFakePage([false], {
+      labelsFor: () => [
+        { label: 'Exibir: Fechar Todos os Grupos de Editores', alias: 'View: Close All Editor Groups' },
+        { label: 'Exibir: Fechar Editor', alias: 'View: Close Editor' },
+        'Electivus Apex Logs: Show Extension Output'
+      ]
+    });
+
+    await runCommand(fake.page, 'View: Close Editor');
+
+    expect(fake.executed).toEqual(['Exibir: Fechar Editor']);
+  });
+
+  test('presses Enter at once when the first row is the requested command', async () => {
+    const fake = createFakePage([false], {
+      labelsFor: () => ['View: Toggle Maximized Panel', 'View: Toggle Maximized Secondary Side Bar']
+    });
+
+    await runCommand(fake.page, 'View: Toggle Maximized Panel');
+
+    expect(fake.executed).toEqual(['View: Toggle Maximized Panel']);
+    expect(fake.keyboardPress.mock.calls.map(call => call[0]).slice(1)).toEqual(['Enter']);
+  });
+
+  test('fails without running anything when no row has the exact label', async () => {
+    const fake = createFakePage([false], {
+      labelsFor: () => ['Clear Command History', 'Terminal: Copy Last Command']
+    });
+
+    await expect(runCommand(fake.page, 'Developer: Execute Command...')).rejects.toThrow(
+      'No palette row is labelled exactly "Developer: Execute Command..."; the palette listed "Clear Command History", "Terminal: Copy Last Command"'
+    );
+    expect(fake.executed).toEqual([]);
+    expect(fake.keyboardPress.mock.calls.map(call => call[0]).slice(-1)).toEqual(['Escape']);
+  });
+});
+
+describe('waitForCommandAvailable', () => {
+  test('returns once the exact label is listed and runs nothing', async () => {
+    const fake = createFakePage([false]);
+
+    await waitForCommandAvailable(fake.page, 'Electivus Apex Logs: Tail Logs', { timeoutMs: 1_000 });
+
+    expect(fake.executed).toEqual([]);
+    expect(fake.keyboardPress.mock.calls.map(call => call[0]).slice(-1)).toEqual(['Escape']);
+  });
+});
+
+describe('openView', () => {
+  test('keeps the picker prefix and opens the view named exactly as requested', async () => {
+    const fake = createFakePage([false], {
+      labelsFor: query =>
+        query.startsWith('view ')
+          ? ['Electivus Apex Logs', 'Electivus Apex Logs Tail', 'Electivus Apex Logs Tail']
+          : [query.replace(/^>\s*/, '')]
+    });
+
+    await openView(fake.page, 'Electivus Apex Logs Tail');
+
+    expect(fake.filled).toEqual(['> View: Open View', 'view Electivus Apex Logs Tail']);
+    expect(fake.executed).toEqual(['View: Open View', 'Electivus Apex Logs Tail']);
   });
 });
