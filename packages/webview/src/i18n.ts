@@ -1,6 +1,7 @@
 import { customLogsEn, customLogsPtBR, type CustomLogsMessages } from './i18n/customLogs';
+import { logViewerEn, logViewerPtBR, type LogViewerMessages } from './i18n/logViewer';
 
-export type { CustomLogsMessages };
+export type { CustomLogsMessages, LogViewerMessages };
 
 export type Messages = {
   refresh: string;
@@ -142,6 +143,7 @@ export type Messages = {
     managerValidation?: string;
   };
   customLogs: CustomLogsMessages;
+  logViewer: LogViewerMessages;
 };
 
 const en: Messages = {
@@ -285,7 +287,8 @@ const en: Messages = {
     managerDeleteCancel: 'Cancel',
     managerValidation: 'DeveloperName and MasterLabel are required to save a DebugLevel.'
   },
-  customLogs: customLogsEn
+  customLogs: customLogsEn,
+  logViewer: logViewerEn
 };
 
 const ptBR: Messages = {
@@ -429,7 +432,8 @@ const ptBR: Messages = {
     managerDeleteCancel: 'Cancelar',
     managerValidation: 'DeveloperName e MasterLabel são obrigatórios para salvar um DebugLevel.'
   },
-  customLogs: customLogsPtBR
+  customLogs: customLogsPtBR,
+  logViewer: logViewerPtBR
 };
 
 export function getMessages(locale?: string): Messages {

@@ -16,6 +16,8 @@ import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
 import type { ListImperativeAPI } from 'react-window';
 import type { LogViewerMappedDiagnostic } from './utils/logViewerDiagnostics';
 import { buildVisibleEntries, mapDiagnosticsToEntries } from './utils/logViewerDiagnostics';
+import { getMessages } from './i18n';
+import { fillTemplate } from './utils/customLogs/format';
 
 type TriageState = 'loading' | 'unavailable' | 'empty' | 'ready';
 type DiagnosticSeverityFilter = 'all' | 'error' | 'warning';
@@ -86,6 +88,7 @@ export function LogViewerApp({
         return;
       }
       if (msg.type === 'logViewerInit') {
+        const t = getMessages(msg.locale).logViewer;
         const nextLogId = typeof msg.logId === 'string' ? msg.logId : '';
         activeLogId.current = nextLogId;
         setLocale(msg.locale || 'en');
@@ -129,13 +132,13 @@ export function LogViewerApp({
                 }
                 setEntries([]);
                 const message = err instanceof Error ? err.message : String(err);
-                setError(`Failed to load log content: ${message}`);
+                setError(fillTemplate(t.loadFailed, { error: message }));
                 setLoading(false);
               });
           } else {
             setEntries([]);
             setLoading(false);
-            setError('Failed to load log content: Fetch API unavailable');
+            setError(fillTemplate(t.loadFailed, { error: t.fetchUnavailable }));
           }
         } else {
           const parsed = parseLogLines(Array.isArray(msg.lines) ? msg.lines : []);
@@ -312,12 +315,17 @@ export function LogViewerApp({
     return matches;
   }, [visibleEntries, trimmedSearch]);
 
+  const matchedSearchRef = useRef<string>(trimmedSearch);
+
   useEffect(() => {
+    // A new query starts at its first match; the same query keeps its place when the filter changes the matches.
+    const sameSearch = matchedSearchRef.current === trimmedSearch;
+    matchedSearchRef.current = trimmedSearch;
     setActiveMatchIndex(prev => {
       if (!trimmedSearch || matchIndices.length === 0) {
         return -1;
       }
-      if (prev >= 0 && prev < matchIndices.length) {
+      if (sameSearch && prev >= 0 && prev < matchIndices.length) {
         return prev;
       }
       return 0;
@@ -367,6 +375,7 @@ export function LogViewerApp({
   }, [matchIndices.length]);
 
   const highlightCategory = mapFilterToCategory(filter);
+  const t = getMessages(locale).logViewer;
 
   const onViewRaw = () => {
     vscode.postMessage({ type: 'logViewerViewRaw' });
@@ -384,8 +393,9 @@ export function LogViewerApp({
         activeMatchIndex={activeMatchIndex}
         onNextMatch={goToNextMatch}
         onPreviousMatch={goToPreviousMatch}
+        t={t}
       />
-      <LogViewerFilters active={filter} onChange={setFilter} counts={counts} locale={locale} />
+      <LogViewerFilters active={filter} onChange={setFilter} counts={counts} locale={locale} t={t} />
       <main className="flex min-h-0 flex-1 flex-col bg-background/40">
         <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto px-4 pb-3 lg:grid-cols-[1fr_22rem]">
           <section className="flex min-h-0 flex-col">
@@ -395,7 +405,7 @@ export function LogViewerApp({
               </div>
             ) : loading ? (
               <div className="rounded-md border border-border/40 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-                Loading log entries…
+                {t.loadingEntries}
               </div>
               ) : (
               <LogEntryList
@@ -408,6 +418,7 @@ export function LogViewerApp({
                 listRef={listRef}
                 activeDiagnosticId={activeDiagnosticId}
                 activeDiagnosticEntryIndex={activeDiagnosticEntryIndex}
+                noEntriesText={t.noEntriesMatch}
               />
             )}
           </section>
@@ -421,10 +432,17 @@ export function LogViewerApp({
             }
             primaryReason={primaryReason}
             triageState={triageState}
+            t={t}
           />
         </div>
       </main>
-      <LogViewerStatusBar counts={counts} locale={locale} metadata={metadata} />
+      <LogViewerStatusBar
+        counts={counts}
+        locale={locale}
+        metadata={metadata}
+        state={error ? 'failed' : loading ? 'loading' : 'ready'}
+        t={t}
+      />
     </div>
   );
 }
