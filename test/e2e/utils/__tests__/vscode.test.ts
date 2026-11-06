@@ -5,7 +5,10 @@ import {
   closeVsCodeApp,
   concealVsCodeWindows,
   createMissingSupportExtensionsError,
+  hasExtensionHostStarted,
   hasLanguagePackFor,
+  launchUntilExtensionHostStarts,
+  listVsCodeLogSessions,
   redactPreservedVsCodeUserData,
   resolveCachedSupportExtensionsDir,
   resolveCliSpawnInvocation,
@@ -19,7 +22,8 @@ import {
   resolveVsCodeAuthLaunch,
   resolveVsCodeCompositingLaunchArgs,
   resolveVsCodeLocale,
-  shouldConcealVsCodeWindow
+  shouldConcealVsCodeWindow,
+  waitForExtensionHostStart
 } from '../vscode';
 
 describe('macOS CI authentication homes', () => {
@@ -179,6 +183,117 @@ describe('preserved VS Code user data', () => {
     } finally {
       await rm(userDataDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('VS Code extension host start', () => {
+  const STARTED = '2026-11-06 00:47:29.130 [info] Extension host with pid 23545 started\n';
+
+  async function writeExthostLog(userDataDir: string, session: string, text: string): Promise<void> {
+    const dir = path.join(userDataDir, 'logs', session, 'window1', 'exthost');
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, 'exthost.log'), text, 'utf8');
+  }
+
+  test('sees a start only in the extension host log of a session that the launch wrote', async () => {
+    const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-exthost-'));
+    try {
+      expect(await listVsCodeLogSessions(userDataDir)).toEqual([]);
+      expect(await hasExtensionHostStarted(userDataDir)).toBe(false);
+
+      // The language pack priming launch started its own extension host before the launch under test.
+      await writeExthostLog(userDataDir, '20261106T004700', STARTED);
+      const earlierSessions = new Set(await listVsCodeLogSessions(userDataDir));
+      expect(earlierSessions).toEqual(new Set(['20261106T004700']));
+      expect(await hasExtensionHostStarted(userDataDir, earlierSessions)).toBe(false);
+
+      await mkdir(path.join(userDataDir, 'logs', '20261106T004725', 'window1'), { recursive: true });
+      expect(await hasExtensionHostStarted(userDataDir, earlierSessions)).toBe(false);
+      await writeExthostLog(userDataDir, '20261106T004725', '2026-11-06 00:47:29.130 [info] Skipping acquiring lock\n');
+      expect(await hasExtensionHostStarted(userDataDir, earlierSessions)).toBe(false);
+      await writeExthostLog(userDataDir, '20261106T004725', STARTED);
+      expect(await hasExtensionHostStarted(userDataDir, earlierSessions)).toBe(true);
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test('waits for the start line, and gives up at the timeout', async () => {
+    const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-exthost-'));
+    try {
+      expect(await waitForExtensionHostStart({ userDataDir, timeoutMs: 30, pollMs: 5 })).toBe(false);
+
+      const waiting = waitForExtensionHostStart({ userDataDir, timeoutMs: 10_000, pollMs: 5 });
+      await new Promise(resolve => setTimeout(resolve, 20));
+      await writeExthostLog(userDataDir, '20261106T004725', STARTED);
+      await expect(waiting).resolves.toBe(true);
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  function fakeLaunches(starts: boolean[]) {
+    const launched: number[] = [];
+    const discarded: number[] = [];
+    const warnings: string[] = [];
+    return {
+      launched,
+      discarded,
+      warnings,
+      run: (attempts?: number) =>
+        launchUntilExtensionHostStarts({
+          launch: async () => {
+            launched.push(launched.length + 1);
+            return launched.length;
+          },
+          extensionHostStarted: async attempt => starts[attempt - 1] ?? false,
+          discard: async attempt => {
+            discarded.push(attempt);
+          },
+          attempts,
+          warn: message => warnings.push(message)
+        })
+    };
+  }
+
+  test('keeps the first launch when its extension host starts', async () => {
+    const fake = fakeLaunches([true]);
+    await expect(fake.run()).resolves.toBe(1);
+    expect(fake.launched).toEqual([1]);
+    expect(fake.discarded).toEqual([]);
+    expect(fake.warnings).toEqual([]);
+  });
+
+  test('relaunches VS Code once when the extension host does not start, and says so', async () => {
+    const fake = fakeLaunches([false, true]);
+    await expect(fake.run()).resolves.toBe(2);
+    expect(fake.launched).toEqual([1, 2]);
+    expect(fake.discarded).toEqual([1]);
+    expect(fake.warnings).toEqual(['[e2e] extension host did not start; relaunching VS Code']);
+  });
+
+  test('fails after the relaunch also has no extension host, with both windows closed', async () => {
+    const fake = fakeLaunches([false, false, true]);
+    await expect(fake.run()).rejects.toThrow('[e2e] The VS Code extension host did not start in 2 launch(es).');
+    expect(fake.launched).toEqual([1, 2]);
+    expect(fake.discarded).toEqual([1, 2]);
+    expect(fake.warnings).toHaveLength(1);
+  });
+
+  test('closes the window and does not relaunch when checking the extension host fails', async () => {
+    const discarded: string[] = [];
+    await expect(
+      launchUntilExtensionHostStarts({
+        launch: async () => 'window',
+        extensionHostStarted: async () => {
+          throw new Error('logs unreadable');
+        },
+        discard: async launched => {
+          discarded.push(launched);
+        }
+      })
+    ).rejects.toThrow('logs unreadable');
+    expect(discarded).toEqual(['window']);
   });
 });
 

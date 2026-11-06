@@ -47,6 +47,12 @@ const VSCODE_DOWNLOAD_LOCK_POLL_MS = 250;
 const VSCODE_DOWNLOAD_LOCK_REFRESH_MS = 30 * 1000;
 const DEFAULT_VSCODE_DOWNLOAD_TIMEOUT_MS = 120_000;
 const DEFAULT_VSCODE_CLOSE_TIMEOUT_MS = 30_000;
+/** How long a launch waits for its extension host to log that it started before VS Code is launched again. */
+export const DEFAULT_EXTENSION_HOST_START_TIMEOUT_MS = 60_000;
+const EXTENSION_HOST_START_POLL_MS = 250;
+const EXTENSION_HOST_LAUNCH_ATTEMPTS = 2;
+/** The line VS Code's extension host writes to its own log once it has started. */
+const EXTENSION_HOST_STARTED = /\bExtension host with pid \d+ started\b/;
 const REDACTED_SETTING_VALUE = '[redacted]';
 
 function getModifierKey(): 'Control' | 'Meta' {
@@ -689,6 +695,125 @@ const LANGUAGE_PACK_PRIME_TIMEOUT_MS = 90_000;
  * VS Code applies `--locale` at startup only when the profile's `languagepacks.json` lists that language, and only a
  * running VS Code writes that file. A fresh profile therefore needs one launch to write it before the real one.
  */
+/** The log sessions VS Code has written under a user-data-dir: one folder per start, named by its start time. */
+export async function listVsCodeLogSessions(userDataDir: string): Promise<string[]> {
+  try {
+    const entries = await readdir(path.join(userDataDir, 'logs'), { withFileTypes: true });
+    return entries.filter(entry => entry.isDirectory()).map(entry => entry.name);
+  } catch {
+    return [];
+  }
+}
+
+async function readWindowLogs(
+  userDataDir: string,
+  earlierSessions: ReadonlySet<string>,
+  relativePath: string[]
+): Promise<string[]> {
+  const logsDir = path.join(userDataDir, 'logs');
+  const texts: string[] = [];
+  for (const session of await listVsCodeLogSessions(userDataDir)) {
+    if (earlierSessions.has(session)) {
+      continue;
+    }
+    let windows: string[] = [];
+    try {
+      windows = (await readdir(path.join(logsDir, session))).filter(name => /^window\d+$/.test(name));
+    } catch {}
+    for (const windowDir of windows) {
+      try {
+        texts.push(await readFile(path.join(logsDir, session, windowDir, ...relativePath), 'utf8'));
+      } catch {}
+    }
+  }
+  return texts;
+}
+
+/**
+ * Whether the extension host of a VS Code started after `earlierSessions` were listed has logged its start.
+ * Each window's extension host writes it to `logs/<session>/window<n>/exthost/exthost.log`.
+ */
+export async function hasExtensionHostStarted(
+  userDataDir: string,
+  earlierSessions: ReadonlySet<string> = new Set()
+): Promise<boolean> {
+  const logs = await readWindowLogs(userDataDir, earlierSessions, ['exthost', 'exthost.log']);
+  return logs.some(text => EXTENSION_HOST_STARTED.test(text));
+}
+
+export async function waitForExtensionHostStart(args: {
+  userDataDir: string;
+  earlierSessions?: ReadonlySet<string>;
+  timeoutMs?: number;
+  pollMs?: number;
+}): Promise<boolean> {
+  const deadline = Date.now() + (args.timeoutMs ?? DEFAULT_EXTENSION_HOST_START_TIMEOUT_MS);
+  for (;;) {
+    if (await hasExtensionHostStarted(args.userDataDir, args.earlierSessions)) {
+      return true;
+    }
+    if (Date.now() >= deadline) {
+      return false;
+    }
+    await sleep(args.pollMs ?? EXTENSION_HOST_START_POLL_MS);
+  }
+}
+
+/** The window log lines about the extension host, such as VS Code's "did not start in 10 seconds", for the run's output. */
+async function readExtensionHostRendererLines(
+  userDataDir: string,
+  earlierSessions: ReadonlySet<string>
+): Promise<string[]> {
+  const logs = await readWindowLogs(userDataDir, earlierSessions, ['renderer.log']);
+  return logs
+    .flatMap(text => text.split(/\r?\n/))
+    .filter(line => /extension host/i.test(line))
+    .slice(-20);
+}
+
+/**
+ * Launches VS Code until the extension host of a launch starts, at most `attempts` times. When it does not start,
+ * VS Code shows "Extension host did not start in 10 seconds" and never activates the extension, so every webview
+ * wait of the test times out. That launch is discarded, and the next one starts from a fresh user-data-dir.
+ */
+export async function launchUntilExtensionHostStarts<T>(args: {
+  launch: () => Promise<T>;
+  extensionHostStarted: (launched: T) => Promise<boolean>;
+  discard: (launched: T) => Promise<void>;
+  attempts?: number;
+  warn?: (message: string) => void;
+}): Promise<T> {
+  const attempts = Math.max(1, args.attempts ?? EXTENSION_HOST_LAUNCH_ATTEMPTS);
+  const warn = args.warn ?? ((message: string) => console.warn(message));
+  for (let attempt = 1; ; attempt++) {
+    const launched = await args.launch();
+    let started: boolean;
+    try {
+      started = await args.extensionHostStarted(launched);
+    } catch (error) {
+      await args.discard(launched);
+      throw error;
+    }
+    if (started) {
+      return launched;
+    }
+    await args.discard(launched);
+    if (attempt >= attempts) {
+      throw new Error(`[e2e] The VS Code extension host did not start in ${attempts} launch(es).`);
+    }
+    warn('[e2e] extension host did not start; relaunching VS Code');
+  }
+}
+
+async function releaseUserDataDir(userDataDir: string, keep = false): Promise<void> {
+  if (keep || shouldKeepUserDataDir()) {
+    await redactPreservedVsCodeUserData(userDataDir);
+    console.warn(`[e2e] Preserving VS Code user-data-dir at ${userDataDir}`);
+  } else {
+    await removePathBestEffort(userDataDir);
+  }
+}
+
 async function primeLanguagePack(args: {
   vscodeExecutablePath: string;
   userDataDir: string;
@@ -763,8 +888,12 @@ export async function launchVsCode(options: {
       )
   );
 
-  const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-user-'));
-  await writeVsCodeUserSettings(userDataDir, resolveVsCodeUserProxySettings());
+  const createUserDataDir = async (): Promise<string> => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-user-'));
+    await writeVsCodeUserSettings(dir, resolveVsCodeUserProxySettings());
+    return dir;
+  };
+  const installUserDataDir = await createUserDataDir();
   let extensionsDir = resolveCachedSupportExtensionsDir(vscodeCachePath, vscodeVersion, supportExtensionIds);
   const supportExtensionsLockPath = resolveSupportExtensionsLockPath(extensionsDir);
   await mkdir(extensionsDir, { recursive: true });
@@ -780,7 +909,7 @@ export async function launchVsCode(options: {
         async () =>
           await ensureExtensionDependenciesInstalled({
             vscodeExecutablePath,
-            userDataDir,
+            userDataDir: installUserDataDir,
             extensionsDir,
             extensionIds: supportExtensionIds
           })
@@ -794,52 +923,82 @@ export async function launchVsCode(options: {
     DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || '/dev/null',
     NO_AT_BRIDGE: process.env.NO_AT_BRIDGE || '1'
   };
-  if (locale) {
-    await timeE2eStep(
-      'vscode.primeLanguagePack',
-      async () => await primeLanguagePack({ vscodeExecutablePath, userDataDir, extensionsDir, locale, env: launchEnv })
+  const launchArgs = (userDataDir: string): string[] => {
+    const args = [
+      options.workspacePath,
+      `--extensionDevelopmentPath=${options.extensionDevelopmentPath}`,
+      ...(options.additionalExtensionDevelopmentPaths ?? []).map(
+        extraPath => `--extensionDevelopmentPath=${extraPath}`
+      ),
+      `--user-data-dir=${userDataDir}`,
+      `--extensions-dir=${extensionsDir}`,
+      '--disable-workspace-trust',
+      '--skip-welcome',
+      '--skip-release-notes',
+      '--disable-updates',
+      '--no-sandbox',
+      ...(locale ? [`--locale=${locale}`] : [])
+    ];
+    args.push(...resolveVsCodeCompositingLaunchArgs());
+    args.push(...resolveVsCodeProxyLaunchArgs());
+    args.push(...authLaunch.args);
+    const windowSizeArg = resolveWindowSizeArg(options.windowSize);
+    if (windowSizeArg) {
+      args.push(windowSizeArg);
+    }
+    return args;
+  };
+
+  let unusedUserDataDir: string | undefined = installUserDataDir;
+  const launchWindow = async () => {
+    const userDataDir = unusedUserDataDir ?? (await createUserDataDir());
+    unusedUserDataDir = undefined;
+    if (locale) {
+      await timeE2eStep(
+        'vscode.primeLanguagePack',
+        async () =>
+          await primeLanguagePack({ vscodeExecutablePath, userDataDir, extensionsDir, locale, env: launchEnv })
+      );
+    }
+    // The language pack priming above and the extension install wrote their own log sessions.
+    const earlierSessions = new Set(await listVsCodeLogSessions(userDataDir));
+    const app = await timeE2eStep(
+      'vscode.launch',
+      async () =>
+        await electron.launch({
+          executablePath: vscodeExecutablePath,
+          args: launchArgs(userDataDir),
+          env: launchEnv
+        })
     );
-  }
-  const args = [
-    options.workspacePath,
-    `--extensionDevelopmentPath=${options.extensionDevelopmentPath}`,
-    ...(options.additionalExtensionDevelopmentPaths ?? []).map(extraPath => `--extensionDevelopmentPath=${extraPath}`),
-    `--user-data-dir=${userDataDir}`,
-    `--extensions-dir=${extensionsDir}`,
-    '--disable-workspace-trust',
-    '--skip-welcome',
-    '--skip-release-notes',
-    '--disable-updates',
-    '--no-sandbox',
-    ...(locale ? [`--locale=${locale}`] : [])
-  ];
-  args.push(...resolveVsCodeCompositingLaunchArgs());
-  args.push(...resolveVsCodeProxyLaunchArgs());
-  args.push(...authLaunch.args);
-  const windowSizeArg = resolveWindowSizeArg(options.windowSize);
-  if (windowSizeArg) {
-    args.push(windowSizeArg);
-  }
 
-  const app = await timeE2eStep(
-    'vscode.launch',
-    async () =>
-      await electron.launch({
-        executablePath: vscodeExecutablePath,
-        args,
-        env: launchEnv
-      })
-  );
+    if (shouldConcealVsCodeWindow()) {
+      await concealVsCodeWindows(app).catch(error => {
+        console.warn(`[e2e] Could not hide the VS Code window; it stays visible: ${String(error)}`);
+      });
+    }
 
-  if (shouldConcealVsCodeWindow()) {
-    await concealVsCodeWindows(app).catch(error => {
-      console.warn(`[e2e] Could not hide the VS Code window; it stays visible: ${String(error)}`);
+    const page = await timeE2eStep('vscode.firstWindow', async () => await app.firstWindow());
+    await timeE2eStep('vscode.workbenchReady', async () => {
+      await page.locator('.monaco-workbench').waitFor({ timeout: 120_000 });
     });
-  }
+    return { app, page, userDataDir, earlierSessions };
+  };
 
-  const page = await timeE2eStep('vscode.firstWindow', async () => await app.firstWindow());
-  await timeE2eStep('vscode.workbenchReady', async () => {
-    await page.locator('.monaco-workbench').waitFor({ timeout: 120_000 });
+  const { app, page, userDataDir } = await launchUntilExtensionHostStarts({
+    launch: launchWindow,
+    extensionHostStarted: async ({ userDataDir, earlierSessions }) =>
+      await timeE2eStep(
+        'vscode.extensionHostStarted',
+        async () => await waitForExtensionHostStart({ userDataDir, earlierSessions })
+      ),
+    discard: async ({ app, userDataDir, earlierSessions }) => {
+      for (const line of await readExtensionHostRendererLines(userDataDir, earlierSessions)) {
+        console.warn(`[e2e] VS Code window log: ${line}`);
+      }
+      await closeVsCodeApp(app);
+      await releaseUserDataDir(userDataDir);
+    }
   });
 
   // Close the auxiliary (right) sidebar if it opens by default (e.g., Copilot Chat),
@@ -856,12 +1015,7 @@ export async function launchVsCode(options: {
     try {
       await closeVsCodeApp(app);
     } catch {}
-    if (cleanupOptions?.keep || shouldKeepUserDataDir()) {
-      await redactPreservedVsCodeUserData(userDataDir);
-      console.warn(`[e2e] Preserving VS Code user-data-dir at ${userDataDir}`);
-    } else {
-      await removePathBestEffort(userDataDir);
-    }
+    await releaseUserDataDir(userDataDir, cleanupOptions?.keep);
   };
 
   return { app, page, userDataDir, extensionsDir, cleanup };

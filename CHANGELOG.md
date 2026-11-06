@@ -4,6 +4,7 @@
 
 ### Maintenance
 
+- E2E: when the extension host of a VS Code launch does not start within 60 seconds, the harness closes VS Code and launches it once more with a fresh user-data-dir, and prints `[e2e] extension host did not start; relaunching VS Code`. Before, the window showed "Extension host did not start in 10 seconds" and the test spent two 3-minute webview waits before failing, mostly on the Windows lane.
 - E2E: the Debug Flags spec now proves that the Tail toolbar button opens Apex Debug Flags. `openDebugFlagsFromTail` closes the editor that the Logs step left open, then clicks without `force`, with Enter and DOM-click fallbacks. Before, the open editor satisfied the wait, so the spec passed even when the click never reached the extension.
 - Telemetry: the Debug Flags `debugFlags.apply` and `debugFlags.remove` events now carry `logType` (`DEVELOPER_LOG` or `USER_DEBUG`), so usage shows how often people move away from the `DEVELOPER_LOG` default. `telemetry.json` and `docs/TELEMETRY.md` declare the new property.
 - E2E: `pnpm run test:e2e -- <spec>` and `pnpm run test:e2e:cli -- <spec>` run only that spec again; the runners drop the `--` that pnpm forwards, which made Playwright ignore the filter and run the whole suite.
