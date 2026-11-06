@@ -45,8 +45,8 @@ function createFakePage(
     keyboardShortcutMissesQuickInput?: boolean;
     quickInputWaitFailuresBeforeVisible?: number;
     quickAccessClickError?: Error;
-    /** Row labels the palette lists for a query; by default only the queried label. */
-    labelsFor?: (query: string) => string[];
+    /** Rows the palette lists for a query, as a label or a translated label with its English alias; by default only the queried label. */
+    labelsFor?: (query: string) => Array<string | { label: string; alias: string }>;
   }
 ) {
   let lastQuery = '';
@@ -54,7 +54,9 @@ function createFakePage(
   const filled: string[] = [];
   const executed: string[] = [];
   const labelsFor = options?.labelsFor ?? ((query: string) => [query.replace(/^>\s*/, '')]);
-  const currentLabels = () => labelsFor(lastQuery);
+  const currentRows = () =>
+    labelsFor(lastQuery).map(row => (typeof row === 'string' ? { label: row, alias: '' } : row));
+  const currentLabels = () => currentRows().map(row => row.label);
   const keyboardPress = jest.fn(async (key: string) => {
     if (key === 'ArrowDown') {
       focusedIndex = Math.min(focusedIndex + 1, currentLabels().length - 1);
@@ -70,7 +72,7 @@ function createFakePage(
     filled.push(value);
   };
   const readRows = jest.fn(async () =>
-    currentLabels().map((label, index) => ({ index, label, focused: index === focusedIndex }))
+    currentRows().map((row, index) => ({ index, ...row, focused: index === focusedIndex }))
   );
   // A virtual clock: each wait advances Date.now, so the helpers' deadlines pass without real waiting.
   let now = Date.now();
@@ -347,6 +349,20 @@ describe('runCommand', () => {
       'ArrowDown',
       'Enter'
     ]);
+  });
+
+  test('finds the command by its English title when VS Code shows a translated one', async () => {
+    const fake = createFakePage([false], {
+      labelsFor: () => [
+        { label: 'Exibir: Fechar Todos os Grupos de Editores', alias: 'View: Close All Editor Groups' },
+        { label: 'Exibir: Fechar Editor', alias: 'View: Close Editor' },
+        'Electivus Apex Logs: Show Extension Output'
+      ]
+    });
+
+    await runCommand(fake.page, 'View: Close Editor');
+
+    expect(fake.executed).toEqual(['Exibir: Fechar Editor']);
   });
 
   test('presses Enter at once when the first row is the requested command', async () => {

@@ -57,27 +57,39 @@ function commandLabel(command: string): string {
 interface CommandRow {
   index: number;
   label: string;
+  /** The English title VS Code shows under a translated one when a language pack is active; empty otherwise. */
+  alias: string;
   focused: boolean;
 }
 
 async function readCommandRows(widget: Locator): Promise<CommandRow[]> {
   return await widget.locator('.monaco-list-row').evaluateAll(rows =>
-    rows.map(row => ({
-      index: Number(row.getAttribute('data-index') ?? '-1'),
-      label: (row.querySelector('.quick-input-list-row .monaco-icon-name-container')?.textContent ?? '').trim(),
-      focused: row.classList.contains('focused')
-    }))
+    rows.map(row => {
+      // A recycled row can keep the alias text of an earlier command in a hidden label, so read only a shown one.
+      const meta = row.querySelector<HTMLElement>('.quick-input-list-label-meta .monaco-icon-label');
+      const alias =
+        meta && meta.style.display !== 'none'
+          ? (meta.querySelector('.monaco-icon-name-container')?.textContent ?? '').trim()
+          : '';
+      return {
+        index: Number(row.getAttribute('data-index') ?? '-1'),
+        label: (row.querySelector('.quick-input-list-row .monaco-icon-name-container')?.textContent ?? '').trim(),
+        alias,
+        focused: row.classList.contains('focused')
+      };
+    })
   );
 }
 
 type ExactRowResult = { found: true } | { found: false; labels: string[] };
 
 /**
- * Moves the quick pick focus to the first row labelled exactly `label`. VS Code's palette matches words anywhere in a
- * label, also lists similar commands, and puts recently used ones first, so its first row can be another
- * command: `View: Close Editor` lists `View: Close All Editor Groups` first, and `Electivus Apex Logs: Refresh
- * Logs` can list `Electivus Apex Logs: Refresh Custom Logs` first. The rows must read the same twice in a row,
- * so a list that is still filtering is not trusted.
+ * Moves the quick pick focus to the first row labelled exactly `label`, or else to the first row whose English title
+ * is `label` in a translated VS Code. VS Code's palette matches words anywhere in a label, also lists similar
+ * commands, and puts recently used ones first, so its first row can be another command: `View: Close Editor` lists
+ * `View: Close All Editor Groups` first, and `Electivus Apex Logs: Refresh Logs` can list `Electivus Apex Logs:
+ * Refresh Custom Logs` first. The rows must read the same twice in a row, so a list that is still filtering is not
+ * trusted.
  */
 async function focusExactRow(page: Page, label: string): Promise<ExactRowResult> {
   const { widget } = getQuickInput(page);
@@ -93,7 +105,7 @@ async function focusExactRow(page: Page, label: string): Promise<ExactRowResult>
     previous = snapshot;
 
     if (settled) {
-      const target = rows.find(row => row.label === label);
+      const target = rows.find(row => row.label === label) ?? rows.find(row => row.alias === label);
       const focused = rows.find(row => row.focused);
       if (target && focused) {
         if (target.index === focused.index) {
