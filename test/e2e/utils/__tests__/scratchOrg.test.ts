@@ -20,6 +20,11 @@ const getOrgAuthMock = jest.mocked(getOrgAuth);
 const assertToolingReadyMock = jest.mocked(assertToolingReady);
 const primeOrgAuthCacheMock = jest.mocked(primeOrgAuthCache);
 
+// Each JWT session runs scripts/devhub-identity-credentials.js `secureDirectory`, which on Windows starts
+// powershell.exe to set the key directory's ACL, and these tests also generate an RSA key. A test takes about
+// 1 s on a Windows runner and has passed Jest's default 5 s on a loaded one, so they get 30 s.
+jest.setTimeout(30_000);
+
 const fixturePrivateKey = generateKeyPairSync('rsa', { modulusLength: 2048,
   privateKeyEncoding: { type: 'pkcs8', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' }
 }).privateKey;
