@@ -158,7 +158,7 @@ test('global defaults, explicit project, custom directory and legacy Codex home 
     [{ codexHome: 'legacy codex' }, `legacy codex/skills/${skillName}`]
   ] as const) {
     const result = await installSkill(
-      { ...options, ...('agents' in options ? { agents: [...options.agents] } : {}) },
+      'agents' in options ? { ...options, agents: [...options.agents] } : options,
       data
     );
     assert.equal(result.installations[0]?.destination, path.join(data.environment.cwd, suffix));

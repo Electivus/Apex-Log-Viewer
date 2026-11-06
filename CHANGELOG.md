@@ -4,6 +4,7 @@
 
 ### Maintenance
 
+- CI: `pnpm run check-types` and `pnpm run compile` now type-check the webview tests and the core and Salesforce CLI plugin tests, so a type error there fails the build before a test run. Fixes the type errors these gates found, including the Tail panel's debug-level selection, which read a field TypeScript could not narrow.
 - E2E: the Debug Flags spec now proves that the Tail toolbar button opens Apex Debug Flags. `openDebugFlagsFromTail` closes the editor that the Logs step left open, then clicks without `force`, with Enter and DOM-click fallbacks. Before, the open editor satisfied the wait, so the spec passed even when the click never reached the extension.
 - Telemetry: the Debug Flags `debugFlags.apply` and `debugFlags.remove` events now carry `logType` (`DEVELOPER_LOG` or `USER_DEBUG`), so usage shows how often people move away from the `DEVELOPER_LOG` default. `telemetry.json` and `docs/TELEMETRY.md` declare the new property.
 - E2E: `pnpm run test:e2e -- <spec>` and `pnpm run test:e2e:cli -- <spec>` run only that spec again; the runners drop the `--` that pnpm forwards, which made Playwright ignore the filter and run the whole suite.

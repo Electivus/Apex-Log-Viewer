@@ -137,7 +137,7 @@ test('capture drains the event stream into the store, and list then reads it wit
     'timeLimit',
     'a 1 s bound ends a drain over a young position before its 15 s quiet wait'
   );
-  const [{ data }] = recordedEvents('single') as [{ data: { event: { replayId: number } } }];
+  const { data } = recordedEvents('single')[0]!;
   assert.deepEqual(double.replays, [{ [`/event/${OBJECT}`]: -2 }, { [`/event/${OBJECT}`]: data.event.replayId }]);
 
   await double.close();
@@ -191,7 +191,7 @@ test('--follow prints the stored row, and Ctrl-C ends with the aborted summary a
   const { double, org } = await world(t);
 
   const followed = await withStreams(async ({ out }) => {
-    const running = capture(...org, '--follow')._run();
+    const running = capture(...org, '--follow')._run<CustomLogCaptureResult>();
     await until(() => out.length > 0);
     process.emit('SIGINT');
     return running;

@@ -5,6 +5,10 @@ import { TailList } from '../components/tail/TailList';
 
 type TailListInputs = Parameters<typeof TailList>[0];
 
+/** A test double for react-window's `List`, whose own return type the doubles do not match. */
+const asVirtualList = (component: (props: any) => React.ReactElement) =>
+  component as unknown as NonNullable<TailListInputs['virtualListComponent']>;
+
 const CLIENT_HEIGHT = 200;
 
 type ListHarness = {
@@ -107,7 +111,7 @@ describe('TailList', () => {
         follow={props.follow ?? false}
         t={t as any}
         onAtBottomChange={props.onAtBottomChange}
-        virtualListComponent={virtualList}
+        virtualListComponent={asVirtualList(virtualList)}
       />
     );
     let current = initial;
@@ -174,6 +178,7 @@ describe('TailList', () => {
           colorize={colorize}
           running
           listRef={React.createRef()}
+          follow={false}
           t={t as any}
           virtualListComponent={
             function RowsList({ rowComponent: Row }: any) {

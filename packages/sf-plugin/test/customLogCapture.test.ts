@@ -412,7 +412,7 @@ test('a closed stdout aborts the run instead of crashing it', async () => {
 
   try {
     const { value } = await withStreams(async () => {
-      const running = command('--follow')._run();
+      const running = command('--follow')._run<CustomLogCaptureResult>();
       await until(() => calls.length === 1);
       assert.equal(process.stdout.listenerCount('error'), 1, 'the command listens for EPIPE');
       process.stdout.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }));
@@ -423,7 +423,7 @@ test('a closed stdout aborts the run instead of crashing it', async () => {
     assert.equal(value.outcome, 'aborted');
     assert.equal(process.stdout.listenerCount('error'), 0, 'the listener is removed');
   } finally {
-    for (const listener of runner) process.stdout.on('error', listener);
+    for (const listener of runner) process.stdout.on('error', listener as (error: Error) => void);
   }
 });
 
