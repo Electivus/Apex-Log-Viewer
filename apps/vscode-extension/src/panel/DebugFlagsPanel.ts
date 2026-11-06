@@ -384,7 +384,8 @@ export class DebugFlagsPanel {
         {
           outcome: 'ok',
           sourceView: this.lastSourceView,
-          targetType: target.type
+          targetType: target.type,
+          logType: input.logType
         },
         { durationMs: Date.now() - t0 }
       );
@@ -415,7 +416,8 @@ export class DebugFlagsPanel {
         {
           outcome: 'error',
           sourceView: this.lastSourceView,
-          targetType: target.type
+          targetType: target.type,
+          logType: input.logType
         },
         { durationMs: Date.now() - t0 }
       );
@@ -550,7 +552,8 @@ export class DebugFlagsPanel {
         {
           outcome: 'ok',
           sourceView: this.lastSourceView,
-          targetType: target.type
+          targetType: target.type,
+          logType
         },
         { durationMs: Date.now() - t0, removedCount: result.removedCount }
       );
@@ -581,7 +584,8 @@ export class DebugFlagsPanel {
         {
           outcome: 'error',
           sourceView: this.lastSourceView,
-          targetType: target.type
+          targetType: target.type,
+          logType
         },
         { durationMs: Date.now() - t0 }
       );

@@ -4,6 +4,7 @@ import proxyquire from 'proxyquire';
 import type { ApexLogViewerCore } from '@alv/core';
 
 const { CoreClient } = proxyquire.noCallThru().noPreserveCache()('../../runtime/runtimeClient', {
+  '../host/utils/workspace': { getWorkspaceRoot: () => undefined },
   '../shared/telemetry': { safeSendEvent: () => undefined },
   '../shared/telemetryErrorCodes': { getTelemetryErrorCode: () => 'TEST' }
 }) as typeof import('../../runtime/runtimeClient');
@@ -191,6 +192,7 @@ suite('shared core client', () => {
             return fakeCore();
           }
         },
+        '../host/utils/workspace': { getWorkspaceRoot: () => undefined },
         '../shared/telemetry': {
           safeSendEvent: (name: string, properties?: Record<string, string>, measurements?: Record<string, number>) =>
             void sent.push({ name, properties, measurements })
