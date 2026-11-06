@@ -130,6 +130,8 @@ export type StoreScan = {
   find(position: EventPosition): Promise<StoredEvent | undefined>;
 };
 
+export type StoreGap = { reason: GapReason; after?: string; before?: string; detectedAt: string };
+
 export type StoreCoverage =
   | { state: 'notCaptured'; eventsRoot: string }
   | {
@@ -139,7 +141,7 @@ export type StoreCoverage =
       newest?: string;
       lastCaptureAt: string;
       sizeBytes: number;
-      gaps: { reason: GapReason; after?: string; before?: string; detectedAt: string }[];
+      gaps: StoreGap[];
     };
 
 export type EventStore = StoreScan & {
@@ -149,6 +151,11 @@ export type EventStore = StoreScan & {
   checkpoint(): Promise<EventCheckpoint | undefined>;
   /** `notCaptured` until a checkpoint exists. */
   coverage(): Promise<StoreCoverage>;
+  /**
+   * The gaps `coverage()` reports, read from the gap files alone: empty until a checkpoint exists. A standby run
+   * polls it, because `coverage()` stats every stored file.
+   */
+  gaps(): Promise<StoreGap[]>;
   /**
    * Lease, then a writer. `heldBy` means another live process captures this object. Throws
    * CUSTOM_LOG_STORE_UNAVAILABLE for an unreadable lease or a newer format. The writer starts with its
@@ -637,6 +644,14 @@ export function openEventStore(location: EventStoreLocation): EventStore {
     return exists;
   };
 
+  const readStoreGaps = async (): Promise<StoreGap[]> =>
+    foldGaps(await readGapFiles(layout.objectDir)).map(gap => ({
+      reason: gap.reason,
+      ...(gap.after !== undefined ? { after: gap.after } : {}),
+      ...(gap.before !== undefined ? { before: gap.before } : {}),
+      detectedAt: gap.detectedAt
+    }));
+
   const readCheckpoint = async (): Promise<EventCheckpoint | undefined> => {
     const value = await readJsonFile(layout.checkpointFile);
     if (value === undefined) return undefined;
@@ -731,13 +746,13 @@ export function openEventStore(location: EventStoreLocation): EventStore {
         ...(newest !== undefined ? { newest: new Date(newest).toISOString() } : {}),
         lastCaptureAt: checkpoint.updatedAt,
         sizeBytes,
-        gaps: foldGaps(await readGapFiles(layout.objectDir)).map(gap => ({
-          reason: gap.reason,
-          ...(gap.after !== undefined ? { after: gap.after } : {}),
-          ...(gap.before !== undefined ? { before: gap.before } : {}),
-          detectedAt: gap.detectedAt
-        }))
+        gaps: await readStoreGaps()
       };
+    },
+
+    async gaps() {
+      if (!(await readable()) || !(await readCheckpoint())) return [];
+      return readStoreGaps();
     },
 
     newestFirst,

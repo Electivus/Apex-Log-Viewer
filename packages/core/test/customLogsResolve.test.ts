@@ -118,6 +118,7 @@ test('managed Nebula qualifies every custom name with its namespace and keeps th
   const source = ready(resolveDefinition(NEBULA_MANAGED_PRESET.definition, 'builtin', 'Nebula', managedAdmin));
 
   assert.equal(source.namespace, 'Nebula');
+  assert.equal(source.shape.kind, 'transactions');
   assert.equal(source.shape.entry.object, 'Nebula__LogEntry__c');
   assert.equal(source.shape.entry.roles.message.api, 'Nebula__Message__c');
   assert.equal(source.shape.entry.roles.message.key, 'Message__c');
@@ -130,6 +131,7 @@ test('managed Nebula qualifies every custom name with its namespace and keeps th
 
 test('a LoggerEndUser describe drops the fields it omits and keeps the Has flags', () => {
   const source = ready(resolveDefinition(NEBULA_MANAGED_PRESET.definition, 'builtin', 'Nebula', managedEndUser));
+  assert.equal(source.shape.kind, 'transactions');
 
   assert.deepEqual(source.hidden, [
     'entry.fields.exceptionType',
@@ -239,6 +241,7 @@ test('a relationship path whose target describe is missing is hidden, not a fail
 
   const source = ready(resolveDefinition(define(), 'config', '', describes));
 
+  assert.equal(source.shape.kind, 'entries');
   assert.equal(source.shape.entry.roles.user, undefined);
   assert.deepEqual(source.hidden, ['entry.fields.user']);
 });
@@ -254,6 +257,7 @@ test('the display time falls back to CreatedDate for sorting when it is not sort
 
   const source = ready(resolveDefinition(define(), 'config', '', describes));
 
+  assert.equal(source.shape.kind, 'entries');
   assert.equal(source.shape.entry.roles.time.api, 'Logged_At__c');
   assert.equal(source.shape.entry.timeFilter, CREATED_DATE);
   assert.equal(source.shape.entry.sequence, CREATED_DATE);
@@ -692,10 +696,14 @@ test('an event mapping resolves against the measured LogEntryEvent__e describe',
   assert.deepEqual(ready(entry).hidden, []);
   assert.equal(event.object, 'LogEntryEvent__e');
   assert.equal(event.channel, '/event/LogEntryEvent__e');
+  // Every role of this mapping names an event field, not a payload path.
+  assert.equal(event.roles.time.from, 'field');
   assert.equal(event.roles.time.api, 'Timestamp__c');
   assert.equal(event.roles.time.encoding, 'datetime');
+  assert.equal(event.roles.message.from, 'field');
   assert.equal(event.roles.message.api, 'Message__c');
-  assert.equal(event.roles.user?.api, 'LoggedByUsername__c');
+  assert.equal(event.roles.user?.from, 'field');
+  assert.equal(event.roles.user.api, 'LoggedByUsername__c');
   assert.deepEqual(
     event.columns.map(column => column.label),
     ['Logger Version Number']
@@ -723,7 +731,7 @@ test('no field of an event is sortable or filterable, whatever describe says', (
   ];
   assert.ok(fields.length > 5);
   assert.deepEqual(
-    fields.filter(field => field.sortable || field.filterable),
+    fields.filter(field => field.from === 'field' && (field.sortable || field.filterable)),
     []
   );
 });
@@ -748,6 +756,7 @@ test('an event number time is read as epoch milliseconds', () => {
 
   const event = eventOf(resolveDefinition(definition, 'config', '', eventDescribes()));
 
+  assert.equal(event.roles.time.from, 'field');
   assert.equal(event.roles.time.encoding, 'epochMillis');
 });
 

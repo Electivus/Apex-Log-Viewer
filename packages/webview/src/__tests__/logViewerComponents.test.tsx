@@ -10,6 +10,10 @@ import { LogDiagnosticsSidebar } from '../components/log-viewer/LogDiagnosticsSi
 import { LogEntryRow } from '../components/log-viewer/LogEntryRow';
 import { LogEntryList } from '../components/log-viewer/LogEntryList';
 
+/** A test double for react-window's `List`, whose own return type the doubles do not match. */
+const asVirtualList = (component: (props: any) => React.ReactElement) =>
+  component as unknown as NonNullable<React.ComponentProps<typeof LogEntryList>['virtualListComponent']>;
+
 describe('Log viewer components', () => {
   describe('LogViewerHeader', () => {
     it('handles search updates, disables controls, and exposes navigation', () => {
@@ -455,7 +459,7 @@ describe('Log viewer components', () => {
         }
       ];
 
-      const captured: { measured: number[]; highlighted: Record<number, boolean> } = {
+      const captured: { measured: number[]; highlighted: Record<string, unknown> } = {
         measured: [],
         highlighted: {}
       };
@@ -501,7 +505,7 @@ describe('Log viewer components', () => {
         <LogEntryList
           entries={entries}
           highlightCategory="debug"
-          virtualListComponent={VirtualList}
+          virtualListComponent={asVirtualList(VirtualList)}
           RowComponent={StubRow}
           matchIndices={[0]}
           activeMatchIndex={0}
@@ -556,7 +560,7 @@ describe('Log viewer components', () => {
       const { rerender } = render(
         <LogEntryList
           entries={entries}
-          virtualListComponent={VirtualList}
+          virtualListComponent={asVirtualList(VirtualList)}
           activeDiagnosticEntryIndex={1}
           RowComponent={() => <div />}
         />
@@ -569,7 +573,7 @@ describe('Log viewer components', () => {
       rerender(
         <LogEntryList
           entries={entries}
-          virtualListComponent={VirtualList}
+          virtualListComponent={asVirtualList(VirtualList)}
           activeDiagnosticId={9}
           activeDiagnosticEntryIndex={undefined}
           RowComponent={() => <div />}
@@ -607,7 +611,7 @@ describe('Log viewer components', () => {
       const { rerender } = render(
         <LogEntryList
           entries={entries}
-          virtualListComponent={VirtualList}
+          virtualListComponent={asVirtualList(VirtualList)}
           activeDiagnosticId={1}
           activeDiagnosticEntryIndex={1}
           RowComponent={() => <div />}
@@ -622,7 +626,7 @@ describe('Log viewer components', () => {
       rerender(
         <LogEntryList
           entries={entries}
-          virtualListComponent={VirtualList}
+          virtualListComponent={asVirtualList(VirtualList)}
           activeDiagnosticId={2}
           activeDiagnosticEntryIndex={1}
           RowComponent={() => <div />}
@@ -655,7 +659,7 @@ describe('Log viewer components', () => {
       };
 
       try {
-        render(<LogEntryList entries={entries} virtualListComponent={VirtualList} RowComponent={() => <div />} />);
+        render(<LogEntryList entries={entries} virtualListComponent={asVirtualList(VirtualList)} RowComponent={() => <div />} />);
         expect(captured.style?.height).toBeUndefined();
       } finally {
         Object.defineProperty(window, 'innerHeight', { value: originalInnerHeight, configurable: true });

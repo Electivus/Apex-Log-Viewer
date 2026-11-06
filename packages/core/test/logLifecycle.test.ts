@@ -1393,7 +1393,7 @@ test('Apex Log Lifecycle retries when a shared sync-state lock is released befor
   try {
     await fs.mkdir(stateDirectory, { recursive: true });
     await fs.writeFile(lockFile, 'completed-external-writer', { flag: 'wx' });
-    fs.lstat = async target => {
+    fs.lstat = (async (target: Parameters<typeof fs.lstat>[0]) => {
       if (!releasedDuringInspection && path.resolve(String(target)) === path.resolve(lockFile)) {
         releasedDuringInspection = true;
         await fs.rm(lockFile);
@@ -1402,7 +1402,7 @@ test('Apex Log Lifecycle retries when a shared sync-state lock is released befor
         throw error;
       }
       return originalLstat(target);
-    };
+    }) as typeof fs.lstat;
 
     const result = await lifecycle.sync({ workspaceRoot, targetOrg: 'released-lock@example.com' });
 

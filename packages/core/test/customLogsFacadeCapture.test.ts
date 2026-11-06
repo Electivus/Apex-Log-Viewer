@@ -218,7 +218,7 @@ test('a delivery without an EventUuid is counted, stored as a gap between the ev
 test('a second capture resumes after the stored cursor and stores nothing twice', async t => {
   const { core, double, scope } = await world(t, { events: 'single' });
   await core.customLog.capture({ ...scope, ...DRAIN });
-  const [{ data }] = recordedEvents('single') as [{ data: { event: { replayId: number } } }];
+  const { data } = recordedEvents('single')[0]!;
 
   const again = await core.customLog.capture({ ...scope, ...DRAIN });
 
