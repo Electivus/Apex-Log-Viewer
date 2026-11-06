@@ -445,6 +445,51 @@ test('core log sync reports the listing and each saved log through onProgress', 
   }
 });
 
+test('core log sync progress does not count downloads that were cancelled', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-core-sync-cancel-progress-'));
+  const username = 'sync-cancel-progress@example.com';
+  const logIds = ['07L000000000034AAA', '07L000000000035AAA', '07L000000000036AAA'];
+  const controller = new AbortController();
+  let started = 0;
+  const remote: ApexLogRemote = {
+    async resolveOrg() {
+      return { username };
+    },
+    async listLogs() {
+      return logIds.map((logId, index) => ({ logId, startTime: `2026-07-20T14:0${index}:00.000Z` }));
+    },
+    readBody(_request, signal) {
+      started += 1;
+      // Cancel once every download is in flight, before any body returns.
+      if (started === logIds.length) queueMicrotask(() => controller.abort());
+      return new Promise<string>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      });
+    }
+  };
+  const core = createApexLogViewerCore({ apexLogRemote: remote });
+  const events: LogSyncProgress[] = [];
+
+  try {
+    await assert.rejects(
+      core.log.sync(
+        { targetOrg: username, workspaceRoot, concurrency: 3 },
+        { signal: controller.signal, onProgress: progress => events.push(progress) }
+      ),
+      error => error instanceof AlvError && error.code === 'ABORTED'
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(started, 3);
+    assert.deepEqual(
+      events.filter(event => event.phase === 'saving'),
+      [{ phase: 'saving', completed: 0, total: 3 }]
+    );
+  } finally {
+    core.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test('core log status maps lifecycle state to the compatibility DTO', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-core-lifecycle-status-'));
   const logId = '07L000000000019AAA';
