@@ -95,7 +95,8 @@ const UNKNOWN_CLIENT = {
 export async function startBayeuxDouble(
   t: test.TestContext,
   script: DoubleScript = {},
-  rest: DoubleHandler = () => ({ status: 404, body: [] })
+  rest: DoubleHandler = () => ({ status: 404, body: [] }),
+  where: { bind: string; host: string } = { bind: '127.0.0.1', host: '127.0.0.1' }
 ): Promise<BayeuxDouble> {
   const sessions = new Map<string, Session>();
   const requests: DoubleRequest[] = [];
@@ -216,7 +217,7 @@ export async function startBayeuxDouble(
       })();
     });
   });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>(resolve => server.listen(0, where.bind, resolve));
   const close = () =>
     new Promise<void>(resolve => {
       sessions.forEach((_, clientId) => release(clientId));
@@ -226,7 +227,7 @@ export async function startBayeuxDouble(
   t.after(close);
 
   const { port } = server.address() as AddressInfo;
-  const instanceUrl = `http://127.0.0.1:${port}`;
+  const instanceUrl = `http://${where.host}:${port}`;
   const username = `bayeux-${port}@example.com`;
   await saveOrgAuth(username, instanceUrl);
 

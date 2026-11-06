@@ -4,13 +4,20 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { startBayeuxDouble, type DoubleScript } from '../packages/core/test/support/cometdDouble.ts';
+import { recordedEvents, startBayeuxDouble, type DoubleScript } from '../packages/core/test/support/cometdDouble.ts';
+import { alvTestLogDescribe } from '../packages/core/test/support/describeFixtures.ts';
+import { nebulaHandler } from '../packages/core/test/support/nebulaDouble.ts';
 
 const root = path.resolve(__dirname, '..');
 const coreDir = path.join(root, 'packages/core');
 const childTs = path.join(coreDir, 'test/support/cometdAbortChild.ts');
 const childCjs = path.join(coreDir, 'test/support/.cometdAbortChild.plain.cjs');
 const noopTs = path.join(root, '.diag/noop.ts');
+const pluginRoot = path.join(root, 'packages/sf-plugin');
+const cliCjs = path.join(pluginRoot, 'test/.cliChild.plain.mjs');
+const lanIp = Object.values(os.networkInterfaces()).flat().find(i => i?.family === 'IPv4' && !i.internal)!.address;
+const OBJECT = 'ALV_Test_Log__e';
+const SOURCE = 'alv-events';
 const shiftClock = pathToFileURL(path.join(root, 'scripts/shift-clock.mjs')).href;
 
 const outDir = process.env.DIAG_OUT ?? path.join(os.tmpdir(), 'alv-diag');
@@ -34,7 +41,8 @@ delete process.env.http_proxy;
 delete process.env.HTTP_PROXY;
 
 type Scenario = 'start' | 'down' | 'offline';
-type Variant = { args: (username: string, channel: string, scenario: Scenario) => string[]; env?: () => Record<string, string | undefined>; noServer?: boolean };
+type Where = { bind: string; host: string };
+type Variant = { where?: Where; cli?: boolean; args: (username: string, channel: string, scenario: Scenario) => string[]; env?: () => Record<string, string | undefined>; noServer?: boolean };
 const childArgs = (file: string, pre: string[]) => (u: string, c: string, s: Scenario) => [...pre, file, u, c, s];
 const variants: Record<string, Variant> = {
   tsx: { args: childArgs(childTs, ['--import', 'tsx']) },
@@ -52,6 +60,19 @@ const variants: Record<string, Variant> = {
   },
   plain: { args: childArgs(childCjs, []) },
   'plain-logfile': { args: childArgs(childCjs, []), env: () => ({ SF_DISABLE_LOG_FILE: undefined }) },
+  'plain-lan': { args: childArgs(childCjs, []), where: { bind: '0.0.0.0', host: lanIp } },
+  'plain-dns': { args: childArgs(childCjs, []), where: { bind: '0.0.0.0', host: os.hostname() } },
+  cli: {
+    cli: true,
+    args: u => [cliCjs, '--target-org', u, '--source', SOURCE, '--max-time', '2', '--json'],
+    env: () => ({ DIAG_PLUGIN_ROOT: pluginRoot })
+  },
+  'cli-lan': {
+    cli: true,
+    where: { bind: '0.0.0.0', host: lanIp },
+    args: u => [cliCjs, '--target-org', u, '--source', SOURCE, '--max-time', '2', '--json'],
+    env: () => ({ DIAG_PLUGIN_ROOT: pluginRoot })
+  },
   'noop-tsx': { args: () => ['--import', 'tsx', noopTs], noServer: true },
   'noop-tsx-nocache': { args: () => ['--import', 'tsx', noopTs], env: () => ({ TSX_DISABLE_CACHE: '1' }), noServer: true }
 };
@@ -61,7 +82,7 @@ const scripts: Record<Scenario, DoubleScript> = {
   down: { connects: [{ dropConnection: true }] },
   offline: { connects: [{ dropConnection: true }] }
 };
-const scenarios: Scenario[] = ['down', 'down', 'down', 'down', 'start', 'start', 'offline'];
+const scenarios: Scenario[] = (process.env.DIAG_SCENARIOS ?? 'down,down,down,down,start,start,offline').split(',') as Scenario[];
 
 type Row = { runs: number; crashes: number; crashAfterDrain: number; crashBeforeDrain: number; other: number };
 const table = new Map<string, Row>();
@@ -74,7 +95,26 @@ const fakeTest = { after: () => undefined } as never;
 
 async function once(name: string, scenario: Scenario): Promise<void> {
   const variant = variants[name]!;
-  const double = variant.noServer ? undefined : await startBayeuxDouble(fakeTest, scripts[scenario]);
+  const rest = variant.cli
+    ? nebulaHandler({
+        describes: 'unlocked-admin',
+        objects: [OBJECT],
+        extraDescribes: { [OBJECT]: alvTestLogDescribe() },
+        answer: (_soql, request) =>
+          request.path === '/limits'
+            ? { body: { DailyDeliveredPlatformEvents: { Max: 25_000, Remaining: 22_000 } } }
+            : undefined
+      })
+    : undefined;
+  const double = variant.noServer ? undefined : await startBayeuxDouble(fakeTest, scripts[scenario], rest, variant.where);
+  let projectDir: string | undefined;
+  if (variant.cli) {
+    projectDir = fs.mkdtempSync(path.join(outDir, 'proj-'));
+    fs.writeFileSync(
+      path.join(projectDir, 'sfdx-project.json'),
+      JSON.stringify({ plugins: { electivus: { customLogs: { sources: [{ id: SOURCE, label: 'ALV events', event: { object: OBJECT, fields: { time: 'Logged_At__c', message: 'Message__c', level: 'Level__c', user: 'Username__c', transactionId: 'Transaction_Id__c', order: 'Sequence__c' } } }] } } } })
+    );
+  }
   const nodeArgs = variant.args(double?.username ?? '', '/event/ALV_Test_Log__e', scenario);
   const dumpBase = path.join(outDir, 'dumps', 'cdb');
   const [cmd, args] = cdb
@@ -84,7 +124,7 @@ async function once(name: string, scenario: Scenario): Promise<void> {
   const env = { ...process.env, ...extraEnv };
   for (const [key, value] of Object.entries(extraEnv)) if (value === undefined) delete env[key];
   const started = Date.now();
-  const child = spawn(cmd as string, args as string[], { cwd: coreDir, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(cmd as string, args as string[], { cwd: projectDir ?? coreDir, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', (chunk: Buffer) => {
@@ -98,10 +138,11 @@ async function once(name: string, scenario: Scenario): Promise<void> {
   clearTimeout(killer);
   await double?.close();
   if (typeof extraEnv.TEMP === 'string') fs.rmSync(extraEnv.TEMP, { recursive: true, force: true });
+  if (projectDir) fs.rmSync(projectDir, { recursive: true, force: true, maxRetries: 5 });
 
-  const stopped = stdout.includes('DIAG_STOPPED');
+  const stopped = /c0000409/.test(stdout);
   const crashed = cdb ? stopped : code === 3221226505;
-  const drained = /^drained /m.test(stdout);
+  const drained = variant.cli ? /"outcome"/.test(stdout) : /^drained /m.test(stdout);
   const key = `${name}/${scenario}`;
   const row = rowOf(key);
   row.runs += 1;
@@ -112,10 +153,10 @@ async function once(name: string, scenario: Scenario): Promise<void> {
   } else if (code !== 0) row.other += 1;
   const interesting = crashed || code !== 0;
   results.write(
-    `${JSON.stringify({ at: new Date().toISOString(), name, scenario, code, crashed, drained, ms: Date.now() - started, ...(interesting ? { stdout: stdout.slice(-6000), stderr: stderr.slice(-6000) } : {}) })}\n`
+    `${JSON.stringify({ at: new Date().toISOString(), name, scenario, code, crashed, drained, ms: Date.now() - started, ...(interesting ? { stdout: stdout.slice(-1500), stderr: stderr.slice(-1500) } : {}) })}\n`
   );
-  if (crashed) console.log(`CRASH ${key} code=${code} drained=${drained}\n--- stdout\n${stdout.slice(-3000)}\n--- stderr\n${stderr.slice(-3000)}`);
-  else if (code !== 0) console.log(`OTHER ${key} code=${code} drained=${drained} stderr=${stderr.slice(-500)}`);
+  if (crashed) console.log(`CRASH ${key} code=${code} drained=${drained} stdout=${JSON.stringify(stdout.slice(-200))} stderr=${JSON.stringify(stderr.slice(-300))}`);
+  else if (code !== 0 && !cdb) console.log(`OTHER ${key} code=${code} drained=${drained} stdout=${JSON.stringify(stdout.slice(-300))} stderr=${JSON.stringify(stderr.slice(-600))}`);
 }
 
 function printSummary(): void {
