@@ -42,6 +42,7 @@
 
 ### Fixes
 
+- Log Viewer: show the log entries in an editor narrower than 1024 px. There the viewer stacks the entries above the Diagnostics panel, and the entries row shrank to about 13 px, so no entry was visible; it now keeps at least 18rem and the view scrolls to the Diagnostics panel below.
 - Custom Logs: an event that a capture stored just before another process took its lease now shows in that capture. The process that took over receives the event again and stores nothing, so until now neither process showed it, although `custom-log list` did.
 - Tail/Debug Flags: Tail, and the Apex Debug Flags editor opened from it, now start on the workspace's `target-org` when they open before the Logs panel. They used the `target-org` of the extension host's working directory or the global one, so Start and Apply could write a trace flag to another org ([#1224](https://github.com/Electivus/Apex-Log-Viewer/issues/1224)).
 - Tail: `Stop` now appears only after Salesforce acknowledges the log subscription, and Tail lists and shows any log written since Start. A log written right after Start was never shown ([#1225](https://github.com/Electivus/Apex-Log-Viewer/issues/1225)).
