@@ -122,7 +122,7 @@ export const LogsHeader = React.forwardRef<HTMLDivElement, Props>(
 
           <div
             role="separator"
-            aria-label={`Resize ${label}`}
+            aria-label={(t.columnsConfig?.resizeColumn ?? 'Resize {column}').replace('{column}', label)}
             aria-orientation="vertical"
             onPointerDown={e => startResize(key, e)}
             onDoubleClick={e => {

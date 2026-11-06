@@ -89,7 +89,8 @@ export function Toolbar({
 }: ToolbarProps) {
   const searchInputId = useStableId('logs-search');
   const errorsOnlyId = useStableId('logs-errors-only');
-  const hasFilters = Boolean(filterUser || filterOperation || filterStatus || errorsOnly);
+  // Clear filters also clears the search text, so search text alone enables it.
+  const hasFilters = Boolean(query.trim() || filterUser || filterOperation || filterStatus || errorsOnly);
   const errorLabel = t?.tail?.errorLabel ?? t?.errors?.generic ?? 'Error';
   const warningLabel = t?.warningLabel ?? 'Warning';
   const clearLogsLabel = t?.logsCleanup?.open ?? 'Clear logs';

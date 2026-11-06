@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
 import { LogsHeader } from '../components/table/LogsHeader';
+import { getMessages } from '../i18n';
 
 describe('LogsHeader', () => {
   it('renders columns and handles sort', () => {
@@ -86,5 +87,23 @@ describe('LogsHeader', () => {
 
     fireEvent.doubleClick(handle);
     expect(onClearColumnWidth).toHaveBeenCalledWith('application');
+  });
+
+  it('names the resize handles in the display language', () => {
+    render(
+      <LogsHeader
+        t={getMessages('pt-BR')}
+        sortBy="user"
+        sortDir="asc"
+        onSort={() => {}}
+        gridTemplate="1fr 1fr"
+        columns={['user', 'application']}
+        onResizeColumn={() => {}}
+        onClearColumnWidth={() => {}}
+      />
+    );
+
+    screen.getByRole('separator', { name: 'Redimensionar Aplicação' });
+    expect(screen.queryByRole('separator', { name: /^Resize / })).toBeNull();
   });
 });

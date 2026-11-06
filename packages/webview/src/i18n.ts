@@ -75,6 +75,7 @@ export type Messages = {
     matchRequiresFullSearch: string;
     moveUp: string;
     moveDown: string;
+    resizeColumn?: string;
   };
   debugFlags?: {
     open: string;
@@ -217,7 +218,8 @@ const en: Messages = {
     reset: 'Reset to defaults',
     matchRequiresFullSearch: 'Requires full log search',
     moveUp: 'Move up',
-    moveDown: 'Move down'
+    moveDown: 'Move down',
+    resizeColumn: 'Resize {column}'
   },
   debugFlags: {
     open: 'Debug Flags',
@@ -362,7 +364,8 @@ const ptBR: Messages = {
     reset: 'Restaurar padrão',
     matchRequiresFullSearch: 'Requer busca completa',
     moveUp: 'Mover para cima',
-    moveDown: 'Mover para baixo'
+    moveDown: 'Mover para baixo',
+    resizeColumn: 'Redimensionar {column}'
   },
   debugFlags: {
     open: 'Debug Flags',

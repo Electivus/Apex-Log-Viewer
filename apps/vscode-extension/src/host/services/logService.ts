@@ -219,7 +219,7 @@ export class LogService {
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: 'Starting Apex Replay Debugger…',
+        title: localize('replayStarting', 'Starting Apex Replay Debugger…'),
         cancellable: true
       },
       async (_progress, ct) => {
