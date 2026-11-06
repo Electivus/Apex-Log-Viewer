@@ -4,15 +4,15 @@ Tail streams new Apex logs from the selected org while it runs. The user picks a
 
 ## Sub-features
 
-- `tail-start-stop` toggles streaming with one button labelled `Start` / `Stop`. `Stop` appears once Salesforce acknowledges the subscription, and a log written since Start is listed and shown then. While idle the list says `Press Start to tail logs.`. Start is disabled only while the view loads.
-- `tail-trace-flag`: Start moves the authenticated user's newest `DEVELOPER_LOG` trace flag to the chosen level, starting now and expiring in 30 minutes, and creates one when none exists. It never touches `USER_DEBUG` flags. It then marks the 20 newest logs as already seen and subscribes to the Streaming API topic `/systemTopic/Logging`. Tail stops itself after 30 minutes with `Tail stopped after 30 minutes.`.
+- `tail-start-stop` toggles streaming with one button labelled `Start` / `Stop`. `Stop` appears once Salesforce acknowledges the subscription, and a log written since Start is listed and shown then. While idle an empty list says `Press Start to tail logs.`, and while running `Waiting for logs…`. Start is disabled only while the view loads.
+- `tail-trace-flag`: Start moves the authenticated user's newest `DEVELOPER_LOG` trace flag to the chosen level, starting now and expiring in 30 minutes, and creates one when none exists. It never touches `USER_DEBUG` flags. Before that it marks the 20 newest logs as already seen, and after it subscribes to the Streaming API topic `/systemTopic/Logging`. Tail stops itself after 30 minutes with `Tail stopped after 30 minutes.`.
 - `tail-debug-level` sets that level through the `Debug level` select (`tail-debug-level`, uppercase through CSS). It opens on the level of the user's active `DEVELOPER_LOG` flag, otherwise on the first level by name, and remembers the last choice in webview state.
 - `tail-org` selects the org with the `Org` select (`getByRole('combobox').first()`). Switching org stops the tail and clears the buffer.
 - `tail-stream` shows each new log as `=== ApexLog <logId> | <StartTime> | <operation> | <status> | <size in bytes>`, then `Saved to <absolute path>/apexlogs/orgs/<safe org username>/logs/<YYYY-MM-DD>/<logId>.log`, then the log lines.
-- `tail-search` filters the buffer line by line with `Search live logs…`: only lines that contain the text remain, and the header row hides.
-- `tail-view-options` provides the `Debug Only`, `Color` and `Auto-scroll` switches. A click on a row or a scroll up pauses `Auto-scroll`.
+- `tail-search` filters the buffer line by line with `Search live logs…`: only lines that contain the text remain, so the header row hides unless the text is in it, such as the log id.
+- `tail-view-options` provides the `Debug Only`, `Color` and `Auto-scroll` switches. A click on a row or a scroll up pauses `Auto-scroll`, and a scroll back to the end resumes a scroll's pause.
 - `tail-actions` provides `Clear`, `Open Log` (Log Viewer), `Replay Debugger` and `Debug Flags`. `Open Log` and `Replay Debugger` need a selected row.
-- `tail-editor-area` uses `Open Tail in Editor Area` to open a second, independent Tail in an editor tab. Closing that tab stops its tail.
+- `tail-editor-area` uses `Open Tail in Editor Area` to open a second, independent Tail in an editor tab. Closing that tab stops its tail (`Tail webview detached; stopped tail (hostDisposed).` in the Output log). Running the command again reveals the tab and resets it to the panel's org.
 
 ## How to get to it (user POV)
 
@@ -30,6 +30,7 @@ Preconditions:
 - **Saved file.** After the run, `<session.workspacePath>/apexlogs/orgs/<safe org username>/logs/<date>/<logId>.log` exists. Read it in a step, or check `workspace-files.json` after `stop`.
 - **Open Log and Replay.** While tailing, click the `=== ApexLog <logId>` row in `h.tailFrame()`, then `Open Log`. `h.frameWith('text=<logId>.log')` then shows that log. `Replay Debugger` on the same row shows the `Apex Replay Debugger is unavailable…` toast, because the session does not install that extension.
 - **Search and Debug Only.** Fill `getByLabel('Search live logs…')` with the marker: the `Execute Anonymous:` line and the `USER_DEBUG` line remain. With `getByRole('switch', { name: 'Debug Only' })` on, only `USER_DEBUG` lines remain.
+- **Scroll.** Use `page.mouse.wheel` over a row on screen, such as the last one. The list is virtualized, so its first DOM row can be off screen, and a wheel there scrolls nothing.
 - **Second channels.** The extension's Output log (copied to `vscode-logs/` at stop) has `Tail: TraceFlag updated or already matching for level <level>` (or `Tail: ensure TraceFlag failed (continuing) -> <reason>` when the flag could not be written; Tail still subscribes), `Tail: primed seen set with N of M recent logs`, `Tail: subscribed to /systemTopic/Logging`, `Tail: backfilling log <id>` and `Tail: saved log <id> to <path>`. Read the trace flag through Tooling as in `tail-live`.
 - **Proof.** Shoot the Tail frame while the panel is maximized, so the streamed rows are inside the screenshot.
 

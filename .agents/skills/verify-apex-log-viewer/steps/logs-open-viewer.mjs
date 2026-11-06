@@ -15,7 +15,11 @@ export default async function ({ h, expect, session, args }) {
   const logs = await h.logsFrame(180_000);
   const search = logs.locator('input[type="search"]').first();
   await search.waitFor({ state: 'visible', timeout: 60_000 });
-  await search.fill(query);
+  // The box is disabled while a refresh loads, and a fill that lands as it flips is dropped without an error.
+  await expect(async () => {
+    await search.fill(query);
+    await expect(search).toHaveValue(query, { timeout: 2_000 });
+  }).toPass({ timeout: 60_000 });
 
   const row = logs.locator(`[data-log-id="${logId}"]`);
   await expect(row).toBeVisible({ timeout: 180_000 });
