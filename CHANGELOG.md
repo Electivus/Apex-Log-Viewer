@@ -38,6 +38,7 @@
 
 ### Fixes
 
+- Custom Logs: a panel or `--follow` run on standby now shows a gap that the capturing process opens without storing an event, at its next 2-second check. Before, the gap stayed off the strip until that process stored another event. A run that takes the capture over also shows a gap the previous holder opened just before it stopped.
 - Logs and Custom Logs: the column headers scroll with the rows again. The table attached its scroll sync before the virtual list had an element, so the headers stayed put and sat over the wrong columns. Both tables now also reserve the scrollbar's width in the header, so a vertical scrollbar no longer shifts the columns after the flexible one left of their headers.
 - Custom Logs: keep the stored position's `lastEvent` at the newest event after a replay that ends in events the store already holds. In a store with no open gap, the next gap could name an older time, and a retention gap could open early.
 - Custom Logs: show a possible gap on the capture strip as soon as capture records it. A gap from a rejected position, an unreadable delivery, a start past the 72-hour retention, or another org now shows at once. Before, it stayed off the strip until a later event was stored, so a replay of events the store already held left the strip on `Live` with no warning.

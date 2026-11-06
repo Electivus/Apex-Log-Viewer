@@ -693,6 +693,29 @@ test('advance never overtakes the append before it', async t => {
   });
 });
 
+test('gaps() reads what coverage() reports from the gap files, and nothing before a checkpoint', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+    assert.deepEqual(await store.gaps(), [], 'no object directory yet');
+    const writer = await openWriter(store);
+    await writer.openGap({ reason: 'cursorRejected', after: '2026-10-21T18:02:11.000Z' });
+    assert.deepEqual(await store.gaps(), [], 'coverage() reports notCaptured until a checkpoint exists');
+
+    await writer.append([busEvent(1)]);
+    await writer.advance(checkpointOf(busEvent(1)));
+    const coverage = await store.coverage();
+    assert.ok(coverage.state === 'captured');
+    assert.equal(coverage.gaps.length, 1);
+    assert.deepEqual(await store.gaps(), coverage.gaps);
+
+    await writer.closeOpenGap('2026-10-25T09:40:02.554Z');
+    const closed = await store.coverage();
+    assert.ok(closed.state === 'captured');
+    assert.equal(closed.gaps[0]?.before, '2026-10-25T09:40:02.554Z');
+    assert.deepEqual(await store.gaps(), closed.gaps);
+  });
+});
+
 test('gap files are per writer and fold together: a gap opened by one writer is closed by the next', async () => {
   await withProject(async root => {
     const store = openStore(root);
