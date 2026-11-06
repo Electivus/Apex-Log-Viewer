@@ -4,7 +4,7 @@
 
 ### Maintenance
 
-- Security: the dependency source check reads `pnpm-lock.yaml` as YAML instead of line by line, so a URL in a package's deprecation message, such as the one npm now shows for `@smithy/core@3.29.1`, no longer fails it; every other key and value is still checked, and YAML that pnpm does not write fails the check.
+- Telemetry: the Debug Flags `debugFlags.apply` and `debugFlags.remove` events now carry `logType` (`DEVELOPER_LOG` or `USER_DEBUG`), so usage shows how often people move away from the `DEVELOPER_LOG` default. `telemetry.json` and `docs/TELEMETRY.md` declare the new property.
 - E2E: `pnpm run test:e2e -- <spec>` and `pnpm run test:e2e:cli -- <spec>` run only that spec again; the runners drop the `--` that pnpm forwards, which made Playwright ignore the filter and run the whole suite.
 - E2E: keep VS Code hidden during Playwright runs by default. Linux runs use Xvfb even when a `DISPLAY` exists, and macOS and Windows make the native window transparent and click-through. Set `ALV_E2E_SHOW_VSCODE=1` to watch a run.
 - Custom Logs: say a platform event is kept for at least 72 hours, in the panel's first-use note and catching-up text and in the docs, because Salesforce may purge later and a `-2` replay can cost more than the docs said; warn against a `-2` replay of `ALV_Test_Backlog__e`.
@@ -13,6 +13,7 @@
 - Refresh JSforce, oclif 4, YAML, CSS and TypeScript tooling; align the YAML override with its runtime update.
 - Refresh Salesforce, React, test, packaging, and CI dependencies; keep Playwright packages aligned and validate Agent Skill distribution against the exact installed CLI release.
 - Reduce Dependabot churn with coordinated dependency families, bounded weekly batches, and separate security updates; defer incompatible TypeScript 7 and oclif runtime 5 updates.
+- Security: the dependency source check reads `pnpm-lock.yaml` as YAML instead of line by line, so a URL in a package's deprecation message, such as the one npm now shows for `@smithy/core@3.29.1`, no longer fails it; every other key and value is still checked, and YAML that pnpm does not write fails the check.
 - Refresh React, React Window, Radix Slot, Mocha, Prettier, typescript-eslint, undici, Playwright and pinned CI action dependencies; group `react` with `react-dom` in Dependabot so they update together.
 - CI/Pre-release: run the pre-release workflow only on manual dispatch; scheduled nightly runs waited on the Marketplace approval and cancelled each other.
 
@@ -40,9 +41,11 @@
 ### Fixes
 
 - Logs and Custom Logs: the column headers scroll with the rows again. The table attached its scroll sync before the virtual list had an element, so the headers stayed put and sat over the wrong columns. Both tables now also reserve the scrollbar's width in the header, so a vertical scrollbar no longer shifts the columns after the flexible one left of their headers.
+- Tail: wrap a line that has no spaces, such as the log's category header (`APEX_CODE,DEBUG;APEX_PROFILING,ERROR;...`), instead of cutting it off at the panel's right edge.
 - Custom Logs: keep the stored position's `lastEvent` at the newest event after a replay that ends in events the store already holds. In a store with no open gap, the next gap could name an older time, and a retention gap could open early.
 - Custom Logs: show a possible gap on the capture strip as soon as capture records it. A gap from a rejected position, an unreadable delivery, a start past the 72-hour retention, or another org now shows at once. Before, it stayed off the strip until a later event was stored, so a replay of events the store already held left the strip on `Live` with no warning.
 - CLI: `sf electivus debug-level create` and `update` no longer fail without `--language`. `create` defaults the language to `en_US`. `update` now changes only the fields you pass, instead of resetting every other category and the label, and no longer needs `--developer-name`. Without `--yes`, both commands check the picklist values against the org, so the preview fails on a value the real call would reject; a preview now needs a reachable org, and `create` without `--developer-name` exits 2.
+- pt-BR: translate the extension's notifications, confirmations and progress messages that still showed in English in a Portuguese VS Code, including the Debug Flags notices, log cleanup, bulk download, Open in Apex Log Viewer and diagnostics messages. A script test now fails when a `localize` message has no pt-BR translation or the committed l10n bundles are stale.
 - Custom Logs: stop two VS Code windows or `sf electivus custom-log capture` runs from both capturing one event object after a previous holder and a reclaimer of its `capture.lease` have both died. Every event delivered in that overlap counted twice against the org's daily allocation. The fix holds when every process on the workspace runs it.
 - Log Viewer: keep the status bar fully visible; the entries table now ends above it at any editor size instead of overlapping it with its horizontal scrollbar.
 - Logs: hide logs that matched only the previous search text as soon as you change the search, instead of listing them until the new full-log search finishes.
