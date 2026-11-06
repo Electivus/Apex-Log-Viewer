@@ -4,6 +4,7 @@
 
 ### Maintenance
 
+- Telemetry: the Debug Flags `debugFlags.apply` and `debugFlags.remove` events now carry `logType` (`DEVELOPER_LOG` or `USER_DEBUG`), so usage shows how often people move away from the `DEVELOPER_LOG` default. `telemetry.json` and `docs/TELEMETRY.md` declare the new property.
 - E2E: `pnpm run test:e2e -- <spec>` and `pnpm run test:e2e:cli -- <spec>` run only that spec again; the runners drop the `--` that pnpm forwards, which made Playwright ignore the filter and run the whole suite.
 - E2E: keep VS Code hidden during Playwright runs by default. Linux runs use Xvfb even when a `DISPLAY` exists, and macOS and Windows make the native window transparent and click-through. Set `ALV_E2E_SHOW_VSCODE=1` to watch a run.
 - Custom Logs: say a platform event is kept for at least 72 hours, in the panel's first-use note and catching-up text and in the docs, because Salesforce may purge later and a `-2` replay can cost more than the docs said; warn against a `-2` replay of `ALV_Test_Backlog__e`.
