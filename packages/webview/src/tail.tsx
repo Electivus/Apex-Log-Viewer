@@ -105,8 +105,9 @@ export function TailApp({
       if (msg.type === 'debugLevels') {
         const nextLevels = msg.data || [];
         setDebugLevels(nextLevels);
-        if (typeof msg.active === 'string' && msg.active) {
-          setDebugLevel(prev => (prev && nextLevels.includes(prev) ? prev : msg.active));
+        const active = msg.active;
+        if (typeof active === 'string' && active) {
+          setDebugLevel(prev => (prev && nextLevels.includes(prev) ? prev : active));
         } else if (nextLevels.length > 0) {
           setDebugLevel(prev => (prev && nextLevels.includes(prev) ? prev : nextLevels[0]!));
         } else {

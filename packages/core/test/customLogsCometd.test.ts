@@ -363,7 +363,7 @@ test('a message that is not a platform event is reported where it arrived, betwe
   await run.until(signals => eventBatches(signals).length === 2);
 
   assert.deepEqual(
-    run.signals.flatMap(signal =>
+    run.signals.flatMap((signal): Array<string | string[]> =>
       signal.type === 'events'
         ? [signal.events.map(event => event.uuid)]
         : signal.type === 'malformed'
