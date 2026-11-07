@@ -5,8 +5,20 @@ import type {
   ExtensionToWebviewMessage,
   WebviewToExtensionMessage
 } from '@alv/protocol/messages';
+import type { OrgItem } from '@alv/protocol/types';
 import type { VsCodeWebviewApi } from '../vscodeApi';
 import { TailApp } from '../tail';
+
+function renderNativeSelectsInEachTest() {
+  const globalDoc = globalThis as unknown as { DocumentFragment: typeof DocumentFragment | undefined };
+  const originalDocumentFragment = globalDoc.DocumentFragment;
+  beforeEach(() => {
+    globalDoc.DocumentFragment = undefined;
+  });
+  afterEach(() => {
+    globalDoc.DocumentFragment = originalDocumentFragment;
+  });
+}
 
 describe('Tail webview App', () => {
   function createVsCodeMock(initialState?: unknown) {
@@ -214,12 +226,13 @@ describe('Tail webview App', () => {
       onlyUserDebug: true,
       autoScroll: false,
       colorize: true,
-      debugLevel: 'CLOUD'
+      debugLevelByOrg: { 'user@example.com': 'CLOUD' }
     });
     const bus = new EventTarget();
     render(<TailApp vscode={vscode} messageBus={bus} />);
 
     send(bus, { type: 'init', locale: 'en' });
+    send(bus, { type: 'orgs', data: [{ username: 'user@example.com' }], selected: 'user@example.com' });
     send(bus, { type: 'debugLevels', data: ['DETAILED', 'CLOUD'], active: 'DETAILED' });
     await screen.findByText('Start');
 
@@ -238,6 +251,186 @@ describe('Tail webview App', () => {
 
     await waitFor(() => {
       expect(posted).toContainEqual({ type: 'tailStart', debugLevel: 'CLOUD' });
+    });
+  });
+
+  describe('debug level per org', () => {
+    const orgA = 'a@example.com';
+    const orgB = 'b@example.com';
+    const orgs: OrgItem[] = [
+      { username: orgA, alias: 'Org A', isDefaultUsername: true },
+      { username: orgB, alias: 'Org B' }
+    ];
+    const levelsOnA = ['ALV_E2E', 'SFDC_DevConsole'];
+    const levelsOnB = ['SFDC_DevConsole'];
+
+    renderNativeSelectsInEachTest();
+
+    const levelSelect = () => screen.getByTestId('tail-debug-level') as HTMLSelectElement;
+    const pickLevel = (level: string) => fireEvent.change(levelSelect(), { target: { value: level } });
+    const pressStart = () => fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+
+    function renderTail(initialState?: unknown) {
+      const mock = createVsCodeMock(initialState);
+      const bus = new EventTarget();
+      const view = render(<TailApp vscode={mock.vscode} messageBus={bus} />);
+      send(bus, { type: 'init', locale: 'en' });
+      return { ...mock, ...view, bus };
+    }
+
+    function hostShows(bus: EventTarget, org: string, levels: string[], active?: string) {
+      send(bus, { type: 'orgs', data: orgs, selected: org });
+      send(bus, { type: 'debugLevels', data: levels, active });
+    }
+
+    function switchOrg(bus: EventTarget, org: string, levels: string[], active?: string) {
+      fireEvent.change(screen.getByLabelText('Org'), { target: { value: org } });
+      hostShows(bus, org, levels, active);
+    }
+
+    it.each([
+      { pick: 'ALV_E2E', activeOnA: 'ALV_E2E' },
+      { pick: 'ALV_E2E', activeOnA: 'SFDC_DevConsole' },
+      { pick: 'SFDC_DevConsole', activeOnA: 'ALV_E2E' }
+    ])('keeps $pick through a round trip to another org when A is active at $activeOnA', ({ pick, activeOnA }) => {
+      const { bus, posted } = renderTail();
+      hostShows(bus, orgA, levelsOnA, activeOnA);
+      pickLevel(pick);
+
+      switchOrg(bus, orgB, levelsOnB, 'SFDC_DevConsole');
+      expect(levelSelect().value).toBe('SFDC_DevConsole');
+
+      switchOrg(bus, orgA, levelsOnA, activeOnA);
+      expect(levelSelect().value).toBe(pick);
+
+      pressStart();
+      expect(posted).toContainEqual({ type: 'tailStart', debugLevel: pick });
+    });
+
+    it('does not carry a pick to another org that has the same level', () => {
+      const { bus, posted } = renderTail();
+      hostShows(bus, orgA, levelsOnA, 'SFDC_DevConsole');
+      pickLevel('ALV_E2E');
+
+      switchOrg(bus, orgB, levelsOnA, 'SFDC_DevConsole');
+
+      expect(levelSelect().value).toBe('SFDC_DevConsole');
+      pressStart();
+      expect(posted).toContainEqual({ type: 'tailStart', debugLevel: 'SFDC_DevConsole' });
+    });
+
+    it('keeps a pick when the level reply of another org arrives late', () => {
+      const { bus } = renderTail();
+      hostShows(bus, orgA, levelsOnA, 'SFDC_DevConsole');
+      pickLevel('ALV_E2E');
+      switchOrg(bus, orgB, levelsOnB, 'SFDC_DevConsole');
+
+      fireEvent.change(screen.getByLabelText('Org'), { target: { value: orgA } });
+      send(bus, { type: 'orgs', data: orgs, selected: orgA });
+      send(bus, { type: 'debugLevels', data: levelsOnB, active: 'SFDC_DevConsole' });
+      send(bus, { type: 'debugLevels', data: levelsOnA, active: 'SFDC_DevConsole' });
+
+      expect(levelSelect().value).toBe('ALV_E2E');
+    });
+
+    it("does not carry another org's fallback back when nothing was picked", () => {
+      const { bus } = renderTail();
+      hostShows(bus, orgA, levelsOnA, 'ALV_E2E');
+
+      switchOrg(bus, orgB, levelsOnB, 'SFDC_DevConsole');
+      switchOrg(bus, orgA, levelsOnA, 'ALV_E2E');
+
+      expect(levelSelect().value).toBe('ALV_E2E');
+    });
+
+    it('reads the remembered level when the org arrives after the levels', () => {
+      const { bus } = renderTail({ debugLevelByOrg: { [orgA]: 'ALV_E2E' } });
+      send(bus, { type: 'orgs', data: [], selected: undefined });
+      send(bus, { type: 'debugLevels', data: levelsOnA, active: 'SFDC_DevConsole' });
+      expect(levelSelect().value).toBe('SFDC_DevConsole');
+
+      send(bus, { type: 'orgs', data: orgs, selected: orgA });
+
+      expect(levelSelect().value).toBe('ALV_E2E');
+    });
+
+    it('honors a pick made while no org is known', () => {
+      const { bus, posted } = renderTail();
+      send(bus, { type: 'debugLevels', data: levelsOnA, active: 'ALV_E2E' });
+
+      pickLevel('SFDC_DevConsole');
+
+      expect(levelSelect().value).toBe('SFDC_DevConsole');
+      pressStart();
+      expect(posted).toContainEqual({ type: 'tailStart', debugLevel: 'SFDC_DevConsole' });
+    });
+
+    it('returns to the active level when the Select placeholder is chosen', () => {
+      const { bus, posted } = renderTail();
+      hostShows(bus, orgA, levelsOnA, 'SFDC_DevConsole');
+      pickLevel('ALV_E2E');
+
+      pickLevel('');
+
+      expect(levelSelect().value).toBe('SFDC_DevConsole');
+      pressStart();
+      expect(posted).toContainEqual({ type: 'tailStart', debugLevel: 'SFDC_DevConsole' });
+    });
+
+    it('falls back to the active level, then the first level, when the remembered level was deleted', () => {
+      const { bus, posted } = renderTail();
+      hostShows(bus, orgA, ['ALV_E2E', 'FINE', 'SFDC_DevConsole'], 'FINE');
+      pickLevel('ALV_E2E');
+
+      hostShows(bus, orgA, ['FINE', 'SFDC_DevConsole'], 'SFDC_DevConsole');
+      expect(levelSelect().value).toBe('SFDC_DevConsole');
+
+      hostShows(bus, orgA, ['FINE', 'SFDC_DevConsole'], undefined);
+      expect(levelSelect().value).toBe('FINE');
+
+      pressStart();
+      expect(posted).toContainEqual({ type: 'tailStart', debugLevel: 'FINE' });
+    });
+
+    it('keeps the level Start used after the trace flag expires', () => {
+      const { bus, posted } = renderTail();
+      hostShows(bus, orgA, levelsOnA, 'SFDC_DevConsole');
+      pressStart();
+      expect(posted).toContainEqual({ type: 'tailStart', debugLevel: 'SFDC_DevConsole' });
+
+      hostShows(bus, orgA, levelsOnA, 'ALV_E2E');
+
+      expect(levelSelect().value).toBe('SFDC_DevConsole');
+    });
+
+    it('restores the level of each org after a reload', () => {
+      const first = renderTail();
+      hostShows(first.bus, orgA, levelsOnA, 'SFDC_DevConsole');
+      pickLevel('ALV_E2E');
+      switchOrg(first.bus, orgB, ['FINE', 'SFDC_DevConsole'], 'SFDC_DevConsole');
+      pickLevel('FINE');
+      const saved = first.getSavedState();
+      first.unmount();
+
+      const second = renderTail(saved);
+      hostShows(second.bus, orgB, ['FINE', 'SFDC_DevConsole'], 'SFDC_DevConsole');
+      expect(levelSelect().value).toBe('FINE');
+
+      switchOrg(second.bus, orgA, levelsOnA, 'SFDC_DevConsole');
+      expect(levelSelect().value).toBe('ALV_E2E');
+    });
+
+    it.each([
+      { debugLevel: 'SFDC_DevConsole' },
+      { debugLevelByOrg: 'SFDC_DevConsole' },
+      { debugLevelByOrg: null },
+      { debugLevelByOrg: { [orgA]: 7 } }
+    ])('opens on the active level with the persisted state %j', persisted => {
+      const { bus } = renderTail(persisted);
+
+      hostShows(bus, orgA, levelsOnA, 'ALV_E2E');
+
+      expect(levelSelect().value).toBe('ALV_E2E');
     });
   });
 });
