@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { localize } from '../host/utils/localize';
 import { clearListCache, getApiVersionFallbackWarning } from '../host/salesforce/http';
-import { pickSelectedOrg } from '../host/utils/orgs';
+import { orgDisplayName, pickSelectedOrg } from '../host/utils/orgs';
+import { logsCleanupConfirmTitle } from '../host/utils/logsCleanup';
 import type { ApexLogRow, OrgItem } from '../shared/types';
 import type { OrgAuth } from '../host/salesforce/types';
 import {
@@ -1175,11 +1176,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     const t0 = Date.now();
     try {
       const selectedOrg = this.orgManager.getSelectedOrg();
+      const orgName = orgDisplayName(await runtimeClient.orgList().catch(() => []), selectedOrg);
       const confirmAction = localize('logsCleanup.confirmAction', 'Delete');
       const confirmation = await vscode.window.showWarningMessage(
-        scope === 'mine'
-          ? localize('logsCleanup.confirmMine.title', 'Delete your Apex logs for the selected org?')
-          : localize('logsCleanup.confirmAll.title', 'Delete all Apex logs for the selected org?'),
+        logsCleanupConfirmTitle(scope, orgName),
         {
           modal: true,
           detail:

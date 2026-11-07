@@ -127,6 +127,8 @@ const ptBrByLegacyKey = {
   downloadAllLogsPreflightConfirmDetail:
     'Esta ação pode fazer muitas chamadas de API e baixar uma grande quantidade de dados.',
   downloadAllLogsProgressTitle: 'Baixando todos os logs da org…',
+  'logsCleanup.confirmMineOrg.title': 'Deletar seus logs Apex de {0}?',
+  'logsCleanup.confirmAllOrg.title': 'Deletar todos os logs Apex de {0}?',
   downloadAllLogsProgressSyncing: 'Sincronizando os logs da org selecionada…',
   downloadAllLogsProgressMessage: '{0}/{1} logs processados…',
   downloadAllLogsSummaryCancelledDuringSync:
