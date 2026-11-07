@@ -1,20 +1,44 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test, type Frame, type Page } from '@playwright/test';
 import { runCommand, runCommandWhenAvailable } from '../utils/commandPalette';
-import { emitDocsTailLog, prepareDocsScreenshotScenario } from '../utils/docsScenario';
+import {
+  DOCS_CUSTOM_LOG_SOURCE,
+  DOCS_CUSTOM_LOGS_FILTER,
+  DOCS_TAIL_ALERT_LINE,
+  clearDocsCustomLogs,
+  emitDocsTailLog,
+  prepareDocsScreenshotScenario,
+  seedDocsCustomLogs
+} from '../utils/docsScenario';
 import { dismissAllNotifications } from '../utils/notifications';
 import { ensureScratchOrg } from '../utils/scratchOrg';
 import { createTempWorkspace } from '../utils/tempWorkspace';
-import { ensureDebugFlagsTestUser, getOrgAuth, getUserDebugTraceFlag, removeUserDebugTraceFlags } from '../utils/tooling';
+import {
+  ensureDebugFlagsTestUser,
+  getOrgAuth,
+  getUserDebugTraceFlag,
+  removeUserDebugTraceFlags,
+  setE2eDebugLevelDatabase
+} from '../utils/tooling';
 import { ensureAuxiliaryBarClosed, launchVsCode, resolveExtensionDevelopmentPath } from '../utils/vscode';
 import { waitForWebviewFrame } from '../utils/webviews';
 
 const repoRoot = path.join(__dirname, '..', '..', '..');
-const docsOutputDir = path.join(repoRoot, 'media', 'docs');
+const docsOutputDir = path.join(repoRoot, 'apps', 'vscode-extension', 'media', 'docs');
+
+type DocsShot = { fileName: string; viewport: { width: number; height: number } };
+
+const docsShots = {
+  hero: { fileName: 'hero.png', viewport: { width: 1440, height: 420 } },
+  logViewer: { fileName: 'log-viewer.png', viewport: { width: 1100, height: 760 } },
+  debugFlags: { fileName: 'debug-flags.png', viewport: { width: 1100, height: 1090 } },
+  tail: { fileName: 'tail.png', viewport: { width: 1440, height: 560 } },
+  customLogs: { fileName: 'custom-logs.png', viewport: { width: 1440, height: 456 } }
+} satisfies Record<string, DocsShot>;
 
 const screenshotFriendlyColumns = {
-  order: ['operation', 'time', 'status', 'codeUnit', 'size', 'match', 'user'],
+  order: ['operation', 'time', 'status', 'size', 'match', 'codeUnit', 'user'],
   visibility: {
     user: false,
     application: false,
@@ -22,18 +46,18 @@ const screenshotFriendlyColumns = {
     time: true,
     duration: false,
     status: true,
-    codeUnit: true,
+    codeUnit: false,
     size: true,
     match: true
   },
   widths: {
     user: 160,
-    operation: 170,
-    time: 170,
-    status: 150,
+    operation: 230,
+    time: 150,
+    status: 235,
     codeUnit: 240,
-    size: 90,
-    match: 780
+    size: 70,
+    match: 590
   }
 };
 
@@ -54,6 +78,13 @@ async function closePanel(page: Page): Promise<void> {
     await runCommand(page, 'View: Hide Panel');
   } catch {
     // best-effort
+  }
+}
+
+async function closePrimarySideBar(page: Page): Promise<void> {
+  if (await page.locator('.part.sidebar').isVisible()) {
+    await runCommand(page, 'View: Close Primary Side Bar');
+    await expect(page.locator('.part.sidebar')).toBeHidden({ timeout: 10_000 });
   }
 }
 
@@ -79,7 +110,7 @@ async function waitForLogsFrame(page: Page): Promise<Frame> {
 async function waitForViewerFrame(page: Page): Promise<Frame> {
   return await waitForWebviewFrame(
     page,
-    async frame => await frame.locator('text=Apex Log Viewer').first().isVisible(),
+    async frame => await frame.locator('[data-testid="log-viewer"]').first().isVisible(),
     { timeoutMs: 180_000 }
   );
 }
@@ -100,15 +131,36 @@ async function waitForTailFrame(page: Page): Promise<Frame> {
   );
 }
 
-async function captureFrameBody(frame: Frame, fileName: string): Promise<void> {
+async function waitForCustomLogsFrame(page: Page): Promise<Frame> {
+  return await waitForWebviewFrame(
+    page,
+    async frame => await frame.locator('[data-testid="custom-logs-root"]').first().isVisible(),
+    { timeoutMs: 180_000 }
+  );
+}
+
+async function captureShot(page: Page, frame: Frame, shot: DocsShot, options?: { keepFocus?: boolean }): Promise<void> {
   await mkdir(docsOutputDir, { recursive: true });
-  const targetPath = path.join(docsOutputDir, fileName);
+  await page.setViewportSize(shot.viewport);
+  await ensureAuxiliaryBarClosed(page);
+  await page.mouse.move(0, 0);
+  if (!options?.keepFocus) {
+    await frame.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  }
   const body = frame.locator('body');
   await body.waitFor({ state: 'visible', timeout: 60_000 });
+  await page.waitForTimeout(1_000);
   await body.screenshot({
-    path: targetPath,
+    path: path.join(docsOutputDir, shot.fileName),
     animations: 'disabled'
   });
+}
+
+async function mapDocsCustomLogSource(workspacePath: string): Promise<void> {
+  const projectPath = path.join(workspacePath, 'sfdx-project.json');
+  const project = JSON.parse(await readFile(projectPath, 'utf8'));
+  project.plugins = { electivus: { customLogs: { sources: [DOCS_CUSTOM_LOG_SOURCE] } } };
+  await writeFile(projectPath, JSON.stringify(project, null, 2), 'utf8');
 }
 
 async function ensureTailDebugLevelReady(frame: Frame): Promise<void> {
@@ -126,11 +178,13 @@ async function ensureTailDebugLevelReady(frame: Frame): Promise<void> {
 
   const nativeSelect = frame.locator('select[data-testid="tail-debug-level"]').first();
   if ((await nativeSelect.count()) > 0) {
-    const values = await nativeSelect.locator('option').evaluateAll(options =>
-      options
-        .map(option => (option as HTMLOptionElement).value)
-        .filter(value => Boolean(value) && value !== '__radix_empty__')
-    );
+    const values = await nativeSelect
+      .locator('option')
+      .evaluateAll(options =>
+        options
+          .map(option => (option as HTMLOptionElement).value)
+          .filter(value => Boolean(value) && value !== '__radix_empty__')
+      );
     const preferredValue = values.find(value => value === 'ALV_E2E') ?? values[0];
     if (preferredValue) {
       await nativeSelect.selectOption(preferredValue);
@@ -187,13 +241,7 @@ test('captures README screenshots from a realistic scratch-org scenario', async 
   let cleanupScratchOrg: undefined | (() => Promise<void>);
   let cleanupWorkspace: undefined | (() => Promise<void>);
   let cleanupVsCode: undefined | (() => Promise<void>);
-
-  const screenshotPaths = {
-    hero: 'hero.png',
-    logViewer: 'log-viewer.png',
-    debugFlags: 'debug-flags.png',
-    tail: 'tail.png'
-  };
+  let cleanupOrgData: undefined | (() => Promise<void>);
 
   try {
     console.info('[docs] Ensuring scratch org...');
@@ -204,15 +252,24 @@ test('captures README screenshots from a realistic scratch-org scenario', async 
     const auth = await getOrgAuth(scratch.scratchAlias);
     const debugUser = await ensureDebugFlagsTestUser(auth);
     await removeUserDebugTraceFlags(auth, debugUser.id).catch(() => {});
+    cleanupOrgData = async () => {
+      await removeUserDebugTraceFlags(auth, debugUser.id).catch(() => {});
+      await clearDocsCustomLogs(auth).catch(() => {});
+      await setE2eDebugLevelDatabase(auth, 'ERROR').catch(() => {});
+    };
+    // The Log Viewer's SOQL and DML filters count only what the debug level writes to the log.
+    await setE2eDebugLevelDatabase(auth, 'INFO');
 
     console.info('[docs] Creating temporary workspace...');
     const workspace = await createTempWorkspace({
       targetOrg: scratch.scratchAlias,
       settings: {
-        'electivus.apexLogViewer.logs.columns': screenshotFriendlyColumns
+        'electivus.apexLogViewer.logs.columns': screenshotFriendlyColumns,
+        'electivus.apexLogViewer.customLogs.enabled': true
       }
     });
     cleanupWorkspace = workspace.cleanup;
+    await mapDocsCustomLogSource(workspace.workspacePath);
 
     console.info('[docs] Seeding docs screenshot scenario...');
     const scenario = await prepareDocsScreenshotScenario({
@@ -224,26 +281,18 @@ test('captures README screenshots from a realistic scratch-org scenario', async 
     const launch = await launchVsCode({
       workspacePath: workspace.workspacePath,
       extensionDevelopmentPath: resolveExtensionDevelopmentPath(repoRoot),
-      windowSize: { width: 1760, height: 1360 }
+      windowSize: { width: 1440, height: 900 }
     });
     cleanupVsCode = launch.cleanup;
 
     const vscodePage = launch.page;
     await dismissAllNotifications(vscodePage);
     await ensureAuxiliaryBarClosed(vscodePage);
+    await closePrimarySideBar(vscodePage);
 
     console.info('[docs] Capturing hero screenshot...');
     const heroFrame = await prepareLogsHero(vscodePage, scenario.searchQuery, { maximizePanel: true });
-    await heroFrame.evaluate(() => {
-      document.body.style.zoom = '0.8';
-      document.body.style.transformOrigin = 'top left';
-    });
-    await ensureAuxiliaryBarClosed(vscodePage);
-    await captureFrameBody(heroFrame, screenshotPaths.hero);
-    await heroFrame.evaluate(() => {
-      document.body.style.zoom = '';
-      document.body.style.transformOrigin = '';
-    });
+    await captureShot(vscodePage, heroFrame, docsShots.hero, { keepFocus: true });
 
     console.info('[docs] Capturing dedicated log viewer screenshot...');
     const heroSearchInput = heroFrame.locator('input[type="search"]').first();
@@ -251,22 +300,28 @@ test('captures README screenshots from a realistic scratch-org scenario', async 
     await expect
       .poll(async () => await heroFrame.locator('[role="row"][tabindex="0"]').count(), { timeout: 180_000 })
       .toBe(1);
-    const viewerRow = heroFrame.locator('[role="row"][tabindex="0"]').first();
-    await viewerRow.click();
+    const viewerRow = heroFrame.locator(`[data-log-id="${scenario.logs.viewerRich.logId}"]`);
+    await viewerRow.getByRole('button', { name: 'Open' }).click({ force: true });
 
     const viewerFrame = await waitForViewerFrame(vscodePage);
     await closePanel(vscodePage);
     await ensureAuxiliaryBarClosed(vscodePage);
-    await expect(viewerFrame.locator(`text=${scenario.logs.viewerRich.logId}`).first()).toBeVisible({ timeout: 60_000 });
+    await expect(viewerFrame.locator(`text=${scenario.logs.viewerRich.logId}`).first()).toBeVisible({
+      timeout: 60_000
+    });
     await expect
       .poll(async () => await viewerFrame.locator('aside ul button').count(), { timeout: 180_000 })
       .toBeGreaterThan(0);
-    await viewerFrame.locator('aside').getByRole('button', { name: 'Errors' }).click({ force: true });
-    await viewerFrame.locator('input[placeholder="Search entries…"]').fill(scenario.viewerSearchQuery);
-    await expect(viewerFrame.locator(`text=${scenario.viewerSearchQuery}`).first()).toBeVisible({ timeout: 60_000 });
-    await viewerFrame.locator('aside ul button').first().click({ force: true });
-    await ensureAuxiliaryBarClosed(vscodePage);
-    await captureFrameBody(viewerFrame, screenshotPaths.logViewer);
+    await expect(viewerFrame.locator('[data-testid="log-viewer-failure"]')).toBeVisible({ timeout: 60_000 });
+    await vscodePage.setViewportSize(docsShots.logViewer.viewport);
+    const failedEntry = viewerFrame.getByText('EXCEPTION_THROWN').first();
+    await expect(async () => {
+      await viewerFrame.locator('[data-testid="log-viewer-go-to-error"]').click();
+      await vscodePage.waitForTimeout(1_000);
+      await expect(failedEntry).toBeInViewport({ timeout: 1_000 });
+    }).toPass({ timeout: 30_000 });
+    await captureShot(vscodePage, viewerFrame, docsShots.logViewer);
+    await expect(failedEntry).toBeInViewport({ timeout: 1_000 });
 
     console.info('[docs] Opening tail for debug flags entrypoint...');
     await runCommand(vscodePage, 'Electivus Apex Logs: Tail Logs');
@@ -301,8 +356,7 @@ test('captures README screenshots from a realistic scratch-org scenario', async 
     await debugFlagsFrame.locator('[data-testid="debug-level-field-apexCode"]').selectOption('DEBUG');
     await debugFlagsFrame.locator('[data-testid="debug-level-field-database"]').selectOption('INFO');
     await debugFlagsFrame.locator('[data-testid="debug-level-field-system"]').selectOption('DEBUG');
-    await ensureAuxiliaryBarClosed(vscodePage);
-    await captureFrameBody(debugFlagsFrame, screenshotPaths.debugFlags);
+    await captureShot(vscodePage, debugFlagsFrame, docsShots.debugFlags);
 
     console.info('[docs] Capturing tail screenshot...');
     await runCommand(vscodePage, 'Electivus Apex Logs: Tail Logs');
@@ -311,8 +365,6 @@ test('captures README screenshots from a realistic scratch-org scenario', async 
     await maximizePanel(vscodePage);
     await ensureAuxiliaryBarClosed(vscodePage);
     const tailFrame = await waitForTailFrame(vscodePage);
-    const tailSearchInput = tailFrame.locator('input[type="search"]').first();
-    await tailSearchInput.fill(scenario.tailSearchQuery);
     await ensureTailDebugLevelReady(tailFrame);
 
     const startButton = tailFrame.getByRole('button', { name: 'Start' });
@@ -321,16 +373,39 @@ test('captures README screenshots from a realistic scratch-org scenario', async 
       await vscodePage.waitForTimeout(1_000);
     }
 
-    const liveTailLog = await emitDocsTailLog(scratch.scratchAlias);
-    await expect(tailFrame.locator(`text=${liveTailLog.marker}`).first()).toBeVisible({ timeout: 180_000 });
-    const firstTailRow = tailFrame.locator('[role="row"]').first();
-    await firstTailRow.click();
-    await ensureAuxiliaryBarClosed(vscodePage);
-    await captureFrameBody(tailFrame, screenshotPaths.tail);
+    await tailFrame.getByRole('switch', { name: 'Color' }).click();
+    await vscodePage.setViewportSize(docsShots.tail.viewport);
+    await emitDocsTailLog(scratch.scratchAlias);
+    await expect(
+      tailFrame.locator('[role="row"]', { hasText: 'USER_DEBUG' }).filter({ hasText: DOCS_TAIL_ALERT_LINE })
+    ).toBeInViewport({ timeout: 180_000 });
+    await captureShot(vscodePage, tailFrame, docsShots.tail);
+    await tailFrame.getByRole('button', { name: 'Stop' }).click();
+    await expect(tailFrame.getByRole('button', { name: 'Start' })).toBeVisible({ timeout: 60_000 });
+
+    console.info('[docs] Capturing custom logs screenshot...');
+    await seedDocsCustomLogs(auth);
+    await runCommandWhenAvailable(vscodePage, 'Custom Logs: Focus on Custom Logs View', { timeoutMs: 90_000 });
+    await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Custom Logs', { timeoutMs: 90_000 });
+    await dismissAllNotifications(vscodePage);
+    await closeQuickInputIfOpen(vscodePage);
+    await maximizePanel(vscodePage);
+    const customLogsFrame = await waitForCustomLogsFrame(vscodePage);
+    await expect
+      .poll(async () => await customLogsFrame.locator('[data-row-id]').count(), { timeout: 180_000 })
+      .toBeGreaterThan(1);
+    const customLogsFilter = customLogsFrame.getByRole('combobox', { name: 'Filter logs' });
+    await customLogsFilter.fill(DOCS_CUSTOM_LOGS_FILTER);
+    await customLogsFilter.press('Enter');
+    await customLogsFilter.press('Escape');
+    await expect(customLogsFrame.locator('[data-testid="filter-chip"]', { hasText: 'http.status' })).toBeVisible({
+      timeout: 60_000
+    });
+    await captureShot(vscodePage, customLogsFrame, docsShots.customLogs);
 
     console.info('[docs] Docs screenshots captured successfully.');
-    await removeUserDebugTraceFlags(auth, debugUser.id).catch(() => {});
   } finally {
+    await cleanupOrgData?.();
     await cleanupVsCode?.().catch(() => {});
     await cleanupWorkspace?.().catch(() => {});
     await cleanupScratchOrg?.().catch(() => {});
