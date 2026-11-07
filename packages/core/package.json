@@ -25,7 +25,7 @@
     "check-types": "tsc --noEmit -p tsconfig.json",
     "check-types:test": "tsc -p tsconfig.test.json",
     "clean": "node -e \"require('fs').rmSync('lib',{recursive:true,force:true})\"",
-    "test": "node --import tsx --test test/*.test.ts",
+    "test": "node --import tsx --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=../../scripts/test-exit-code-reporter.mjs --test-reporter-destination=stdout test/*.test.ts",
     "test:conformance": "node --import tsx --test test/conformance.test.ts",
     "watch": "tsc -p tsconfig.json --watch"
   },
