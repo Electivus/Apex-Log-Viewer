@@ -662,7 +662,7 @@ export function DebugFlagsApp({
                   {t.debugFlags?.noUsers ?? 'No active users found for this query.'}
                 </p>
               ) : (
-                <ul className="flex flex-col" data-testid="debug-flags-users-list">
+                <ul className="flex max-h-[420px] flex-col overflow-auto" data-testid="debug-flags-users-list">
                   {orderedUsers.map(user => {
                     const selected = user.id === selectedUserId;
                     return (
