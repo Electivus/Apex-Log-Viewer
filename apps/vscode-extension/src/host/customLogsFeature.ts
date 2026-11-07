@@ -51,13 +51,14 @@ export function registerCustomLogsFeature(
     if (running) {
       return;
     }
-    const revealPanel = async () => {
-      await vscode.commands.executeCommand(`${CustomLogsViewProvider.viewType}.focus`);
+    const focusCommand = `${CustomLogsViewProvider.viewType}.focus`;
+    const showPanel = async () => {
+      await vscode.commands.executeCommand(focusCommand);
     };
     const statusBar = registerCaptureStatusBar();
     CustomLogsEditorPanel.initialize(context, tab => statusBar.track(tab, () => CustomLogsEditorPanel.show()));
     CustomLogViewerPanel.initialize(context);
-    const provider = new CustomLogsViewProvider(context, { trackCapture: view => statusBar.track(view, revealPanel) });
+    const provider = new CustomLogsViewProvider(context, { trackCapture: view => statusBar.track(view, showPanel) });
     running = {
       provider,
       registrations: vscode.Disposable.from(
@@ -71,7 +72,7 @@ export function registerCustomLogsFeature(
           safeSendEvent('command.customLogs.refresh', { outcome: 'invoked' });
           const viewAlreadyResolved = provider.hasResolvedView();
           try {
-            await revealPanel();
+            await vscode.commands.executeCommand(focusCommand, { preserveFocus: true });
             if (!provider.getSelectedOrg()) {
               await provider.syncSelectedOrg(logsSelectedOrg());
             }

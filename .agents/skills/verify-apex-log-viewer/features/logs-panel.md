@@ -20,7 +20,7 @@ The Logs panel lists the Apex logs in the selected org. A user can refresh it, f
 
 ## How to get to it (user POV)
 
-- Run `Electivus Apex Logs: Refresh Logs` from the command palette. This activates the extension and reveals the `Electivus Apex Logs` panel tab.
+- Run `Electivus Apex Logs: Refresh Logs` from the command palette. This activates the extension and reveals the `Electivus Apex Logs` panel tab, and it leaves the keyboard focus where it is. The panel's first loading overlay still takes the focus once.
 - Click the `Apex Logs` tab in the bottom panel.
 - Run `Electivus Apex Logs: Open Logs in Editor Area`, or use the panel's title-bar action.
 
