@@ -145,10 +145,23 @@ async function shot(name: string, target?: Frame | Locator): Promise<string> {
   return path.relative(repoRoot, filePath);
 }
 
+/**
+ * VS Code keeps the webview of a hidden panel or a background tab alive, with its outer iframe at
+ * `visibility: hidden`. Playwright's `isVisible` looks only inside the frame, so ask the outer iframe too.
+ */
+async function isShown(frame: Frame): Promise<boolean> {
+  const outer = await frame.parentFrame()?.frameElement();
+  const visibility = await outer?.evaluate(element => getComputedStyle(element).visibility);
+  await outer?.dispose();
+  return visibility !== 'hidden';
+}
+
 async function frameWith(selector: string, timeoutMs = 120_000): Promise<Frame> {
-  return await waitForWebviewFrame(requirePage(), async frame => await frame.locator(selector).first().isVisible(), {
-    timeoutMs
-  });
+  return await waitForWebviewFrame(
+    requirePage(),
+    async frame => (await frame.locator(selector).first().isVisible()) && (await isShown(frame)),
+    { timeoutMs }
+  );
 }
 
 const DEBUG_FLAGS_FRAME = '[data-testid="debug-flags-user-search"]';
@@ -171,7 +184,8 @@ async function countFramesWith(selector: string): Promise<number> {
 /**
  * The Apex Debug Flags editor is a singleton, so an open one would satisfy the wait after a click that never reached
  * the host. Close it first: the only Debug Flags frame the helpers can then find is the one their own click opened.
- * A middle-click closes just that tab; `View: Close Editor` closes the active editor, which may be another one.
+ * Activate the tab, so `View: Close Editor` closes just that one. A middle-click on it with another webview tab
+ * behind it, such as a Log Viewer, stops keys from reaching VS Code, which `doctor` cannot see.
  */
 async function closeDebugFlagsEditor(): Promise<void> {
   const vscodePage = requirePage();
@@ -181,7 +195,8 @@ async function closeDebugFlagsEditor(): Promise<void> {
       // A maximized panel hides the editor area, where the Debug Flags editor opens.
       await runCommand(vscodePage, 'View: Toggle Maximized Panel');
     }
-    await tab.first().click({ button: 'middle' });
+    await tab.first().click();
+    await runCommand(vscodePage, 'View: Close Editor');
     await expect(tab).toHaveCount(0, { timeout: 30_000 });
   }
   await expect
@@ -246,13 +261,16 @@ async function openDebugFlagsFromTailWithRetry(): Promise<Frame> {
 /**
  * VS Code draws modal confirmations (Download all logs, Clear logs) as native dialogs by default, which
  * Playwright cannot click. With `window.dialogStyle: custom` they render in the workbench as `.monaco-dialog-box`.
- * VS Code reads the setting each time it opens a dialog, so writing it after launch is enough.
+ * A webview that loads or gets activated takes the focus late, which by default closes a palette opened meanwhile,
+ * and the next `fill` then waits on a hidden input. VS Code reads both settings on each use, so writing them after
+ * launch is enough.
  */
-async function useCustomDialogs(userDataDir: string): Promise<void> {
+async function writeDriverSettings(userDataDir: string): Promise<void> {
   const file = path.join(userDataDir, 'User', 'settings.json');
   await mkdir(path.dirname(file), { recursive: true });
   const settings = JSON.parse(await readFile(file, 'utf8').catch(() => '{}')) as Record<string, unknown>;
   settings['window.dialogStyle'] = 'custom';
+  settings['workbench.quickOpen.closeOnFocusLost'] = false;
   await writeFile(file, JSON.stringify(settings, null, 2), 'utf8');
 }
 
@@ -645,7 +663,7 @@ async function start(): Promise<void> {
   vscodeAlive = true;
   state.userDataDir = launch.userDataDir;
   state.vscodePid = app.process().pid;
-  await useCustomDialogs(launch.userDataDir);
+  await writeDriverSettings(launch.userDataDir);
   // Outside the Playwright runner actions have no timeout; a hung step would hold the lease (idle stop skips running steps).
   app.context().setDefaultTimeout(60_000);
   app.on('close', () => {
