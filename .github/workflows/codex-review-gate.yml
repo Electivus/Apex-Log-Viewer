@@ -1,0 +1,61 @@
+name: Codex review gate
+
+# This workflow runs from the default branch with write scope, so it must never
+# check out or run pull request code.
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+  issue_comment:
+    types:
+      - created
+      - edited
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Pull request number to evaluate
+        required: true
+        type: number
+
+permissions: {}
+
+jobs:
+  gate:
+    name: Evaluate Codex review
+    if: >-
+      github.event_name != 'issue_comment' ||
+      (github.event.issue.pull_request &&
+      github.event.comment.user.login == 'chatgpt-codex-connector[bot]' &&
+      contains(github.event.comment.body, 'codex-review-state:v1'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Job level, so a run skipped by the if above never replaces a queued evaluation. Runs
+    # serialize, which lets the last one read the newest state and keeps a slow older run from overwriting it.
+    concurrency:
+      group: codex-review-gate-${{ github.event.pull_request.number || github.event.issue.number || inputs.pull_request }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Setup Node.js from .nvmrc
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+
+      - name: Publish Codex review status
+        run: node scripts/codex-review-gate.js
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_REQUEST: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pull_request }}
