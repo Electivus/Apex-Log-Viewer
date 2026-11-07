@@ -302,4 +302,33 @@ describe('TailList', () => {
     update({ follow: true });
     expect(element().scrollTop).toBe(bottom());
   });
+
+  it('draws a selected row in one color, because token colors are chosen for the editor background', () => {
+    const line = '12:00:00.0 (1)|FATAL_ERROR|System.MathException: Divide by 0';
+    const ui = (selectedIndex: number | undefined) => (
+      <TailList
+        lines={[line]}
+        filteredIndexes={[0]}
+        selectedIndex={selectedIndex}
+        onSelectIndex={() => {}}
+        colorize
+        running={false}
+        listRef={React.createRef<any>()}
+        follow={false}
+        t={t as any}
+        virtualListComponent={
+          function RowsList({ rowComponent: Row }: any) {
+            return <Row index={0} style={{}} />;
+          } as any
+        }
+      />
+    );
+    const view = render(ui(undefined));
+    expect(view.getByRole('row').querySelector('span')).not.toBeNull();
+
+    view.rerender(ui(0));
+
+    expect(view.getByRole('row').querySelector('span')).toBeNull();
+    expect(view.getByRole('row').textContent).toContain('FATAL_ERROR');
+  });
 });
