@@ -13,7 +13,7 @@ describe('docsScenario helpers', () => {
       marker: 'ALV_DOCS_MARKER',
       scenarioLabel: 'Policy Renewal Intake',
       searchPhrase: DOCS_SEARCH_QUERY,
-      extraDebugLines: ['Policy renewal premium mismatch surfaced'],
+      extraDebugLines: ['Policy renewal quote priced', 'Policy renewal premium mismatch surfaced'],
       includeError: true
     });
 
@@ -23,6 +23,7 @@ describe('docsScenario helpers', () => {
     expect(script).toContain('insert caseRecord;');
     expect(script).toContain('update caseRecord;');
     expect(script).toContain('insert followUpTask;');
+    expect(script.indexOf('Policy renewal quote priced')).toBeLessThan(script.indexOf("'policy renewal'"));
     expect(script).toContain('Policy renewal premium mismatch surfaced');
     expect(script).toContain('brokenContext.toString()');
   });
@@ -30,7 +31,16 @@ describe('docsScenario helpers', () => {
   test('returns the seeded docs scenarios in the expected shape', () => {
     const specs = getDocsScenarioSeedSpecs();
 
-    expect(specs.map(spec => spec.key)).toEqual(['heroHappyPath', 'heroError', 'viewerRich']);
+    expect(specs.map(spec => spec.key)).toEqual([
+      'heroQuote',
+      'heroHappyPath',
+      'heroUnderwriting',
+      'heroError',
+      'heroBilling',
+      'heroBroker',
+      'heroNotice',
+      'viewerRich'
+    ]);
     expect(specs.every(spec => spec.searchPhrase === DOCS_SEARCH_QUERY)).toBe(true);
     expect(specs.some(spec => spec.includeError)).toBe(true);
   });

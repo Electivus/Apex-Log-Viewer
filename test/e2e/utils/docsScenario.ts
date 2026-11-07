@@ -11,10 +11,64 @@ import {
 } from './tooling';
 
 export const DOCS_SEARCH_QUERY = 'policy renewal';
-export const DOCS_VIEWER_SEARCH_QUERY = 'premium mismatch';
 export const DOCS_TAIL_SEARCH_QUERY = 'tail live renewal';
+export const DOCS_TAIL_ALERT_LINE = 'Tail live renewal alert published to the case review channel';
 
-export type DocsScenarioLogKey = 'heroHappyPath' | 'heroError' | 'viewerRich' | 'tailLive';
+export const DOCS_CUSTOM_LOGS_FILTER = 'http.status >= 500';
+
+const DOCS_CUSTOM_LOG_TAG = 'ALVDOCS';
+
+export const DOCS_CUSTOM_LOG_SOURCE = {
+  id: 'docs-app-logs',
+  label: 'Application logs',
+  entry: {
+    object: 'Account',
+    fields: {
+      time: 'CreatedDate',
+      message: 'Name',
+      level: 'Rating',
+      user: 'CreatedBy.Username'
+    },
+    payload: { field: 'Description', columns: ['policyId', 'http.status', 'durationMs'] }
+  },
+  levels: { Hot: 'ERROR', Warm: 'WARN', Cold: 'INFO' }
+};
+
+type DocsCustomLogRow = { message: string; rating: 'Hot' | 'Warm' | 'Cold'; payload: string };
+
+function policyPayload(policyId: string, status: number, durationMs: number): string {
+  return JSON.stringify({ policyId, http: { status }, durationMs });
+}
+
+const DOCS_CUSTOM_LOG_ROWS: readonly DocsCustomLogRow[] = [
+  { message: 'Renewal quote created', rating: 'Cold', payload: policyPayload('POL-1042', 201, 318) },
+  { message: 'Broker callback failed', rating: 'Hot', payload: policyPayload('POL-1043', 502, 4410) },
+  { message: 'Premium lookup retried', rating: 'Warm', payload: policyPayload('POL-1044', 429, 1127) },
+  { message: 'Invoice sync failed', rating: 'Hot', payload: policyPayload('POL-1045', 503, 3368) },
+  { message: 'Cache refresh finished', rating: 'Cold', payload: 'Cache refresh finished without a payload' },
+  { message: 'Renewal quote created', rating: 'Cold', payload: policyPayload('POL-1046', 201, 294) },
+  { message: 'Premium mismatch escalated', rating: 'Hot', payload: policyPayload('POL-1047', 500, 3169) },
+  { message: 'Underwriting callout timed out', rating: 'Hot', payload: policyPayload('POL-1048', 504, 5255) },
+  { message: 'Slow broker callout', rating: 'Warm', payload: policyPayload('POL-1049', 200, 1548) },
+  { message: 'Invoice sync failed', rating: 'Hot', payload: policyPayload('POL-1050', 503, 2126) },
+  { message: 'Malformed broker response', rating: 'Warm', payload: '{"policyId":"POL-1051","http":' },
+  { message: 'Payment declined', rating: 'Hot', payload: policyPayload('POL-1052', 502, 1127) },
+  { message: 'Broker callback failed', rating: 'Hot', payload: policyPayload('POL-1053', 500, 4410) },
+  { message: 'Renewal notice queued', rating: 'Cold', payload: policyPayload('POL-1054', 202, 87) },
+  { message: 'Underwriting callout timed out', rating: 'Hot', payload: policyPayload('POL-1055', 504, 5064) },
+  { message: 'Premium mismatch escalated', rating: 'Hot', payload: policyPayload('POL-1056', 500, 2986) }
+];
+
+export type DocsScenarioLogKey =
+  | 'heroQuote'
+  | 'heroHappyPath'
+  | 'heroUnderwriting'
+  | 'heroError'
+  | 'heroBilling'
+  | 'heroBroker'
+  | 'heroNotice'
+  | 'viewerRich'
+  | 'tailLive';
 
 export type DocsSeededLog = {
   key: DocsScenarioLogKey;
@@ -25,8 +79,6 @@ export type DocsSeededLog = {
 
 export type PreparedDocsScenario = {
   searchQuery: string;
-  viewerSearchQuery: string;
-  tailSearchQuery: string;
   logs: Record<Exclude<DocsScenarioLogKey, 'tailLive'>, DocsSeededLog>;
 };
 
@@ -48,6 +100,13 @@ type BuildDocsScenarioApexOptions = {
 
 const INITIAL_SCENARIO_SPECS: readonly DocsScenarioSeedSpec[] = [
   {
+    key: 'heroQuote',
+    scenarioLabel: 'Policy Renewal Quote',
+    searchPhrase: DOCS_SEARCH_QUERY,
+    extraDebugLines: ['Policy renewal quote priced for the broker review'],
+    includeError: false
+  },
+  {
     key: 'heroHappyPath',
     scenarioLabel: 'Policy Renewal Intake',
     searchPhrase: DOCS_SEARCH_QUERY,
@@ -55,6 +114,13 @@ const INITIAL_SCENARIO_SPECS: readonly DocsScenarioSeedSpec[] = [
       'Policy renewal candidate moved from triage to underwriting review',
       'Policy renewal intake completed without replay blockers'
     ],
+    includeError: false
+  },
+  {
+    key: 'heroUnderwriting',
+    scenarioLabel: 'Policy Renewal Underwriting',
+    searchPhrase: DOCS_SEARCH_QUERY,
+    extraDebugLines: ['Policy renewal underwriting checklist assigned to the case owner'],
     includeError: false
   },
   {
@@ -66,6 +132,27 @@ const INITIAL_SCENARIO_SPECS: readonly DocsScenarioSeedSpec[] = [
       'Policy renewal exception path collected diagnostics for account owner'
     ],
     includeError: true
+  },
+  {
+    key: 'heroBilling',
+    scenarioLabel: 'Policy Renewal Billing',
+    searchPhrase: DOCS_SEARCH_QUERY,
+    extraDebugLines: ['Policy renewal billing schedule rebuilt after the premium change'],
+    includeError: false
+  },
+  {
+    key: 'heroBroker',
+    scenarioLabel: 'Policy Renewal Broker Sync',
+    searchPhrase: DOCS_SEARCH_QUERY,
+    extraDebugLines: ['Policy renewal broker sync finished for the regional portfolio'],
+    includeError: false
+  },
+  {
+    key: 'heroNotice',
+    scenarioLabel: 'Policy Renewal Notice',
+    searchPhrase: DOCS_SEARCH_QUERY,
+    extraDebugLines: ['Policy renewal notice queued for the account owner'],
+    includeError: false
   },
   {
     key: 'viewerRich',
@@ -84,10 +171,7 @@ const TAIL_SCENARIO_SPEC: DocsScenarioSeedSpec = {
   key: 'tailLive',
   scenarioLabel: 'Tail Live Renewal',
   searchPhrase: DOCS_TAIL_SEARCH_QUERY,
-  extraDebugLines: [
-    'Tail live renewal event reached the broker callback queue',
-    'Tail live renewal alert published to the case review channel'
-  ],
+  extraDebugLines: ['Tail live renewal event reached the broker callback queue', DOCS_TAIL_ALERT_LINE],
   includeError: false
 };
 
@@ -192,37 +276,38 @@ export function getDocsTailScenarioSpec(): DocsScenarioSeedSpec {
 }
 
 export function buildDocsScenarioAnonymousApex(options: BuildDocsScenarioApexOptions): string {
-  const extraDebugLines = options.extraDebugLines ?? [];
+  const [snippetLine, ...extraDebugLines] = options.extraDebugLines ?? [];
   const lines = [
+    // Salesforce logs each line of the script first, and a search shows the first match in the log as the row's snippet.
+    ...(snippetLine ? [`System.debug('${escapeApexStringLiteral(snippetLine)}');`] : []),
     `String marker = '${escapeApexStringLiteral(options.marker)}';`,
     `String searchPhrase = '${escapeApexStringLiteral(options.searchPhrase)}';`,
     `String scenarioLabel = '${escapeApexStringLiteral(options.scenarioLabel)}';`,
-    `System.debug(marker + ' | ' + searchPhrase + ' | ' + scenarioLabel + ' | start');`,
+    "System.debug(scenarioLabel + ' started');",
     "List<Case> existingCases = [SELECT Id, Subject, Status, Origin FROM Case WHERE Subject LIKE 'ALV Docs %' ORDER BY CreatedDate DESC LIMIT 5];",
-    "System.debug(searchPhrase + ' | candidates=' + existingCases.size());",
+    "System.debug('Renewal candidates: ' + existingCases.size());",
     'Case caseRecord = new Case(',
     "  Subject = 'ALV Docs ' + scenarioLabel + ' ' + marker.right(6),",
     "  Status = 'New',",
     "  Origin = 'Web',",
-    "  Description = searchPhrase + ' | generated by Apex Log Viewer docs scenario'",
+    "  Description = searchPhrase + ' generated by the Apex Log Viewer docs scenario'",
     ');',
     'insert caseRecord;',
     "caseRecord.Status = 'Working';",
-    "caseRecord.Description = searchPhrase + ' | status=Underwriting review | marker=' + marker;",
+    "caseRecord.Description = searchPhrase + ' in underwriting review, marker ' + marker;",
     'update caseRecord;',
     'Task followUpTask = new Task(',
-    "  Subject = scenarioLabel + ' Follow Up ' + marker.right(4),",
+    "  Subject = scenarioLabel + ' Follow Up',",
     "  Status = 'Not Started',",
     "  Priority = 'Normal',",
     '  WhatId = caseRecord.Id,',
-    "  Description = searchPhrase + ' | task created for docs scenario'",
+    "  Description = searchPhrase + ' task created for the docs scenario'",
     ');',
     'insert followUpTask;',
     'List<Task> relatedTasks = [SELECT Id, Subject, Status, Priority FROM Task WHERE WhatId = :caseRecord.Id ORDER BY CreatedDate DESC LIMIT 5];',
     'for (Task relatedTask : relatedTasks) {',
-    "  System.debug(searchPhrase + ' | task=' + relatedTask.Subject + ' | status=' + relatedTask.Status);",
-    '}',
-    "System.debug('ALV_DOCS_SUMMARY|' + marker + '|case=' + caseRecord.Id + '|tasks=' + relatedTasks.size());"
+    "  System.debug(relatedTask.Subject + ': ' + relatedTask.Status);",
+    '}'
   ];
 
   for (const debugLine of extraDebugLines) {
@@ -235,12 +320,12 @@ export function buildDocsScenarioAnonymousApex(options: BuildDocsScenarioApexOpt
       '  Object brokenContext = null;',
       '  System.debug(brokenContext.toString());',
       '} catch (Exception e) {',
-      "  System.debug(searchPhrase + ' | premium mismatch triage=' + e.getMessage());",
+      "  System.debug('Premium mismatch triage: ' + e.getMessage());",
       '}'
     );
   }
 
-  lines.push("System.debug(searchPhrase + ' | finish=' + scenarioLabel + ' | marker=' + marker);");
+  lines.push("System.debug(scenarioLabel + ' finished');");
   return lines.join('\n');
 }
 
@@ -269,8 +354,6 @@ export async function prepareDocsScreenshotScenario(options: {
 
     return {
       searchQuery: DOCS_SEARCH_QUERY,
-      viewerSearchQuery: DOCS_VIEWER_SEARCH_QUERY,
-      tailSearchQuery: DOCS_TAIL_SEARCH_QUERY,
       logs: mapped
     };
   });
@@ -281,6 +364,30 @@ export async function emitDocsTailLog(targetOrg: string): Promise<DocsSeededLog>
     const auth = await getOrgAuth(targetOrg);
     await ensureE2eTraceFlag(auth);
     return await seedScenarioLog(targetOrg, auth, getDocsTailScenarioSpec());
+  });
+}
+
+export async function clearDocsCustomLogs(auth: OrgAuth): Promise<void> {
+  await executeAnonymousApex(auth, `delete [SELECT Id FROM Account WHERE TickerSymbol = '${DOCS_CUSTOM_LOG_TAG}'];`);
+}
+
+export async function seedDocsCustomLogs(auth: OrgAuth): Promise<void> {
+  await timeE2eStep('docsScenario.customLogs', async () => {
+    await clearDocsCustomLogs(auth);
+    // One transaction per row, because the list sorts on CreatedDate and shows it as the row's time.
+    for (const row of DOCS_CUSTOM_LOG_ROWS) {
+      await executeAnonymousApex(
+        auth,
+        [
+          'insert new Account(',
+          `  Name = '${escapeApexStringLiteral(row.message)}',`,
+          `  Rating = '${row.rating}',`,
+          `  TickerSymbol = '${DOCS_CUSTOM_LOG_TAG}',`,
+          `  Description = '${escapeApexStringLiteral(row.payload)}'`,
+          ');'
+        ].join('\n')
+      );
+    }
   });
 }
 
