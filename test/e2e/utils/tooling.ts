@@ -265,6 +265,14 @@ async function ensureDebugLevelId(auth: OrgAuth, debugLevelName: string): Promis
   });
 }
 
+export async function setE2eDebugLevelDatabase(auth: OrgAuth, database: 'ERROR' | 'INFO'): Promise<void> {
+  const debugLevelName = String(process.env.SF_E2E_DEBUG_LEVEL || 'ALV_E2E').trim();
+  const debugLevelId = await ensureDebugLevelId(auth, debugLevelName);
+  await requestJson(auth, 'PATCH', `/services/data/v${auth.apiVersion}/tooling/sobjects/DebugLevel/${debugLevelId}`, {
+    Database: database
+  });
+}
+
 async function queryExistingTraceFlagId(
   auth: OrgAuth,
   userId: string,
