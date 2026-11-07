@@ -47,6 +47,7 @@
 
 ### Fixes
 
+- Logs and Tail: the unchecked switch now shows its outline and thumb. An `Execute Anonymous:` source line that contains `|` is no longer read as an error event. The open-in-editor title actions show their icon. The panels are named Apex Logs, Apex Tail and Custom Logs, and the delete confirmation names the org it will empty.
 - Refresh Logs, Tail Logs, Refresh Custom Logs and the capture status item's Show Custom Logs no longer open the `View: Open View` picker. They reveal the panel, and the picker no longer takes the keys of the next command.
 - Tail: the `Debug level` select now remembers one level per org. A level you pick on one org stays after you switch to another org and back, and it no longer carries over to another org that has the same level. Before, the next Start could move your newest `DEVELOPER_LOG` trace flag to a level you did not pick for that org. The single level saved by an earlier version is ignored because it has no org, so each org opens once on its active level.
 - Custom Logs: turning `electivus.apexLogViewer.customLogs.enabled` off now also closes the long-field tabs opened from a transaction viewer, in every editor group, and leaves other editors open. These tabs kept showing org data after the setting was off.
