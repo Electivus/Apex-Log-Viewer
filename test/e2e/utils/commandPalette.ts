@@ -35,6 +35,9 @@ async function openCommandPalette(page: Page): Promise<void> {
       await page
         .getByRole('button', { name: /Open Quick Access/i })
         .click({ timeout: OPEN_QUICK_ACCESS_BUTTON_TIMEOUT_MS });
+      // The button's tooltip opens moments later over the editor tabs, where it fails Playwright's next hit test before
+      // that click moves the mouse. Only a move inside the workbench cancels the tooltip; a move into a webview does not.
+      await page.mouse.move(0, 0);
     } catch {
       // Older or renamed VS Code layouts may not expose this Chat-focus fallback.
     }
