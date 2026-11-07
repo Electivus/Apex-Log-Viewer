@@ -242,7 +242,7 @@ export function TailApp({
   }, [selectedIndex, lines]);
 
   return (
-    <div className="relative flex h-screen min-h-[120px] flex-col overflow-hidden bg-background text-sm text-foreground">
+    <div className="relative flex h-screen min-h-[120px] flex-col overflow-y-auto bg-background text-sm text-foreground">
       <LoadingOverlay show={loading} label={t.loading} />
       <TailToolbar
         running={running}

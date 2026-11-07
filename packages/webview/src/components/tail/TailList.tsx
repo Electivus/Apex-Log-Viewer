@@ -90,7 +90,8 @@ export function TailList({
     }
   };
 
-  // The list takes the height the panel leaves under the toolbar, so the page itself never scrolls.
+  // The list takes the height the panel leaves under the toolbar. When a short, narrow panel cannot fit a wrapped
+  // toolbar, the root scrolls instead and the list keeps its minimum height, so no control or row is clipped.
   useLayoutEffect(() => {
     const outer = outerRef.current;
     if (!outer) return;
@@ -229,7 +230,7 @@ export function TailList({
   }, [listElement]);
 
   return (
-    <div ref={outerRef} className="relative min-h-0 flex-1 overflow-hidden font-mono text-xs text-foreground">
+    <div ref={outerRef} className="relative min-h-[120px] flex-1 overflow-hidden font-mono text-xs text-foreground">
       {showEmpty ? (
         <p className="px-3 py-2 font-sans text-sm text-muted-foreground">
           {running ? (t.tail?.waiting ?? 'Waiting for logs…') : (t.tail?.pressStart ?? 'Press Start to tail logs.')}
