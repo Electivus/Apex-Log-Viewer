@@ -258,6 +258,31 @@ describe('Log Viewer App', () => {
     screen.getByText('1/3');
   });
 
+  it('finds a debug entry by the pipes it shows and by the text in the log', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<LogViewerApp vscode={vscode} messageBus={bus} />);
+
+    send(bus, {
+      type: 'logViewerInit',
+      logId: 'pipes',
+      locale: 'en-US',
+      fileName: 'Pipes.log',
+      lines: [
+        '12:00:00.000 (0)|USER_DEBUG|[1]|ERROR|order=42&#124;status=FAILED',
+        '12:00:01.000 (0)|USER_DEBUG|[2]|ERROR|other'
+      ]
+    });
+    await screen.findByText('ERROR | order=42|status=FAILED');
+
+    const searchInput = screen.getByPlaceholderText('Search entries…');
+    fireEvent.change(searchInput, { target: { value: 'order=42|status' } });
+    screen.getByText('1/1');
+
+    fireEvent.change(searchInput, { target: { value: 'order=42&#124;status' } });
+    screen.getByText('1/1');
+  });
+
   it('keeps multiline JSON from USER_DEBUG visible as one formatted debug entry', async () => {
     const { vscode } = createVsCodeMock();
     const bus = new EventTarget();
