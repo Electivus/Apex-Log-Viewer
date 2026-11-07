@@ -2,6 +2,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import { createPoolLease } from '../poolLease';
 import { ensureScratchOrg } from '../scratchOrg';
 import { runSfJson } from '../sfCli';
 import { __resetToolingCachesForTests, __setToolingConnectionFactoryForTests } from '../tooling';
@@ -16,6 +17,28 @@ jest.setTimeout(30_000);
 
 function response(body: unknown, status = 200): Response {
   return { ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body) } as Response;
+}
+
+// Salesforce answers a denied ActiveScratchOrg or ScratchOrgInfo delete with HTTP 400, not 403.
+const deniedDelete = () => response([{ errorCode: 'INSUFFICIENT_ACCESS_OR_READONLY', message: 'private-token' }], 400);
+
+function skipPoolAcquireWait(): void {
+  let now = Date.now();
+  jest.spyOn(Date, 'now').mockImplementation(() => now);
+  jest.spyOn(globalThis, 'setTimeout').mockImplementation(((callback: () => void) => {
+    now += 60_000;
+    setImmediate(callback);
+    return { unref: () => {} } as NodeJS.Timeout;
+  }) as typeof setTimeout);
+}
+
+function onlySlot(slot: object): () => Response {
+  let taken = false;
+  return () => {
+    if (taken) return response([{ message: 'No scratch-org pool slot is available.' }], 409);
+    taken = true;
+    return response(slot);
+  };
 }
 
 describe('JWT pool consumer through CLI and REST adapters', () => {
@@ -176,13 +199,14 @@ describe('JWT pool consumer through CLI and REST adapters', () => {
   test.each(['allowed', 'denied'])('reconciles a newer active signup after stored Deleted history: %s', async permission => {
     const request = fetchSpy.getMockImplementation()!;
     const deletions: string[] = [];
+    const acquire = onlySlot({
+      ok: true, poolKey: 'isolated', slotKey: 'slot-01', scratchAlias: 'ISOLATED_01',
+      leaseToken: 'fixture-lease', needsCreate: true, scratchOrgInfoId: 'old-info', scratchAuthUrl: authUrl
+    });
     fetchSpy.mockImplementation(async (input, options) => {
       const url = String(input);
       const decoded = decodeURIComponent(url);
-      if (url.endsWith('/acquire')) return response({
-        ok: true, poolKey: 'isolated', slotKey: 'slot-01', scratchAlias: 'ISOLATED_01',
-        leaseToken: 'fixture-lease', needsCreate: true, scratchOrgInfoId: 'old-info', scratchAuthUrl: authUrl
-      });
+      if (url.endsWith('/acquire')) return acquire();
       if (options?.method === 'DELETE') {
         deletions.push(url.split('/').pop()!);
         return permission === 'denied'
@@ -205,6 +229,7 @@ describe('JWT pool consumer through CLI and REST adapters', () => {
       return command(args, options);
     });
     if (permission === 'denied') {
+      skipPoolAcquireWait();
       await expect(ensureScratchOrg()).rejects.toThrow(/existing owner|administrator/);
       expect(cli.mock.calls.some(([args]) => ['logout', 'create'].includes(args[1]!))).toBe(false);
       expect(requests.find(item => item.operation === 'release')?.body).toMatchObject({
@@ -218,6 +243,85 @@ describe('JWT pool consumer through CLI and REST adapters', () => {
     expect(deletions).toEqual(['new-active']);
   });
 
+  describe('a slot whose scratch org belongs to another identity', () => {
+    const foreignSlot = {
+      ok: true,
+      poolKey: 'isolated',
+      slotKey: 'slot-01',
+      scratchAlias: 'ISOLATED_01',
+      leaseToken: 'foreign-lease',
+      needsCreate: true,
+      scratchOrgInfoId: 'foreign-info',
+      scratchAuthUrl: authUrl
+    };
+    const usableSlot = {
+      ok: true,
+      poolKey: 'isolated',
+      slotKey: 'slot-02',
+      scratchAlias: 'ISOLATED_02',
+      leaseToken: 'usable-lease',
+      needsCreate: false,
+      scratchAuthUrl: authUrl
+    };
+
+    function mockPoolSlots(slots: object[]): string[] {
+      const events: string[] = [];
+      const request = fetchSpy.getMockImplementation()!;
+      fetchSpy.mockImplementation(async (input, options) => {
+        const url = String(input);
+        if (url.endsWith('/acquire')) {
+          events.push('acquire');
+          const slot = slots.shift();
+          return slot ? response(slot) : response([{ message: 'No scratch-org pool slot is available.' }], 409);
+        }
+        if (options?.method === 'DELETE') return deniedDelete();
+        if (url.includes('/sobjects/ScratchOrgInfo/foreign-info')) {
+          return response({ Id: 'foreign-info', Status: 'Active' });
+        }
+        if (url.endsWith('/release')) events.push(`release:${JSON.parse(String(options?.body)).slotKey}`);
+        return request(input, options);
+      });
+      return events;
+    }
+
+    const releaseOf = (slotKey: string) =>
+      requests.find(item => item.operation === 'release' && item.body.slotKey === slotKey)?.body;
+
+    test.each([
+      ['ActiveScratchOrg', { ...foreignSlot, activeScratchOrgId: 'foreign-active' }],
+      ['ScratchOrgInfo', foreignSlot]
+    ])('a denied %s delete moves the job to the next slot', async (_sobject, slot) => {
+      const events = mockPoolSlots([slot, usableSlot]);
+
+      const poolLease = createPoolLease(ensureScratchOrg);
+      await expect(poolLease.acquire()).resolves.toBe('ISOLATED_02');
+      await poolLease.finishTest({ title: 'job', status: 'passed', expectedStatus: 'passed' });
+      await poolLease.release();
+
+      expect(events).toEqual(['acquire', 'acquire', 'release:slot-01', 'release:slot-02']);
+      expect(cli.mock.calls.some(([args]) => args.slice(0, 3).join(' ') === 'org create scratch')).toBe(false);
+      expect(releaseOf('slot-01')).toMatchObject({
+        leaseToken: 'foreign-lease',
+        success: false,
+        needsRecreate: false,
+        scratchAuthUrl: authUrl,
+        errorMessage: expect.stringMatching(/INSUFFICIENT_ACCESS.*existing owner/)
+      });
+      expect(releaseOf('slot-02')).toMatchObject({ leaseToken: 'usable-lease', success: true, needsRecreate: false });
+      expect(JSON.stringify(requests)).not.toContain('private-token');
+    });
+
+    test('names the denied slot when the pool has no other slot', async () => {
+      skipPoolAcquireWait();
+      mockPoolSlots([foreignSlot]);
+
+      await expect(ensureScratchOrg()).rejects.toThrow(/Timed out waiting.*slot-01.*existing owner/);
+
+      expect(releaseOf('slot-01')).toMatchObject({ success: false, needsRecreate: false, scratchAuthUrl: authUrl });
+      expect(existsSync(keyFile)).toBe(false);
+    });
+  });
+
   test.each([
     'active',
     'contradictory',
@@ -228,7 +332,18 @@ describe('JWT pool consumer through CLI and REST adapters', () => {
     'missing-records',
     'missing-done'
   ])('preserves the pool lease credential when historical deletion proof is %s', async scenario => {
+    skipPoolAcquireWait();
     const request = fetchSpy.getMockImplementation()!;
+    const acquire = onlySlot({
+      ok: true,
+      poolKey: 'isolated',
+      slotKey: 'slot-01',
+      scratchAlias: 'ISOLATED_01',
+      leaseToken: 'fixture-lease',
+      needsCreate: true,
+      scratchOrgInfoId: 'old-info',
+      scratchAuthUrl: authUrl
+    });
     fetchSpy.mockImplementation(async (input, options) => {
       const url = String(input);
       if (options?.method === 'DELETE' || (scenario === 'denied' && url.includes('/sobjects/ScratchOrgInfo/'))) {
@@ -244,17 +359,7 @@ describe('JWT pool consumer through CLI and REST adapters', () => {
           done: scenario === 'missing-done' ? undefined : scenario !== 'incomplete',
           records: scenario === 'missing-records' ? undefined : scenario === 'contradictory' ? [{ Id: 'live-id' }] : []
         });
-      if (url.endsWith('/acquire'))
-        return response({
-          ok: true,
-          poolKey: 'isolated',
-          slotKey: 'slot-01',
-          scratchAlias: 'ISOLATED_01',
-          leaseToken: 'fixture-lease',
-          needsCreate: true,
-          scratchOrgInfoId: 'old-info',
-          scratchAuthUrl: authUrl
-        });
+      if (url.endsWith('/acquire')) return acquire();
       return request(input, options);
     });
     await expect(ensureScratchOrg()).rejects.toThrow(/HTTP 403|incomplete ActiveScratchOrg/);
@@ -351,20 +456,21 @@ describe('JWT pool consumer through CLI and REST adapters', () => {
   });
 
   test('ownership failure releases the lease without deleting caller auth or creating another scratch', async () => {
+    skipPoolAcquireWait();
     const request = fetchSpy.getMockImplementation()!;
+    const acquire = onlySlot({
+      ok: true,
+      poolKey: 'isolated',
+      slotKey: 'slot-01',
+      scratchAlias: 'ISOLATED_01',
+      leaseToken: 'fixture-lease',
+      needsCreate: true,
+      activeScratchOrgId: 'previous-active',
+      scratchOrgInfoId: 'previous-info',
+      scratchAuthUrl: authUrl
+    });
     fetchSpy.mockImplementation(async (input, options) => {
-      if (String(input).endsWith('/acquire'))
-        return response({
-          ok: true,
-          poolKey: 'isolated',
-          slotKey: 'slot-01',
-          scratchAlias: 'ISOLATED_01',
-          leaseToken: 'fixture-lease',
-          needsCreate: true,
-          activeScratchOrgId: 'previous-active',
-          scratchOrgInfoId: 'previous-info',
-          scratchAuthUrl: authUrl
-        });
+      if (String(input).endsWith('/acquire')) return acquire();
       if (options?.method === 'DELETE')
         return response(
           [

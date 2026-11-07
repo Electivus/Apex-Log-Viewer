@@ -647,11 +647,28 @@ async function tryReleaseIncompletePoolLease(
   }
 }
 
+class ScratchDeleteDeniedError extends Error {}
+
+class SlotRecreateRefusedError extends Error {}
+
 async function deleteExistingPooledScratch(
   auth: OrgAuth,
   lease: Pick<PoolAcquireResponse, 'poolKey' | 'slotKey' | 'activeScratchOrgId' | 'scratchOrgInfoId'>
 ): Promise<void> {
   const triedIds = new Set<string>();
+
+  const deleteRecord = async (sobject: 'ActiveScratchOrg' | 'ScratchOrgInfo', id: string): Promise<boolean> => {
+    try {
+      await requestOrgJson(auth, 'DELETE', `/services/data/v${auth.apiVersion}/sobjects/${sobject}/${id}`);
+      return true;
+    } catch (error) {
+      if (isHttpError(error, 404)) {
+        return false;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      throw message.includes('INSUFFICIENT_ACCESS') ? new ScratchDeleteDeniedError(message) : error;
+    }
+  };
 
   const tryDeleteByIds = async (ids: { activeScratchOrgId?: string; scratchOrgInfoId?: string }): Promise<void> => {
     if (ids.scratchOrgInfoId) {
@@ -683,32 +700,12 @@ async function deleteExistingPooledScratch(
     }
     if (ids.activeScratchOrgId) {
       triedIds.add(ids.activeScratchOrgId);
-      try {
-        await requestOrgJson(
-          auth,
-          'DELETE',
-          `/services/data/v${auth.apiVersion}/sobjects/ActiveScratchOrg/${ids.activeScratchOrgId}`
-        );
+      if (await deleteRecord('ActiveScratchOrg', ids.activeScratchOrgId)) {
         return;
-      } catch (error) {
-        if (!isHttpError(error, 404)) {
-          throw error;
-        }
       }
     }
     if (ids.scratchOrgInfoId) {
-      try {
-        await requestOrgJson(
-          auth,
-          'DELETE',
-          `/services/data/v${auth.apiVersion}/sobjects/ScratchOrgInfo/${ids.scratchOrgInfoId}`
-        );
-        return;
-      } catch (error) {
-        if (!isHttpError(error, 404)) {
-          throw error;
-        }
-      }
+      await deleteRecord('ScratchOrgInfo', ids.scratchOrgInfoId);
     }
   };
 
@@ -977,11 +974,43 @@ async function ensureSingleScratchOrg(devHub: DevHubSession): Promise<ScratchOrg
   };
 }
 
+type DeniedPoolSlot = { slotKey: string; reason: string; release: () => Promise<void> };
+
 async function ensurePooledScratchOrg(devHub: DevHubSession): Promise<ScratchOrgResult> {
+  const devHubAuth = await getOrgAuth(devHub.targetOrg, { forceRefresh: true, env: devHub.env });
+  const requestedBaseline = await resolveEffectivePoolBaseline(devHubAuth, resolvePoolKey());
+  // Acquire assigns the lowest free slot needing a scratch org, so a released denied slot would come straight
+  // back. Each one stays leased until this runner holds a slot it can use.
+  const deniedSlots: DeniedPoolSlot[] = [];
+  try {
+    for (;;) {
+      const slot = await leasePoolSlot(devHub, devHubAuth, requestedBaseline);
+      if (!('reason' in slot)) {
+        return slot;
+      }
+      console.warn(`[e2e] scratch-org pool skipped slot '${slot.slotKey}': ${slot.reason}`);
+      deniedSlots.push(slot);
+    }
+  } catch (error) {
+    if (deniedSlots.length === 0) {
+      throw error;
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `${detail} Skipped ${deniedSlots.map(slot => `slot '${slot.slotKey}' (${slot.reason})`).join(', ')}`
+    );
+  } finally {
+    await Promise.all(deniedSlots.map(slot => slot.release()));
+  }
+}
+
+async function leasePoolSlot(
+  devHub: DevHubSession,
+  devHubAuth: OrgAuth,
+  requestedBaseline: Awaited<ReturnType<typeof resolveEffectivePoolBaseline>>
+): Promise<ScratchOrgResult | DeniedPoolSlot> {
   const devHubAlias = devHub.targetOrg;
-  const devHubAuth = await getOrgAuth(devHubAlias, { forceRefresh: true, env: devHub.env });
   const poolKey = resolvePoolKey();
-  const requestedBaseline = await resolveEffectivePoolBaseline(devHubAuth, poolKey);
   const leaseTtlSeconds = resolvePoolLeaseTtlSeconds();
   const acquireRequest: PoolAcquireRequest = {
     poolKey,
@@ -1098,8 +1127,15 @@ async function ensurePooledScratchOrg(devHub: DevHubSession): Promise<ScratchOrg
     }
 
     if (!readyAuth) {
-      created = true;
       preservePreviousScratch = true;
+      if (!envFlag('CI')) {
+        throw new SlotRecreateRefusedError(
+          `Scratch-org pool slot '${slotKey}' needs a new scratch org, and only CI may create one, ` +
+            'because CI cannot delete a scratch org that another identity owns. Retry after Slot Recovery restores a healthy slot, or unset SF_SCRATCH_POOL_NAME and ' +
+            'SF_SCRATCH_STRATEGY to use the single scratch.'
+        );
+      }
+      created = true;
       await deleteExistingPooledScratch(devHubAuth, lease);
       preservePreviousScratch = false;
 
@@ -1172,12 +1208,13 @@ async function ensurePooledScratchOrg(devHub: DevHubSession): Promise<ScratchOrg
       }
     };
   } catch (error) {
-    await cleanup({
-      success: false,
-      needsRecreate: true,
-      lastRunResult: 'failed',
-      errorMessage: error instanceof Error ? error.message : String(error)
-    });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const release = () => cleanup({ success: false, needsRecreate: true, lastRunResult: 'failed', errorMessage });
+    const releaseUnchanged = () => cleanup({ success: true, lastRunResult: 'recreate-refused', errorMessage });
+    if (error instanceof ScratchDeleteDeniedError) {
+      return { slotKey, reason: errorMessage, release };
+    }
+    await (error instanceof SlotRecreateRefusedError ? releaseUnchanged() : release());
     throw error;
   }
 }

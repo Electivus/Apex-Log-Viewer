@@ -4,6 +4,7 @@
 
 ### Maintenance
 
+- E2E: a scratch org owned by another identity no longer fails real-org tests. A Pool Lease skips a slot whose scratch org it cannot delete and takes the next one, and only CI creates a slot's scratch org: a local session reuses healthy slots and refuses to recreate one.
 - Docs: the README and walkthrough screenshots show the redesigned panels. `pnpm run docs:screenshots` writes to the extension's `media/docs` folder again and captures Custom Logs too. Two GIFs that no page used are gone, which removes 8.9 MB from the packaged extension.
 - Refresh JSforce to 3.13.1 and Faye to 1.4.3. Faye 1.4.2 and later keep pending requests in a `Map`, which hid them from the Custom Logs capture's stop, so a stopped capture whose connection had dropped kept retrying for seconds; the stop now cancels those retries under both Faye shapes. Faye 1.4.2 itself is skipped because it raises unhandled rejections when a transport fails to connect.
 - CI: `pnpm run check-types` and `pnpm run compile` now type-check the webview tests and the core and Salesforce CLI plugin tests, so a type error there fails the build before a test run. Fixes the type errors these gates found, including the Tail panel's debug-level selection, which read a field TypeScript could not narrow.
