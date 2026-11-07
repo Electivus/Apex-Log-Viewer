@@ -39,7 +39,7 @@ export class CustomLogViewerPanel {
   private static context: vscode.ExtensionContext | undefined;
   private static payloadColumns: PayloadColumnsStore | undefined;
   private static readonly panels = new Map<string, CustomLogViewerPanel>();
-  private static readonly viewType = 'electivus.apexLogViewer.customLogs.viewerPanel';
+  static readonly viewType = 'electivus.apexLogViewer.customLogs.viewerPanel';
 
   static initialize(context: vscode.ExtensionContext): void {
     this.context = context;

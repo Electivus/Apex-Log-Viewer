@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { affectsConfiguration, getBooleanConfig } from './utils/config';
-import { closeCustomLogDocumentTabs, registerCustomLogDocuments } from './utils/customLogDocuments';
+import { CUSTOM_LOG_DOCUMENT_SCHEME, registerCustomLogDocuments } from './utils/customLogDocuments';
 import { registerCaptureStatusBar } from './customLogsStatusBar';
 import { openCustomLogsConfig } from './utils/customLogsConfig';
 import { getErrorMessage } from './utils/error';
@@ -12,6 +12,23 @@ import { safeSendEvent } from '../shared/telemetry';
 import type { WebviewProviderDiagnosticState } from '../shared/webviewDiagnostics';
 
 export const CUSTOM_LOGS_ENABLED_SETTING = 'electivus.apexLogViewer.customLogs.enabled';
+
+/** VS Code 1.145.2 adds this to the view type of a webview tab, though the API says it maps to the panel's. */
+const REPORTED_WEBVIEW_TAB_PREFIX = /^mainThreadWebview-/;
+
+/** Scans the tab groups because a tab can outlive the extension host whose panel tracked it. */
+function closeCustomLogTabs(): void {
+  const webviewViewTypes = new Set([CustomLogsEditorPanel.viewType, CustomLogViewerPanel.viewType]);
+  const tabs = vscode.window.tabGroups.all
+    .flatMap(group => group.tabs)
+    .filter(
+      ({ input }) =>
+        (input instanceof vscode.TabInputText && input.uri.scheme === CUSTOM_LOG_DOCUMENT_SCHEME) ||
+        (input instanceof vscode.TabInputWebview &&
+          webviewViewTypes.has(input.viewType.replace(REPORTED_WEBVIEW_TAB_PREFIX, '')))
+    );
+  void vscode.window.tabGroups.close(tabs);
+}
 
 export interface CustomLogsFeature extends vscode.Disposable {
   /** The Custom Logs webviews that exist right now: none while the setting is off. */
@@ -110,7 +127,7 @@ export function registerCustomLogsFeature(
     }
     stop();
     // Not in stop(): at deactivation VS Code rejects the close, so a tab can outlive its extension host.
-    closeCustomLogDocumentTabs();
+    closeCustomLogTabs();
   };
   const configurationListener = vscode.workspace.onDidChangeConfiguration(event => {
     if (affectsConfiguration(event, CUSTOM_LOGS_ENABLED_SETTING)) {
