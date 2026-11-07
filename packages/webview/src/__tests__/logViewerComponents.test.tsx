@@ -1,10 +1,11 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { LogCategory, ParsedLogEntry } from '../utils/logViewerParser';
 import type { LogViewerMappedDiagnostic } from '../utils/logViewerDiagnostics';
 import { LogViewerFilters } from '../components/log-viewer/LogViewerFilters';
 import { LogViewerHeader } from '../components/log-viewer/LogViewerHeader';
+import { LogFailureBanner } from '../components/log-viewer/LogFailureBanner';
 import { LogViewerStatusBar } from '../components/log-viewer/LogViewerStatusBar';
 import { LogDiagnosticsSidebar } from '../components/log-viewer/LogDiagnosticsSidebar';
 import { LogEntryRow } from '../components/log-viewer/LogEntryRow';
@@ -22,7 +23,7 @@ describe('Log viewer components', () => {
       const viewCalls: number[] = [];
       const { unmount } = render(
         <LogViewerHeader
-          fileName="MyLog.log"
+          heading={{ title: 'MyLog.log', details: [] }}
           search=""
           onSearchChange={value => changes.push(value)}
           onViewRaw={() => viewCalls.push(1)}
@@ -42,7 +43,7 @@ describe('Log viewer components', () => {
       const prevCalls: number[] = [];
       render(
         <LogViewerHeader
-          fileName=""
+          heading={{ details: [] }}
           search="debug"
           onSearchChange={value => enabledChanges.push(value)}
           onViewRaw={() => enabledView.push(1)}
@@ -52,7 +53,7 @@ describe('Log viewer components', () => {
           onPreviousMatch={() => prevCalls.push(1)}
         />
       );
-      screen.getByText('Debug Log Analysis');
+      screen.getByRole('heading', { name: 'Apex Log Viewer' });
 
       const input = screen.getByDisplayValue('debug');
       fireEvent.change(input, { target: { value: 'fatal error' } });
@@ -79,6 +80,59 @@ describe('Log viewer components', () => {
     });
   });
 
+  describe('LogViewerHeader heading', () => {
+    it('titles the log with its entry point and mutes the rest, skipping what is missing', () => {
+      render(
+        <LogViewerHeader
+          heading={{ title: 'execute_anonymous_apex', details: ['ana@example.com', '184 ms', '07L1.log'] }}
+          search=""
+          onSearchChange={() => {}}
+          onViewRaw={() => {}}
+        />
+      );
+      const title = screen.getByRole('heading', { name: 'execute_anonymous_apex' });
+      expect(title).toHaveAttribute('title', 'execute_anonymous_apex');
+      expect(screen.getByText('ana@example.com · 184 ms · 07L1.log')).toBeInTheDocument();
+    });
+
+    it('gives the icon-only match buttons a title', () => {
+      render(
+        <LogViewerHeader
+          heading={{ details: [] }}
+          search="x"
+          onSearchChange={() => {}}
+          onViewRaw={() => {}}
+          matchCount={1}
+          t={logViewerPtBR}
+        />
+      );
+      expect(screen.getByRole('button', { name: 'Ocorrência anterior' })).toHaveAttribute('title', 'Ocorrência anterior');
+      expect(screen.getByRole('button', { name: 'Próxima ocorrência' })).toHaveAttribute('title', 'Próxima ocorrência');
+    });
+  });
+
+  describe('LogFailureBanner', () => {
+    const failure = { message: 'System.MathException: Divide by 0', lineNumber: 5, entryId: 3, type: 'FATAL_ERROR' };
+
+    it('shows the real message and line, and goes to the error on click', () => {
+      const calls: number[] = [];
+      render(<LogFailureBanner failure={failure} onGoToError={() => calls.push(1)} />);
+      const banner = screen.getByRole('alert', { name: 'Failure' });
+      expect(banner).toHaveTextContent('System.MathException: Divide by 0');
+      expect(banner).toHaveTextContent('Line 5');
+      fireEvent.click(screen.getByRole('button', { name: 'Go to error' }));
+      expect(calls).toHaveLength(1);
+    });
+
+    it('leaves out the line when the log has none, and speaks Portuguese', () => {
+      render(
+        <LogFailureBanner failure={{ ...failure, lineNumber: undefined }} onGoToError={() => {}} t={logViewerPtBR} />
+      );
+      expect(screen.getByRole('alert', { name: 'Falha' })).not.toHaveTextContent('Linha');
+      screen.getByRole('button', { name: 'Ir para o erro' });
+    });
+  });
+
   describe('LogViewerFilters', () => {
     it('toggles filters and formats counts with locale', () => {
       const calls: Array<string> = [];
@@ -91,17 +145,50 @@ describe('Log viewer components', () => {
         />
       );
 
-      fireEvent.click(screen.getByText('Debug Only'));
+      fireEvent.click(screen.getByRole('button', { name: 'Debug Only 12' }));
       expect(calls[0]).toBe('debug');
 
-      fireEvent.click(screen.getByText('SOQL'));
+      fireEvent.click(screen.getByRole('button', { name: 'SOQL 5' }));
       expect(calls[1]).toBe('soql');
 
-      fireEvent.click(screen.getByText('Errors'));
+      fireEvent.click(screen.getByRole('button', { name: 'Errors 2' }));
       expect(calls[2]).toBe('error');
+
+      fireEvent.click(screen.getByRole('button', { name: 'DML 3' }));
+      expect(calls[3]).toBe('dml');
 
       const showing = screen.getByText(/entries$/);
       expect(showing.textContent?.includes('1,234 entries')).toBe(true);
+    });
+
+    it('gives every chip one resting style, marks only the active one, and clears it on a second click', () => {
+      const calls: string[] = [];
+      render(
+        <LogViewerFilters
+          active="soql"
+          onChange={next => calls.push(next)}
+          counts={{ total: 20, debug: 12, errors: 2, soql: 5, dml: 0 }}
+          locale="en-US"
+        />
+      );
+      const chips = screen.getAllByRole('button');
+      expect(chips.map(chip => chip.getAttribute('aria-pressed'))).toEqual(['false', 'false', 'true', 'false']);
+      const resting = chips.filter(chip => chip.getAttribute('aria-pressed') === 'false');
+      expect(new Set(resting.map(chip => chip.className.replace(/\s*disabled:\S+/g, ''))).size).toBe(1);
+      expect(chips[2]!.className).toContain('bg-primary');
+      expect(chips[2]!.className).not.toMatch(/bg-(sky|rose|emerald|orange)/);
+
+      fireEvent.click(chips[2]!);
+      expect(calls).toEqual(['all']);
+    });
+
+    it('disables a chip with nothing to show unless it is the active filter', () => {
+      const counts = { total: 3, debug: 3, errors: 0, soql: 0, dml: 0 };
+      const { rerender } = render(<LogViewerFilters active="all" onChange={() => {}} counts={counts} locale="en-US" />);
+      expect(screen.getByRole('button', { name: 'Errors 0' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Debug Only 3' })).toBeEnabled();
+      rerender(<LogViewerFilters active="error" onChange={() => {}} counts={counts} locale="en-US" />);
+      expect(screen.getByRole('button', { name: 'Errors 0' })).toBeEnabled();
     });
 
     it('says entry for one row and entries otherwise, in English and Portuguese', () => {
@@ -153,32 +240,28 @@ describe('Log viewer components', () => {
     it('renders metadata and formatted values', () => {
       render(
         <LogViewerStatusBar
-          counts={{ total: 2048, debug: 20, errors: 3, soql: 10, dml: 4 }}
+          totalLines={2048}
           locale="en-US"
           metadata={{ sizeBytes: 1536, modifiedAt: '2025-09-21T17:30:00.000Z' }}
         />
       );
 
       screen.getByText('Total Lines: 2,048');
-      screen.getByText('Debug Statements: 20');
-      screen.getByText('Error Events: 3');
-      screen.getByText('SOQL Queries: 10');
-      screen.getByText('DML Operations: 4');
+      expect(screen.queryByText(/Debug Statements|Error Events|SOQL Queries|DML Operations/)).toBeNull();
       screen.getByText('Size: 1.5 KB');
       expect(screen.getByText(/Updated:/)).toHaveTextContent('Updated:');
       screen.getByText('Ready');
     });
 
     it('says Loading while the log is on its way and Not loaded after a failure, not Ready', () => {
-      const counts = { total: 0, debug: 0, errors: 0, soql: 0, dml: 0 };
-      const { rerender } = render(<LogViewerStatusBar counts={counts} locale="en-US" state="loading" />);
+      const { rerender } = render(<LogViewerStatusBar totalLines={0} locale="en-US" state="loading" />);
       screen.getByText('Loading…');
       expect(screen.queryByText('Ready')).toBeNull();
-      rerender(<LogViewerStatusBar counts={counts} locale="en-US" state="failed" />);
+      rerender(<LogViewerStatusBar totalLines={0} locale="en-US" state="failed" />);
       screen.getByText('Not loaded');
       expect(screen.queryByText('Ready')).toBeNull();
       rerender(
-        <LogViewerStatusBar counts={{ ...counts, total: 1234 }} locale="pt-BR" state="ready" t={logViewerPtBR} />
+        <LogViewerStatusBar totalLines={1234} locale="pt-BR" state="ready" t={logViewerPtBR} />
       );
       screen.getByText('Pronto');
       screen.getByText('Total de linhas: 1.234');
@@ -195,12 +278,12 @@ describe('Log viewer components', () => {
       try {
         render(
           <LogViewerStatusBar
-            counts={{ total: 12, debug: 1, errors: 0, soql: 2, dml: 3 }}
+            totalLines={12}
             locale="bad-locale"
             metadata={{ sizeBytes: 512, modifiedAt: 'not-a-date' }}
           />
         );
-        screen.getByText('Error Events: 0');
+        screen.getByText('Total Lines: 12');
         expect(screen.queryByText(/Updated:/)).toBeNull();
         screen.getByText('Size: 512 B');
       } finally {
@@ -224,7 +307,7 @@ describe('Log viewer components', () => {
       const measured: number[] = [];
       const { container } = render(<LogEntryRow entry={baseEntry} highlighted onMeasured={value => measured.push(value)} />);
       const row = container.firstElementChild as HTMLDivElement | null;
-      expect(row?.className).toContain('bg-sky-500/10');
+      expect(row?.className).toContain('log-row-highlighted');
       expect(measured.length).toBeGreaterThan(0);
       expect(screen.getByText('Context info')).toBeInTheDocument();
     });
@@ -234,9 +317,10 @@ describe('Log viewer components', () => {
       category => {
         const entry = { ...baseEntry, category, type: category.toUpperCase(), details: undefined };
         render(<LogEntryRow entry={entry} highlighted={false} onMeasured={() => {}} />);
-        const badge = screen.getByText(entry.type);
-        expect(typeof badge.className).toBe('string');
-        expect(badge.className.length).toBeGreaterThan(0);
+        const badge = screen.getByTitle(entry.type);
+        expect(badge.className).toContain('log-cat-badge');
+        expect(badge.className).toMatch(/log-cat-(debug|soql|dml|code|limit|error|neutral)/);
+        expect(badge.className).not.toMatch(/(?:text|bg|border)-(?:red|sky|emerald|orange|purple|yellow|slate|amber)-/);
       }
     );
 
@@ -254,8 +338,8 @@ describe('Log viewer components', () => {
       const candidates = screen.getAllByText(/Debug/i);
       const mark = candidates.find(node => node.tagName === 'MARK');
       expect(mark).toBeDefined();
-      const highlightedRow = document.querySelector('.ring-1');
-      expect(highlightedRow).not.toBeNull();
+      expect(mark?.className).toContain('log-find-mark');
+      expect(document.querySelector('.log-row-active-match')).not.toBeNull();
     });
 
     it('renders passive diagnostic badges', () => {
@@ -273,8 +357,8 @@ describe('Log viewer components', () => {
         <LogEntryRow entry={baseEntry} highlighted={false} diagnostics={diagnostics} onMeasured={() => {}} />
       );
       const passiveBadge = screen.getByText('Mapped warning');
-      expect(passiveBadge.className).toContain('bg-muted/20');
-      expect(passiveBadge.className).toContain('text-[11px]');
+      expect(passiveBadge.className).toContain('log-sev-warning');
+      expect(passiveBadge.className).not.toContain('border-ring');
     });
 
     it('renders stronger active diagnostic badge style and active row highlight', () => {
@@ -299,9 +383,56 @@ describe('Log viewer components', () => {
         />
       );
       const rowElement = container.firstElementChild as HTMLDivElement | null;
-      expect(rowElement?.className).toContain('ring-2');
+      expect(rowElement?.className).toContain('log-selected');
       const activeBadge = screen.getByText('Mapped error');
-      expect(activeBadge.className).toContain('bg-amber-500/30');
+      expect(activeBadge.className).toContain('border-ring');
+    });
+  });
+
+  describe('LogEntryRow columns', () => {
+    const entry: ParsedLogEntry = {
+      id: 1,
+      timestamp: '12:00:00.0',
+      type: 'CUMULATIVE_LIMIT_USAGE_END_OF_TRANSACTION',
+      message: 'Number of SOQL queries: 1 out of 100',
+      raw: '12:00:00.0 (1)|CUMULATIVE_LIMIT_USAGE_END_OF_TRANSACTION|Number of SOQL queries: 1 out of 100',
+      category: 'limit',
+      lineNumber: 7
+    };
+
+    it('lays every row on the same fixed tracks, whatever its type says', () => {
+      const { container } = render(
+        <>
+          <LogEntryRow entry={entry} highlighted={false} onMeasured={() => {}} />
+          <LogEntryRow entry={{ ...entry, id: 2, type: 'USER_DEBUG', category: 'debug' }} highlighted={false} onMeasured={() => {}} />
+        </>
+      );
+      const [long, short] = Array.from(container.children) as HTMLElement[];
+      expect(long!.className).toBe(short!.className);
+      expect(long!.className).toContain('grid-cols-[5.5rem_10.5rem_3rem_minmax(0,1fr)]');
+      expect(long!.children).toHaveLength(4);
+    });
+
+    it('truncates a long type and keeps it readable in the title', () => {
+      render(<LogEntryRow entry={entry} highlighted={false} onMeasured={() => {}} />);
+      const badge = screen.getByTitle('CUMULATIVE_LIMIT_USAGE_END_OF_TRANSACTION');
+      expect(badge.querySelector('.truncate')).toHaveTextContent('CUMULATIVE_LIMIT_USAGE_END_OF_TRANSACTION');
+      expect(badge.className).toContain('max-w-full');
+    });
+
+    it('shows the entry message and leaves it empty for an event that has none, instead of repeating the raw line', () => {
+      const started: ParsedLogEntry = {
+        id: 0,
+        timestamp: '12:00:00.0',
+        type: 'EXECUTION_STARTED',
+        message: '',
+        raw: '12:00:00.0 (1)|EXECUTION_STARTED',
+        category: 'other'
+      };
+      const { container } = render(<LogEntryRow entry={started} highlighted={false} onMeasured={() => {}} />);
+      expect(container).not.toHaveTextContent('12:00:00.0 (1)|EXECUTION_STARTED');
+      const message = container.firstElementChild!.children[3]!;
+      expect(message).toHaveTextContent('');
     });
   });
 
@@ -380,6 +511,53 @@ describe('Log viewer components', () => {
       );
       screen.getByText('Fatal exception');
       screen.getByText('Validation warning');
+    });
+
+    it('shows the real message of the mapped entry, with the code and line, and the summary when there is none', () => {
+      render(
+        <LogDiagnosticsSidebar
+          diagnostics={[
+            {
+              code: 'fatal_exception',
+              severity: 'error',
+              summary: 'Fatal exception',
+              originalIndex: 1,
+              mappedLineNumber: 5,
+              mappedMessage: 'System.MathException: Divide by 0'
+            },
+            { code: 'dml_failure', severity: 'warning', summary: 'DML failure', originalIndex: 2, mappedLineNumber: 9 }
+          ]}
+          filter="all"
+          onFilterChange={() => {}}
+          onSelectDiagnostic={() => {}}
+          triageState="ready"
+        />
+      );
+      const first = screen.getByRole('button', { name: /Divide by 0/ });
+      expect(first).toHaveTextContent('fatal exception');
+      expect(first).toHaveTextContent('Line 5');
+      expect(first).not.toHaveTextContent('Fatal exception');
+      expect(within(first).getByRole('img', { name: 'error' })).toBeInTheDocument();
+      const second = screen.getByRole('button', { name: /DML failure/ });
+      expect(within(second).getByRole('img', { name: 'warning' })).toBeInTheDocument();
+      expect(second.querySelector('.lucide-funnel, .lucide-filter')).toBeNull();
+    });
+
+    it('marks the active severity tab with the default button style', () => {
+      render(
+        <LogDiagnosticsSidebar
+          diagnostics={diagnostics}
+          filter="warning"
+          onFilterChange={() => {}}
+          onSelectDiagnostic={() => {}}
+          triageState="ready"
+        />
+      );
+      const warnings = screen.getByRole('button', { name: 'Warnings' });
+      expect(warnings).toHaveAttribute('aria-pressed', 'true');
+      expect(warnings.className).toContain('bg-primary');
+      expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.getByRole('button', { name: 'All' }).className).not.toContain('bg-primary');
     });
 
     it('switches severity filters with All/Errors/Warnings controls', () => {

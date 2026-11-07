@@ -28,7 +28,7 @@ Search downloaded Salesforce Apex logs inside VS Code, jump straight to the righ
 
 ![Search, snippets, triage, and local log search](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/apps/vscode-extension/media/docs/hero.png)
 
-Search in the logs panel is optimized for locally saved log bodies, so the most effective flow is:
+Search in the **Apex Logs** panel is optimized for locally saved log bodies, so the most effective flow is:
 
 1. Refresh logs.
 2. Search by the phrase, record ID, correlation ID, or exception detail you already know.
@@ -36,7 +36,7 @@ Search in the logs panel is optimized for locally saved log bodies, so the most 
 4. Use **Download all logs** when the refreshed and scrolled set still did not surface what you need, or when you want to pull the whole org backlog into the workspace in one shot.
 5. Open the best candidate in the dedicated viewer.
 
-![Dedicated Apex Log Viewer with diagnostics](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/apps/vscode-extension/media/docs/log-viewer.png)
+![Dedicated Apex Log Viewer with the failure banner and diagnostics](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/apps/vscode-extension/media/docs/log-viewer.png)
 
 ![Apex Debug Flags editor](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/apps/vscode-extension/media/docs/debug-flags.png)
 
@@ -117,7 +117,7 @@ See [Agent Skill installation and migration](docs/AGENT-SKILL.md) for offline in
 
 The extension activates automatically when the workspace contains `sfdx-project.json`. You can also activate it on demand by opening an Apex log or running one of the commands below.
 
-### Open the Logs Panel
+### Open the Apex Logs Panel
 
 1. Open the VS Code panel area.
 2. Switch to **Apex Logs**.
@@ -130,7 +130,7 @@ The extension activates automatically when the workspace contains `sfdx-project.
 - Match snippets appear in the `Match` column when the hit comes from the saved log file.
 - Scroll to load more rows from the current list when you want to keep widening the search incrementally.
 - Use **Download all logs** when the refreshed and scrolled set still is not enough, or when you want to pull all logs from the selected org into local search in one action.
-- Combine search with filters by user, operation, status, and **Errors only**.
+- Combine search with the **Errors only** switch and the **Filters** menu, which narrows the list by user, operation, and status.
 
 ### Review Triage Faster
 
@@ -142,12 +142,13 @@ The extension activates automatically when the workspace contains `sfdx-project.
 
 - Press `Enter` on a selected row or open the log from the list.
 - The dedicated **Apex Log Viewer** parses the log into debug, SOQL, DML, and error-oriented views.
+- When a log failed, a banner names the error, and **Go to error** selects that entry.
 - Use the built-in search box to jump between matching entries.
 - Use the diagnostics sidebar to land on mapped failures and warnings faster.
 
 ### Tail Logs
 
-- Run `Electivus Apex Logs: Tail Logs` to open the tail view.
+- Run `Electivus Apex Logs: Tail Logs` to open the **Apex Tail** panel.
 - Start or stop streaming from the toolbar.
 - Search live output, keep auto-scroll on, and open or replay the selected log from the same screen.
 
@@ -163,7 +164,7 @@ The extension activates automatically when the workspace contains `sfdx-project.
 
 ### Configure Debug Flags
 
-- Open **Debug Flags** from either the Logs toolbar or the Tail toolbar.
+- Open **Debug Flags** from either the **Apex Logs** toolbar or the **Apex Tail** toolbar.
 - Search active users by name or username.
 - Pick the log type: `DEVELOPER_LOG` by default (Apex checkpoints need it; Salesforce keeps these logs 24 hours) or `USER_DEBUG` (the Setup > Debug Logs type; kept 7 days).
 - Review the current status, level, and expiration for that log type.
@@ -178,7 +179,7 @@ The extension activates automatically when the workspace contains `sfdx-project.
 
 ### Select an Org
 
-- Use the org picker in Logs, Tail, or Debug Flags to switch between authenticated orgs.
+- Use the searchable org picker in **Apex Logs**, **Apex Tail**, **Debug Flags**, or **Custom Logs** to switch between authenticated orgs.
 - The extension can also use your CLI default org.
 
 ## Commands

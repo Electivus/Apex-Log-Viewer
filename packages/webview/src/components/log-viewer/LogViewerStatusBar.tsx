@@ -4,13 +4,7 @@ import { logViewerEn, type LogViewerMessages } from '../../i18n/logViewer';
 import { fillTemplate } from '../../utils/customLogs/format';
 
 interface Props {
-  counts: {
-    total: number;
-    debug: number;
-    errors: number;
-    soql: number;
-    dml: number;
-  };
+  totalLines: number;
   locale: string;
   metadata?: {
     sizeBytes?: number;
@@ -29,18 +23,12 @@ function formatNumber(n: number, locale: string) {
   }
 }
 
-export function LogViewerStatusBar({ counts, locale, metadata, state = 'ready', t = logViewerEn }: Props) {
+export function LogViewerStatusBar({ totalLines, locale, metadata, state = 'ready', t = logViewerEn }: Props) {
   const modified = metadata?.modifiedAt ? new Date(metadata.modifiedAt) : undefined;
   return (
-    <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 bg-card/40 px-5 py-2 text-[11px] text-muted-foreground">
-      <div className="flex flex-wrap items-center gap-4">
-        <span>{fillTemplate(t.status.totalLines, { count: formatNumber(counts.total, locale) })}</span>
-        <span>{fillTemplate(t.status.debugStatements, { count: formatNumber(counts.debug, locale) })}</span>
-        <span>{fillTemplate(t.status.errorEvents, { count: formatNumber(counts.errors, locale) })}</span>
-        <span>{fillTemplate(t.status.soqlQueries, { count: formatNumber(counts.soql, locale) })}</span>
-        <span>{fillTemplate(t.status.dmlOperations, { count: formatNumber(counts.dml, locale) })}</span>
-      </div>
-      <div className="flex items-center gap-3 text-[11px]">
+    <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border px-3 py-1 text-[11px] text-muted-foreground">
+      <span>{fillTemplate(t.status.totalLines, { count: formatNumber(totalLines, locale) })}</span>
+      <div className="flex items-center gap-3">
         {typeof metadata?.sizeBytes === 'number' && (
           <span>{fillTemplate(t.status.size, { size: formatBytes(metadata.sizeBytes) })}</span>
         )}
