@@ -49,6 +49,24 @@ Concurrency: Most workflows use concurrency groups to avoid duplicate runs per r
   investigate the package metadata or lockfile change instead of removing the
   gate.
 
+## Codex Review Gate
+
+`.github/workflows/codex-review-gate.yml` publishes a commit status named `Codex review` on every pull request head. GitHub auto-merge waits for required checks, and Codex is not a check, so this status is how a ruleset can require that Codex reviewed the current head and found nothing.
+
+- `pending`: Codex has not answered for this head yet, or its review is still running.
+- `failure`: Codex reported unresolved findings on this head.
+- `success`: Codex completed a review of this head with no unresolved findings. Dependabot pull requests are always `success` because Codex does not review them.
+
+The status comes from the machine-readable state in the Codex summary comment, which only the Codex bot can supply. The workflow reruns when Codex edits that comment and when a push arrives. It does not post `@codex review` or poll.
+
+When the status is stuck:
+
+- Comment `@codex review` when Codex never responded, or when it repeated a finding that you already fixed.
+- Run `gh workflow run codex-review-gate.yml -f pull_request=<number>` to evaluate the pull request again.
+- `gh pr merge --admin` is the maintainer's deliberate override.
+
+The workflow runs from the default branch, so a fork cannot change its code. A fork's own workflow can still publish a check with the same name, so green checks on a fork pull request never replace reading the diff.
+
 ## E2E Scratch Org Strategy
 
 The Playwright workflow in `.github/workflows/e2e-playwright.yml` is pool-only in CI:
