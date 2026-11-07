@@ -9,6 +9,7 @@ function loadDebugFlagsPanel() {
     '../host/salesforce/traceflags': {},
     '../host/services/apexLogCleanup': {},
     '../host/utils/localize': { localize: (_key: string, message: string) => message },
+    '../host/utils/logsCleanup': {},
     '../host/utils/logger': { logInfo: () => undefined, logWarn: () => undefined },
     '../host/utils/responsiveness': { recordInboundMessage: () => undefined },
     '../host/utils/webviewHtml': { buildWebviewHtml: () => '' },
