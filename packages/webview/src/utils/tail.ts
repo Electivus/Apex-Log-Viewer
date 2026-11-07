@@ -76,8 +76,11 @@ export function parseApexLine(line: string): ParsedApexLine {
   const parts = line.split('|');
   const head = parts[0] ?? '';
   const m = head.match(/^(\d{2}:\d{2}:\d{2}\.\d+)\s*\((\d+)\)\s*$/);
-  const time = m ? m[1] : undefined;
-  const nanos = m ? m[2] : undefined;
+  // Only a log event starts with a timestamp. In any other line, such as the `=== ApexLog` header, `|` is plain text.
+  if (!m) {
+    return { tokens: [] };
+  }
+  const [, time, nanos] = m;
   const category = parts.length > 1 ? parts[1] : undefined;
   let debugMessage: string | undefined;
   if ((category ?? '').toUpperCase().includes('USER_DEBUG')) {
