@@ -719,7 +719,65 @@ describe('ensureScratchOrg', () => {
     expect(finalizeBody.definitionHash).toBe('pool-hash-123');
   });
 
+  test.each([
+    ['the alias', 'a retired slot', true],
+    ['the alias', 'a slot whose credential no longer works', false],
+    ['a local JWT identity', 'a retired slot', true],
+    ['a local JWT identity', 'a slot whose credential no longer works', false]
+  ])('outside CI, %s leaves %s as it was instead of recreating it', async (identity, _slot, needsCreate) => {
+    process.env.SF_SCRATCH_STRATEGY = 'pool';
+    process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
+    if (identity === 'the alias') {
+      for (const field of ['CLIENT_ID', 'USERNAME', 'LOGIN_URL', 'PRIVATE_KEY']) delete process.env[`SF_DEVHUB_${field}`];
+    }
+    const storedAuthUrl = 'force://PlatformCLI::slot04-auth@scratch.example.com';
+    let released: Record<string, unknown> | undefined;
+    fetchSpy.mockImplementation(async (input, options) => {
+      const url = String(input);
+      if (isPoolConfigQuery(url)) return createPoolConfigResponse();
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/acquire')) {
+        return createJsonResponse({
+          ok: true,
+          poolKey: 'alv-e2e',
+          slotKey: 'slot-04',
+          scratchAlias: 'ALV_E2E_POOL_04',
+          leaseToken: 'lease-local',
+          needsCreate,
+          scratchAuthUrl: storedAuthUrl,
+          scratchOrgInfoId: '2SR000000000004AAA',
+          activeScratchOrgId: '0SO000000000004AAA'
+        });
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/release')) {
+        released = JSON.parse(String(options?.body));
+        return createJsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected ${options?.method ?? 'GET'} ${url}`);
+    });
+    mockScratchSf(async args => {
+      const command = args.slice(0, 3).join(' ');
+      if (command === 'org login sfdx-url') throw new Error('The stored credential no longer works.');
+      if (args.slice(0, 2).join(' ') === 'org display' || args.slice(0, 2).join(' ') === 'org logout') {
+        return { status: 0, result: { username: 'devhub@example.com' } };
+      }
+      throw new Error(`Unexpected sf command: ${args.join(' ')}`);
+    });
+
+    await expect(ensureScratchOrg()).rejects.toThrow(/slot-04.*only CI may create/);
+
+    expect(released).toMatchObject({
+      slotKey: 'slot-04',
+      leaseToken: 'lease-local',
+      success: true,
+      needsRecreate: false,
+      scratchAuthUrl: storedAuthUrl,
+      lastRunResult: 'recreate-refused',
+      errorMessage: expect.stringContaining('only CI may create')
+    });
+  });
+
   test('creates a pooled scratch org when the acquired slot requires recreation', async () => {
+    process.env.CI = 'true';
     process.env.SF_SCRATCH_STRATEGY = 'pool';
     process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
 
@@ -840,6 +898,7 @@ describe('ensureScratchOrg', () => {
   });
 
   test('recreates a pooled scratch org when the stored scratch auth URL is stale', async () => {
+    process.env.CI = 'true';
     process.env.SF_SCRATCH_STRATEGY = 'pool';
     process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
 
@@ -959,6 +1018,7 @@ describe('ensureScratchOrg', () => {
   });
 
   test('recreates a pooled scratch org when reuse finalization fails after org auth succeeds', async () => {
+    process.env.CI = 'true';
     process.env.SF_SCRATCH_STRATEGY = 'pool';
     process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
 
