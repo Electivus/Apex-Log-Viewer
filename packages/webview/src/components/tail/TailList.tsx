@@ -1,8 +1,8 @@
 import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { decodeLogLine } from '@alv/protocol/logText';
 import type { Messages } from '../../i18n';
 import { List, type ListImperativeAPI } from 'react-window';
 import { cn } from '../../lib/utils';
-import { decodeLogLine } from '../../utils/logViewerParser';
 import { apexLineStyle, categoryStyle, contentHighlightRules, highlightContent, parseApexLine } from '../../utils/tail';
 
 type TailListProps = {

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ListImperativeAPI } from 'react-window';
 import { createRoot } from 'react-dom/client';
 import { getMessages } from './i18n';
+import { decodeLogLine } from '@alv/protocol/logText';
 import type { OrgItem } from '@alv/protocol/types';
 import type {
   ExtensionToWebviewMessage,
@@ -10,7 +11,6 @@ import type {
 import { TailToolbar } from './components/tail/TailToolbar';
 import { TailList } from './components/tail/TailList';
 import { LoadingOverlay } from './components/LoadingOverlay';
-import { decodeLogLine } from './utils/logViewerParser';
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
 
