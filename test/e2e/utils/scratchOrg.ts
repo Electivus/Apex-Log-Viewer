@@ -650,6 +650,9 @@ async function tryReleaseIncompletePoolLease(
 /** The slot's scratch org belongs to an identity whose orgs this one may not delete. */
 class ScratchDeleteDeniedError extends Error {}
 
+/** Only CI may replace a slot's scratch org, because CI could not delete one that another identity owns. */
+class SlotRecreateRefusedError extends Error {}
+
 async function deleteExistingPooledScratch(
   auth: OrgAuth,
   lease: Pick<PoolAcquireResponse, 'poolKey' | 'slotKey' | 'activeScratchOrgId' | 'scratchOrgInfoId'>
@@ -1127,8 +1130,15 @@ async function leasePoolSlot(
     }
 
     if (!readyAuth) {
-      created = true;
       preservePreviousScratch = true;
+      if (!envFlag('CI')) {
+        throw new SlotRecreateRefusedError(
+          `Scratch-org pool slot '${slotKey}' needs a new scratch org, and only CI may create one. ` +
+            'Retry after Slot Recovery restores a healthy slot, or unset SF_SCRATCH_POOL_NAME and ' +
+            'SF_SCRATCH_STRATEGY to use the single scratch.'
+        );
+      }
+      created = true;
       await deleteExistingPooledScratch(devHubAuth, lease);
       preservePreviousScratch = false;
 
@@ -1205,6 +1215,11 @@ async function leasePoolSlot(
     const release = () => cleanup({ success: false, needsRecreate: true, lastRunResult: 'failed', errorMessage });
     if (error instanceof ScratchDeleteDeniedError) {
       return { slotKey, reason: errorMessage, release };
+    }
+    if (error instanceof SlotRecreateRefusedError) {
+      // A successful release keeps the slot's health and stored credential.
+      await cleanup({ success: true, lastRunResult: 'recreate-refused', errorMessage });
+      throw error;
     }
     await release();
     throw error;
