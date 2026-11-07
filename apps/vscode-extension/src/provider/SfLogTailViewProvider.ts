@@ -45,7 +45,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
   private readonly webviewSurface = createWebviewSurface({
     surface: 'tail',
     label: 'Tail',
-    title: () => localize('salesforce.tail.view.name', 'Electivus Apex Logs Tail'),
+    title: () => localize('salesforce.tail.view.name', 'Apex Tail'),
     readyType: 'ready',
     parseInbound: parseWebviewToExtensionMessage,
     log: { info: logInfo, warn: logWarn }
@@ -242,7 +242,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       webview,
       this.context.extensionUri,
       'tail.js',
-      localize('salesforce.tail.view.name', 'Electivus Apex Logs Tail'),
+      localize('salesforce.tail.view.name', 'Apex Tail'),
       { mountSequence }
     );
   }

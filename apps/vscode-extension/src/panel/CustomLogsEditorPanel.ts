@@ -9,7 +9,7 @@ let trackCapture: CustomLogsViewProviderOptions['trackCapture'];
 
 const editorPanel = createSessionEditorPanel({
   viewType,
-  title: () => localize('customLogs.view.name', 'Electivus Custom Logs'),
+  title: () => localize('customLogs.view.name', 'Custom Logs'),
   createController: context => new CustomLogsViewProvider(context, { trackCapture })
 });
 
