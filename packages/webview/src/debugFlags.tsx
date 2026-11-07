@@ -29,6 +29,7 @@ import { Label } from './components/ui/label';
 import { Button } from './components/ui/button';
 import { LabeledSelect } from './components/LabeledSelect';
 import { cn } from './lib/utils';
+import { getApplyBlocker, isAuthenticatedUser, orderUsersForPicker } from './utils/debugFlags';
 import * as Popover from '@radix-ui/react-popover';
 import { AlertCircle, CheckCircle2, Info, Loader2, Trash2, UserRound } from 'lucide-react';
 
@@ -110,6 +111,56 @@ function getOtherLogTypeNote(status: TraceFlagTargetStatus | undefined): OtherLo
     return { kind: 'hidden', other };
   }
   return undefined;
+}
+
+type Tone = NoticeState['tone'];
+
+const INLINE_SELECT = 'min-w-0 flex-row items-center gap-2 [&>label]:whitespace-nowrap';
+const FIELD_LABEL = 'text-xs font-semibold uppercase tracking-wide text-muted-foreground';
+const STATUS_LIST = 'grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-0.5';
+
+const ROW_BUTTON =
+  'rounded-sm transition-colors hover:bg-[var(--vscode-list-hoverBackground,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50';
+const ROW_SELECTED =
+  'bg-[var(--vscode-list-activeSelectionBackground,transparent)] hover:bg-[var(--vscode-list-activeSelectionBackground,transparent)] text-[var(--vscode-list-activeSelectionForeground,inherit)] outline outline-1 -outline-offset-1 outline-[color:var(--vscode-contrastActiveBorder,transparent)]';
+
+const TONE_STRIP: Record<Tone, string> = {
+  success: 'border-[var(--vscode-charts-green)] bg-[color-mix(in_srgb,var(--vscode-charts-green)_12%,transparent)]',
+  warning:
+    'border-[var(--vscode-editorWarning-foreground)] bg-[color-mix(in_srgb,var(--vscode-editorWarning-foreground)_12%,transparent)]',
+  info: 'border-[var(--vscode-editorInfo-foreground)] bg-[color-mix(in_srgb,var(--vscode-editorInfo-foreground)_12%,transparent)]'
+};
+const TONE_ICON: Record<Tone, string> = {
+  success: 'text-[var(--vscode-charts-green)]',
+  warning: 'text-[var(--vscode-editorWarning-foreground)]',
+  info: 'text-[var(--vscode-editorInfo-foreground)]'
+};
+const TONE_PILL_ACTIVE = 'bg-[color-mix(in_srgb,var(--vscode-charts-green)_22%,transparent)] text-foreground';
+
+const SPECIAL_TARGETS = [
+  {
+    type: 'automatedProcess',
+    testId: 'debug-flags-special-target-automated-process',
+    label: (t: Messages) => t.debugFlags?.specialTargetAutomatedProcess ?? 'Automated Process',
+    hint: (t: Messages) =>
+      t.debugFlags?.specialTargetAutomatedProcessHint ?? 'Capture callbacks and system automation logs.'
+  },
+  {
+    type: 'platformIntegration',
+    testId: 'debug-flags-special-target-platform-integration',
+    label: (t: Messages) => t.debugFlags?.specialTargetPlatformIntegration ?? 'Platform Integration',
+    hint: (t: Messages) =>
+      t.debugFlags?.specialTargetPlatformIntegrationHint ?? 'Capture asynchronous integration callback logs.'
+  }
+] as const;
+
+function StatusRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="min-w-0">{children}</dd>
+    </>
+  );
 }
 
 export function DebugFlagsApp({
@@ -511,130 +562,134 @@ export function DebugFlagsApp({
     setConfirmDeleteManager(false);
   };
 
-  const noticeIcon = notice?.tone === 'success' ? CheckCircle2 : notice?.tone === 'warning' ? AlertCircle : Info;
-  const NoticeIcon = noticeIcon;
+  const NoticeIcon = notice?.tone === 'success' ? CheckCircle2 : notice?.tone === 'warning' ? AlertCircle : Info;
+  const authenticatedUsername = selectedOrg;
+  const orderedUsers = useMemo(() => orderUsersForPicker(users, authenticatedUsername), [users, authenticatedUsername]);
+  const applyBlocker = getApplyBlocker({ hasTarget: Boolean(selectedTarget), hasDebugLevel: Boolean(debugLevel) });
+  const applyHint = applyBlocker
+    ? applyBlocker === 'noTarget'
+      ? (t.debugFlags?.applyHintNoTarget ?? 'Select a user or a special target to apply a debug flag.')
+      : (t.debugFlags?.applyHintNoDebugLevel ?? 'Select a debug level to apply a debug flag.')
+    : undefined;
+  const busy = loading.orgs || loading.action;
+  const targetLabelRow = (
+    <StatusRow label={t.debugFlags?.selectedTarget ?? 'Selected target'}>
+      <span className="text-foreground" data-testid="debug-flags-selected-target-label">
+        {selectedTargetLabel}
+      </span>
+    </StatusRow>
+  );
+  const specialTargetRows = specialTargetSelected ? (
+    <>
+      <StatusRow label={t.debugFlags?.statusMatchedTargets ?? 'Matched targets'}>
+        <span data-testid="debug-flags-status-resolved-count">{specialTargetResolvedCount}</span>
+      </StatusRow>
+      <StatusRow label={t.debugFlags?.statusActiveTargets ?? 'Active flags'}>
+        <span data-testid="debug-flags-status-active-count">
+          {specialTargetActiveCount}/{specialTargetResolvedCount}
+        </span>
+      </StatusRow>
+    </>
+  ) : null;
 
   return (
-    <div className="flex min-h-screen flex-col gap-4 p-4 text-sm">
-      <header className="rounded-lg border border-border bg-card/70 p-4 shadow-sm">
-        <h1 className="text-lg font-semibold text-foreground">{t.debugFlags?.panelTitle ?? 'Apex Debug Flags'}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t.debugFlags?.panelSubtitle ?? 'Configure trace flags with room to focus.'}
-        </p>
-      </header>
-
-      <section className="rounded-lg border border-border bg-card/70 p-4 shadow-sm">
-        <div className="flex flex-wrap items-end gap-3">
-          <OrgSelect
-            label={t.debugFlags?.org ?? t.orgLabel}
-            orgs={orgs}
-            selected={selectedOrg}
-            onChange={handleSelectOrg}
-            testId="debug-flags-org-select"
-            disabled={loading.orgs || loading.action}
-            emptyText={t.noOrgsDetected ?? 'No orgs detected. Run "sf org list".'}
-          />
-        </div>
+    <div className="relative flex h-screen min-h-[120px] flex-col overflow-hidden bg-background text-sm text-foreground">
+      <section className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-1">
+        <OrgSelect
+          label={t.debugFlags?.org ?? t.orgLabel}
+          orgs={orgs}
+          selected={selectedOrg}
+          onChange={handleSelectOrg}
+          testId="debug-flags-org-select"
+          disabled={busy}
+          emptyText={t.noOrgsDetected ?? 'No orgs detected. Run "sf org list".'}
+          className={INLINE_SELECT}
+        />
       </section>
 
-      <section className="grid min-h-[420px] grid-cols-1 gap-4 lg:grid-cols-[1fr_1.4fr]">
-        <article className="rounded-lg border border-border bg-card/70 p-3 shadow-sm">
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                {t.debugFlags?.specialTargets ?? 'Special targets'}
-              </h2>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <button
-                  type="button"
-                  className={cn(
-                    'rounded-md border px-3 py-3 text-left transition-colors',
-                    selectedTarget?.type === 'automatedProcess'
-                      ? 'border-primary bg-primary/15 text-foreground'
-                      : 'border-border bg-background/50 hover:bg-muted/60'
-                  )}
-                  onClick={() => handleSelectSpecialTarget({ type: 'automatedProcess' })}
-                  disabled={loading.orgs || loading.action}
-                  data-testid="debug-flags-special-target-automated-process"
-                >
-                  <span className="block font-medium">
-                    {t.debugFlags?.specialTargetAutomatedProcess ?? 'Automated Process'}
-                  </span>
-                  <span className="mt-1 block text-xs text-muted-foreground">
-                    {t.debugFlags?.specialTargetAutomatedProcessHint ?? 'Capture callbacks and system automation logs.'}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className={cn(
-                    'rounded-md border px-3 py-3 text-left transition-colors',
-                    selectedTarget?.type === 'platformIntegration'
-                      ? 'border-primary bg-primary/15 text-foreground'
-                      : 'border-border bg-background/50 hover:bg-muted/60'
-                  )}
-                  onClick={() => handleSelectSpecialTarget({ type: 'platformIntegration' })}
-                  disabled={loading.orgs || loading.action}
-                  data-testid="debug-flags-special-target-platform-integration"
-                >
-                  <span className="block font-medium">
-                    {t.debugFlags?.specialTargetPlatformIntegration ?? 'Platform Integration'}
-                  </span>
-                  <span className="mt-1 block text-xs text-muted-foreground">
-                    {t.debugFlags?.specialTargetPlatformIntegrationHint ??
-                      'Capture asynchronous integration callback logs.'}
-                  </span>
-                </button>
-              </div>
-            </div>
+      {error ? (
+        <div
+          role="alert"
+          className="flex shrink-0 items-center gap-2 border-b border-destructive/40 bg-destructive/10 px-3 py-1 text-xs text-destructive"
+          data-testid="debug-flags-error"
+        >
+          <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>{error}</span>
+        </div>
+      ) : null}
 
+      {!error && notice ? (
+        <div
+          role="status"
+          className={cn('flex shrink-0 items-center gap-2 border-b px-3 py-1 text-xs', TONE_STRIP[notice.tone])}
+          data-testid="debug-flags-notice"
+        >
+          <NoticeIcon className={cn('h-4 w-4 shrink-0', TONE_ICON[notice.tone])} aria-hidden="true" />
+          <span>{notice.message}</span>
+        </div>
+      ) : null}
+
+      <main className="min-h-0 flex-1 overflow-y-auto">
+        <div className="grid grid-cols-1 min-[900px]:grid-cols-[minmax(240px,1fr)_minmax(0,1.5fr)]">
+          <section
+            className="flex min-w-0 flex-col gap-3 p-3 min-[900px]:border-r min-[900px]:border-border"
+            aria-label={t.debugFlags?.users ?? 'Active users'}
+          >
             <div className="flex flex-col gap-1">
-              <Label htmlFor="debug-flags-user-search">{t.debugFlags?.userSearchLabel ?? 'Find user'}</Label>
+              <Label htmlFor="debug-flags-user-search" className={FIELD_LABEL}>
+                {t.debugFlags?.userSearchLabel ?? 'Find user'}
+              </Label>
               <Input
                 id="debug-flags-user-search"
                 type="search"
                 value={query}
                 onChange={event => setQuery(event.target.value)}
                 placeholder={t.debugFlags?.userSearchPlaceholder ?? 'Type name or username…'}
-                disabled={loading.orgs || loading.action}
+                disabled={busy}
                 data-testid="debug-flags-user-search"
               />
             </div>
 
-            <div>
-              <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                {t.debugFlags?.users ?? 'Active users'}
-              </h2>
+            <div className="flex flex-col gap-1">
+              <h2 className={FIELD_LABEL}>{t.debugFlags?.users ?? 'Active users'}</h2>
               {loading.users ? (
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                   <span>{t.debugFlags?.loadingUsers ?? 'Loading users…'}</span>
                 </div>
-              ) : users.length === 0 ? (
+              ) : orderedUsers.length === 0 ? (
                 <p className="text-muted-foreground">
                   {t.debugFlags?.noUsers ?? 'No active users found for this query.'}
                 </p>
               ) : (
-                <ul className="max-h-[420px] space-y-2 overflow-auto pr-1" data-testid="debug-flags-users-list">
-                  {users.map(user => {
+                <ul className="flex flex-col" data-testid="debug-flags-users-list">
+                  {orderedUsers.map(user => {
                     const selected = user.id === selectedUserId;
                     return (
                       <li key={user.id}>
                         <button
                           type="button"
                           className={cn(
-                            'flex w-full items-center justify-between rounded-md border px-3 py-2 text-left transition-colors',
-                            selected
-                              ? 'border-primary bg-primary/15 text-foreground'
-                              : 'border-border bg-background/50 hover:bg-muted/60'
+                            ROW_BUTTON,
+                            'flex w-full items-center gap-2 px-2 py-1 text-left',
+                            selected && ROW_SELECTED
                           )}
+                          aria-pressed={selected}
                           onClick={() => handleSelectUser(user.id)}
                           data-testid={`debug-flags-user-row-${user.id}`}
                         >
-                          <span className="flex min-w-0 flex-col">
+                          <span className="flex min-w-0 flex-1 items-baseline gap-2">
                             <span className="truncate font-medium">{user.name}</span>
                             <span className="truncate text-xs text-muted-foreground">{user.username}</span>
                           </span>
-                          <UserRound className="h-4 w-4 shrink-0 opacity-70" aria-hidden="true" />
+                          {isAuthenticatedUser(user, authenticatedUsername) ? (
+                            <span
+                              className="shrink-0 rounded-full bg-secondary px-2 text-[11px] font-semibold text-secondary-foreground"
+                              data-testid="debug-flags-you-badge"
+                            >
+                              {t.debugFlags?.youBadge ?? 'You'}
+                            </span>
+                          ) : null}
                         </button>
                       </li>
                     );
@@ -642,503 +697,479 @@ export function DebugFlagsApp({
                 </ul>
               )}
             </div>
-          </div>
-        </article>
 
-        <article className="flex flex-col gap-4 rounded-lg border border-border bg-card/70 p-4 shadow-sm">
-          <div className="rounded-md border border-border/80 bg-background/40 p-3">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              {t.debugFlags?.currentStatus ?? 'Current status'}
-            </h2>
-
-            {!selectedTarget ? (
-              <p className="mt-2 text-muted-foreground">
-                {t.debugFlags?.selectTargetHint ??
-                  'Select a special target or an active user to inspect and configure debug flags.'}
-              </p>
-            ) : loading.status ? (
-              <div className="mt-2 flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                <span>{t.loading}</span>
-              </div>
-            ) : status?.targetAvailable === false ? (
-              <div className="mt-2 space-y-2">
-                <p>
-                  <span className="font-semibold">{t.debugFlags?.selectedTarget ?? 'Selected target'}:</span>{' '}
-                  <span data-testid="debug-flags-selected-target-label">{selectedTargetLabel}</span>
-                </p>
-                <p className="text-amber-300" data-testid="debug-flags-target-unavailable">
-                  {status.unavailableReason ??
-                    t.debugFlags?.targetUnavailable ??
-                    'This trace flag target is not available in this org.'}
-                </p>
-              </div>
-            ) : shouldRenderStatusDetails && status ? (
-              <div className="mt-2 space-y-2">
-                <p>
-                  <span className="font-semibold">{t.debugFlags?.selectedTarget ?? 'Selected target'}:</span>{' '}
-                  <span data-testid="debug-flags-selected-target-label">{selectedTargetLabel}</span>
-                </p>
-                {specialTargetSelected ? (
-                  <>
-                    <p>
-                      <span className="font-semibold">{t.debugFlags?.statusMatchedTargets ?? 'Matched targets'}:</span>{' '}
-                      <span data-testid="debug-flags-status-resolved-count">{specialTargetResolvedCount}</span>
-                    </p>
-                    <p>
-                      <span className="font-semibold">{t.debugFlags?.statusActiveTargets ?? 'Active flags'}:</span>{' '}
-                      <span data-testid="debug-flags-status-active-count">
-                        {specialTargetActiveCount}/{specialTargetResolvedCount}
-                      </span>
-                    </p>
-                  </>
-                ) : null}
-                <div className="flex items-center gap-2">
-                  <span
-                    className={cn(
-                      'inline-flex rounded-full px-2 py-0.5 text-xs font-semibold',
-                      status.isActive ? 'bg-emerald-500/15 text-emerald-300' : 'bg-zinc-500/20 text-zinc-300'
-                    )}
-                    data-testid="debug-flags-status-pill"
-                  >
-                    {status.isActive
-                      ? (t.debugFlags?.statusActive ?? 'Active')
-                      : (t.debugFlags?.statusInactive ?? 'Inactive')}
-                  </span>
-                </div>
-                <p>
-                  <span className="font-semibold">{t.debugFlags?.statusLevel ?? 'Debug level'}:</span>{' '}
-                  <span data-testid="debug-flags-status-level">
-                    {status.debugLevelMixed ? (t.debugFlags?.statusMixed ?? 'Mixed') : status.debugLevelName || '-'}
-                  </span>
-                </p>
-                <p>
-                  <span className="font-semibold">{t.debugFlags?.statusStart ?? 'Starts'}:</span>{' '}
-                  {formatDate(status.startDate, locale)}
-                </p>
-                <p>
-                  <span className="font-semibold">{t.debugFlags?.statusExpiration ?? 'Expires'}:</span>{' '}
-                  <span data-testid="debug-flags-status-expiration">{formatDate(status.expirationDate, locale)}</span>
-                </p>
-              </div>
-            ) : (
-              <div className="mt-2 space-y-2 text-muted-foreground">
-                <p>
-                  <span className="font-semibold">{t.debugFlags?.selectedTarget ?? 'Selected target'}:</span>{' '}
-                  <span className="text-foreground" data-testid="debug-flags-selected-target-label">
-                    {selectedTargetLabel}
-                  </span>
-                </p>
-                {specialTargetSelected ? (
-                  <>
-                    <p>
-                      <span className="font-semibold">{t.debugFlags?.statusMatchedTargets ?? 'Matched targets'}:</span>{' '}
-                      <span className="text-foreground" data-testid="debug-flags-status-resolved-count">
-                        {specialTargetResolvedCount}
-                      </span>
-                    </p>
-                    <p>
-                      <span className="font-semibold">{t.debugFlags?.statusActiveTargets ?? 'Active flags'}:</span>{' '}
-                      <span className="text-foreground" data-testid="debug-flags-status-active-count">
-                        {specialTargetActiveCount}/{specialTargetResolvedCount}
-                      </span>
-                    </p>
-                  </>
-                ) : null}
-                <p>
-                  {(t.debugFlags?.noStatus ?? 'No active {logType} trace flag for this target.').replace(
-                    '{logType}',
-                    logType
-                  )}
-                </p>
-              </div>
-            )}
-
-            {otherLogTypeNote ? (
-              <div
-                className={cn(
-                  'mt-3 flex items-start gap-2 rounded-md border px-3 py-2',
-                  otherLogTypeNote.kind === 'overridden'
-                    ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
-                    : 'border-sky-500/30 bg-sky-500/10 text-sky-300'
-                )}
-                data-testid="debug-flags-other-log-type-note"
-              >
-                {otherLogTypeNote.kind === 'overridden' ? (
-                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                ) : (
-                  <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                )}
-                <div className="space-y-2">
-                  <p>{otherLogTypeNoteText}</p>
-                  {otherLogTypeNote.kind === 'hidden' ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleSelectLogType(otherLogTypeNote.other.logType)}
-                      disabled={loading.orgs || loading.action}
-                      data-testid="debug-flags-other-log-type-switch"
-                    >
-                      {t.debugFlags?.otherLogTypeSwitch ?? 'Show USER_DEBUG flag'}
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <LabeledSelect
-              label={t.debugFlags?.logType ?? 'Log type'}
-              value={logType}
-              onChange={handleSelectLogType}
-              options={TRACE_FLAG_LOG_TYPES.map(value => ({ value, label: logTypeLabels[value] }))}
-              testId="debug-flags-log-type"
-              disabled={loading.orgs || loading.action}
-            />
-            <p className="text-xs text-muted-foreground">
-              {t.debugFlags?.logTypeHelper ??
-                "Developer logs also capture Apex checkpoints (heap dumps) and are kept for 24 hours. User debug logs are kept for 7 days. When a user has both types active, the developer log's debug level applies. The Developer Console uses the same DEVELOPER_LOG flag, so removing DEVELOPER_LOG here also removes the Console's flag, and the Console creates it again when it opens."}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px]">
-            <LabeledSelect
-              label={t.debugFlags?.debugLevel ?? 'Debug level'}
-              value={debugLevel}
-              onChange={setDebugLevel}
-              options={debugLevels.map(level => ({ value: level, label: level }))}
-              placeholderLabel={t.tail?.select ?? 'Select'}
-              testId="debug-flags-debug-level"
-              disabled={loading.orgs || loading.action}
-            />
             <div className="flex flex-col gap-1">
-              <Label htmlFor="debug-flags-ttl">{t.debugFlags?.ttlMinutes ?? 'TTL (minutes)'}</Label>
-              <Input
-                id="debug-flags-ttl"
-                type="number"
-                value={ttlMinutes}
-                onChange={event => setTtlMinutes(event.target.value)}
-                min={1}
-                max={1440}
-                disabled={loading.orgs || loading.action}
-                data-testid="debug-flags-ttl"
-              />
+              <h2 className={FIELD_LABEL}>{t.debugFlags?.specialTargets ?? 'Special targets'}</h2>
+              <div className="flex flex-wrap gap-1">
+                {SPECIAL_TARGETS.map(option => {
+                  const selected = selectedTarget?.type === option.type;
+                  return (
+                    <button
+                      key={option.type}
+                      type="button"
+                      className={cn(ROW_BUTTON, 'border border-border px-2 py-1 text-left', selected && ROW_SELECTED)}
+                      aria-pressed={selected}
+                      title={option.hint(t)}
+                      onClick={() => handleSelectSpecialTarget({ type: option.type })}
+                      disabled={busy}
+                      data-testid={option.testId}
+                    >
+                      {option.label(t)}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          </section>
 
-          <p className="text-xs text-muted-foreground">
-            {t.debugFlags?.ttlHelper ?? 'Default is 30 minutes. Allowed range: 1-1440.'}
-          </p>
+          <section className="flex min-w-0 flex-col gap-3 px-3 pt-3">
+            <div className="flex flex-col gap-1">
+              <h2 className={FIELD_LABEL}>{t.debugFlags?.currentStatus ?? 'Current status'}</h2>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              onClick={handleApply}
-              disabled={!canApply}
-              variant="secondary"
-              data-testid="debug-flags-apply"
-            >
-              {loading.action ? (
-                <>
+              {!selectedTarget ? (
+                <p className="text-muted-foreground">
+                  {t.debugFlags?.selectTargetHint ??
+                    'Select a special target or an active user to inspect and configure debug flags.'}
+                </p>
+              ) : loading.status ? (
+                <div className="flex items-center gap-2 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                   <span>{t.loading}</span>
+                </div>
+              ) : status?.targetAvailable === false ? (
+                <>
+                  <dl className={STATUS_LIST}>{targetLabelRow}</dl>
+                  <p className="flex items-start gap-1.5" data-testid="debug-flags-target-unavailable">
+                    <AlertCircle className={cn('mt-0.5 h-4 w-4 shrink-0', TONE_ICON.warning)} aria-hidden="true" />
+                    <span>
+                      {status.unavailableReason ??
+                        t.debugFlags?.targetUnavailable ??
+                        'This trace flag target is not available in this org.'}
+                    </span>
+                  </p>
                 </>
+              ) : shouldRenderStatusDetails && status ? (
+                <dl className={STATUS_LIST}>
+                  {targetLabelRow}
+                  {specialTargetRows}
+                  <StatusRow label={t.debugFlags?.statusLabel ?? 'Status'}>
+                    <span
+                      className={cn(
+                        'inline-flex rounded-full px-2 text-xs font-semibold',
+                        status.isActive ? TONE_PILL_ACTIVE : 'bg-muted text-muted-foreground'
+                      )}
+                      data-testid="debug-flags-status-pill"
+                    >
+                      {status.isActive
+                        ? (t.debugFlags?.statusActive ?? 'Active')
+                        : (t.debugFlags?.statusInactive ?? 'Inactive')}
+                    </span>
+                  </StatusRow>
+                  <StatusRow label={t.debugFlags?.statusLevel ?? 'Debug level'}>
+                    <span data-testid="debug-flags-status-level">
+                      {status.debugLevelMixed ? (t.debugFlags?.statusMixed ?? 'Mixed') : status.debugLevelName || '-'}
+                    </span>
+                  </StatusRow>
+                  <StatusRow label={t.debugFlags?.statusStart ?? 'Starts'}>
+                    {formatDate(status.startDate, locale)}
+                  </StatusRow>
+                  <StatusRow label={t.debugFlags?.statusExpiration ?? 'Expires'}>
+                    <span data-testid="debug-flags-status-expiration">{formatDate(status.expirationDate, locale)}</span>
+                  </StatusRow>
+                </dl>
               ) : (
-                <span>{t.debugFlags?.apply ?? 'Apply debug flag'}</span>
+                <>
+                  <dl className={STATUS_LIST}>
+                    {targetLabelRow}
+                    {specialTargetRows}
+                  </dl>
+                  <p className="text-muted-foreground">
+                    {(t.debugFlags?.noStatus ?? 'No active {logType} trace flag for this target.').replace(
+                      '{logType}',
+                      logType
+                    )}
+                  </p>
+                </>
               )}
-            </Button>
-            <Button
-              type="button"
-              onClick={handleRemove}
-              disabled={!canRemove}
-              variant="outline"
-              data-testid="debug-flags-remove"
-            >
-              {t.debugFlags?.remove ?? 'Remove debug flag'}
-            </Button>
 
-            <Popover.Root>
-              <Popover.Trigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={loading.orgs || loading.action}
-                  title={t.logsCleanup?.openTitle ?? 'Delete Apex logs from the selected org'}
-                  className="flex items-center gap-2"
-                >
-                  <Trash2 className="h-4 w-4" aria-hidden="true" />
-                  <span>{t.logsCleanup?.open ?? 'Clear logs'}</span>
-                </Button>
-              </Popover.Trigger>
-              <Popover.Portal>
-                <Popover.Content
-                  align="start"
-                  sideOffset={8}
+              {otherLogTypeNote ? (
+                <div
                   className={cn(
-                    'z-50 w-[260px] rounded-lg border border-border bg-card p-2 shadow-lg outline-none',
-                    'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0'
+                    'mt-1 flex items-start gap-2 rounded-md border px-2 py-1 text-xs',
+                    TONE_STRIP[otherLogTypeNote.kind === 'overridden' ? 'warning' : 'info']
                   )}
+                  data-testid="debug-flags-other-log-type-note"
                 >
-                  <div className="flex flex-col gap-1">
-                    <Popover.Close asChild>
+                  {otherLogTypeNote.kind === 'overridden' ? (
+                    <AlertCircle className={cn('mt-0.5 h-4 w-4 shrink-0', TONE_ICON.warning)} aria-hidden="true" />
+                  ) : (
+                    <Info className={cn('mt-0.5 h-4 w-4 shrink-0', TONE_ICON.info)} aria-hidden="true" />
+                  )}
+                  <div className="space-y-1">
+                    <p>{otherLogTypeNoteText}</p>
+                    {otherLogTypeNote.kind === 'hidden' ? (
                       <Button
                         type="button"
-                        variant="ghost"
-                        className="w-full justify-start"
-                        onClick={() => handleClearLogs('mine')}
-                        disabled={loading.orgs || loading.action}
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleSelectLogType(otherLogTypeNote.other.logType)}
+                        disabled={busy}
+                        data-testid="debug-flags-other-log-type-switch"
                       >
-                        {t.logsCleanup?.deleteMine ?? 'Delete my logs'}
+                        {t.debugFlags?.otherLogTypeSwitch ?? 'Show USER_DEBUG flag'}
                       </Button>
-                    </Popover.Close>
-                    <Popover.Close asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="w-full justify-start text-destructive hover:text-destructive"
-                        onClick={() => handleClearLogs('all')}
-                        disabled={loading.orgs || loading.action}
-                      >
-                        {t.logsCleanup?.deleteAll ?? 'Delete all org logs'}
-                      </Button>
-                    </Popover.Close>
+                    ) : null}
                   </div>
-                </Popover.Content>
-              </Popover.Portal>
-            </Popover.Root>
-          </div>
-        </article>
-      </section>
+                </div>
+              ) : null}
+            </div>
 
-      <section className="rounded-lg border border-border bg-card/70 p-4 shadow-sm" data-testid="debug-level-manager">
-        <div className="flex flex-col gap-1">
-          <h2 className="text-base font-semibold text-foreground">
-            {t.debugFlags?.managerTitle ?? 'Debug Level Manager'}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {t.debugFlags?.managerSubtitle ??
-              'Create from scratch, apply a preset, or edit an existing DebugLevel field by field.'}
-          </p>
+            <div className="flex flex-col gap-1">
+              <LabeledSelect
+                label={t.debugFlags?.logType ?? 'Log type'}
+                value={logType}
+                onChange={handleSelectLogType}
+                options={TRACE_FLAG_LOG_TYPES.map(value => ({ value, label: logTypeLabels[value] }))}
+                testId="debug-flags-log-type"
+                disabled={busy}
+                className="min-w-0"
+              />
+              <details className="text-xs text-muted-foreground" data-testid="debug-flags-log-type-help">
+                <summary className="w-fit cursor-pointer select-none rounded-sm hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  {t.debugFlags?.aboutLogTypes ?? 'About log types'}
+                </summary>
+                <p className="mt-1">
+                  {t.debugFlags?.logTypeHelper ??
+                    "Developer logs also capture Apex checkpoints (heap dumps) and are kept for 24 hours. User debug logs are kept for 7 days. When a user has both types active, the developer log's debug level applies. The Developer Console uses the same DEVELOPER_LOG flag, so removing DEVELOPER_LOG here also removes the Console's flag, and the Console creates it again when it opens."}
+                </p>
+              </details>
+            </div>
+
+            <div className="grid grid-cols-[minmax(0,1fr)_7.5rem] gap-3">
+              <LabeledSelect
+                label={t.debugFlags?.debugLevel ?? 'Debug level'}
+                value={debugLevel}
+                onChange={setDebugLevel}
+                options={debugLevels.map(level => ({ value: level, label: level }))}
+                placeholderLabel={t.tail?.select ?? 'Select'}
+                testId="debug-flags-debug-level"
+                disabled={busy}
+                className="min-w-0"
+              />
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="debug-flags-ttl" className={FIELD_LABEL}>
+                  {t.debugFlags?.ttlMinutes ?? 'TTL (minutes)'}
+                </Label>
+                <Input
+                  id="debug-flags-ttl"
+                  type="number"
+                  value={ttlMinutes}
+                  onChange={event => setTtlMinutes(event.target.value)}
+                  min={1}
+                  max={1440}
+                  title={t.debugFlags?.ttlHelper ?? 'Default is 30 minutes. Allowed range: 1-1440.'}
+                  disabled={busy}
+                  data-testid="debug-flags-ttl"
+                />
+              </div>
+            </div>
+
+            <div className="sticky bottom-0 -mx-3 mt-auto flex flex-wrap items-center gap-2 border-t border-border bg-background px-3 py-2">
+              <Button
+                type="button"
+                onClick={handleApply}
+                disabled={!canApply}
+                variant="default"
+                aria-describedby={applyHint ? 'debug-flags-apply-hint' : undefined}
+                data-testid="debug-flags-apply"
+              >
+                {loading.action ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    <span>{t.loading}</span>
+                  </>
+                ) : (
+                  <span>{t.debugFlags?.apply ?? 'Apply debug flag'}</span>
+                )}
+              </Button>
+              <Button
+                type="button"
+                onClick={handleRemove}
+                disabled={!canRemove}
+                variant="outline"
+                data-testid="debug-flags-remove"
+              >
+                {t.debugFlags?.remove ?? 'Remove debug flag'}
+              </Button>
+
+              <Popover.Root>
+                <Popover.Trigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={busy}
+                    title={t.logsCleanup?.openTitle ?? 'Delete Apex logs from the selected org'}
+                    className="flex items-center gap-2"
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    <span>{t.logsCleanup?.open ?? 'Clear logs'}</span>
+                  </Button>
+                </Popover.Trigger>
+                <Popover.Portal>
+                  <Popover.Content
+                    align="start"
+                    sideOffset={8}
+                    className={cn(
+                      'z-50 w-[260px] rounded-lg border border-border bg-card p-2 shadow-lg outline-none',
+                      'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0'
+                    )}
+                  >
+                    <div className="flex flex-col gap-1">
+                      <Popover.Close asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="w-full justify-start"
+                          onClick={() => handleClearLogs('mine')}
+                          disabled={busy}
+                        >
+                          {t.logsCleanup?.deleteMine ?? 'Delete my logs'}
+                        </Button>
+                      </Popover.Close>
+                      <Popover.Close asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="w-full justify-start text-destructive hover:text-destructive"
+                          onClick={() => handleClearLogs('all')}
+                          disabled={busy}
+                        >
+                          {t.logsCleanup?.deleteAll ?? 'Delete all org logs'}
+                        </Button>
+                      </Popover.Close>
+                    </div>
+                  </Popover.Content>
+                </Popover.Portal>
+              </Popover.Root>
+
+              {applyHint ? (
+                <span
+                  id="debug-flags-apply-hint"
+                  className="text-xs text-muted-foreground"
+                  data-testid="debug-flags-apply-hint"
+                >
+                  {applyHint}
+                </span>
+              ) : null}
+            </div>
+          </section>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto_1fr_auto]">
+        <section className="border-t border-border p-3" data-testid="debug-level-manager">
           <div className="flex flex-col gap-1">
-            <Label htmlFor="debug-level-manager-select">{t.debugFlags?.managerExisting ?? 'Existing DebugLevel'}</Label>
-            <select
-              id="debug-level-manager-select"
-              data-testid="debug-level-manager-select"
-              value={selectedManagerId}
-              onChange={event => handleSelectManager(event.target.value)}
-              disabled={loading.orgs || loading.action || managerRecords.length === 0}
-              className="flex min-h-[28px] w-full rounded-md border border-input bg-input px-3 py-1 text-[13px] shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <option value="">{t.debugFlags?.managerNewPlaceholder ?? 'New draft'}</option>
-              {managerRecords.map(record => (
-                <option key={record.id || record.developerName} value={record.id}>
-                  {record.developerName}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex items-end">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleNewManager}
-              disabled={loading.orgs || loading.action}
-              data-testid="debug-level-manager-new"
-            >
-              {t.debugFlags?.managerNew ?? 'New'}
-            </Button>
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="debug-level-preset-select">{t.debugFlags?.managerPreset ?? 'Preset'}</Label>
-            <select
-              id="debug-level-preset-select"
-              data-testid="debug-level-preset-select"
-              value={selectedPresetId}
-              onChange={event => setSelectedPresetId(event.target.value)}
-              disabled={loading.orgs || loading.action || managerPresets.length === 0}
-              className="flex min-h-[28px] w-full rounded-md border border-input bg-input px-3 py-1 text-[13px] shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <option value="">{t.debugFlags?.managerPresetPlaceholder ?? 'Select a preset'}</option>
-              {managerPresets.map(preset => (
-                <option key={preset.id} value={preset.id}>
-                  {preset.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex items-end">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleApplyPreset}
-              disabled={!selectedPresetId || loading.orgs || loading.action}
-              data-testid="debug-level-apply-preset"
-            >
-              {t.debugFlags?.managerApplyPreset ?? 'Apply preset'}
-            </Button>
-          </div>
-          {selectedPreset ? (
-            <p
-              className="-mt-2 text-xs text-muted-foreground lg:col-span-2 lg:col-start-3"
-              data-testid="debug-level-preset-description"
-            >
-              {selectedPreset.description}
+            <h2 className="text-sm font-semibold text-foreground">
+              {t.debugFlags?.managerTitle ?? 'Debug Level Manager'}
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              {t.debugFlags?.managerSubtitle ??
+                'Create from scratch, apply a preset, or edit an existing DebugLevel field by field.'}
             </p>
-          ) : null}
-        </div>
-
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="debug-level-draft-developer-name">
-              {t.debugFlags?.managerDeveloperName ?? 'DeveloperName'}
-            </Label>
-            <Input
-              id="debug-level-draft-developer-name"
-              data-testid="debug-level-draft-developer-name"
-              value={managerDraft.developerName}
-              onChange={event => handleManagerFieldChange('developerName', event.target.value)}
-              disabled={loading.orgs || loading.action}
-            />
           </div>
 
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="debug-level-draft-master-label">{t.debugFlags?.managerMasterLabel ?? 'MasterLabel'}</Label>
-            <Input
-              id="debug-level-draft-master-label"
-              data-testid="debug-level-draft-master-label"
-              value={managerDraft.masterLabel}
-              onChange={event => handleManagerFieldChange('masterLabel', event.target.value)}
-              disabled={loading.orgs || loading.action}
-            />
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="debug-level-draft-language">{t.debugFlags?.managerLanguage ?? 'Language'}</Label>
-            <Input
-              id="debug-level-draft-language"
-              data-testid="debug-level-draft-language"
-              value={managerDraft.language}
-              onChange={event => handleManagerFieldChange('language', event.target.value)}
-              disabled={loading.orgs || loading.action}
-            />
-          </div>
-        </div>
-
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {DEBUG_LEVEL_FIELDS.map(field => (
-            <div key={field.key} className="flex flex-col gap-1">
-              <Label htmlFor={`debug-level-field-${field.key}`}>{field.label}</Label>
+          <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto_1fr_auto]">
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="debug-level-manager-select">
+                {t.debugFlags?.managerExisting ?? 'Existing DebugLevel'}
+              </Label>
               <select
-                id={`debug-level-field-${field.key}`}
-                data-testid={`debug-level-field-${field.key}`}
-                value={managerDraft[field.key]}
-                onChange={event => handleManagerFieldChange(field.key, event.target.value)}
-                disabled={loading.orgs || loading.action}
+                id="debug-level-manager-select"
+                data-testid="debug-level-manager-select"
+                value={selectedManagerId}
+                onChange={event => handleSelectManager(event.target.value)}
+                disabled={loading.orgs || loading.action || managerRecords.length === 0}
                 className="flex min-h-[28px] w-full rounded-md border border-input bg-input px-3 py-1 text-[13px] shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {DEBUG_LEVEL_LOG_LEVELS.map(level => (
-                  <option key={level} value={level}>
-                    {level}
+                <option value="">{t.debugFlags?.managerNewPlaceholder ?? 'New draft'}</option>
+                {managerRecords.map(record => (
+                  <option key={record.id || record.developerName} value={record.id}>
+                    {record.developerName}
                   </option>
                 ))}
               </select>
             </div>
-          ))}
-        </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            onClick={handleSaveManager}
-            disabled={!canSaveManager}
-            variant="secondary"
-            data-testid="debug-level-save"
-          >
-            {t.debugFlags?.managerSave ?? 'Save'}
-          </Button>
-          <Button
-            type="button"
-            onClick={handleResetManager}
-            disabled={!managerDraftDirty || loading.orgs || loading.action}
-            variant="outline"
-            data-testid="debug-level-reset"
-          >
-            {t.debugFlags?.managerReset ?? 'Reset changes'}
-          </Button>
-          <Button
-            type="button"
-            onClick={handleDeleteManager}
-            disabled={!canDeleteManager}
-            variant="outline"
-            data-testid="debug-level-delete"
-          >
-            {t.debugFlags?.managerDelete ?? 'Delete'}
-          </Button>
-        </div>
+            <div className="flex items-end">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleNewManager}
+                disabled={loading.orgs || loading.action}
+                data-testid="debug-level-manager-new"
+              >
+                {t.debugFlags?.managerNew ?? 'New'}
+              </Button>
+            </div>
 
-        {confirmDeleteManager && (
-          <div
-            className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-            data-testid="debug-level-delete-confirmation"
-          >
-            <AlertCircle className="h-4 w-4" aria-hidden="true" />
-            <span>{t.debugFlags?.managerDeleteConfirmPrompt ?? 'Delete this DebugLevel from the org?'}</span>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="debug-level-preset-select">{t.debugFlags?.managerPreset ?? 'Preset'}</Label>
+              <select
+                id="debug-level-preset-select"
+                data-testid="debug-level-preset-select"
+                value={selectedPresetId}
+                onChange={event => setSelectedPresetId(event.target.value)}
+                disabled={loading.orgs || loading.action || managerPresets.length === 0}
+                className="flex min-h-[28px] w-full rounded-md border border-input bg-input px-3 py-1 text-[13px] shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="">{t.debugFlags?.managerPresetPlaceholder ?? 'Select a preset'}</option>
+                {managerPresets.map(preset => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-end">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleApplyPreset}
+                disabled={!selectedPresetId || loading.orgs || loading.action}
+                data-testid="debug-level-apply-preset"
+              >
+                {t.debugFlags?.managerApplyPreset ?? 'Apply preset'}
+              </Button>
+            </div>
+            {selectedPreset ? (
+              <p
+                className="-mt-2 text-xs text-muted-foreground lg:col-span-2 lg:col-start-3"
+                data-testid="debug-level-preset-description"
+              >
+                {selectedPreset.description}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="debug-level-draft-developer-name">
+                {t.debugFlags?.managerDeveloperName ?? 'DeveloperName'}
+              </Label>
+              <Input
+                id="debug-level-draft-developer-name"
+                data-testid="debug-level-draft-developer-name"
+                value={managerDraft.developerName}
+                onChange={event => handleManagerFieldChange('developerName', event.target.value)}
+                disabled={loading.orgs || loading.action}
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="debug-level-draft-master-label">
+                {t.debugFlags?.managerMasterLabel ?? 'MasterLabel'}
+              </Label>
+              <Input
+                id="debug-level-draft-master-label"
+                data-testid="debug-level-draft-master-label"
+                value={managerDraft.masterLabel}
+                onChange={event => handleManagerFieldChange('masterLabel', event.target.value)}
+                disabled={loading.orgs || loading.action}
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="debug-level-draft-language">{t.debugFlags?.managerLanguage ?? 'Language'}</Label>
+              <Input
+                id="debug-level-draft-language"
+                data-testid="debug-level-draft-language"
+                value={managerDraft.language}
+                onChange={event => handleManagerFieldChange('language', event.target.value)}
+                disabled={loading.orgs || loading.action}
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {DEBUG_LEVEL_FIELDS.map(field => (
+              <div key={field.key} className="flex flex-col gap-1">
+                <Label htmlFor={`debug-level-field-${field.key}`}>{field.label}</Label>
+                <select
+                  id={`debug-level-field-${field.key}`}
+                  data-testid={`debug-level-field-${field.key}`}
+                  value={managerDraft[field.key]}
+                  onChange={event => handleManagerFieldChange(field.key, event.target.value)}
+                  disabled={loading.orgs || loading.action}
+                  className="flex min-h-[28px] w-full rounded-md border border-input bg-input px-3 py-1 text-[13px] shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {DEBUG_LEVEL_LOG_LEVELS.map(level => (
+                    <option key={level} value={level}>
+                      {level}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              onClick={handleSaveManager}
+              disabled={!canSaveManager}
+              variant="secondary"
+              data-testid="debug-level-save"
+            >
+              {t.debugFlags?.managerSave ?? 'Save'}
+            </Button>
+            <Button
+              type="button"
+              onClick={handleResetManager}
+              disabled={!managerDraftDirty || loading.orgs || loading.action}
+              variant="outline"
+              data-testid="debug-level-reset"
+            >
+              {t.debugFlags?.managerReset ?? 'Reset changes'}
+            </Button>
             <Button
               type="button"
               onClick={handleDeleteManager}
               disabled={!canDeleteManager}
-              variant="destructive"
-              data-testid="debug-level-delete-confirm"
-            >
-              {t.debugFlags?.managerDeleteConfirmAction ?? 'Delete'}
-            </Button>
-            <Button
-              type="button"
-              onClick={handleCancelDeleteManager}
-              disabled={loading.action || loading.orgs}
               variant="outline"
-              data-testid="debug-level-delete-cancel"
+              data-testid="debug-level-delete"
             >
-              {t.debugFlags?.managerDeleteCancel ?? 'Cancel'}
+              {t.debugFlags?.managerDelete ?? 'Delete'}
             </Button>
           </div>
-        )}
-      </section>
 
-      {error && (
-        <div
-          className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-destructive"
-          data-testid="debug-flags-error"
-        >
-          <AlertCircle className="h-4 w-4" aria-hidden="true" />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {!error && notice && (
-        <div
-          className={cn(
-            'flex items-center gap-2 rounded-md border px-3 py-2',
-            notice.tone === 'success'
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-              : notice.tone === 'warning'
-                ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
-                : 'border-sky-500/30 bg-sky-500/10 text-sky-300'
+          {confirmDeleteManager && (
+            <div
+              className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              data-testid="debug-level-delete-confirmation"
+            >
+              <AlertCircle className="h-4 w-4" aria-hidden="true" />
+              <span>{t.debugFlags?.managerDeleteConfirmPrompt ?? 'Delete this DebugLevel from the org?'}</span>
+              <Button
+                type="button"
+                onClick={handleDeleteManager}
+                disabled={!canDeleteManager}
+                variant="destructive"
+                data-testid="debug-level-delete-confirm"
+              >
+                {t.debugFlags?.managerDeleteConfirmAction ?? 'Delete'}
+              </Button>
+              <Button
+                type="button"
+                onClick={handleCancelDeleteManager}
+                disabled={loading.action || loading.orgs}
+                variant="outline"
+                data-testid="debug-level-delete-cancel"
+              >
+                {t.debugFlags?.managerDeleteCancel ?? 'Cancel'}
+              </Button>
+            </div>
           )}
-          data-testid="debug-flags-notice"
-        >
-          <NoticeIcon className="h-4 w-4" aria-hidden="true" />
-          <span>{notice.message}</span>
-        </div>
-      )}
+        </section>
+      </main>
     </div>
   );
 }

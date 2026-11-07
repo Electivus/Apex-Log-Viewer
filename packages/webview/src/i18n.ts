@@ -80,8 +80,6 @@ export type Messages = {
   debugFlags?: {
     open: string;
     openTitle: string;
-    panelTitle: string;
-    panelSubtitle: string;
     org: string;
     specialTargets?: string;
     specialTargetAutomatedProcess?: string;
@@ -94,6 +92,11 @@ export type Messages = {
     noUsers: string;
     loadingUsers: string;
     selectTargetHint?: string;
+    applyHintNoTarget?: string;
+    applyHintNoDebugLevel?: string;
+    youBadge?: string;
+    aboutLogTypes?: string;
+    statusLabel?: string;
     debugLevel: string;
     ttlMinutes: string;
     logType?: string;
@@ -220,8 +223,6 @@ const en: Messages = {
   debugFlags: {
     open: 'Debug Flags',
     openTitle: 'Open debug flags editor',
-    panelTitle: 'Apex Debug Flags',
-    panelSubtitle: 'Configure trace flags for active users and special Salesforce targets.',
     org: 'Org',
     specialTargets: 'Special targets',
     specialTargetAutomatedProcess: 'Automated Process',
@@ -234,6 +235,11 @@ const en: Messages = {
     noUsers: 'No active users found for this query.',
     loadingUsers: 'Loading users…',
     selectTargetHint: 'Select a special target or an active user to inspect and configure debug flags.',
+    applyHintNoTarget: 'Select a user or a special target to apply a debug flag.',
+    applyHintNoDebugLevel: 'Select a debug level to apply a debug flag.',
+    youBadge: 'You',
+    aboutLogTypes: 'About log types',
+    statusLabel: 'Status',
     debugLevel: 'Debug level',
     ttlMinutes: 'TTL (minutes)',
     logType: 'Log type',
@@ -362,8 +368,6 @@ const ptBR: Messages = {
   debugFlags: {
     open: 'Debug Flags',
     openTitle: 'Abrir editor de debug flags',
-    panelTitle: 'Apex Debug Flags',
-    panelSubtitle: 'Configure trace flags para usuários ativos e alvos especiais do Salesforce.',
     org: 'Org',
     specialTargets: 'Alvos especiais',
     specialTargetAutomatedProcess: 'Automated Process',
@@ -376,6 +380,11 @@ const ptBR: Messages = {
     noUsers: 'Nenhum usuário ativo encontrado para esta busca.',
     loadingUsers: 'Carregando usuários…',
     selectTargetHint: 'Selecione um alvo especial ou um usuário ativo para inspecionar e configurar debug flags.',
+    applyHintNoTarget: 'Selecione um usuário ou um alvo especial para aplicar a debug flag.',
+    applyHintNoDebugLevel: 'Selecione um nível de depuração para aplicar a debug flag.',
+    youBadge: 'Você',
+    aboutLogTypes: 'Sobre os tipos de log',
+    statusLabel: 'Status',
     debugLevel: 'Nível de depuração',
     ttlMinutes: 'TTL (minutos)',
     logType: 'Tipo de log',
