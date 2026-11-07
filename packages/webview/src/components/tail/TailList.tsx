@@ -19,6 +19,9 @@ type TailListProps = {
   virtualListComponent?: typeof List;
 };
 
+/** The list token is unset in High Contrast, where the editor selection is solid white; the row keeps its outline there. */
+const SELECTED_ROW_BACKGROUND = 'var(--vscode-list-activeSelectionBackground, transparent)';
+
 /** Distance from the end, in px, that still counts as being at the bottom. */
 const AT_BOTTOM_THRESHOLD = 4;
 
@@ -37,7 +40,7 @@ export function TailList({
 }: TailListProps) {
   const defaultRowHeight = 18; // close to single-line height at default font
   const rowHeightsRef = useRef<Record<number, number>>({});
-  const [height, setHeight] = useState(420);
+  const [height, setHeight] = useState(0);
   const outerRef = useRef<HTMLDivElement | null>(null);
   // react-window publishes its imperative handle before its scroll element exists, so
   // `listRef.current.element` is still null after the first commit. Keep the element in
@@ -87,25 +90,21 @@ export function TailList({
     }
   };
 
-  // Auto-size list to fit viewport similarly to LogsTable
+  // The list takes the height the panel leaves under the toolbar. When a short, narrow panel cannot fit a wrapped
+  // toolbar, the root scrolls instead and the list keeps its minimum height, so no control or row is clipped.
   useLayoutEffect(() => {
-    const recompute = () => {
-      const rect = outerRef.current?.getBoundingClientRect();
-      const top = rect?.top ?? 0;
-      const available = Math.max(160, Math.floor(window.innerHeight - top - 12));
-      setHeight(available);
-    };
+    const outer = outerRef.current;
+    if (!outer) return;
+    const recompute = () => setHeight(Math.max(0, Math.floor(outer.clientHeight)));
     recompute();
     const ro = new ResizeObserver(recompute);
-    if (outerRef.current) ro.observe(outerRef.current);
-    window.addEventListener('resize', recompute);
+    ro.observe(outer);
     return () => {
       try {
         ro.disconnect();
       } catch (e) {
         console.warn('TailList: failed to disconnect ResizeObserver', e);
       }
-      window.removeEventListener('resize', recompute);
     };
   }, []);
 
@@ -231,28 +230,23 @@ export function TailList({
   }, [listElement]);
 
   return (
-    <div ref={outerRef} className="flex-1">
-      <div
-        className="relative w-full overflow-hidden rounded-lg border border-border bg-background/40 font-mono text-xs text-foreground shadow-inner"
-        style={{ height }}
-      >
-        {showEmpty ? (
-          <div className="px-4 py-6 text-sm text-muted-foreground">
-            {running ? (t.tail?.waiting ?? 'Waiting for logs…') : (t.tail?.pressStart ?? 'Press Start to tail logs.')}
-          </div>
-        ) : (
-          <VirtualList
-            listRef={setVirtualListRef}
-            style={{ height, width: '100%' }}
-            rowCount={filteredIndexes.length}
-            rowHeight={(index: number) => getItemSize(index)}
-            overscanCount={overscanCount}
-            rowProps={{}}
-            onRowsRendered={onRowsRendered}
-            rowComponent={(props: { index: number; style: React.CSSProperties }) => renderRow(props)}
-          />
-        )}
-      </div>
+    <div ref={outerRef} className="relative min-h-[120px] flex-1 overflow-hidden font-mono text-xs text-foreground">
+      {showEmpty ? (
+        <p className="px-3 py-2 font-sans text-sm text-muted-foreground">
+          {running ? (t.tail?.waiting ?? 'Waiting for logs…') : (t.tail?.pressStart ?? 'Press Start to tail logs.')}
+        </p>
+      ) : (
+        <VirtualList
+          listRef={setVirtualListRef}
+          style={{ height, width: '100%' }}
+          rowCount={filteredIndexes.length}
+          rowHeight={(index: number) => getItemSize(index)}
+          overscanCount={overscanCount}
+          rowProps={{}}
+          onRowsRendered={onRowsRendered}
+          rowComponent={(props: { index: number; style: React.CSSProperties }) => renderRow(props)}
+        />
+      )}
     </div>
   );
 }
@@ -298,7 +292,7 @@ function RowContent({
     // Break a line with no spaces, such as the log's category header, instead of clipping it at the
     // row's edge. The ResizeObserver above measures the taller row.
     overflowWrap: 'anywhere',
-    background: selected ? 'var(--vscode-editor-selectionBackground)' : 'transparent',
+    background: selected ? SELECTED_ROW_BACKGROUND : 'transparent',
     outline: selected ? '1px solid var(--vscode-contrastActiveBorder, transparent)' : 'none',
     borderLeft: selected ? '3px solid var(--vscode-focusBorder)' : '3px solid transparent',
     cursor: 'pointer'
@@ -325,7 +319,7 @@ function RowContent({
         style={{
           ...commonStyle,
           ...lineFallback,
-          background: selected ? 'var(--vscode-editor-selectionBackground)' : lineFallback.background || 'transparent'
+          background: selected ? SELECTED_ROW_BACKGROUND : lineFallback.background || 'transparent'
         }}
         className="px-3 py-1.5 text-xs leading-relaxed"
       >

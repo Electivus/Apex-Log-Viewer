@@ -1,5 +1,5 @@
 // Tail view → pick a debug level → Start → emit a new Apex log → the live row appears → Stop, and put the
-// user's DEVELOPER_LOG flags, the Debug Only switch and the panel size back the way the step found them.
+// user's DEVELOPER_LOG flags and the Debug Only switch back the way the step found them.
 // args: { debugLevel?: string } — exact level to test, which must exist. Without it, picks ALV_E2E; when ALV_E2E
 // is missing, keeps the current level, or picks the first one when none is set.
 import { userDeveloperLogFlags } from './lib/traceFlags.mjs';
@@ -9,12 +9,6 @@ export default async function ({ page, h, expect, session, args }) {
   await h.closeQuickInput();
   const tail = await h.tailFrame(180_000);
   await expect(tail.locator('[data-testid="tail-open-debug-flags"]').first()).toBeEnabled({ timeout: 180_000 });
-  // The toolbar fills the default panel and the list is virtualized, so streamed rows stay out of the DOM
-  // until the panel is taller. Put the panel back at the end, because a maximized panel hides editor tabs.
-  const maximized = ((await page.locator('.part.panel').boundingBox())?.height ?? 0) < 500;
-  if (maximized) {
-    await h.runCommand('View: Toggle Maximized Panel');
-  }
   // Org and level reloads cover the toolbar with a loading overlay (Tail's only role=status); a forced click
   // during it is lost.
   const idle = () => expect(tail.getByRole('status')).toHaveCount(0, { timeout: 60_000 });
@@ -113,6 +107,8 @@ export default async function ({ page, h, expect, session, args }) {
       `SELECT Id FROM ApexLog WHERE LogUserId = '${flags.userId}' AND Operation LIKE '%executeAnonymous%' AND StartTime >= ${emittedAfter} ORDER BY StartTime DESC LIMIT 1`,
       { toolingApi: false }
     );
+    // The panel is short and Auto-scroll pins the list to the end, so filter to the header row to keep it rendered.
+    await search.fill(`=== ApexLog ${log?.Id}`);
     const header = tail.locator('[role="row"]', { hasText: `=== ApexLog ${log?.Id}` }).first();
     await expect(header).toBeAttached({ timeout: 30_000 });
     const headerText = (await header.innerText()).trim();
@@ -145,9 +141,6 @@ export default async function ({ page, h, expect, session, args }) {
     }
     if (debugOnlyWasOn) {
       await setDebugOnly(true).catch(error => cleanupErrors.push(`Debug Only: ${error.message}`));
-    }
-    if (maximized) {
-      await h.runCommand('View: Toggle Maximized Panel').catch(error => cleanupErrors.push(`panel: ${error.message}`));
     }
     if (cleanupErrors.length) {
       const message = `tail-live cleanup failed; check the user's DEVELOPER_LOG flags: ${cleanupErrors.join('; ')}`;

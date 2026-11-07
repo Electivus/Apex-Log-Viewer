@@ -249,4 +249,81 @@ describe('TailToolbar webview component', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Debug Flags' }));
     expect(calls).toEqual(['open']);
   });
+
+  it('keeps the icon-only actions named and titled, and reports the error in an alert', () => {
+    renderWithNativeSelect(
+      <TailToolbar
+        running={false}
+        onStart={() => {}}
+        onStop={() => {}}
+        onClear={() => {}}
+        onOpenSelected={() => {}}
+        onReplaySelected={() => {}}
+        onOpenDebugFlags={() => {}}
+        actionsEnabled
+        disabled={false}
+        orgs={orgs}
+        selectedOrg="user@example.com"
+        onSelectOrg={() => {}}
+        query=""
+        onQueryChange={() => {}}
+        onlyUserDebug={false}
+        onToggleOnlyUserDebug={() => {}}
+        colorize={false}
+        onToggleColorize={() => {}}
+        debugLevels={['LevelA']}
+        debugLevel="LevelA"
+        onDebugLevelChange={() => {}}
+        autoScroll={false}
+        onToggleAutoScroll={() => {}}
+        error="Select a debug level"
+        t={t}
+      />
+    );
+
+    const open = screen.getByRole('button', { name: 'Open Log' });
+    expect(open).toHaveAttribute('title', 'Open selected log');
+    expect(open).toHaveTextContent('');
+    const replay = screen.getByRole('button', { name: 'Replay Debugger' });
+    expect(replay).toHaveAttribute('title', 'Apex Replay Debugger');
+    expect(replay).toHaveTextContent('');
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Select a debug level');
+  });
+
+  it('labels the search box once, without a visible label', () => {
+    const { container } = renderWithNativeSelect(
+      <TailToolbar
+        running={false}
+        onStart={() => {}}
+        onStop={() => {}}
+        onClear={() => {}}
+        onOpenSelected={() => {}}
+        onReplaySelected={() => {}}
+        onOpenDebugFlags={() => {}}
+        actionsEnabled={false}
+        disabled={false}
+        orgs={orgs}
+        selectedOrg="user@example.com"
+        onSelectOrg={() => {}}
+        query=""
+        onQueryChange={() => {}}
+        onlyUserDebug={false}
+        onToggleOnlyUserDebug={() => {}}
+        colorize={false}
+        onToggleColorize={() => {}}
+        debugLevels={['LevelA']}
+        debugLevel="LevelA"
+        onDebugLevelChange={() => {}}
+        autoScroll={false}
+        onToggleAutoScroll={() => {}}
+        t={t}
+      />
+    );
+
+    const search = screen.getByRole('searchbox', { name: 'Search live logs…' });
+    expect(search).toHaveAttribute('placeholder', 'Search live logs…');
+    expect(container.textContent).not.toContain('Search live logs…');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
 });
