@@ -220,6 +220,29 @@ describe('Tail webview App', () => {
     expect((getSavedState() as any)?.autoScroll).toBe(true);
   });
 
+  it('keeps all the text of a line that is not a log event when Color is on', async () => {
+    const { vscode } = createVsCodeMock({ colorize: true });
+    const bus = new EventTarget();
+    render(<TailApp vscode={vscode} messageBus={bus} />);
+    send(bus, { type: 'init', locale: 'en' });
+
+    const header =
+      '=== ApexLog 07L000000000001AAA | 2026-11-07T18:26:46.000+0000 | /services/data/v60.0/tooling/executeAnonymous | Success | 1415';
+    // The log does not escape the source that Execute Anonymous echoes, so `&#124;` is what the developer wrote.
+    const sourceEcho = "Execute Anonymous: System.debug('order=42|status=FAILED&#124;X');";
+    send(bus, {
+      type: 'tailData',
+      lines: [header, sourceEcho, '18:26:46.120 (177599203)|USER_DEBUG|[1]|DEBUG|ok']
+    });
+
+    await screen.findAllByRole('row');
+    expect(screen.getAllByRole('row').map(row => row.textContent)).toEqual([
+      header,
+      sourceEcho,
+      '18:26:46.120 (177599203) | USER_DEBUG | [debug] | ok'
+    ]);
+  });
+
   it('restores and persists tail UI state through the VS Code webview api', async () => {
     const { vscode, posted, getSavedState } = createVsCodeMock({
       query: 'persisted tail query',

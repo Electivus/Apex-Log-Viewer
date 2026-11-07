@@ -54,12 +54,12 @@ suite('tail utils', () => {
       assert.equal(parsed.debugMessage, ' value=42 | done');
     });
 
-    test('falls back when timestamp missing and preserves raw tokens', () => {
+    test('reads no event fields from a line without a timestamp', () => {
       const parsed = parseApexLine('NO_PREFIX | SOQL_EXECUTE | tokenA | tokenB');
       assert.equal(parsed.time, undefined);
       assert.equal(parsed.nanos, undefined);
-      assert.equal(parsed.category, 'SOQL_EXECUTE');
-      assert.deepEqual(parsed.tokens, [' tokenA ', ' tokenB']);
+      assert.equal(parsed.category, undefined);
+      assert.deepEqual(parsed.tokens, []);
       assert.equal(parsed.debugMessage, undefined);
     });
   });
