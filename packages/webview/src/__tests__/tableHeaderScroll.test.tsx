@@ -52,7 +52,6 @@ describe('table headers', () => {
         t={{ columns: {}, open: 'Open', replay: 'Replay' } as any}
         onOpen={() => {}}
         onReplay={() => {}}
-        loading={false}
         locale="en-US"
         sortBy="time"
         sortDir="asc"
@@ -76,6 +75,7 @@ describe('table headers', () => {
         }
         onColumnsConfigChange={() => {}}
         fullLogSearchEnabled={false}
+        hasSearchText={false}
       />
     );
     const body = screen.getByTestId('virtual-list');

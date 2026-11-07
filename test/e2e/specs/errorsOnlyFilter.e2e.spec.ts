@@ -37,7 +37,6 @@ test('filters logs using errors-only toggle', async ({ vscodePage, scratchAlias 
   const reasonBadges = logsFrame.locator('[data-testid="logs-reason-badge"]');
 
   await searchInput.waitFor({ state: 'visible', timeout: 60_000 });
-  await expect(searchInput).toBeEnabled({ timeout: 180_000 });
 
   await setErrorsOnlyEnabled(errorsOnlySwitch, false);
   await searchInput.fill(seededLog.marker);

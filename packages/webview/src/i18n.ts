@@ -47,6 +47,7 @@ export type Messages = {
     debugTag?: string;
   };
   filters?: {
+    button: string;
     user: string;
     operation: string;
     status: string;
@@ -76,6 +77,7 @@ export type Messages = {
     moveUp: string;
     moveDown: string;
     resizeColumn?: string;
+    matchWhileSearching?: string;
   };
   debugFlags?: {
     open: string;
@@ -187,6 +189,7 @@ const en: Messages = {
     debugTag: 'debug'
   },
   filters: {
+    button: 'Filters',
     user: 'User',
     operation: 'Operation',
     status: 'Status',
@@ -215,7 +218,8 @@ const en: Messages = {
     matchRequiresFullSearch: 'Requires full log search',
     moveUp: 'Move up',
     moveDown: 'Move down',
-    resizeColumn: 'Resize {column}'
+    resizeColumn: 'Resize {column}',
+    matchWhileSearching: 'Shown while searching'
   },
   debugFlags: {
     open: 'Debug Flags',
@@ -329,6 +333,7 @@ const ptBR: Messages = {
     debugTag: 'debug'
   },
   filters: {
+    button: 'Filtros',
     user: 'Usuário',
     operation: 'Operação',
     status: 'Status',
@@ -357,7 +362,8 @@ const ptBR: Messages = {
     matchRequiresFullSearch: 'Requer busca completa',
     moveUp: 'Mover para cima',
     moveDown: 'Mover para baixo',
-    resizeColumn: 'Redimensionar {column}'
+    resizeColumn: 'Redimensionar {column}',
+    matchWhileSearching: 'Exibida durante a busca'
   },
   debugFlags: {
     open: 'Debug Flags',

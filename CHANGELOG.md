@@ -44,6 +44,7 @@
 - Agent Skill: publish the vendor-neutral source from `skills/apex-log-viewer-cli`, add runtime capability checks and standard update guidance, pin `skills@1.5.21`, and validate project installation for Claude Code, Codex, GitHub Copilot, and Devin.
 - Diagnostics: measure how long Logs, Tail, Log Viewer, and Debug Flags actions wait in the VS Code extension host before they start; slow waits (250 ms or more) appear in the Output channel, and a five-minute `host.responsiveness` telemetry summary adds extension host event-loop lag.
 - Debug Flags: add a `Maximum Trace` debug level preset that sets each category to the highest level Salesforce logs for it (Validation `INFO`; System and NBA `FINE`; Workflow, Callout, Visualforce and Data Access `FINER`; the rest `FINEST`), and preselect it in the Debug Level Manager. The manager now shows the selected preset's description, including its large-log warning.
+- Logs: rebuild the panel list to fit a short panel. The toolbar is one row (org, search, `Errors only`, a `Filters` popover for User, Operation and Status, then `Refresh`, `Debug Flags` and icon buttons for Download all, Clear logs and Columns), with errors and progress in a thin strip under it. Rows are one 28 px line, `Operation` keeps its last path segment visible, `Match` shows only while you search, and `Open` and `Replay` stay pinned at the right edge. A click on a row opens the log, search and filters keep working during a refresh, and the list is the panel's only scroll area.
 
 ### Fixes
 
