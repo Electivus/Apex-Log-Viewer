@@ -26,7 +26,6 @@ test('searches a gitignored Apex log body and opens it in the Log Viewer panel',
     timeout: 180_000
   });
 
-  // A click on the row opens the log.
   await dismissAllNotifications(vscodePage);
   await closeQuickInputIfOpen(vscodePage);
   await matchingRow.click();

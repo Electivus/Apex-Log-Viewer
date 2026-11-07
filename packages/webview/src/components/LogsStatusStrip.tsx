@@ -32,7 +32,6 @@ function Notice({
 const spinner = <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden="true" />;
 const alertIcon = <AlertCircle className="h-3 w-3 shrink-0" aria-hidden="true" />;
 
-/** Everything the panel has to say besides the rows, in one thin line that exists only while there is something to say. */
 export function LogsStatusStrip({ t, loading, error, warning, searchLoading, searchMessage, scanMessage }: Props) {
   const errorLabel = t?.tail?.errorLabel ?? t?.errors?.generic ?? 'Error';
   const warningLabel = t?.warningLabel ?? 'Warning';

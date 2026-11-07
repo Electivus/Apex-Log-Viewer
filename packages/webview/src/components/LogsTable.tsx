@@ -81,7 +81,6 @@ export function LogsTable({
   virtualListComponent?: typeof List;
   fullLogSearchEnabled: boolean;
   hasSearchText: boolean;
-  /** Shown where the rows would be, so an empty list explains itself without scrolling. */
   emptyMessage?: string;
 }) {
   const { setListRef, element: listElement } = useVirtualListElement();

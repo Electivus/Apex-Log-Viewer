@@ -12,7 +12,6 @@ import { ColumnsPopover } from './ColumnsPopover';
 import type { NormalizedLogsColumnsConfig } from '@alv/protocol/logsColumns';
 import { cn } from '../lib/utils';
 
-/** The label sits beside the select, so the toolbar stays one row tall in a short panel. */
 const INLINE_SELECT = 'min-w-0 flex-row items-center gap-2';
 
 const POPOVER_SURFACE = cn(
@@ -26,7 +25,6 @@ function useStableId(prefix: string) {
 }
 
 type ToolbarProps = {
-  /** A refresh is running: what it would disturb is disabled, and search and filters keep working. */
   loading: boolean;
   onRefresh: () => void;
   onDownloadAllLogs: () => void;
@@ -89,8 +87,7 @@ export function Toolbar({
   onColumnsConfigChange
 }: ToolbarProps) {
   const errorsOnlyId = useStableId('logs-errors-only');
-  // Search and Errors only have a control of their own on the bar; only these three hide inside the popover.
-  const activeFilterCount = [filterUser, filterOperation, filterStatus].filter(Boolean).length;
+  const popoverFilterCount = [filterUser, filterOperation, filterStatus].filter(Boolean).length;
   const searchLabel = t?.searchPlaceholder ?? 'Search logs…';
   const filtersLabel = t?.filters?.button ?? 'Filters';
   const allLabel = t?.filters?.all ?? 'All';
@@ -156,12 +153,12 @@ export function Toolbar({
           >
             <ListFilter className="h-4 w-4" aria-hidden="true" />
             <span>{filtersLabel}</span>
-            {activeFilterCount > 0 && (
+            {popoverFilterCount > 0 && (
               <span
                 data-testid="logs-filters-count"
                 className="rounded-full bg-[var(--vscode-badge-background,var(--primary))] px-1.5 text-[11px] leading-4 text-[var(--vscode-badge-foreground,var(--primary-foreground))]"
               >
-                {activeFilterCount}
+                {popoverFilterCount}
               </span>
             )}
           </Button>
@@ -199,7 +196,7 @@ export function Toolbar({
               size="sm"
               className="self-start"
               onClick={onClearFilters}
-              disabled={activeFilterCount === 0}
+              disabled={popoverFilterCount === 0}
             >
               {t.filters?.clear ?? 'Clear filters'}
             </Button>

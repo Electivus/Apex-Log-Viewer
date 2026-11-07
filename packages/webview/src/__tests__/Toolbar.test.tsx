@@ -21,7 +21,6 @@ const defaultColumnsConfig = {
 
 const deprecatedFilterLabel = ['Code', 'Unit'].join(' ');
 
-/** Native selects keep interaction simple in jsdom; Radix selects need browser APIs it lacks. */
 function withNativeSelects<T>(run: () => T): T {
   const docRef = globalThis as unknown as { DocumentFragment: typeof DocumentFragment | undefined };
   const original = docRef.DocumentFragment;

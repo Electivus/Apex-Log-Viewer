@@ -14,7 +14,7 @@ export function splitOperation(operation: string): { head: string; tail: string 
 }
 
 /**
- * The host sends about 60 characters of context before a hit. A one-line cell clips the end, so the first hit
+ * The host sends about 60 characters of context around a hit. A one-line cell clips the end, so the first hit
  * would fall off the right edge of a narrow column. Cut the context down to `lead` characters and shift the ranges.
  */
 export function focusSnippet(text: string, ranges: SnippetRanges, lead = 16): { text: string; ranges: SnippetRanges } {

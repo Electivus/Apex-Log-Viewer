@@ -53,7 +53,6 @@ export function getVisibleLogsColumns(
   });
 }
 
-/** The CSS grid of the header and every row, and the narrowest width it takes before the list scrolls sideways. */
 export function buildLogsGrid(
   columns: LogsColumnKey[],
   widths: NormalizedLogsColumnsConfig['widths']
