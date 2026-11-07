@@ -7,6 +7,7 @@ const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 
 const SETTING = 'electivus.apexLogViewer.customLogs.enabled';
 const VIEW_ID = 'electivus.apexLogViewer.customLogsView';
+const LONG_FIELD_SCHEME = 'electivus-custom-log';
 const COMMANDS = [
   'electivus.apexLogViewer.customLogs.captureStatus',
   'electivus.apexLogViewer.customLogs.configure',
@@ -16,7 +17,28 @@ const COMMANDS = [
 
 type ConfigurationEvent = { affectsConfiguration(key: string): boolean };
 
-function load(options: { enabled: boolean; logsOrg?: string }) {
+class Disposable {
+  constructor(private readonly onDispose: () => void) {}
+  dispose(): void {
+    this.onDispose();
+  }
+  static from(...items: Array<{ dispose(): void }>): Disposable {
+    return new Disposable(() => items.forEach(item => item.dispose()));
+  }
+}
+
+class TabInputText {
+  constructor(readonly uri: { scheme: string; path: string }) {}
+}
+
+type Tab = { label: string; input: unknown };
+
+const textTab = (scheme: string, path: string): Tab => ({
+  label: `${scheme}:${path}`,
+  input: new TabInputText({ scheme, path })
+});
+
+function load(options: { enabled: boolean; logsOrg?: string; tabGroups?: Tab[][] }) {
   const settings = new Map<string, unknown>([[SETTING, options.enabled]]);
   const listeners = new Set<(event: ConfigurationEvent) => void>();
   const views = new Map<string, { retainContextWhenHidden?: boolean }>();
@@ -35,19 +57,37 @@ function load(options: { enabled: boolean; logsOrg?: string }) {
   const configured: number[] = [];
   const statusItems: Array<{ shown: boolean; disposed: boolean; command?: string }> = [];
   const quickPick = { answer: undefined as string | undefined, offered: [] as string[] };
+  const tabGroups = (options.tabGroups ?? []).map(tabs => ({ tabs }));
+  const tabCloses = { requests: 0 };
 
   const vscodeStub = {
-    Disposable: {
-      from: (...items: Array<{ dispose(): void }>) => ({ dispose: () => items.forEach(item => item.dispose()) })
-    },
+    Disposable,
+    TabInputText,
     workspace: {
       onDidChangeConfiguration: (listener: (event: ConfigurationEvent) => void) => {
         listeners.add(listener);
         return { dispose: () => void listeners.delete(listener) };
-      }
+      },
+      registerTextDocumentContentProvider: () => {
+        documents.registered += 1;
+        return { dispose: () => void (documents.disposed += 1) };
+      },
+      onDidCloseTextDocument: () => ({ dispose: () => undefined })
     },
     StatusBarAlignment: { Left: 1 },
     window: {
+      tabGroups: {
+        get all() {
+          return tabGroups;
+        },
+        close: async (tabs: Tab[]) => {
+          tabCloses.requests += 1;
+          for (const group of tabGroups) {
+            group.tabs = group.tabs.filter(tab => !tabs.includes(tab));
+          }
+          return true;
+        }
+      },
       createStatusBarItem: () => {
         const item = {
           shown: false,
@@ -114,12 +154,7 @@ function load(options: { enabled: boolean; logsOrg?: string }) {
       getBooleanConfig: (key: string, fallback: boolean) => (settings.get(key) as boolean | undefined) ?? fallback,
       affectsConfiguration: (event: ConfigurationEvent, key: string) => event.affectsConfiguration(key)
     },
-    './utils/customLogDocuments': {
-      registerCustomLogDocuments: () => {
-        documents.registered += 1;
-        return { dispose: () => void (documents.disposed += 1) };
-      }
-    },
+    './utils/customLogDocuments': proxyquireStrict('../../host/utils/customLogDocuments', { vscode: vscodeStub }),
     './customLogsStatusBar': proxyquireStrict('../../host/customLogsStatusBar', {
       vscode: vscodeStub,
       './customLogsCaptureStatus': proxyquireStrict('../../host/customLogsCaptureStatus', {
@@ -178,7 +213,9 @@ function load(options: { enabled: boolean; logsOrg?: string }) {
     configured,
     listeners,
     statusItems,
-    quickPick
+    quickPick,
+    tabCloses,
+    openTabs: () => tabGroups.map(group => group.tabs.map(tab => tab.label))
   };
 }
 
@@ -229,6 +266,54 @@ suite('Custom Logs feature switch', () => {
     assert.equal(host.editor.closed, 1, 'the Custom Logs editor tab closes');
     assert.equal(host.viewer.closedAll, 1, 'the transaction viewers close');
     assert.deepEqual(host.feature.getWebviewDiagnosticStates(), []);
+  });
+
+  test('closes the long-field tabs in every group when it turns off, and no other editor', () => {
+    const host = load({
+      enabled: true,
+      tabGroups: [
+        [
+          textTab('file', '/force-app/Example.cls'),
+          textTab(LONG_FIELD_SCHEME, '/Message - Log-1 #1.txt'),
+          { label: 'webview', input: { viewType: 'electivus.apexLogViewer.customLogViewer' } }
+        ],
+        [
+          textTab(LONG_FIELD_SCHEME, '/Payload - Log-1.json'),
+          textTab('untitled', '/Untitled-1'),
+          { label: 'no input', input: undefined }
+        ]
+      ]
+    });
+
+    host.change(SETTING, false);
+
+    assert.deepEqual(host.openTabs(), [
+      ['file:/force-app/Example.cls', 'webview'],
+      ['untitled:/Untitled-1', 'no input']
+    ]);
+  });
+
+  test('closes a long-field tab left by an earlier extension host when it starts with the setting off', () => {
+    const host = load({ enabled: false, tabGroups: [[textTab(LONG_FIELD_SCHEME, '/Message - Log-1 #1.txt')]] });
+
+    assert.deepEqual(host.openTabs(), [[]]);
+  });
+
+  test('does not try to close the long-field tabs when the extension deactivates, because VS Code rejects it', () => {
+    const host = load({ enabled: true, tabGroups: [[textTab(LONG_FIELD_SCHEME, '/Message - Log-1 #1.txt')]] });
+
+    host.feature.dispose();
+
+    assert.equal(host.tabCloses.requests, 0);
+  });
+
+  test('keeps the long-field tabs open while the setting stays on', () => {
+    const host = load({ enabled: true, tabGroups: [[textTab(LONG_FIELD_SCHEME, '/Message - Log-1 #1.txt')]] });
+
+    host.change('electivus.apexLogViewer.logging.trace', true);
+    host.change(SETTING, true);
+
+    assert.deepEqual(host.openTabs(), [[`${LONG_FIELD_SCHEME}:/Message - Log-1 #1.txt`]]);
   });
 
   test('the capture status item stays hidden without a capture, offers Show and Stop on click, and is disposed when the setting turns off', async () => {

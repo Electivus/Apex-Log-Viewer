@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { affectsConfiguration, getBooleanConfig } from './utils/config';
-import { registerCustomLogDocuments } from './utils/customLogDocuments';
+import { closeCustomLogDocumentTabs, registerCustomLogDocuments } from './utils/customLogDocuments';
 import { registerCaptureStatusBar } from './customLogsStatusBar';
 import { openCustomLogsConfig } from './utils/customLogsConfig';
 import { getErrorMessage } from './utils/error';
@@ -103,7 +103,15 @@ export function registerCustomLogsFeature(
     CustomLogViewerPanel.closeAll();
   };
 
-  const sync = () => (getBooleanConfig(CUSTOM_LOGS_ENABLED_SETTING, false) ? start() : stop());
+  const sync = () => {
+    if (getBooleanConfig(CUSTOM_LOGS_ENABLED_SETTING, false)) {
+      start();
+      return;
+    }
+    stop();
+    // Not in stop(): at deactivation VS Code rejects the close, so a tab can outlive its extension host.
+    closeCustomLogDocumentTabs();
+  };
   const configurationListener = vscode.workspace.onDidChangeConfiguration(event => {
     if (affectsConfiguration(event, CUSTOM_LOGS_ENABLED_SETTING)) {
       sync();
