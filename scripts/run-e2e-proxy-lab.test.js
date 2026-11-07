@@ -905,7 +905,7 @@ test('proxy lab Docker images are pinned by digest without a Rust toolchain stag
   const runnerDockerfile = readRunnerDockerfile();
   const proxyDockerfile = readProxyDockerfile();
 
-  assert.match(runnerDockerfile, /^FROM node:24\.15\.0-bookworm@sha256:[0-9a-f]{64}$/m);
+  assert.match(runnerDockerfile, /^FROM node:24\.22\.2-bookworm@sha256:[0-9a-f]{64}$/m);
   assert.doesNotMatch(runnerDockerfile, /\brust\b/i);
   assert.doesNotMatch(runnerDockerfile, /\bcargo\b/i);
   assert.doesNotMatch(runnerDockerfile, /\brustup\b/i);
