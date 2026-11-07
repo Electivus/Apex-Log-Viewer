@@ -144,11 +144,16 @@ function createFakePage(
   });
   const textboxFill = jest.fn(async (value: string) => recordFill(value));
   const isVisible = jest.fn(async () => noMatchVisibility.shift() ?? false);
+  let pointerOnQuickAccess = false;
   const quickAccessClick = jest.fn(async (_options?: { timeout?: number }) => {
     if (options?.quickAccessClickError) {
       throw options.quickAccessClickError;
     }
+    pointerOnQuickAccess = true;
     quickInputVisible = true;
+  });
+  const mouseMove = jest.fn(async (_x: number, _y: number) => {
+    pointerOnQuickAccess = false;
   });
   const getByRole = jest.fn((role: string, roleOptions?: { name?: string | RegExp }) => {
     if (role === 'button' && roleOptions?.name instanceof RegExp && roleOptions.name.test('Open Quick Access')) {
@@ -227,10 +232,12 @@ function createFakePage(
   return {
     page: {
       keyboard: { press: keyboardPress },
+      mouse: { move: mouseMove },
       locator,
       getByRole,
       waitForTimeout
     } as any,
+    pointerOnQuickAccess: () => pointerOnQuickAccess,
     keyboardPress,
     waitForTimeout,
     getByRole,
@@ -504,6 +511,15 @@ describe('a window that has stopped taking keyboard input', () => {
     await runCommand(fake.page, 'View: Close Editor');
 
     expect(fake.executed).toEqual(['View: Close Editor']);
+  });
+
+  test('leaves the pointer off the Open Quick Access button after it opened the palette', async () => {
+    const fake = createFakePage([false], { keyboardShortcutMissesQuickInput: true });
+
+    await runCommand(fake.page, 'View: Close Editor');
+
+    expect(fake.quickAccessClick).toHaveBeenCalled();
+    expect(fake.pointerOnQuickAccess()).toBe(false);
   });
 });
 
