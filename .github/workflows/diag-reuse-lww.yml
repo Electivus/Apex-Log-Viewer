@@ -1,0 +1,32 @@
+name: diag-reuse-lww
+on:
+  push:
+    branches:
+      - diag/reuse-lww
+permissions:
+  contents: read
+jobs:
+  hammer:
+    name: reuse lww (node ${{ matrix.node }} ${{ matrix.shard }})
+    runs-on: windows-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['24.15.0', '24.22.2']
+        shard: [a, b, c]
+    env:
+      DIAG_REUSE_ROUNDS: '150'
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build:core
+      - name: orgConnectionReuse loop
+        run: node .diag/loop-lww.mjs
