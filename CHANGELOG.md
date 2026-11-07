@@ -47,6 +47,7 @@
 
 ### Fixes
 
+- Refresh Logs, Tail Logs, Refresh Custom Logs and the capture status item's Show Custom Logs no longer open the `View: Open View` picker. They reveal the panel, and the picker no longer takes the keys of the next command.
 - Tail: the `Debug level` select now remembers one level per org. A level you pick on one org stays after you switch to another org and back, and it no longer carries over to another org that has the same level. Before, the next Start could move your newest `DEVELOPER_LOG` trace flag to a level you did not pick for that org. The single level saved by an earlier version is ignored because it has no org, so each org opens once on its active level.
 - Custom Logs: turning `electivus.apexLogViewer.customLogs.enabled` off now also closes the long-field tabs opened from a transaction viewer, in every editor group, and leaves other editors open. These tabs kept showing org data after the setting was off.
 - Custom Logs: turning `electivus.apexLogViewer.customLogs.enabled` off now also closes a transaction viewer or Custom Logs editor tab that stayed open through an extension host restart. These tabs kept showing org data after the setting was off.

@@ -1748,25 +1748,18 @@ suite('SfLogsViewProvider behavior', () => {
     assert.equal(opened[0]?.sourceView, 'logs');
   });
 
-  test('tailLogs falls back when viewsService command is unavailable', async () => {
+  test('tailLogs reveals the Tail view through its focus command only', async () => {
     const { SfLogsViewProvider, vscode: vscodeMock } = createProviderHarness();
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
     const executed: string[] = [];
     vscodeMock.commands.executeCommand = async (command: string) => {
       executed.push(command);
-      if (command === 'workbench.viewsService.openView') {
-        throw new Error('Command not found');
-      }
       return undefined;
     };
 
     await provider.tailLogs();
 
-    assert.deepEqual(executed, [
-      'workbench.view.extension.electivus-apex-log-viewer-tail',
-      'workbench.viewsService.openView',
-      'workbench.action.openView'
-    ]);
+    assert.deepEqual(executed, ['electivus.apexLogViewer.tailView.focus']);
   });
 });
