@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getMessages, type Messages } from './i18n';
 import type { OrgItem, ApexLogRow } from '@alv/protocol/types';
@@ -12,7 +12,6 @@ import {
 } from '@alv/protocol/logsColumns';
 import { Toolbar } from './components/Toolbar';
 import { LogsTable } from './components/LogsTable';
-import { LoadingOverlay } from './components/LoadingOverlay';
 import { Button } from './components/ui/button';
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
@@ -127,9 +126,6 @@ export function LogsApp({
   // Sorting
   const [sortBy, setSortBy] = useState<SortKey>(initialUiStateRef.current.sortBy);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(initialUiStateRef.current.sortDir);
-
-  const loadMoreFooterRef = useRef<HTMLDivElement | null>(null);
-  const [loadMoreFooterHeightPx, setLoadMoreFooterHeightPx] = useState(0);
 
   const onColumnsConfigChange = useCallback(
     (updater: (prev: NormalizedLogsColumnsConfig) => NormalizedLogsColumnsConfig, options?: { persist?: boolean }) => {
@@ -462,7 +458,18 @@ export function LogsApp({
     };
 
     return items.slice().sort(compare);
-  }, [rows, normalizedQuery, filterUser, filterOperation, filterStatus, errorsOnly, sortBy, sortDir, logHead, bodyMatches]);
+  }, [
+    rows,
+    normalizedQuery,
+    filterUser,
+    filterOperation,
+    filterStatus,
+    errorsOnly,
+    sortBy,
+    sortDir,
+    logHead,
+    bodyMatches
+  ]);
 
   const searchLoading = searchStatus === 'loading';
   const pendingLogCount = bodyMatches.pendingCount;
@@ -480,18 +487,13 @@ export function LogsApp({
     return template.replace('{count}', String(pendingLogCount));
   }, [pendingLogCount, searchLoading, t]);
 
-  const hasFilters = Boolean(
-    query.trim() ||
-      filterUser ||
-      filterOperation ||
-      filterStatus ||
-      errorsOnly
-  );
+  const hasFilters = Boolean(query.trim() || filterUser || filterOperation || filterStatus || errorsOnly);
   const errorScanMessage = useMemo(() => {
     if (errorScanStatus.state !== 'running') {
       return undefined;
     }
-    const template = t.filters?.scanningErrorsProgress ?? 'Scanning logs for errors… ({processed}/{total}, found: {errorsFound})';
+    const template =
+      t.filters?.scanningErrorsProgress ?? 'Scanning logs for errors… ({processed}/{total}, found: {errorsFound})';
     if (errorScanStatus.total <= 0) {
       return t.filters?.scanningErrors ?? 'Scanning logs for errors…';
     }
@@ -500,41 +502,10 @@ export function LogsApp({
       .replace('{total}', String(errorScanStatus.total))
       .replace('{errorsFound}', String(errorScanStatus.errorsFound));
   }, [errorScanStatus, t]);
-  const noLogsMessage = errorsOnly && errorScanStatus.state === 'running'
-      ? (errorScanMessage ?? t.noLogs)
-      : t.noLogs;
-
-  useLayoutEffect(() => {
-    if (!hasMore) {
-      setLoadMoreFooterHeightPx(0);
-      return;
-    }
-    const el = loadMoreFooterRef.current;
-    if (!el) {
-      setLoadMoreFooterHeightPx(0);
-      return;
-    }
-    const measure = () => {
-      const rect = el.getBoundingClientRect();
-      const next = rect && Number.isFinite(rect.height) ? Math.max(0, Math.floor(rect.height)) : 0;
-      setLoadMoreFooterHeightPx(next);
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => {
-      try {
-        ro.disconnect();
-      } catch (e) {
-        console.warn('LogsApp: failed to disconnect ResizeObserver', e);
-      }
-    };
-  }, [hasMore, hasFilters, locale]);
-
-  const viewportBottomInsetPx = hasMore ? Math.max(loadMoreFooterHeightPx, 42) : 0;
+  const noLogsMessage = errorsOnly && errorScanStatus.state === 'running' ? (errorScanMessage ?? t.noLogs) : t.noLogs;
 
   return (
-    <div className="relative flex min-h-[120px] flex-col gap-4 p-4 text-sm">
+    <div className="relative flex h-screen min-h-[120px] flex-col overflow-hidden bg-background text-sm text-foreground">
       <Toolbar
         loading={loading}
         error={error}
@@ -569,49 +540,30 @@ export function LogsApp({
         onColumnsConfigChange={onColumnsConfigChange}
       />
 
-      <div className="relative rounded-lg border border-border bg-card/60 p-2">
-        <LogsTable
-          rows={filteredRows}
-          logHead={logHead}
-          t={t}
-          onOpen={onOpen}
-          onReplay={onReplay}
-          loading={loading}
-          locale={locale}
-          sortBy={sortBy}
-          sortDir={sortDir}
-          onSort={onSort}
-          matchSnippets={bodyMatches.snippets}
-          fullLogSearchEnabled={fullLogSearchEnabled}
-          viewportBottomInsetPx={viewportBottomInsetPx}
-          columnsConfig={logsColumns}
-          onColumnsConfigChange={onColumnsConfigChange}
-        />
-        {hasMore && (
-          <div ref={loadMoreFooterRef} className="flex justify-center pt-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={onLoadMore}
-              disabled={loading}
-            >
-              {hasFilters
-                ? (t.loadMoreFiltered ?? t.loadMore ?? 'Load more results')
-                : (t.loadMore ?? 'Load more logs')}
-            </Button>
-          </div>
-        )}
-        <LoadingOverlay show={loading} label={t.loading} />
-      </div>
-      {errorScanMessage && (
-        <p className="text-xs text-muted-foreground">{errorScanMessage}</p>
-      )}
-
-      {!loading && filteredRows.length === 0 && (
-        <p className="mt-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-          {noLogsMessage}
-        </p>
+      <LogsTable
+        rows={filteredRows}
+        logHead={logHead}
+        t={t}
+        onOpen={onOpen}
+        onReplay={onReplay}
+        locale={locale}
+        sortBy={sortBy}
+        sortDir={sortDir}
+        onSort={onSort}
+        matchSnippets={bodyMatches.snippets}
+        fullLogSearchEnabled={fullLogSearchEnabled}
+        hasSearchText={Boolean(normalizedQuery)}
+        columnsConfig={logsColumns}
+        onColumnsConfigChange={onColumnsConfigChange}
+        emptyMessage={!loading && filteredRows.length === 0 ? noLogsMessage : undefined}
+      />
+      {errorScanMessage && <p className="shrink-0 px-3 py-1 text-xs text-muted-foreground">{errorScanMessage}</p>}
+      {hasMore && (
+        <div className="flex shrink-0 justify-center border-t border-border px-3 py-1">
+          <Button type="button" size="sm" variant="secondary" onClick={onLoadMore} disabled={loading}>
+            {hasFilters ? (t.loadMoreFiltered ?? t.loadMore ?? 'Load more results') : (t.loadMore ?? 'Load more logs')}
+          </Button>
+        </div>
       )}
     </div>
   );
@@ -624,10 +576,7 @@ export function mountLogsApp(
   const root = createRoot(container);
   const messageBus = options.messageBus ?? getDefaultMessageBus();
   root.render(
-    <LogsApp
-      vscode={options.vscode ?? getDefaultVsCodeApi<WebviewToExtensionMessage>()}
-      messageBus={messageBus}
-    />
+    <LogsApp vscode={options.vscode ?? getDefaultVsCodeApi<WebviewToExtensionMessage>()} messageBus={messageBus} />
   );
   return root;
 }

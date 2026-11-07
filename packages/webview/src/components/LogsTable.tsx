@@ -1,9 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { List } from 'react-window';
 import type { ApexLogRow } from '@alv/protocol/types';
 import type { LogsColumnKey, NormalizedLogsColumnsConfig } from '@alv/protocol/logsColumns';
 import type { LogDiagnostic } from '@alv/protocol/logTriage';
-import { LOGS_COLUMN_DEFAULT_TRACK, LOGS_COLUMN_MIN_WIDTH_PX } from '../utils/logsColumns';
+import {
+  LOG_ROW_HEIGHT_PX,
+  LOGS_COLUMN_MIN_WIDTH_PX,
+  buildLogsGrid,
+  getVisibleLogsColumns
+} from '../utils/logsColumns';
 import { LogsHeader } from './table/LogsHeader';
 import { LogRow } from './table/LogRow';
 import { SCROLLBAR_GUTTER, syncHeaderScroll, useVirtualListElement } from './table/useVirtualListElement';
@@ -23,22 +28,22 @@ type ListRowProps = {
   columns: LogsColumnKey[];
   locale: string;
   t: any;
-  loading: boolean;
   onOpen: (logId: string) => void;
   onReplay: (logId: string) => void;
   gridTemplate: string;
-  setRowHeight: (index: number, size: number) => void;
+  minWidthPx: number;
 };
 
 type VirtualRowArgs = ListRowProps & {
   index: number;
   style: React.CSSProperties;
-  ariaAttributes: {
-    'aria-posinset': number;
-    'aria-setsize': number;
-    role: 'listitem';
-  };
 };
+
+function VirtualLogRow({ index, style, rows, logHead, matchSnippets, ...rowProps }: VirtualRowArgs) {
+  const row = rows[index];
+  if (!row) return null;
+  return <LogRow r={row} logHead={logHead} matchSnippet={matchSnippets[row.Id]} style={style} {...rowProps} />;
+}
 
 export function LogsTable({
   rows,
@@ -47,7 +52,6 @@ export function LogsTable({
   t,
   onOpen,
   onReplay,
-  loading,
   locale,
   sortBy,
   sortDir,
@@ -55,8 +59,9 @@ export function LogsTable({
   columnsConfig,
   onColumnsConfigChange,
   virtualListComponent,
-  viewportBottomInsetPx = 0,
-  fullLogSearchEnabled
+  fullLogSearchEnabled,
+  hasSearchText,
+  emptyMessage
 }: {
   rows: ApexLogRow[];
   logHead: LogHeadMap;
@@ -64,28 +69,23 @@ export function LogsTable({
   t: any;
   onOpen: (logId: string) => void;
   onReplay: (logId: string) => void;
-  loading: boolean;
   locale: string;
   sortBy: Exclude<LogsColumnKey, 'match'>;
   sortDir: 'asc' | 'desc';
-  onSort: (
-    key: Exclude<LogsColumnKey, 'match'>
-  ) => void;
+  onSort: (key: Exclude<LogsColumnKey, 'match'>) => void;
   columnsConfig: NormalizedLogsColumnsConfig;
   onColumnsConfigChange: (
     updater: (prev: NormalizedLogsColumnsConfig) => NormalizedLogsColumnsConfig,
     options?: { persist?: boolean }
   ) => void;
   virtualListComponent?: typeof List;
-  viewportBottomInsetPx?: number;
   fullLogSearchEnabled: boolean;
+  hasSearchText: boolean;
+  /** Shown where the rows would be, so an empty list explains itself without scrolling. */
+  emptyMessage?: string;
 }) {
   const { setListRef, element: listElement } = useVirtualListElement();
-  const outerRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLDivElement | null>(null);
-  const defaultRowHeight = 32;
-  const rowHeightsRef = useRef<Record<number, number>>({});
-  const [measuredListHeight, setMeasuredListHeight] = useState<number>(420);
   const [overscanCount, setOverscanCount] = useState<number>(8);
   const overscanBaseRef = useRef<number>(8);
   const overscanLastTopRef = useRef<number>(0);
@@ -93,158 +93,19 @@ export function LogsTable({
   const overscanDecayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const overscanLastSetRef = useRef<number>(8);
   const VirtualList = virtualListComponent ?? List;
-  const columns = useMemo<LogsColumnKey[]>(() => {
-    const visible = columnsConfig.order.filter(key => {
-      if (!columnsConfig.visibility[key]) return false;
-      if (key === 'match' && !fullLogSearchEnabled) return false;
-      return true;
-    });
-    return visible;
-  }, [columnsConfig.order, columnsConfig.visibility, fullLogSearchEnabled]);
-
-  const flexColumn = useMemo<LogsColumnKey | undefined>(() => {
-    const preferred: LogsColumnKey[] = [
-      'operation',
-      'match',
-      'application',
-      'user',
-      'time',
-      'status',
-      'duration',
-      'size'
-    ];
-    return preferred.find(k => columns.includes(k));
-  }, [columns]);
-
-  const gridTemplate = useMemo(() => {
-    const tracks = columns.map(key => {
-      const minWidth = LOGS_COLUMN_MIN_WIDTH_PX[key] ?? 80;
-      const rawWidth = columnsConfig.widths[key];
-      const width = typeof rawWidth === 'number' && Number.isFinite(rawWidth) ? Math.floor(rawWidth) : undefined;
-      const clamped = width !== undefined ? Math.max(minWidth, width) : undefined;
-      if (key === flexColumn) {
-        if (clamped !== undefined) return `minmax(${clamped}px, 1fr)`;
-        return LOGS_COLUMN_DEFAULT_TRACK[key];
-      }
-      if (clamped !== undefined) return `${clamped}px`;
-      return LOGS_COLUMN_DEFAULT_TRACK[key];
-    });
-    tracks.push('96px');
-    return tracks.join(' ');
-  }, [columns, columnsConfig.widths, flexColumn]);
-  // Header is rendered by LogsHeader; keep container simple
-
-  // Batch resetAfterIndex calls to once-per-frame
-  const rafRef = useRef<number | null>(null);
-  const [, forceRender] = useState(0);
-  const scheduleRerender = useCallback(() => {
-    if (rafRef.current !== null) return;
-    rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = null;
-      forceRender(v => v + 1);
-    });
-  }, []);
-  const setRowHeight = useCallback((index: number, size: number) => {
-    const current = rowHeightsRef.current[index] ?? defaultRowHeight;
-    const next = Math.max(defaultRowHeight, Math.ceil(size));
-    if (current !== next) {
-      rowHeightsRef.current[index] = next;
-      scheduleRerender();
-    }
-  }, [defaultRowHeight, scheduleRerender]);
-
-  const getItemSize = (index: number) => rowHeightsRef.current[index] ?? defaultRowHeight;
-
-  const listRowProps = useMemo<ListRowProps>(
-    () => ({
-      rows,
-      logHead,
-      matchSnippets,
-      columns,
-      locale,
-      t,
-      loading,
-      onOpen,
-      onReplay,
-      gridTemplate,
-      setRowHeight
-    }),
-    [
-      rows,
-      logHead,
-      matchSnippets,
-      columns,
-      locale,
-      t,
-      loading,
-      onOpen,
-      onReplay,
-      gridTemplate,
-      setRowHeight
-    ]
+  const columns = useMemo(
+    () => getVisibleLogsColumns(columnsConfig, { fullLogSearchEnabled, hasSearchText }),
+    [columnsConfig, fullLogSearchEnabled, hasSearchText]
+  );
+  const { gridTemplate, minWidthPx } = useMemo(
+    () => buildLogsGrid(columns, columnsConfig.widths),
+    [columns, columnsConfig.widths]
   );
 
-  const renderRow = useCallback(({
-    index,
-    style,
-    rows: rowList,
-    logHead: logHeadMap,
-    matchSnippets: snippetMap,
-    columns: rowColumns,
-    locale: rowLocale,
-    t: messages,
-    loading: isLoading,
-    onOpen: handleOpen,
-    onReplay: handleReplay,
-    gridTemplate: template,
-    setRowHeight: measureRowHeight
-  }: VirtualRowArgs) => {
-      const row = rowList[index];
-      if (!row) return null;
-      return (
-        <LogRow
-          r={row}
-          logHead={logHeadMap}
-          matchSnippet={snippetMap[row.Id]}
-          columns={rowColumns}
-          locale={rowLocale}
-          t={messages}
-          loading={isLoading}
-          onOpen={handleOpen}
-          onReplay={handleReplay}
-          gridTemplate={template}
-          style={style}
-          index={index}
-          setRowHeight={measureRowHeight}
-        />
-      );
-    }, []);
-
-  useLayoutEffect(() => {
-    const recompute = () => {
-      const bottomInset = Number.isFinite(viewportBottomInsetPx) ? Math.max(0, Math.floor(viewportBottomInsetPx)) : 0;
-      const outerRect = outerRef.current?.getBoundingClientRect();
-      const headerRect = headerRef.current?.getBoundingClientRect();
-      const top = outerRect?.top ?? 0;
-      const headerH = headerRect?.height ?? 0;
-      const available = Math.max(160, Math.floor(window.innerHeight - top - headerH - bottomInset - 12));
-      setMeasuredListHeight(available);
-    };
-    recompute();
-    const ro = new ResizeObserver(recompute);
-    if (outerRef.current) {
-      ro.observe(outerRef.current);
-    }
-    window.addEventListener('resize', recompute);
-    return () => {
-      try {
-        ro.disconnect();
-      } catch (e) {
-        console.warn('LogsTable: failed to disconnect ResizeObserver', e);
-      }
-      window.removeEventListener('resize', recompute);
-    };
-  }, [viewportBottomInsetPx]);
+  const listRowProps = useMemo<ListRowProps>(
+    () => ({ rows, logHead, matchSnippets, columns, locale, t, onOpen, onReplay, gridTemplate, minWidthPx }),
+    [rows, logHead, matchSnippets, columns, locale, t, onOpen, onReplay, gridTemplate, minWidthPx]
+  );
 
   // Header follows the horizontal scroll; overscan adapts to scroll velocity
   useEffect(() => {
@@ -283,7 +144,7 @@ export function LogsTable({
   }, [listElement]);
 
   return (
-    <div ref={outerRef} className="relative overflow-hidden">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <LogsHeader
         ref={headerRef}
         t={t}
@@ -291,14 +152,14 @@ export function LogsTable({
         sortDir={sortDir}
         onSort={onSort}
         gridTemplate={gridTemplate}
+        minWidthPx={minWidthPx}
         columns={columns}
         onResizeColumn={(key, widthPx, options) => {
-          const minWidth = LOGS_COLUMN_MIN_WIDTH_PX[key] ?? 80;
+          const minWidth = LOGS_COLUMN_MIN_WIDTH_PX[key];
           const clamped = Math.max(minWidth, Math.floor(widthPx));
-          onColumnsConfigChange(
-            prev => ({ ...prev, widths: { ...prev.widths, [key]: clamped } }),
-            { persist: options.persist }
-          );
+          onColumnsConfigChange(prev => ({ ...prev, widths: { ...prev.widths, [key]: clamped } }), {
+            persist: options.persist
+          });
         }}
         onClearColumnWidth={key => {
           onColumnsConfigChange(prev => {
@@ -307,16 +168,26 @@ export function LogsTable({
           });
         }}
       />
-      <VirtualList
-        className={SCROLLBAR_GUTTER}
-        style={{ height: measuredListHeight, width: '100%' }}
-        rowCount={rows.length}
-        rowHeight={(index: number) => getItemSize(index)}
-        listRef={setListRef}
-        rowProps={listRowProps}
-        overscanCount={overscanCount}
-        rowComponent={renderRow}
-      />
+      <div className="relative min-h-0 flex-1">
+        <VirtualList
+          className={SCROLLBAR_GUTTER}
+          style={{ height: '100%', width: '100%' }}
+          rowCount={rows.length}
+          rowHeight={LOG_ROW_HEIGHT_PX}
+          listRef={setListRef}
+          rowProps={listRowProps}
+          overscanCount={overscanCount}
+          rowComponent={VirtualLogRow}
+        />
+        {emptyMessage && (
+          <p
+            data-testid="logs-empty-message"
+            className="absolute inset-x-0 top-0 m-3 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+          >
+            {emptyMessage}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

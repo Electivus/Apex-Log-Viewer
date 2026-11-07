@@ -1,13 +1,16 @@
 import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import type { List } from 'react-window';
 import type { ApexLogRow } from '@alv/protocol/types';
 import { LogsTable } from '../components/LogsTable';
+import { LOG_ROW_HEIGHT_PX } from '../utils/logsColumns';
 
 type CapturedList = {
   outer?: HTMLDivElement | null;
   onRowsRendered?: (args: { startIndex: number; stopIndex: number }) => void;
   overscanCount?: number;
+  rowHeight?: unknown;
 };
 
 function createRows(n: number): ApexLogRow[] {
@@ -56,7 +59,7 @@ const defaultColumnsConfig = {
   widths: {}
 } as const;
 
-function createVirtualList(captured: CapturedList) {
+function createVirtualList(captured: CapturedList): typeof List {
   return function VirtualList({
     listRef,
     rowCount,
@@ -69,6 +72,7 @@ function createVirtualList(captured: CapturedList) {
   }: any) {
     captured.overscanCount = overscanCount;
     captured.onRowsRendered = onRowsRendered;
+    captured.rowHeight = rowHeight;
     return (
       <div
         style={style}
@@ -83,26 +87,26 @@ function createVirtualList(captured: CapturedList) {
         }}
       >
         {Array.from({ length: rowCount }).map((_, index) => (
-          <div key={index}>{rowComponent({ ...rowProps, index, style: { height: rowHeight(index) } })}</div>
+          <div key={index}>{rowComponent({ ...rowProps, index, style: { height: rowHeight } })}</div>
         ))}
       </div>
     );
-  };
+  } as unknown as typeof List;
 }
 
 describe('LogsTable', () => {
   function renderTable({
     rows = createRows(10),
-    loading = false,
     captured,
     fullLogSearchEnabled = true,
-    viewportBottomInsetPx
+    hasSearchText = true,
+    emptyMessage
   }: {
     rows?: ApexLogRow[];
-    loading?: boolean;
     captured: CapturedList;
     fullLogSearchEnabled?: boolean;
-    viewportBottomInsetPx?: number;
+    hasSearchText?: boolean;
+    emptyMessage?: string;
   }) {
     const virtualList = createVirtualList(captured);
     const baseProps = {
@@ -112,7 +116,6 @@ describe('LogsTable', () => {
       t: t as any,
       onOpen: () => {},
       onReplay: () => {},
-      loading,
       locale: 'en-US',
       sortBy: 'time' as const,
       sortDir: 'asc' as const,
@@ -125,21 +128,11 @@ describe('LogsTable', () => {
         {...baseProps}
         virtualListComponent={virtualList}
         fullLogSearchEnabled={fullLogSearchEnabled}
-        {...(typeof viewportBottomInsetPx === 'number' ? ({ viewportBottomInsetPx } as any) : {})}
+        hasSearchText={hasSearchText}
+        emptyMessage={emptyMessage}
       />
     );
-    return {
-      rerender: (next: Partial<typeof baseProps> & { fullLogSearchEnabled?: boolean }) =>
-        view.rerender(
-          <LogsTable
-            {...baseProps}
-            {...next}
-            virtualListComponent={virtualList}
-            fullLogSearchEnabled={next.fullLogSearchEnabled ?? fullLogSearchEnabled}
-            {...(typeof viewportBottomInsetPx === 'number' ? ({ viewportBottomInsetPx } as any) : {})}
-          />
-        )
-    };
+    return view;
   }
 
   it('does not provide pagination hooks via onRowsRendered', () => {
@@ -148,19 +141,24 @@ describe('LogsTable', () => {
     expect(captured.onRowsRendered).toBeUndefined();
   });
 
-  it('reduces the measured list height when a viewport bottom inset is provided', () => {
-    const originalInnerHeight = window.innerHeight;
-    Object.defineProperty(window, 'innerHeight', { value: 500, configurable: true });
+  it('gives every row the same fixed height, so nothing is measured', () => {
+    const captured: CapturedList = {};
+    renderTable({ rows: createRows(30), captured });
+    expect(captured.rowHeight).toBe(LOG_ROW_HEIGHT_PX);
+    expect(LOG_ROW_HEIGHT_PX).toBe(28);
+  });
 
-    const capturedBaseline: CapturedList = {};
-    renderTable({ captured: capturedBaseline });
-    expect(capturedBaseline.outer?.style.height).toBe('488px');
+  it('fills the height its parent gives it instead of reading the window', () => {
+    const captured: CapturedList = {};
+    renderTable({ captured });
+    expect(captured.outer?.style.height).toBe('100%');
+  });
 
-    const capturedInset: CapturedList = {};
-    renderTable({ captured: capturedInset, viewportBottomInsetPx: 40 });
-    expect(capturedInset.outer?.style.height).toBe('448px');
-
-    Object.defineProperty(window, 'innerHeight', { value: originalInnerHeight, configurable: true });
+  it('shows its message where the rows would be', () => {
+    const captured: CapturedList = {};
+    renderTable({ rows: [], captured, emptyMessage: 'No logs found.' });
+    expect(screen.getByTestId('logs-empty-message')).toHaveTextContent('No logs found.');
+    expect(screen.getByText('Operation')).toBeInTheDocument();
   });
 
   it('adjusts overscan while scrolling quickly', async () => {
@@ -191,10 +189,36 @@ describe('LogsTable', () => {
     (performance as any).now = originalNow;
   });
 
-  it('shows match column when full log search is enabled without showing code unit', () => {
+  it('shows the Match column while the search has text', () => {
     const captured: CapturedList = {};
-    renderTable({ captured, fullLogSearchEnabled: true });
+    renderTable({ captured, fullLogSearchEnabled: true, hasSearchText: true });
     expect(screen.queryByText(deprecatedColumnLabel)).toBeNull();
+    expect(screen.getByText('Match')).toBeInTheDocument();
+  });
+
+  it('leaves the Match column out when the search is empty and brings it back with the next search', () => {
+    const captured: CapturedList = {};
+    const view = renderTable({ captured, hasSearchText: false });
+    expect(screen.queryByText('Match')).toBeNull();
+    view.rerender(
+      <LogsTable
+        rows={createRows(10)}
+        logHead={{}}
+        matchSnippets={{}}
+        t={t as any}
+        onOpen={() => {}}
+        onReplay={() => {}}
+        locale="en-US"
+        sortBy="time"
+        sortDir="asc"
+        onSort={() => {}}
+        columnsConfig={defaultColumnsConfig as any}
+        onColumnsConfigChange={() => {}}
+        virtualListComponent={createVirtualList(captured)}
+        fullLogSearchEnabled={true}
+        hasSearchText={true}
+      />
+    );
     expect(screen.getByText('Match')).toBeInTheDocument();
   });
 
