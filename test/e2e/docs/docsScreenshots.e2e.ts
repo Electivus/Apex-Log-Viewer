@@ -253,7 +253,6 @@ test('captures README screenshots from a realistic scratch-org scenario', async 
       .toBe(1);
     const viewerRow = heroFrame.locator('[role="row"][tabindex="0"]').first();
     await viewerRow.click();
-    await viewerRow.press('Enter');
 
     const viewerFrame = await waitForViewerFrame(vscodePage);
     await closePanel(vscodePage);

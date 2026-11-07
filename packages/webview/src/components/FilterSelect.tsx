@@ -7,10 +7,9 @@ type Props = {
   onChange: (v: string) => void;
   options: string[];
   allLabel?: string;
-  disabled?: boolean;
 };
 
-export function FilterSelect({ label, value, onChange, options, allLabel = 'All', disabled = false }: Props) {
+export function FilterSelect({ label, value, onChange, options, allLabel = 'All' }: Props) {
   return (
     <LabeledSelect
       label={label}
@@ -18,7 +17,6 @@ export function FilterSelect({ label, value, onChange, options, allLabel = 'All'
       onChange={onChange}
       options={options.map(o => ({ value: o, label: o }))}
       placeholderLabel={allLabel}
-      disabled={disabled}
       triggerClassName="min-w-[160px]"
     />
   );

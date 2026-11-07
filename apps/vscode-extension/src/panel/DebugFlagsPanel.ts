@@ -25,7 +25,8 @@ import type {
   TraceFlagTargetStatus
 } from '../shared/debugFlagsTypes';
 import { safeSendEvent } from '../shared/telemetry';
-import { pickSelectedOrg } from '../host/utils/orgs';
+import { orgDisplayName, pickSelectedOrg } from '../host/utils/orgs';
+import { logsCleanupConfirmTitle } from '../host/utils/logsCleanup';
 import { localize } from '../host/utils/localize';
 import { getErrorMessage } from '../host/utils/error';
 import { logInfo, logWarn } from '../host/utils/logger';
@@ -650,6 +651,21 @@ export class DebugFlagsPanel {
     query: string,
     limit: number
   ): Promise<DebugFlagUser[]> {
+    const users = await this.searchUsersOnce(auth, query, limit);
+    const username = (auth.username || '').trim().toLowerCase();
+    const isAuthenticatedUser = (user: DebugFlagUser) => user.username.toLowerCase() === username;
+    if (!username || query.trim() || users.length < limit || users.some(isAuthenticatedUser)) {
+      return users;
+    }
+    const [own] = (await this.searchUsersOnce(auth, username, limit)).filter(isAuthenticatedUser);
+    return own ? [own, ...users.slice(0, limit - 1)] : users;
+  }
+
+  private async searchUsersOnce(
+    auth: Awaited<ReturnType<DebugFlagsPanel['getSelectedAuth']>>,
+    query: string,
+    limit: number
+  ): Promise<DebugFlagUser[]> {
     try {
       const result = await runtimeClient.usersSearch({
         targetOrg: this.getRuntimeTargetOrg(),
@@ -859,11 +875,10 @@ export class DebugFlagsPanel {
     const t0 = Date.now();
     this.post({ type: 'debugFlagsLoading', scope: 'action', value: true });
     try {
+      const orgName = orgDisplayName(await runtimeClient.orgList().catch(() => []), this.selectedOrg);
       const confirmAction = localize('logsCleanup.confirmAction', 'Delete');
       const confirmation = await vscode.window.showWarningMessage(
-        scope === 'mine'
-          ? localize('logsCleanup.confirmMine.title', 'Delete your Apex logs for the selected org?')
-          : localize('logsCleanup.confirmAll.title', 'Delete all Apex logs for the selected org?'),
+        logsCleanupConfirmTitle(scope, orgName),
         {
           modal: true,
           detail:

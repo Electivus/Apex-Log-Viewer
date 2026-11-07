@@ -1,5 +1,10 @@
 import { expect, test } from '../fixtures/alvNoSeed';
-import { getOrgAuth, getUserDebugTraceFlag, removeUserDebugTraceFlags, ensureDebugFlagsTestUser } from '../utils/tooling';
+import {
+  getOrgAuth,
+  getUserDebugTraceFlag,
+  removeUserDebugTraceFlags,
+  ensureDebugFlagsTestUser
+} from '../utils/tooling';
 import { openDebugFlagsFromLogs, openDebugFlagsFromTail } from './debugFlagsPanel.shared';
 
 test('configures and removes debug flags from logs and tail entrypoints', async ({ scratchAlias, vscodePage }) => {
@@ -53,7 +58,9 @@ test('configures and removes debug flags from logs and tail entrypoints', async 
       .toBe('');
 
     const debugFlagsFrameFromTail = await openDebugFlagsFromTail(vscodePage);
-    await expect(debugFlagsFrameFromTail.locator('text=Apex Debug Flags').first()).toBeVisible({ timeout: 60_000 });
+    await expect(debugFlagsFrameFromTail.locator('[data-testid="debug-flags-org-select"]').first()).toBeVisible({
+      timeout: 60_000
+    });
   } finally {
     await removeUserDebugTraceFlags(auth, userId).catch(() => {});
   }

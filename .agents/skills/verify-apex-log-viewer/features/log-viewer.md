@@ -15,7 +15,7 @@ The Log Viewer opens one Apex log in an editor tab. It shows the parsed entries,
 
 ## How to get to it (user POV)
 
-- In the Logs panel, focus a row and press Enter, or click the row's `Open` button.
+- In the Logs panel, click a row, press Enter on a focused row, or click the row's `Open` button.
 - In the Tail panel, select a streamed log and click `Open Log`.
 - In a Custom Log Viewer, click `Open Apex log`.
 - With an Apex `.log` file active in a text editor, run `Electivus Apex Logs: Open in Apex Log Viewer`.

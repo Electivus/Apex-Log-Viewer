@@ -1,6 +1,7 @@
 import { parseWebviewToExtensionMessage, type WebviewToExtensionMessage } from '../shared/messages';
 import { safeSendEvent } from '../shared/telemetry';
 import { logInfo, logWarn } from '../host/utils/logger';
+import type { OpenLogOutcome, ReplayLogOutcome } from '../host/services/logService';
 
 export class LogsMessageHandler {
   constructor(
@@ -9,8 +10,8 @@ export class LogsMessageHandler {
     private readonly clearLogs: (scope: 'all' | 'mine') => Promise<void>,
     private readonly setSelectedOrg: (org?: string) => void,
     private readonly openDebugFlags: () => Promise<void>,
-    private readonly openLog: (logId: string) => Promise<void>,
-    private readonly debugLog: (logId: string) => Promise<void>,
+    private readonly openLog: (logId: string) => Promise<OpenLogOutcome>,
+    private readonly debugLog: (logId: string) => Promise<ReplayLogOutcome>,
     private readonly loadMore: () => Promise<void>,
     private readonly setSearchQuery: (value: string) => Promise<void>,
     private readonly setLogsColumns: (value: unknown) => Promise<void>
@@ -51,13 +52,17 @@ export class LogsMessageHandler {
       case 'openLog':
         if (message.logId) {
           logInfo('Logs: openLog', message.logId);
-          await this.openLog(message.logId);
+          const t0 = Date.now();
+          const outcome = await this.openLog(message.logId);
+          safeSendEvent('log.open', { outcome, view: 'logs' }, { durationMs: Date.now() - t0 });
         }
         break;
       case 'replay':
         if (message.logId) {
           logInfo('Logs: replay', message.logId);
-          await this.debugLog(message.logId);
+          const t0 = Date.now();
+          const outcome = await this.debugLog(message.logId);
+          safeSendEvent('logs.replay', { outcome, view: 'logs' }, { durationMs: Date.now() - t0 });
         }
         break;
       case 'loadMore':

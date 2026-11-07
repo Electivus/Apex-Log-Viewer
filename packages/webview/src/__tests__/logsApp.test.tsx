@@ -193,9 +193,67 @@ describe('Logs webview App', () => {
     await waitFor(() => {
       const types = posted.map(m => m.type);
       expect(types[0]).toBe('ready');
-      expect(types).toEqual(expect.arrayContaining(['openLog', 'replay', 'refresh', 'openDebugFlags', 'downloadAllLogs']));
+      expect(types).toEqual(
+        expect.arrayContaining(['openLog', 'replay', 'refresh', 'openDebugFlags', 'downloadAllLogs'])
+      );
     });
   }, 20000);
+
+  describe('switching orgs', () => {
+    const orgs = [
+      { username: 'a@example.com', alias: 'Org A' },
+      { username: 'b@example.com', alias: 'Org B' }
+    ];
+    const row = {
+      Id: '07L000000000001AAA',
+      StartTime: '2026-11-07T10:00:00.000Z',
+      Operation: 'Op',
+      Application: 'App',
+      DurationMilliseconds: 1,
+      Status: 'Success',
+      Request: '',
+      LogLength: 10,
+      LogUser: { Name: 'User A' }
+    };
+
+    function renderWithRowsOfOrgA() {
+      const { vscode, posted } = createVsCodeMock();
+      const bus = new EventTarget();
+      render(<LogsApp vscode={vscode} messageBus={bus} />);
+      sendMessage(bus, { type: 'orgs', data: orgs, selected: 'a@example.com' });
+      sendMessage(bus, { type: 'logs', data: [row], hasMore: true } as ExtensionToWebviewMessage);
+      return { bus, posted };
+    }
+
+    it('drops the rows of the previous org as soon as the user picks another org', async () => {
+      const { posted } = renderWithRowsOfOrgA();
+      await screen.findByText('User A');
+
+      fireEvent.click(screen.getByRole('combobox'));
+      fireEvent.click(within(screen.getByRole('listbox')).getByText('Org B'));
+
+      expect(screen.queryByText('User A')).toBeNull();
+      expect(posted).toContainEqual({ type: 'selectOrg', target: 'b@example.com' });
+    });
+
+    it('drops the rows when the extension selects another org', async () => {
+      const { bus } = renderWithRowsOfOrgA();
+      await screen.findByText('User A');
+
+      sendMessage(bus, { type: 'orgs', data: orgs, selected: 'b@example.com' });
+
+      await waitFor(() => expect(screen.queryByText('User A')).toBeNull());
+    });
+
+    it('keeps the rows when the extension repeats the selected org', async () => {
+      const { bus } = renderWithRowsOfOrgA();
+      await screen.findByText('User A');
+
+      sendMessage(bus, { type: 'orgs', data: orgs, selected: 'a@example.com' });
+
+      expect(screen.getByText('User A')).toBeInTheDocument();
+    });
+  });
 
   it('surfaces manual pagination when filters are active', async () => {
     const { vscode, posted } = createVsCodeMock();
@@ -311,9 +369,7 @@ describe('Logs webview App', () => {
     });
 
     expect(posted).toEqual(
-      expect.arrayContaining([
-        { type: 'trackLogsSearch', outcome: 'searched', queryLength: '4-10' } as any
-      ])
+      expect.arrayContaining([{ type: 'trackLogsSearch', outcome: 'searched', queryLength: '4-10' } as any])
     );
 
     const errorsOnlySwitch = screen.getByTestId('logs-errors-only-switch');
@@ -540,14 +596,11 @@ describe('Logs webview App', () => {
     await screen.findByText('NormalCandidate');
 
     sendMessage(bus, { type: 'logHead', logId: '07L00000000000EAA', hasErrors: true } as any);
-    sendMessage(
-      bus,
-      {
-        type: 'logHead',
-        logId: '07L00000000000EAA',
-        primaryReason: 'Validation failure'
-      } as any
-    );
+    sendMessage(bus, {
+      type: 'logHead',
+      logId: '07L00000000000EAA',
+      primaryReason: 'Validation failure'
+    } as any);
     sendMessage(bus, { type: 'errorScanStatus', state: 'running', processed: 1, total: 2, errorsFound: 1 });
     await screen.findByText('Scanning logs for errors… (1/2, found: 1)');
 
@@ -602,6 +655,113 @@ describe('Logs webview App', () => {
       expect((getSavedState() as any)?.errorsOnly).toBe(true);
       expect((getSavedState() as any)?.sortBy).toBe('user');
       expect((getSavedState() as any)?.sortDir).toBe('asc');
+    });
+  });
+
+  describe('panel layout and behavior', () => {
+    const logRow = (id: string, overrides: Record<string, unknown> = {}) => ({
+      Id: id,
+      StartTime: '2025-09-21T18:40:00.000Z',
+      Operation: '/services/data/v60.0/tooling/executeAnonymous',
+      Application: 'Developer Console',
+      DurationMilliseconds: 125,
+      Status: 'Success',
+      Request: 'XYZ',
+      LogLength: 2048,
+      LogUser: { Name: 'Alice' },
+      ...overrides
+    });
+
+    function renderLoaded(
+      logs = [logRow('07L000000000001AA'), logRow('07L000000000002AA', { LogUser: { Name: 'Bob' } })]
+    ) {
+      const mock = createVsCodeMock();
+      const bus = new EventTarget();
+      const view = render(<LogsApp vscode={mock.vscode} messageBus={bus} />);
+      sendMessage(bus, { type: 'init', locale: 'en', fullLogSearchEnabled: true });
+      sendMessage(bus, { type: 'logs', data: logs as any, hasMore: false });
+      return { ...mock, bus, view };
+    }
+
+    it('keeps the search box and Errors only usable while a refresh loads, and shows the loading message in the strip', () => {
+      const { bus } = renderLoaded();
+      sendMessage(bus, { type: 'loading', value: true });
+
+      expect(screen.getByLabelText('Search logs…')).toBeEnabled();
+      expect(screen.getByRole('switch', { name: 'Errors only' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Refresh' })).toBeDisabled();
+      expect(within(screen.getByTestId('logs-status-strip')).getByText('Loading…')).toBeInTheDocument();
+      expect(screen.queryByRole('status', { name: 'Loading…' })).toBeNull();
+    });
+
+    it('posts a search typed during a refresh and filters the rows it already has', () => {
+      jest.useFakeTimers();
+      const { bus, posted } = renderLoaded();
+      sendMessage(bus, { type: 'loading', value: true });
+
+      fireEvent.change(screen.getByLabelText('Search logs…'), { target: { value: 'Bob' } });
+      act(() => {
+        jest.advanceTimersByTime(300);
+      });
+
+      expect(posted.filter(msg => msg.type === 'searchQuery')).toEqual([{ type: 'searchQuery', value: 'Bob' }]);
+      const ids = screen
+        .getAllByRole('row')
+        .map(row => row.getAttribute('data-log-id'))
+        .filter(Boolean);
+      expect(ids).toEqual(['07L000000000002AA']);
+    });
+
+    it('draws the Match column only while the search has text', () => {
+      const { bus } = renderLoaded();
+      expect(screen.queryByRole('columnheader', { name: /^Match/ })).toBeNull();
+
+      fireEvent.change(screen.getByLabelText('Search logs…'), { target: { value: 'Alice' } });
+      expect(screen.getByRole('columnheader', { name: /^Match/ })).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText('Search logs…'), { target: { value: '' } });
+      expect(screen.queryByRole('columnheader', { name: /^Match/ })).toBeNull();
+      void bus;
+    });
+
+    it('opens the log when its row is clicked', () => {
+      const { posted } = renderLoaded();
+      fireEvent.click(screen.getByText('Bob'));
+      expect(posted.filter(msg => msg.type === 'openLog')).toEqual([{ type: 'openLog', logId: '07L000000000002AA' }]);
+    });
+
+    it('shows the empty message in the list area, under the header', () => {
+      renderLoaded([]);
+      const message = screen.getByTestId('logs-empty-message');
+      expect(message).toHaveTextContent('No logs found.');
+      expect(screen.getByRole('columnheader', { name: /Operation/ })).toBeInTheDocument();
+    });
+
+    it('clears the User, Operation and Status filters and leaves the search and Errors only alone', () => {
+      renderLoaded();
+      fireEvent.change(screen.getByLabelText('Search logs…'), { target: { value: 'Alice' } });
+      fireEvent.click(screen.getByRole('switch', { name: 'Errors only' }));
+      const docRef = globalThis as unknown as { DocumentFragment: typeof DocumentFragment | undefined };
+      const original = docRef.DocumentFragment;
+      docRef.DocumentFragment = undefined;
+      try {
+        fireEvent.click(screen.getByRole('button', { name: /^Filters/ }));
+        fireEvent.change(screen.getByLabelText('User'), { target: { value: 'Alice' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+        expect((screen.getByLabelText('User') as HTMLSelectElement).value).toBe('');
+      } finally {
+        docRef.DocumentFragment = original;
+      }
+      expect((screen.getByLabelText('Search logs…') as HTMLInputElement).value).toBe('Alice');
+      expect(screen.getByRole('switch', { name: 'Errors only' })).toHaveAttribute('data-state', 'checked');
+    });
+
+    it('shows the error scan progress in the strip while rows are listed', () => {
+      const { bus } = renderLoaded();
+      sendMessage(bus, { type: 'errorScanStatus', state: 'running', processed: 1, total: 2, errorsFound: 0 });
+      expect(
+        within(screen.getByTestId('logs-status-strip')).getByText('Scanning logs for errors… (1/2, found: 0)')
+      ).toBeInTheDocument();
     });
   });
 });

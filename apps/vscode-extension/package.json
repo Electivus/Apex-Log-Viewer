@@ -288,12 +288,14 @@
       {
         "command": "electivus.apexLogViewer.logs.openEditor",
         "title": "%command.openLogsEditor.title%",
-        "category": "Electivus Apex Logs"
+        "category": "Electivus Apex Logs",
+        "icon": "$(open-preview)"
       },
       {
         "command": "electivus.apexLogViewer.tail.openEditor",
         "title": "%command.openTailEditor.title%",
-        "category": "Electivus Apex Logs"
+        "category": "Electivus Apex Logs",
+        "icon": "$(open-preview)"
       },
       {
         "command": "electivus.apexLogViewer.customLogs.refresh",
@@ -366,26 +368,22 @@
         {
           "command": "electivus.apexLogViewer.logs.openEditor",
           "when": "view == electivus.apexLogViewer.logsView",
-          "group": "navigation@10",
-          "icon": "$(open-preview)"
+          "group": "navigation@10"
         },
         {
           "command": "electivus.apexLogViewer.tail.openEditor",
           "when": "view == electivus.apexLogViewer.tailView",
-          "group": "navigation@10",
-          "icon": "$(open-preview)"
+          "group": "navigation@10"
         },
         {
           "command": "electivus.apexLogViewer.customLogs.openEditor",
           "when": "view == electivus.apexLogViewer.customLogsView",
-          "group": "navigation@10",
-          "icon": "$(open-preview)"
+          "group": "navigation@10"
         },
         {
           "command": "electivus.apexLogViewer.customLogs.refresh",
           "when": "view == electivus.apexLogViewer.customLogsView",
-          "group": "navigation@5",
-          "icon": "$(refresh)"
+          "group": "navigation@5"
         },
         {
           "command": "electivus.apexLogViewer.customLogs.configure",

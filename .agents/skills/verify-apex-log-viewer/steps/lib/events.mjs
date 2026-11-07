@@ -134,7 +134,7 @@ export async function openEventsPanel({ h, session, expect }, object, mapping) {
   }
   await mapEventSource(session, object, mapping);
   await h.setWorkspaceSetting('electivus.apexLogViewer.customLogs.enabled', true);
-  await h.runCommandWhenAvailable('Electivus Custom Logs: Focus on Electivus Custom Logs View');
+  await h.runCommandWhenAvailable('Custom Logs: Focus on Custom Logs View');
   await h.runCommandWhenAvailable('Electivus Apex Logs: Refresh Custom Logs');
   await h.closeQuickInput();
   const logs = await h.customLogsFrame(180_000);
