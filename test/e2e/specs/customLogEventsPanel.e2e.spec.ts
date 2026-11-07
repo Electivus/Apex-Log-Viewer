@@ -67,7 +67,7 @@ test.afterAll(async ({}, testInfo) => {
 });
 
 async function openPanel(): Promise<Frame> {
-  await runCommandWhenAvailable(page, 'Electivus Custom Logs: Focus on Electivus Custom Logs View', {
+  await runCommandWhenAvailable(page, 'Custom Logs: Focus on Custom Logs View', {
     timeoutMs: 90_000
   });
   await runCommandWhenAvailable(page, 'Electivus Apex Logs: Refresh Custom Logs', { timeoutMs: 90_000 });

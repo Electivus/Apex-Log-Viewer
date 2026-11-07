@@ -4,11 +4,11 @@
 // args: { enabled?: boolean | null }
 //   true (default): write the setting on; false: write it off; null: remove the key (the default, off)
 const SETTING = 'electivus.apexLogViewer.customLogs.enabled';
-const VIEW = 'Electivus Custom Logs';
+const VIEW = 'Custom Logs';
 const FOCUS_COMMAND = `${VIEW}: Focus on ${VIEW} View`;
 const OTHER_FOCUS_COMMANDS = [
-  'Electivus Apex Logs: Focus on Electivus Apex Logs View',
-  'Electivus Apex Logs Tail: Focus on Electivus Apex Logs Tail View'
+  'Apex Logs: Focus on Apex Logs View',
+  'Apex Tail: Focus on Apex Tail View'
 ];
 
 async function openPalette(page, query) {
@@ -24,9 +24,15 @@ async function openPalette(page, query) {
 }
 
 async function focusCommands(page) {
-  const { rows } = await openPalette(page, 'Focus on Electivus');
-  await page.keyboard.press('Escape');
-  return rows.filter(row => row.includes(': Focus on Electivus'));
+  const found = [];
+  for (const command of [FOCUS_COMMAND, ...OTHER_FOCUS_COMMANDS]) {
+    const { rows } = await openPalette(page, command);
+    await page.keyboard.press('Escape');
+    if (rows.some(row => row.startsWith(command))) {
+      found.push(command);
+    }
+  }
+  return found;
 }
 
 export default async function ({ page, h, expect, args }) {
@@ -38,12 +44,12 @@ export default async function ({ page, h, expect, args }) {
 
   // VS Code applies the file change a moment later; the view's Focus command exists only while the view does.
   await expect
-    .poll(async () => (await focusCommands(page)).some(row => row.startsWith(FOCUS_COMMAND)), { timeout: 30_000 })
+    .poll(async () => (await focusCommands(page)).includes(FOCUS_COMMAND), { timeout: 30_000 })
     .toBe(shown);
   const focusEntries = await focusCommands(page);
-  expect(focusEntries.some(row => row.startsWith(FOCUS_COMMAND))).toBe(shown);
+  expect(focusEntries.includes(FOCUS_COMMAND)).toBe(shown);
   for (const other of OTHER_FOCUS_COMMANDS) {
-    expect(focusEntries.some(row => row.startsWith(other))).toBe(true);
+    expect(focusEntries.includes(other)).toBe(true);
   }
 
   // The panel fits seven tabs next to a side bar or a wide panel toolbar such as Output's. VS Code moves the rest
@@ -78,7 +84,7 @@ export default async function ({ page, h, expect, args }) {
 
   const editorTabs = await page
     .locator('.part.editor .tabs-container .tab')
-    .filter({ hasText: /Electivus Custom Logs|Custom log:/ })
+    .filter({ hasText: /Custom Logs|Custom log:/ })
     .count();
   if (!shown) {
     expect(editorTabs).toBe(0);

@@ -6,7 +6,7 @@ export default async function ({ page, h, expect }) {
   await h.runCommandWhenAvailable('Electivus Apex Logs: Refresh Logs');
   await h.closeQuickInput();
   await h.logsFrame(180_000);
-  const tab = page.locator('.tabs-container .tab', { hasText: 'Electivus Apex Logs' });
+  const tab = page.locator('.tabs-container .tab', { hasText: 'Apex Logs' });
   try {
     await h.runCommand('Electivus Apex Logs: Open Logs in Editor Area');
     await expect(tab).toHaveCount(1, { timeout: 30_000 });

@@ -75,7 +75,7 @@ class MockWebviewPanel implements vscode.WebviewPanel {
   readonly active = true;
   visible = true;
   readonly options: vscode.WebviewPanelOptions = {};
-  public title = 'Electivus Apex Logs';
+  public title = 'Apex Logs';
   public viewColumn: vscode.ViewColumn = vscode.ViewColumn.Active;
   public webview: vscode.Webview;
   private disposeListener: (() => void) | undefined;

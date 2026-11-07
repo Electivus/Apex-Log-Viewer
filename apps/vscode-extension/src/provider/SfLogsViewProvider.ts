@@ -1548,7 +1548,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       webview,
       this.context.extensionUri,
       'main.js',
-      localize('salesforce.logs.view.name', 'Electivus Apex Logs'),
+      localize('salesforce.logs.view.name', 'Apex Logs'),
       { mountSequence }
     );
   }
@@ -1746,7 +1746,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   }
 
   private getPlaceholderHtml(): string {
-    const title = this.escapeHtml(localize('salesforce.logs.view.name', 'Electivus Apex Logs'));
+    const title = this.escapeHtml(localize('salesforce.logs.view.name', 'Apex Logs'));
     return `<!DOCTYPE html>
 <html lang="en">
   <head>

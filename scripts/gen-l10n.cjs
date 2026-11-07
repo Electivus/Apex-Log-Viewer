@@ -30,9 +30,9 @@ const ptBrByLegacyKey = {
   selectOrgError: 'Electivus Apex Logs: falha ao listar orgs',
   refreshingLogs: 'Atualizando logs...',
   listingOrgs: 'Listando orgs Salesforce...',
-  'salesforce.logs.view.name': 'Electivus Apex Logs',
-  'salesforce.tail.view.name': 'Electivus Apex Logs Tail',
-  'customLogs.view.name': 'Electivus Logs Personalizados',
+  'salesforce.logs.view.name': 'Apex Logs',
+  'salesforce.tail.view.name': 'Apex Tail',
+  'customLogs.view.name': 'Logs Personalizados',
   'customLogs.viewer.title': 'Log personalizado',
   'customLogs.viewer.panelTitle': 'Log personalizado: {0}',
   'customLogs.field.message': 'Mensagem',
@@ -140,7 +140,7 @@ const ptBrByLegacyKey = {
 };
 
 /** Runtime messages that read the same in pt-BR (product names), so the pt-BR bundle leaves them out. */
-const sameInPtBr = new Set(['Apex Debug Flags', 'Electivus Apex Logs', 'Electivus Apex Logs Tail', 'Payload']);
+const sameInPtBr = new Set(['Apex Debug Flags', 'Apex Logs', 'Apex Tail', 'Payload']);
 
 function ensureDir(targetPath) {
   fs.mkdirSync(targetPath, { recursive: true });
