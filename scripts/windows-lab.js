@@ -201,19 +201,19 @@ function realDeps() {
         throw new Error('Could not read the public IPv4 address of this machine.');
       return ip;
     },
-    keychainRead: () => {
-      const args = ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-a', ADMIN_USER, '-w'];
+    keychainRead: group => {
+      const args = ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-a', group, '-w'];
       const result = runCaptured('security', args);
       return result.status === 0 ? result.stdout.trim() : '';
     },
-    keychainWrite: password => {
+    keychainWrite: (group, password) => {
       // Through stdin, because an argument would show in the process list.
-      const command = `add-generic-password -U -s ${KEYCHAIN_SERVICE} -a ${ADMIN_USER} -w "${password}"\n`;
+      const command = `add-generic-password -U -s ${KEYCHAIN_SERVICE} -a ${group} -w "${password}"\n`;
       const result = runCaptured('security', ['-i'], { input: command });
       if (result.status !== 0) throw new Error('Could not store the password in the macOS Keychain.');
     },
-    keychainDelete: () => {
-      runCaptured('security', ['delete-generic-password', '-s', KEYCHAIN_SERVICE, '-a', ADMIN_USER]);
+    keychainDelete: group => {
+      runCaptured('security', ['delete-generic-password', '-s', KEYCHAIN_SERVICE, '-a', group]);
     },
     ensureSshKey: keyFile => {
       if (fs.existsSync(keyFile)) return;
@@ -315,13 +315,13 @@ class Lab {
   }
 
   ensurePassword(vmExists) {
-    const stored = this.deps.keychainRead();
+    const stored = this.deps.keychainRead(this.group);
     if (stored) return stored;
     if (vmExists) {
       throw new Error('The VM exists but its password is not in the Keychain. Run destroy, then up.');
     }
     const password = generatePassword();
-    this.deps.keychainWrite(password);
+    this.deps.keychainWrite(this.group, password);
     return password;
   }
 
@@ -461,7 +461,7 @@ class Lab {
     });
     this.deps.log(`User: ${ADMIN_USER}.`);
     this.deps.log(
-      `Copy the password with: security find-generic-password -s ${KEYCHAIN_SERVICE} -a ${ADMIN_USER} -w | pbcopy`
+      `Copy the password with: security find-generic-password -s ${KEYCHAIN_SERVICE} -a ${this.group} -w | pbcopy`
     );
     if (!this.deps.openFile(file)) {
       this.deps.log(`No app opened the connection file. Install Windows App, then open ${file}.`);
@@ -484,7 +484,7 @@ class Lab {
     }
     const { stdout } = this.az(['resource', 'list', '-g', this.group, '--query', '[].[type,name]', '-o', 'tsv']);
     log('Resources:');
-    for (const line of stdout.trim().split('\n').filter(Boolean)) log(`  ${line.replace('\t', ' ')}`);
+    for (const line of stdout.trim().split('\n').filter(Boolean)) log(`  ${line.replaceAll('\t', ' ')}`);
   }
 
   down() {
@@ -520,7 +520,7 @@ class Lab {
     const { log } = this.deps;
     if (!this.groupExists()) {
       log(`Group ${this.group} does not exist. Nothing to do.`);
-      this.deps.keychainDelete();
+      this.deps.keychainDelete(this.group);
       return;
     }
     const { stdout } = this.az(['group', 'show', '-n', this.group, '--query', 'tags."alv-lab"', '-o', 'tsv']);
@@ -528,7 +528,7 @@ class Lab {
       throw new Error(`Refusing to delete ${this.group} because it lacks the tag ${LAB_TAG}.`);
     }
     this.az(['group', 'delete', '-n', this.group, '--yes', '-o', 'none']);
-    this.deps.keychainDelete();
+    this.deps.keychainDelete(this.group);
     log(`Deleted ${this.group}. Nothing bills.`);
   }
 }

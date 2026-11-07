@@ -32,7 +32,7 @@ function fakeDeps(respond) {
         if (result.status !== 0 && !options.allowFailure) throw new Error(`az failed: ${result.stderr}`);
         return result;
       },
-      keychainDelete: () => calls.push(['keychain-delete'])
+      keychainDelete: group => calls.push(['keychain-delete', group])
     }
   };
 }
@@ -90,6 +90,17 @@ test('destroy deletes only the tagged lab group, and repeats safely', async () =
   const deletes = calls.filter(args => isCall(args, 'group', 'delete'));
   assert.equal(deletes.length, 1);
   assert.equal(deletes[0][3], 'rg-alv-windows-lab-eastus');
+});
+
+test('destroy of an absent lab deletes only the password of its own group', async () => {
+  const { calls, deps } = fakeDeps(args =>
+    isCall(args, 'group', 'exists') ? { status: 0, stdout: 'false\n', stderr: '' } : undefined
+  );
+  assert.equal(await runCli(['destroy', '--location', 'westus'], deps), 0);
+  assert.deepEqual(
+    calls.filter(args => args[0] === 'keychain-delete'),
+    [['keychain-delete', 'rg-alv-windows-lab-westus']]
+  );
 });
 
 test('down skips what is already gone', async () => {

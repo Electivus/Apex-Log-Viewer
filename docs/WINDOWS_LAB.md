@@ -91,7 +91,7 @@ The lab runs `Standard_D4s_v4` on demand. `standardDSv5Family` has a quota of 0 
 
 - Inbound traffic is allowed only on ports 22 and 3389, and only from the public IP that ran the last `up`. If your IP changes, rerun `up`.
 - SSH uses a key in `~/.config/alv-windows-lab`, and the server offers only `publickey`. The script takes the host key from the VM through `az vm run-command`, so the first connection does not trust an unverified key.
-- A random password for RDP goes only to the macOS Keychain, in the service `alv-windows-lab`.
+- A random password for RDP goes only to the macOS Keychain, in the service `alv-windows-lab`, with the lab group as the account, so destroying one lab leaves the password of another.
 - The script hides subscription IDs and IP addresses in the errors it prints.
 - The bootstrap checks the SHA-256 of Git for Windows against a pinned value, and of Node against `SHASUMS256.txt` from nodejs.org. Corepack checks the pnpm package.
 

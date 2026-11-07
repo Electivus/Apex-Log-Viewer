@@ -144,26 +144,25 @@ function Install-Git {
 
 function Sync-Repository {
   $git = "$GitCmdDir\git.exe"
-  $firstClone = -not (Test-Path "$RepoDir\.git")
-  if ($firstClone) {
-    Invoke-Native $git @('init', '--quiet', $RepoDir) | Out-Null
+  if (-not (Test-Path "$RepoDir\.git")) { Invoke-Native $git @('init', '--quiet', $RepoDir) | Out-Null }
+  if ((Invoke-Native $git @('-C', $RepoDir, 'remote')) -notcontains 'origin') {
     Invoke-Native $git @('-C', $RepoDir, 'remote', 'add', 'origin', $RepoUrl) | Out-Null
   }
+  $current = & $git -C $RepoDir rev-parse --verify --quiet HEAD
+  $firstClone = $LASTEXITCODE -ne 0
   $target = if ($Ref) { $Ref } elseif ($firstClone) { 'main' } else { '' }
   if (-not $target) { return }
 
   Invoke-Native $git @('-C', $RepoDir, 'fetch', '--quiet', '--depth', '1', 'origin', $target) | Out-Null
   $wanted = (Invoke-Native $git @('-C', $RepoDir, 'rev-parse', 'FETCH_HEAD')).Trim()
-  $current = ''
-  if (-not $firstClone) {
-    $current = (& $git -C $RepoDir rev-parse HEAD 2>$null)
-    if ($LASTEXITCODE -ne 0) { $current = '' }
+  if ($firstClone) {
+    # --force, because an interrupted first checkout leaves files that no commit owns yet.
+    Invoke-Native $git @('-C', $RepoDir, 'checkout', '--quiet', '--force', '--detach', 'FETCH_HEAD') | Out-Null
+    return
   }
   if ($wanted -eq $current) { return }
-  if (-not $firstClone) {
-    $dirty = Invoke-Native $git @('-C', $RepoDir, 'status', '--porcelain')
-    if ($dirty) { throw "The repository on the VM has local changes. Refusing to move it to $target." }
-  }
+  $dirty = Invoke-Native $git @('-C', $RepoDir, 'status', '--porcelain')
+  if ($dirty) { throw "The repository on the VM has local changes. Refusing to move it to $target." }
   Invoke-Native $git @('-C', $RepoDir, 'checkout', '--quiet', '--detach', 'FETCH_HEAD') | Out-Null
 }
 
