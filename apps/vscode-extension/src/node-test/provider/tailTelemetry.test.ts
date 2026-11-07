@@ -180,7 +180,8 @@ suite('Tail telemetry', () => {
     await host.emit({ type: 'tailStart', debugLevel: 'ALV_E2E' });
     assertOnly('tail.start', { outcome: 'error', code: 'AUTH_FAILED' });
     const payload = JSON.stringify(telemetry.sent);
-    assert.ok(!payload.includes(ORG) && !payload.includes('salesforce.com'), 'no org value in the payload');
+    assert.ok(!payload.includes(ORG), 'the org is not in the payload');
+    assert.ok(!payload.includes(AUTH_FAILURE), 'the raw message is not in the payload');
     provider.dispose();
   });
 
