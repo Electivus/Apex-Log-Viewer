@@ -27,6 +27,7 @@ describe('LogsHeader', () => {
           sorted = key;
         }}
         gridTemplate="1fr 1fr 96px"
+        minWidthPx={800}
         columns={['user', 'application']}
         onResizeColumn={() => {}}
         onClearColumnWidth={() => {}}
@@ -55,6 +56,7 @@ describe('LogsHeader', () => {
         sortDir="asc"
         onSort={() => {}}
         gridTemplate="1fr 1fr 1fr 96px"
+        minWidthPx={800}
         columns={['user', 'application', 'match']}
         onResizeColumn={onResizeColumn}
         onClearColumnWidth={onClearColumnWidth}
@@ -97,6 +99,7 @@ describe('LogsHeader', () => {
         sortDir="asc"
         onSort={() => {}}
         gridTemplate="1fr 1fr"
+        minWidthPx={800}
         columns={['user', 'application']}
         onResizeColumn={() => {}}
         onClearColumnWidth={() => {}}

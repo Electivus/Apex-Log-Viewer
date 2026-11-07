@@ -3,7 +3,6 @@ import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { LogsColumnKey } from '@alv/protocol/logsColumns';
 import { getLogsColumnLabel, LOGS_COLUMN_MIN_WIDTH_PX } from '../../utils/logsColumns';
-import { SCROLLBAR_GUTTER } from './useVirtualListElement';
 
 type SortKey = Exclude<LogsColumnKey, 'match'>;
 
@@ -13,13 +12,14 @@ type Props = {
   sortDir: 'asc' | 'desc';
   onSort: (key: SortKey) => void;
   gridTemplate: string;
+  minWidthPx: number;
   columns: LogsColumnKey[];
   onResizeColumn: (key: LogsColumnKey, widthPx: number, options: { persist: boolean }) => void;
   onClearColumnWidth: (key: LogsColumnKey) => void;
 };
 
 export const LogsHeader = React.forwardRef<HTMLDivElement, Props>(
-  ({ t, sortBy, sortDir, onSort, gridTemplate, columns, onResizeColumn, onClearColumnWidth }, ref) => {
+  ({ t, sortBy, sortDir, onSort, gridTemplate, minWidthPx, columns, onResizeColumn, onClearColumnWidth }, ref) => {
     const renderSortIcon = (key: SortKey) => {
       if (sortBy !== key) {
         return <ChevronsUpDown className="h-3.5 w-3.5 opacity-50" aria-hidden="true" />;
@@ -36,13 +36,11 @@ export const LogsHeader = React.forwardRef<HTMLDivElement, Props>(
       return sortDir === 'asc' ? 'ascending' : 'descending';
     };
 
-    const headerClass =
-      'flex items-center gap-1 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground';
+    const headerClass = 'flex min-w-0 items-center gap-1 px-2 text-[11px] font-semibold text-muted-foreground';
 
     const isSortableColumn = (key: LogsColumnKey): key is SortKey => key !== 'match';
 
-    const alignForColumn = (key: LogsColumnKey): 'start' | 'end' =>
-      key === 'size' ? 'end' : 'start';
+    const alignForColumn = (key: LogsColumnKey): 'start' | 'end' => (key === 'size' ? 'end' : 'start');
 
     const startResize = (key: LogsColumnKey, e: React.PointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
@@ -109,7 +107,7 @@ export const LogsHeader = React.forwardRef<HTMLDivElement, Props>(
               type="button"
               onClick={() => onSort(key)}
               className={cn(
-                'flex w-full items-center gap-1 text-xs font-semibold uppercase tracking-wide transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                'flex h-full w-full min-w-0 items-center gap-1 text-[11px] font-semibold transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring',
                 justifyClass
               )}
             >
@@ -142,16 +140,14 @@ export const LogsHeader = React.forwardRef<HTMLDivElement, Props>(
     };
 
     return (
-      <div
-        ref={ref}
-        className={cn(
-          'sticky top-0 z-10 overflow-x-hidden border-b border-border bg-card/80 backdrop-blur',
-          SCROLLBAR_GUTTER
-        )}
-      >
-        <div role="row" style={{ gridTemplateColumns: gridTemplate }} className="grid items-stretch">
+      <div ref={ref} className="shrink-0 overflow-x-hidden overflow-y-scroll border-b border-border bg-card">
+        <div
+          role="row"
+          style={{ gridTemplateColumns: gridTemplate, minWidth: minWidthPx }}
+          className="grid h-7 items-stretch"
+        >
           {columns.map(key => renderColumnHeader(key))}
-          <div aria-hidden="true" />
+          <div aria-hidden="true" className="sticky right-0 z-[1] border-l border-border/40 bg-card" />
         </div>
       </div>
     );

@@ -52,14 +52,13 @@ describe('table headers', () => {
         t={{ columns: {}, open: 'Open', replay: 'Replay' } as any}
         onOpen={() => {}}
         onReplay={() => {}}
-        loading={false}
         locale="en-US"
         sortBy="time"
         sortDir="asc"
         onSort={() => {}}
         columnsConfig={
           {
-            order: ['user', 'application', 'operation', 'time', 'duration', 'status', 'codeUnit', 'size', 'match'],
+            order: ['user', 'application', 'operation', 'time', 'duration', 'status', 'size', 'match'],
             visibility: {
               user: true,
               application: true,
@@ -67,7 +66,6 @@ describe('table headers', () => {
               time: true,
               duration: true,
               status: true,
-              codeUnit: true,
               size: true,
               match: false
             },
@@ -76,6 +74,7 @@ describe('table headers', () => {
         }
         onColumnsConfigChange={() => {}}
         fullLogSearchEnabled={false}
+        hasSearchText={false}
       />
     );
     const body = screen.getByTestId('virtual-list');

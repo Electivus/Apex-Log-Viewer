@@ -26,11 +26,9 @@ test('searches a gitignored Apex log body and opens it in the Log Viewer panel',
     timeout: 180_000
   });
 
-  // Select the matching row and press Enter to open (LogRow binds Enter/Space to open).
   await dismissAllNotifications(vscodePage);
   await closeQuickInputIfOpen(vscodePage);
   await matchingRow.click();
-  await matchingRow.press('Enter');
 
   // Find the Log Viewer panel webview by its stable header text.
   const viewerFrame = await waitForWebviewFrame(

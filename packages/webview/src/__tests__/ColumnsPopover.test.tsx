@@ -73,4 +73,15 @@ describe('ColumnsPopover', () => {
     const matchSwitch = screen.getByRole('switch', { name: 'Match' });
     expect(matchSwitch).toBeDisabled();
   });
+
+  it('opens from an icon-only button and says Match shows while searching', () => {
+    render(<Harness fullLogSearchEnabled={true} />);
+    const trigger = screen.getByRole('button', { name: 'Columns' });
+    expect(trigger).toHaveAttribute('title', 'Columns');
+    expect(trigger.textContent).toBe('');
+
+    fireEvent.click(trigger);
+    screen.getByText('Shown while searching');
+    expect(screen.getByRole('switch', { name: 'Match' })).toBeEnabled();
+  });
 });
