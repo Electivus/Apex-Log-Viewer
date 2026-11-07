@@ -1,10 +1,11 @@
 import { spawn } from 'child_process';
 import * as path from 'path';
 import { constants as fsConstants, promises as fs } from 'fs';
+import { ESCAPED_PIPE } from '../../shared/logText';
 
 let cachedBinary: string | null | undefined;
 
-const RG_ARGS_BASE = ['--no-messages', '--no-ignore', '--ignore-case', '--fixed-strings', '--glob', '*.log'];
+const RG_ARGS_BASE = ['--no-messages', '--no-ignore', '--ignore-case', '--glob', '*.log'];
 
 export type RipgrepMatch = {
   filePath: string;
@@ -12,12 +13,19 @@ export type RipgrepMatch = {
   submatches: Array<{ start: number; end: number }>;
 };
 
-export function buildRipgrepSearchArgs(pattern: string): string[] {
-  return [...RG_ARGS_BASE, '--json', '--max-count', '1', '--', pattern, '.'];
+function literalPatternWithEitherPipe(query: string): string {
+  return query
+    .split('|')
+    .map(literal => literal.replace(/[\\.+*?()[\]{}^$]/g, '\\$&'))
+    .join(`(?:\\||${ESCAPED_PIPE})`);
 }
 
-export function buildRipgrepFileSearchArgs(pattern: string, filePaths: readonly string[]): string[] {
-  return [...RG_ARGS_BASE, '--json', '--max-count', '1', '--', pattern, ...filePaths];
+export function buildRipgrepSearchArgs(query: string): string[] {
+  return [...RG_ARGS_BASE, '--json', '--max-count', '1', '--', literalPatternWithEitherPipe(query), '.'];
+}
+
+export function buildRipgrepFileSearchArgs(query: string, filePaths: readonly string[]): string[] {
+  return [...RG_ARGS_BASE, '--json', '--max-count', '1', '--', literalPatternWithEitherPipe(query), ...filePaths];
 }
 
 async function resolveRipgrepBinary(): Promise<string> {
@@ -63,7 +71,7 @@ function trySpawn(binary: string, args: string[], cwd?: string): Promise<boolean
   });
 }
 
-export async function ripgrepSearch(pattern: string, cwd: string, signal?: AbortSignal): Promise<RipgrepMatch[]> {
+export async function ripgrepSearch(query: string, cwd: string, signal?: AbortSignal): Promise<RipgrepMatch[]> {
   try {
     const stat = await fs.stat(cwd);
     if (!stat.isDirectory()) {
@@ -80,12 +88,12 @@ export async function ripgrepSearch(pattern: string, cwd: string, signal?: Abort
     return [];
   }
 
-  const args = buildRipgrepSearchArgs(pattern);
+  const args = buildRipgrepSearchArgs(query);
   return spawnRipgrep(binary, args, cwd, signal);
 }
 
 export async function ripgrepSearchFiles(
-  pattern: string,
+  query: string,
   filePaths: readonly string[],
   signal?: AbortSignal
 ): Promise<RipgrepMatch[]> {
@@ -102,7 +110,7 @@ export async function ripgrepSearchFiles(
   }
 
   const cwd = process.cwd();
-  const args = buildRipgrepFileSearchArgs(pattern, targets);
+  const args = buildRipgrepFileSearchArgs(query, targets);
   return spawnRipgrep(binary, args, cwd, signal);
 }
 

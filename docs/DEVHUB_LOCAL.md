@@ -1,6 +1,6 @@
 # Durable local Dev Hub JWT validation
 
-This page covers running local real-org tests and pool operations with the same dedicated JWT identity as CI. For a quick local E2E or integration run against a Dev Hub you already authenticated in the Salesforce CLI, set `SF_DEVHUB_ALIAS` instead; see [Run locally](TESTING.md#run-locally). Pool commands and the proxy lab still require JWT, and once any JWT input is set, missing or invalid JWT never falls back to an alias, cached account or legacy authorization URL. Unit-only tests continue to run without Salesforce credentials.
+This page covers running local real-org tests and pool operations with a dedicated JWT identity. That identity can be a different user from the CI user, so it only reuses pool slots; see [Slot ownership](SCRATCH_ORG_POOL.md#slot-ownership). For a quick local E2E or integration run against a Dev Hub you already authenticated in the Salesforce CLI, set `SF_DEVHUB_ALIAS` instead; see [Run locally](TESTING.md#run-locally). Pool commands and the proxy lab still require JWT, and once any JWT input is set, missing or invalid JWT never falls back to an alias, cached account or legacy authorization URL. Unit-only tests continue to run without Salesforce credentials.
 
 ## Operator state
 

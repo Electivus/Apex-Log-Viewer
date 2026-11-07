@@ -1825,18 +1825,18 @@ suite('SfLogsViewProvider behavior', () => {
     assert.equal(opened[0]?.sourceView, 'logs');
   });
 
-  test('tailLogs reveals the Tail view through its focus command only', async () => {
+  test('tailLogs reveals the Tail view through its focus command and moves the focus there', async () => {
     const { SfLogsViewProvider, vscode: vscodeMock } = createProviderHarness();
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
-    const executed: string[] = [];
-    vscodeMock.commands.executeCommand = async (command: string) => {
-      executed.push(command);
+    const executed: unknown[][] = [];
+    vscodeMock.commands.executeCommand = async (...call: unknown[]) => {
+      executed.push(call);
       return undefined;
     };
 
     await provider.tailLogs();
 
-    assert.deepEqual(executed, ['electivus.apexLogViewer.tailView.focus']);
+    assert.deepEqual(executed, [['electivus.apexLogViewer.tailView.focus']]);
   });
 });
