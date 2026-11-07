@@ -1,5 +1,5 @@
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { List, type ListImperativeAPI } from 'react-window';
+import React, { useLayoutEffect, useMemo, useRef } from 'react';
+import { List, useDynamicRowHeight, type ListImperativeAPI, type RowComponentProps } from 'react-window';
 import type { ParsedLogEntry, LogCategory } from '../../utils/logViewerParser';
 import type { LogViewerMappedDiagnostic } from '../../utils/logViewerDiagnostics';
 import { LogEntryRow } from './LogEntryRow';
@@ -27,6 +27,52 @@ interface Props {
   noEntriesText?: string;
 }
 
+const ONE_LINE_ROW_HEIGHT = 31;
+
+type EntryRowProps = {
+  entries: ParsedLogEntry[];
+  highlightCategory?: LogCategory;
+  matchSet: ReadonlySet<number> | null;
+  activeMatchEntryIndex?: number;
+  activeDiagnosticId?: number;
+  activeDiagnosticEntryIndex?: number;
+  diagnosticsByEntryId: ReadonlyMap<number, readonly LogViewerMappedDiagnostic[]>;
+  searchTerm?: string;
+  Row: typeof LogEntryRow;
+};
+
+function EntryRow({
+  index,
+  style,
+  entries,
+  highlightCategory,
+  matchSet,
+  activeMatchEntryIndex,
+  activeDiagnosticId,
+  activeDiagnosticEntryIndex,
+  diagnosticsByEntryId,
+  searchTerm,
+  Row
+}: RowComponentProps<EntryRowProps>) {
+  const entry = entries[index];
+  if (!entry) return null;
+  const isMatch = matchSet ? matchSet.has(index) : false;
+  return (
+    <div style={style}>
+      <Row
+        entry={entry}
+        highlighted={highlightCategory ? entry.category === highlightCategory : false}
+        isMatch={isMatch}
+        isActiveMatch={isMatch && activeMatchEntryIndex === index}
+        isActiveDiagnostic={index === activeDiagnosticEntryIndex}
+        diagnostics={diagnosticsByEntryId.get(entry.id) ?? []}
+        activeDiagnosticId={activeDiagnosticId}
+        searchTerm={searchTerm}
+      />
+    </div>
+  );
+}
+
 export function LogEntryList({
   entries,
   highlightCategory,
@@ -42,35 +88,13 @@ export function LogEntryList({
   RowComponent,
   noEntriesText = logViewerEn.noEntriesMatch
 }: Props) {
-  const defaultRowHeight = 31;
-  const rowHeightsRef = useRef<Record<number, number>>({});
+  // A jump in a list with this cache keeps scrolling until the rows it lands on have been measured, which a plain
+  // height function would not do: those rows grow after the jump and push the target out of view.
+  const rowHeight = useDynamicRowHeight({ defaultRowHeight: ONE_LINE_ROW_HEIGHT });
   const internalListRef = useRef<ListImperativeAPI | null>(null);
   const resolvedListRef = listRef ?? internalListRef;
-  const rafRef = useRef<number | null>(null);
-  const [, forceRender] = useState(0);
   const VirtualList = virtualListComponent ?? List;
   const Row = RowComponent ?? LogEntryRow;
-
-  const scheduleRerender = useCallback(() => {
-    if (rafRef.current !== null) return;
-    rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = null;
-      forceRender(v => v + 1);
-    });
-  }, []);
-
-  const setRowHeight = useCallback(
-    (index: number, size: number) => {
-      const next = Math.max(defaultRowHeight, Math.ceil(size));
-      if (rowHeightsRef.current[index] !== next) {
-        rowHeightsRef.current[index] = next;
-        scheduleRerender();
-      }
-    },
-    [defaultRowHeight, scheduleRerender]
-  );
-
-  const getItemSize = useCallback((index: number) => rowHeightsRef.current[index] ?? defaultRowHeight, [defaultRowHeight]);
 
   const matchSet = useMemo(() => {
     if (!matchIndices || matchIndices.length === 0) {
@@ -108,62 +132,33 @@ export function LogEntryList({
     }
     resolvedListRef.current?.scrollToRow({
       index: activeDiagnosticEntryIndex,
-      align: 'center',
-      behavior: 'auto'
+      align: 'center'
     });
   }, [activeDiagnosticEntryIndex, activeDiagnosticId, scrollRequest, entries.length, resolvedListRef]);
 
-  const data = useMemo(
+  const rowProps = useMemo<EntryRowProps>(
     () => ({
       entries,
       highlightCategory,
-      setRowHeight,
       matchSet,
       activeMatchEntryIndex,
       activeDiagnosticId,
+      activeDiagnosticEntryIndex,
       diagnosticsByEntryId,
-      searchTerm
+      searchTerm,
+      Row
     }),
-    [diagnosticsByEntryId, entries, highlightCategory, setRowHeight, matchSet, activeMatchEntryIndex, activeDiagnosticId, searchTerm]
-  );
-
-  const renderRow = useCallback(
-    ({
-      index,
-      style,
-      entries: listEntries,
-      highlightCategory: target,
-      setRowHeight: measure,
-      matchSet: matchLookup,
-      activeMatchEntryIndex: activeIndex,
-      activeDiagnosticId: diagnosticId,
-      diagnosticsByEntryId: diagnosticsById,
-      searchTerm: term
-    }: any) => {
-      const entry = listEntries[index] as ParsedLogEntry | undefined;
-      if (!entry) return null;
-      const highlighted = target ? entry.category === target : false;
-      const isMatch = matchLookup ? matchLookup.has(index) : false;
-      const isActiveMatch = isMatch && activeIndex === index;
-      const isActiveDiagnostic = index === activeDiagnosticEntryIndex;
-      const rowDiagnostics = diagnosticsById.get(entry.id) ?? [];
-      return (
-        <div style={style}>
-          <Row
-            entry={entry}
-            highlighted={highlighted}
-            isMatch={isMatch}
-            isActiveMatch={isActiveMatch}
-            isActiveDiagnostic={isActiveDiagnostic}
-            diagnostics={rowDiagnostics}
-            activeDiagnosticId={diagnosticId}
-            searchTerm={term}
-            onMeasured={h => measure(index, h)}
-          />
-        </div>
-      );
-    },
-    [activeDiagnosticEntryIndex]
+    [
+      entries,
+      highlightCategory,
+      matchSet,
+      activeMatchEntryIndex,
+      activeDiagnosticId,
+      activeDiagnosticEntryIndex,
+      diagnosticsByEntryId,
+      searchTerm,
+      Row
+    ]
   );
 
   return (
@@ -175,12 +170,10 @@ export function LogEntryList({
           listRef={resolvedListRef}
           style={{ width: '100%' }}
           rowCount={entries.length}
-          rowHeight={(index: number) => getItemSize(index)}
+          rowHeight={rowHeight}
           overscanCount={12}
-          rowProps={data}
-          rowComponent={(props: { index: number; style: React.CSSProperties }) =>
-            renderRow({ ...props, ...data })
-          }
+          rowProps={rowProps}
+          rowComponent={EntryRow}
         />
       )}
     </div>

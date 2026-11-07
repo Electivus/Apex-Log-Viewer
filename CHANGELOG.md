@@ -5,6 +5,7 @@
 ### Maintenance
 
 - E2E: a scratch org owned by another identity no longer fails real-org tests. A Pool Lease skips a slot whose scratch org it cannot delete and takes the next one, and only CI creates a slot's scratch org: a local session reuses healthy slots and refuses to recreate one.
+- E2E: Slot Recovery no longer stops at a slot whose scratch org it cannot delete. It warms the other slots, then fails with an error that names each denied slot. `scratch-pool:prewarm` now refuses to run outside CI, because a local identity would own the scratch orgs it creates.
 - CI: a new `Codex review` commit status reports whether Codex reviewed a pull request's current head and found nothing, so a ruleset can make auto-merge wait for it. Dependabot pull requests are exempt because Codex does not review them. `docs/CI.md` explains the states and the override.
 - Docs: the README and walkthrough screenshots show the redesigned panels. `pnpm run docs:screenshots` writes to the extension's `media/docs` folder again and captures Custom Logs too. Two GIFs that no page used are gone, which removes 8.9 MB from the packaged extension.
 - Refresh JSforce to 3.13.1 and Faye to 1.4.3. Faye 1.4.2 and later keep pending requests in a `Map`, which hid them from the Custom Logs capture's stop, so a stopped capture whose connection had dropped kept retrying for seconds; the stop now cancels those retries under both Faye shapes. Faye 1.4.2 itself is skipped because it raises unhandled rejections when a transport fails to connect.
@@ -57,6 +58,7 @@
 
 ### Fixes
 
+- Log Viewer: one click on `Go to error`, on a diagnostic or on `Previous match` now brings the entry into view in a long log. Before, the rows above it grew after the jump and pushed it out, so a second click was needed. `Next match` and `Previous match` now jump at once instead of animating.
 - Logs panel search: the Match column shows `|` instead of `&#124;`, as the Log Viewer does, and a search with `|` finds text that the log holds as `&#124;`. A search with `&#124;` still works. The `Execute Anonymous:` source stays as written
 - Log Viewer and Tail: debug messages and other log text show `|` instead of `&#124;`, the form Salesforce writes to the log. Both still find a line by either form, and `View Raw` keeps the log as Salesforce wrote it. Text that a developer wrote as `&#124;` also shows as `|`, because the log cannot tell the two apart
 - Logs and Tail: the unchecked switch now shows its outline and thumb. An `Execute Anonymous:` source line that contains `|` is no longer read as an error event. The open-in-editor title actions show their icon. The panels are named Apex Logs, Apex Tail and Custom Logs, and the delete confirmation names the org it will empty.

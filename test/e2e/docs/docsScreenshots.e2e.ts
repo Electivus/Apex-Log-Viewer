@@ -315,11 +315,8 @@ test('captures README screenshots from a realistic scratch-org scenario', async 
     await expect(viewerFrame.locator('[data-testid="log-viewer-failure"]')).toBeVisible({ timeout: 60_000 });
     await vscodePage.setViewportSize(docsShots.logViewer.viewport);
     const failedEntry = viewerFrame.getByText('EXCEPTION_THROWN').first();
-    await expect(async () => {
-      await viewerFrame.locator('[data-testid="log-viewer-go-to-error"]').click();
-      await vscodePage.waitForTimeout(1_000);
-      await expect(failedEntry).toBeInViewport({ timeout: 1_000 });
-    }).toPass({ timeout: 30_000 });
+    await viewerFrame.locator('[data-testid="log-viewer-go-to-error"]').click();
+    await expect(failedEntry).toBeInViewport({ timeout: 5_000 });
     await captureShot(vscodePage, viewerFrame, docsShots.logViewer);
     await expect(failedEntry).toBeInViewport({ timeout: 1_000 });
 
