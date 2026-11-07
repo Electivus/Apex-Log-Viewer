@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, fireEvent, screen } from '@testing-library/react';
+import { render, fireEvent, screen, within } from '@testing-library/react';
 import { Toolbar } from '../components/Toolbar';
 import { getMessages } from '../i18n';
 import type { OrgItem } from '@alv/protocol/types';
@@ -21,30 +21,34 @@ const defaultColumnsConfig = {
 
 const deprecatedFilterLabel = ['Code', 'Unit'].join(' ');
 
+/** Native selects keep interaction simple in jsdom; Radix selects need browser APIs it lacks. */
+function withNativeSelects<T>(run: () => T): T {
+  const docRef = globalThis as unknown as { DocumentFragment: typeof DocumentFragment | undefined };
+  const original = docRef.DocumentFragment;
+  docRef.DocumentFragment = undefined;
+  try {
+    return run();
+  } finally {
+    docRef.DocumentFragment = original;
+  }
+}
+
 type ToolbarRenderOptions = {
   loading?: boolean;
-  error?: string;
-  warning?: string;
   filterUser?: string;
   filterOperation?: string;
   filterStatus?: string;
   errorsOnly?: boolean;
-  searchLoading?: boolean;
-  searchMessage?: string;
   query?: string;
 };
 
 function renderToolbar(overrides: ToolbarRenderOptions = {}) {
   const {
     loading = false,
-    error,
-    warning,
     filterUser = '',
     filterOperation = '',
     filterStatus = '',
     errorsOnly = false,
-    searchLoading = false,
-    searchMessage,
     query = 'initial'
   } = overrides;
 
@@ -53,40 +57,32 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
     { username: 'u1', alias: 'Org 1', isDefaultUsername: true } as OrgItem,
     { username: 'u2', alias: 'Org 2', isDefaultUsername: false } as OrgItem
   ];
-  const users = ['User A', 'User B'];
-  const operations = ['EXEC', 'QUERY'];
-  const statuses = ['Success', 'Failed'];
-  let refreshCount = 0;
-  let downloadAllCount = 0;
-  let openDebugFlagsCount = 0;
-  const clearLogsCalls: Array<'all' | 'mine'> = [];
-  let clearCount = 0;
-  const queryChanges: string[] = [];
-  const userChanges: string[] = [];
-  const errorsOnlyChanges: boolean[] = [];
+  const calls = {
+    refresh: 0,
+    downloadAll: 0,
+    openDebugFlags: 0,
+    clear: 0,
+    clearLogs: [] as Array<'all' | 'mine'>,
+    queries: [] as string[],
+    filters: [] as string[],
+    errorsOnly: [] as boolean[]
+  };
 
-  const docRef = globalThis as unknown as { DocumentFragment: typeof DocumentFragment | undefined };
-  const originalDocumentFragment = docRef.DocumentFragment;
-  // Force native selects to simplify interaction semantics in tests
-  docRef.DocumentFragment = undefined;
-  let view: ReturnType<typeof render>;
-  try {
-    view = render(
+  const view = withNativeSelects(() =>
+    render(
       <Toolbar
         loading={loading}
-        error={error}
-        warning={warning}
         onRefresh={() => {
-          refreshCount++;
+          calls.refresh++;
         }}
         onDownloadAllLogs={() => {
-          downloadAllCount++;
+          calls.downloadAll++;
         }}
         onOpenDebugFlags={() => {
-          openDebugFlagsCount++;
+          calls.openDebugFlags++;
         }}
         onClearLogs={scope => {
-          clearLogsCalls.push(scope);
+          calls.clearLogs.push(scope);
         }}
         t={t}
         orgs={orgs}
@@ -94,178 +90,176 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
         onSelectOrg={() => {}}
         query={query}
         onQueryChange={value => {
-          queryChanges.push(value);
+          calls.queries.push(value);
         }}
         onSearchRerun={() => {}}
-        searchLoading={searchLoading}
-        searchMessage={searchMessage}
-        users={users}
-        operations={operations}
-        statuses={statuses}
+        users={['User A', 'User B']}
+        operations={['EXEC', 'QUERY']}
+        statuses={['Success', 'Failed']}
         filterUser={filterUser}
         filterOperation={filterOperation}
         filterStatus={filterStatus}
         errorsOnly={errorsOnly}
         onFilterUserChange={value => {
-          userChanges.push(`user:${value}`);
+          calls.filters.push(`user:${value}`);
         }}
         onFilterOperationChange={value => {
-          userChanges.push(`op:${value}`);
+          calls.filters.push(`op:${value}`);
         }}
         onFilterStatusChange={value => {
-          userChanges.push(`status:${value}`);
+          calls.filters.push(`status:${value}`);
         }}
         onErrorsOnlyChange={value => {
-          errorsOnlyChanges.push(value);
+          calls.errorsOnly.push(value);
         }}
         onClearFilters={() => {
-          clearCount++;
+          calls.clear++;
         }}
         columnsConfig={defaultColumnsConfig as any}
         fullLogSearchEnabled={true}
         onColumnsConfigChange={() => {}}
       />
-    );
-  } finally {
-    docRef.DocumentFragment = originalDocumentFragment;
-  }
+    )
+  );
 
-  return {
-    view,
-    refreshCount: () => refreshCount,
-    downloadAllCount: () => downloadAllCount,
-    openDebugFlagsCount: () => openDebugFlagsCount,
-    clearLogsCalls,
-    clearCount: () => clearCount,
-    queryChanges,
-    userChanges,
-    errorsOnlyChanges
-  };
+  const openFilters = () => withNativeSelects(() => fireEvent.click(screen.getByRole('button', { name: /^Filters/ })));
+
+  return { view, calls, openFilters };
 }
 
 describe('Toolbar webview component', () => {
-  it('disables refresh and inputs while loading and surfaces progress message', () => {
+  it('is a single bar without a card around it', () => {
+    renderToolbar();
+    const bar = screen.getByLabelText('Search logs…').closest('section') as HTMLElement;
+    expect(bar.className).toContain('border-b');
+    expect(bar.className).toContain('flex-wrap');
+    expect(bar.className).not.toMatch(/\b(rounded-lg|shadow-sm|bg-card)/);
+  });
+
+  it('labels the search box for assistive technology and shows no visible label', () => {
+    renderToolbar({ query: '' });
+    const search = screen.getByLabelText('Search logs…') as HTMLInputElement;
+    expect(search).toHaveAttribute('placeholder', 'Search logs…');
+    expect(search.type).toBe('search');
+    expect(screen.queryByText('Search logs…')).toBeNull();
+  });
+
+  it('keeps search, Errors only and Filters usable while a refresh runs, and disables what it would disturb', () => {
     const utils = renderToolbar({ loading: true });
 
-    const refreshButton = screen.getByRole('button', { name: 'Loading…' });
-    expect(refreshButton).toBeDisabled();
-    fireEvent.click(refreshButton);
-    expect(utils.refreshCount()).toBe(0);
+    expect(screen.getByLabelText('Search logs…')).toBeEnabled();
+    expect(screen.getByRole('switch', { name: 'Errors only' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /^Filters/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Columns' })).toBeEnabled();
 
-    const searchInput = screen.getByLabelText('Search logs…') as HTMLInputElement;
-    expect(searchInput.disabled).toBe(true);
+    const refresh = screen.getByRole('button', { name: 'Refresh' });
+    expect(refresh).toBeDisabled();
+    expect(refresh.querySelector('.animate-spin')).not.toBeNull();
+    fireEvent.click(refresh);
+    expect(utils.calls.refresh).toBe(0);
 
-    const loadingNotice = screen.getAllByText('Loading…');
-    expect(loadingNotice.length).toBeGreaterThanOrEqual(1);
-
-    const spinner = refreshButton.querySelector('.animate-spin');
-    expect(spinner).not.toBeNull();
+    for (const name of ['Debug Flags', 'Download all logs', 'Clear logs']) {
+      expect(screen.getByRole('button', { name })).toBeDisabled();
+    }
+    expect(screen.getByRole('combobox')).toBeDisabled();
   });
 
-  it('shows error banner and enables clearing when filters are active', () => {
-    const utils = renderToolbar({
-      error: 'Request failed',
-      filterUser: 'User A',
-      filterOperation: 'EXEC'
-    });
-
-    screen.getByText('Error:');
-    screen.getByText('Request failed');
-
-    const clearButton = screen.getByRole('button', { name: 'Clear filters' });
-    expect(clearButton).not.toBeDisabled();
-    fireEvent.click(clearButton);
-    expect(utils.clearCount()).toBe(1);
-
-    const userSelect = screen.getByLabelText('User') as HTMLSelectElement;
-    fireEvent.change(userSelect, { target: { value: 'User B' } });
-    expect(utils.userChanges).toEqual(['user:User B']);
+  it('keeps the Refresh label while loading so the right side of the bar does not move', () => {
+    renderToolbar({ loading: true });
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Loading…' })).toBeNull();
   });
 
-  it('enables Clear filters when only search text is set, since it clears the search too', () => {
-    const utils = renderToolbar({ query: 'NullPointerException' });
-    const clearButton = screen.getByRole('button', { name: 'Clear filters' });
-    expect(clearButton).not.toBeDisabled();
-    fireEvent.click(clearButton);
-    expect(utils.clearCount()).toBe(1);
-  });
-
-  it('disables clear action when no filters and captures query updates', () => {
+  it('captures query updates', () => {
     const utils = renderToolbar({ query: '  ' });
     expect(screen.queryByLabelText(deprecatedFilterLabel)).toBeNull();
-    const clearButton = screen.getByRole('button', { name: 'Clear filters' });
-    expect(clearButton).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Search logs…'), { target: { value: 'new search' } });
+    expect(utils.calls.queries).toEqual(['new search']);
+  });
 
-    const searchInput = screen.getByLabelText('Search logs…') as HTMLInputElement;
-    fireEvent.change(searchInput, { target: { value: 'new search' } });
-    expect(utils.queryChanges).toEqual(['new search']);
+  it('refreshes from the toolbar', () => {
+    const utils = renderToolbar();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(utils.calls.refresh).toBe(1);
   });
 
   it('toggles errors-only filter and reports changes', () => {
     const utils = renderToolbar();
-    const toggle = screen.getByRole('switch', { name: 'Errors only' });
-    fireEvent.click(toggle);
-    expect(utils.errorsOnlyChanges).toEqual([true]);
+    fireEvent.click(screen.getByRole('switch', { name: 'Errors only' }));
+    expect(utils.calls.errorsOnly).toEqual([true]);
   });
 
-  it('renders errors-only control with compact inline sizing styles', () => {
-    renderToolbar();
-    const toggle = screen.getByRole('switch', { name: 'Errors only' });
-    const control = toggle.closest('div');
-    const label = screen.getByText('Errors only');
+  describe('Filters popover', () => {
+    it('keeps User, Operation and Status out of the bar until it opens', () => {
+      const utils = renderToolbar();
+      expect(screen.queryByLabelText('User')).toBeNull();
+      utils.openFilters();
+      screen.getByLabelText('User');
+      screen.getByLabelText('Operation');
+      screen.getByLabelText('Status');
+      screen.getByRole('button', { name: 'Clear filters' });
+    });
 
-    expect(control).not.toBeNull();
-    expect(control).toHaveClass('h-[28px]');
-    expect(control).not.toHaveClass('py-2');
+    it('counts the active filters on the button so none is hidden', () => {
+      renderToolbar({ filterUser: 'User A', filterOperation: 'EXEC' });
+      expect(screen.getByTestId('logs-filters-count')).toHaveTextContent('2');
+    });
 
-    expect(label).toHaveClass('text-[13px]', 'font-medium');
-    expect(label).not.toHaveClass('uppercase', 'tracking-wide', 'text-xs');
-  });
+    it('shows no count while no filter is set, and leaves search and Errors only out of it', () => {
+      renderToolbar({ query: 'abc', errorsOnly: true });
+      expect(screen.queryByTestId('logs-filters-count')).toBeNull();
+    });
 
-  it('shows spinner when searchLoading is true', () => {
-    renderToolbar({ searchLoading: true, searchMessage: 'Preparing…' });
-    const notice = screen.getByText('Preparing…');
-    const container = notice.closest('div');
-    expect(container?.querySelector('.animate-spin')).not.toBeNull();
-  });
+    it('reports changes and clears the active filters', () => {
+      const utils = renderToolbar({ filterUser: 'User A' });
+      utils.openFilters();
 
-  it('shows informational notice without spinner when only searchMessage is present', () => {
-    renderToolbar({ searchLoading: false, searchMessage: 'Waiting for logs…' });
-    const notice = screen.getByText('Waiting for logs…');
-    expect(notice).toBeInTheDocument();
-    const container = notice.closest('div');
-    expect(container?.querySelector('.animate-spin')).toBeNull();
-  });
+      fireEvent.change(screen.getByLabelText('User') as HTMLSelectElement, { target: { value: 'User B' } });
+      fireEvent.change(screen.getByLabelText('Status') as HTMLSelectElement, { target: { value: 'Failed' } });
+      expect(utils.calls.filters).toEqual(['user:User B', 'status:Failed']);
 
-  it('shows warning banner when warning message is provided', () => {
-    renderToolbar({ warning: 'sourceApiVersion 66.0 > org max 64.0; falling back to 64.0' });
-    screen.getByText('Warning:');
-    screen.getByText('sourceApiVersion 66.0 > org max 64.0; falling back to 64.0');
+      fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+      expect(utils.calls.clear).toBe(1);
+    });
+
+    it('disables Clear filters when nothing is filtered', () => {
+      const utils = renderToolbar({ query: 'abc', errorsOnly: true });
+      utils.openFilters();
+      expect(screen.getByRole('button', { name: 'Clear filters' })).toBeDisabled();
+    });
   });
 
   it('triggers debug flags entrypoint from toolbar button', () => {
     const utils = renderToolbar();
-    const btn = screen.getByRole('button', { name: 'Debug Flags' });
-    fireEvent.click(btn);
-    expect(utils.openDebugFlagsCount()).toBe(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Debug Flags' }));
+    expect(utils.calls.openDebugFlags).toBe(1);
+    expect(screen.getByTestId('logs-open-debug-flags')).toHaveTextContent('Debug Flags');
+  });
+
+  it('gives each icon-only button an accessible name and a title', () => {
+    renderToolbar();
+    for (const name of ['Download all logs', 'Clear logs', 'Columns']) {
+      const button = screen.getByRole('button', { name });
+      expect(button).toHaveAttribute('title');
+      expect(button.textContent).toBe('');
+    }
   });
 
   it('triggers download all logs entrypoint from toolbar button', () => {
     const utils = renderToolbar();
-    const btn = screen.getByRole('button', { name: 'Download all logs' });
-    fireEvent.click(btn);
-    expect(utils.downloadAllCount()).toBe(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Download all logs' }));
+    expect(utils.calls.downloadAll).toBe(1);
   });
 
   it('opens clear logs menu and triggers selected action', () => {
     const utils = renderToolbar();
 
     fireEvent.click(screen.getByRole('button', { name: 'Clear logs' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Delete my logs' }));
-    expect(utils.clearLogsCalls).toEqual(['mine']);
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete my logs' }));
+    expect(utils.calls.clearLogs).toEqual(['mine']);
 
     fireEvent.click(screen.getByRole('button', { name: 'Clear logs' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Delete all org logs' }));
-    expect(utils.clearLogsCalls).toEqual(['mine', 'all']);
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete all org logs' }));
+    expect(utils.calls.clearLogs).toEqual(['mine', 'all']);
   });
 });

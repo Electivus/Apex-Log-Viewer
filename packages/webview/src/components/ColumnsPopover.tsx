@@ -23,6 +23,7 @@ export function ColumnsPopover({ t, columnsConfig, fullLogSearchEnabled, onColum
   const buttonLabel = t?.columnsConfig?.button ?? 'Columns';
   const resetLabel = t?.columnsConfig?.reset ?? 'Reset to defaults';
   const matchDisabledHint = t?.columnsConfig?.matchRequiresFullSearch ?? 'Requires full log search';
+  const matchSearchHint = t?.columnsConfig?.matchWhileSearching ?? 'Shown while searching';
 
   const orderedKeys = useMemo(() => columnsConfig.order, [columnsConfig.order]);
 
@@ -56,18 +57,19 @@ export function ColumnsPopover({ t, columnsConfig, fullLogSearchEnabled, onColum
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <Button type="button" variant="outline" className="flex items-center gap-2">
+        <Button type="button" variant="ghost" size="icon" aria-label={buttonLabel} title={buttonLabel}>
           <Columns3 className="h-4 w-4" aria-hidden="true" />
-          <span>{buttonLabel}</span>
         </Button>
       </Popover.Trigger>
 
       <Popover.Portal>
         <Popover.Content
-          align="start"
-          sideOffset={8}
+          align="end"
+          sideOffset={6}
+          collisionPadding={8}
           className={cn(
-            'z-50 w-[320px] rounded-lg border border-border bg-card p-3 shadow-lg outline-none',
+            'z-50 w-[320px] overflow-y-auto rounded-lg border border-border bg-card p-3 shadow-lg outline-none',
+            'max-h-[var(--radix-popover-content-available-height)]',
             'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0'
           )}
         >
@@ -87,21 +89,15 @@ export function ColumnsPopover({ t, columnsConfig, fullLogSearchEnabled, onColum
               const matchDisabled = isMatch && !fullLogSearchEnabled;
               const checked = columnsConfig.visibility[key] !== false;
               return (
-                <div
-                  key={key}
-                  className={cn(
-                    'flex items-center gap-2 rounded-md px-2 py-1.5',
-                    'hover:bg-muted/40'
-                  )}
-                >
+                <div key={key} className={cn('flex items-center gap-2 rounded-md px-2 py-0.5', 'hover:bg-muted/40')}>
                   <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground/70" aria-hidden="true" />
 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm text-foreground">{label}</span>
-                      {matchDisabled && (
+                      {isMatch && (
                         <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                          {matchDisabledHint}
+                          {matchDisabled ? matchDisabledHint : matchSearchHint}
                         </span>
                       )}
                     </div>
@@ -112,6 +108,7 @@ export function ColumnsPopover({ t, columnsConfig, fullLogSearchEnabled, onColum
                       type="button"
                       variant="ghost"
                       size="icon"
+                      className="h-6 min-h-6 w-6 min-w-6"
                       onClick={() => moveColumn(key, -1)}
                       disabled={idx === 0}
                       aria-label={t?.columnsConfig?.moveUp ?? 'Move up'}
@@ -123,6 +120,7 @@ export function ColumnsPopover({ t, columnsConfig, fullLogSearchEnabled, onColum
                       type="button"
                       variant="ghost"
                       size="icon"
+                      className="h-6 min-h-6 w-6 min-w-6"
                       onClick={() => moveColumn(key, 1)}
                       disabled={idx === orderedKeys.length - 1}
                       aria-label={t?.columnsConfig?.moveDown ?? 'Move down'}
@@ -154,4 +152,3 @@ export function ColumnsPopover({ t, columnsConfig, fullLogSearchEnabled, onColum
     </Popover.Root>
   );
 }
-

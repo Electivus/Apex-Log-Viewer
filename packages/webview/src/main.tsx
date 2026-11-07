@@ -11,6 +11,7 @@ import {
   type NormalizedLogsColumnsConfig
 } from '@alv/protocol/logsColumns';
 import { Toolbar } from './components/Toolbar';
+import { LogsStatusStrip } from './components/LogsStatusStrip';
 import { LogsTable } from './components/LogsTable';
 import { Button } from './components/ui/button';
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
@@ -378,11 +379,9 @@ export function LogsApp({
   };
 
   const clearFilters = () => {
-    updateQuery('');
     setFilterUser('');
     setFilterOperation('');
     setFilterStatus('');
-    setErrorsOnly(false);
   };
 
   // Compute filter options
@@ -503,13 +502,12 @@ export function LogsApp({
       .replace('{errorsFound}', String(errorScanStatus.errorsFound));
   }, [errorScanStatus, t]);
   const noLogsMessage = errorsOnly && errorScanStatus.state === 'running' ? (errorScanMessage ?? t.noLogs) : t.noLogs;
+  const emptyMessage = !loading && filteredRows.length === 0 ? noLogsMessage : undefined;
 
   return (
-    <div className="relative flex h-screen min-h-[120px] flex-col overflow-hidden bg-background text-sm text-foreground">
+    <div className="relative flex h-screen min-h-[120px] flex-col overflow-y-auto bg-background text-sm text-foreground">
       <Toolbar
         loading={loading}
-        error={error}
-        warning={warning}
         onRefresh={onRefresh}
         onDownloadAllLogs={onDownloadAllLogs}
         onClearLogs={onClearLogs}
@@ -521,8 +519,6 @@ export function LogsApp({
         query={query}
         onQueryChange={updateQuery}
         onSearchRerun={rerunSearch}
-        searchLoading={searchLoading}
-        searchMessage={searchMessage}
         users={users}
         operations={operations}
         statuses={statuses}
@@ -539,7 +535,15 @@ export function LogsApp({
         fullLogSearchEnabled={fullLogSearchEnabled}
         onColumnsConfigChange={onColumnsConfigChange}
       />
-
+      <LogsStatusStrip
+        t={t}
+        loading={loading}
+        error={error}
+        warning={warning}
+        searchLoading={searchLoading}
+        searchMessage={searchMessage}
+        scanMessage={errorScanMessage === emptyMessage ? undefined : errorScanMessage}
+      />
       <LogsTable
         rows={filteredRows}
         logHead={logHead}
@@ -555,9 +559,8 @@ export function LogsApp({
         hasSearchText={Boolean(normalizedQuery)}
         columnsConfig={logsColumns}
         onColumnsConfigChange={onColumnsConfigChange}
-        emptyMessage={!loading && filteredRows.length === 0 ? noLogsMessage : undefined}
+        emptyMessage={emptyMessage}
       />
-      {errorScanMessage && <p className="shrink-0 px-3 py-1 text-xs text-muted-foreground">{errorScanMessage}</p>}
       {hasMore && (
         <div className="flex shrink-0 justify-center border-t border-border px-3 py-1">
           <Button type="button" size="sm" variant="secondary" onClick={onLoadMore} disabled={loading}>
