@@ -47,6 +47,7 @@
 
 ### Fixes
 
+- CLI: `sf electivus log status` without `--target-org` now reports the org that `log sync` would use, the project's `target-org` or else the global one, instead of the first org in the `apexlogs/` store. A configured org that was never synced reads `hasState: false`. With no default org and several orgs in the store, the command fails and asks for a target org instead of picking one.
 - Log Viewer: show the log entries in an editor narrower than 1024 px. There the viewer stacks the entries above the Diagnostics panel, and the entries row shrank to about 13 px, so no entry was visible; it now keeps at least 18rem and the view scrolls to the Diagnostics panel below.
 - Custom Logs: an event that a capture stored just before another process took its lease now shows in that capture. The process that took over receives the event again and stores nothing, so until now neither process showed it, although `custom-log list` did.
 - Tail/Debug Flags: Tail, and the Apex Debug Flags editor opened from it, now start on the workspace's `target-org` when they open before the Logs panel. They used the `target-org` of the extension host's working directory or the global one, so Start and Apply could write a trace flag to another org ([#1224](https://github.com/Electivus/Apex-Log-Viewer/issues/1224)).

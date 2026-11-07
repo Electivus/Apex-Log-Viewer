@@ -1610,9 +1610,17 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
       emit(callOptions, { operation: 'status', phase: 'started' });
       const state = await readLifecycleState('status', request.workspaceRoot);
       const requested = String(request.targetOrg || '').trim();
+      const storedOrgs = Object.keys(state.orgs).sort();
+      if (!requested && storedOrgs.length > 1) {
+        throw new ApexLogLifecycleError(
+          'org-resolution',
+          `Several orgs have local sync state (${storedOrgs.join(', ')}). Pass a target org.`,
+          { operation: 'status' }
+        );
+      }
       const username = requested
         ? await localUsernameForSelector('status', request.workspaceRoot, requested)
-        : Object.keys(state.orgs).sort()[0];
+        : storedOrgs[0];
       const entry = username ? state.orgs[username] : undefined;
       let localLogCount: number;
       try {
