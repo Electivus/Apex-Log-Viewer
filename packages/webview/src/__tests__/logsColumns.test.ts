@@ -11,8 +11,8 @@ const ALL_COLUMNS = Object.keys(LOGS_COLUMN_MIN_WIDTH_PX) as LogsColumnKey[];
 
 describe('logsColumns', () => {
   it('gives the status column room for its badges without the old 220 px floor', () => {
-    expect(LOGS_COLUMN_MIN_WIDTH_PX.status).toBe(180);
-    expect(LOGS_COLUMN_DEFAULT_TRACK.status).toBe('minmax(180px,1fr)');
+    expect(LOGS_COLUMN_MIN_WIDTH_PX.status).toBe(210);
+    expect(LOGS_COLUMN_DEFAULT_TRACK.status).toBe('minmax(210px,1.5fr)');
   });
 
   it.each(ALL_COLUMNS)('the default track of %s starts at its minimum width', key => {
@@ -56,7 +56,7 @@ describe('logsColumns', () => {
         hasSearchText: false
       });
       const { gridTemplate, minWidthPx } = buildLogsGrid(columns, {});
-      expect(minWidthPx).toBe(140 + 110 + 240 + 170 + 90 + 180 + 70 + LOGS_ACTIONS_TRACK_PX);
+      expect(minWidthPx).toBe(130 + 90 + 240 + 170 + 90 + 210 + 70 + LOGS_ACTIONS_TRACK_PX);
       expect(gridTemplate.endsWith(` ${LOGS_ACTIONS_TRACK_PX}px`)).toBe(true);
       expect(gridTemplate.split(' ')).toHaveLength(columns.length + 1);
     });

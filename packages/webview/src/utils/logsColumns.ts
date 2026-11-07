@@ -6,24 +6,24 @@ export const LOG_ROW_HEIGHT_PX = 28;
 export const LOGS_ACTIONS_TRACK_PX = 72;
 
 export const LOGS_COLUMN_MIN_WIDTH_PX: Record<LogsColumnKey, number> = {
-  user: 140,
-  application: 110,
+  user: 130,
+  application: 90,
   operation: 240,
   time: 170,
   duration: 90,
-  status: 180,
+  status: 210,
   size: 70,
   match: 320
 };
 
 export const LOGS_COLUMN_DEFAULT_TRACK: Record<LogsColumnKey, string> = {
-  user: 'minmax(140px,1fr)',
-  application: 'minmax(110px,1fr)',
-  operation: 'minmax(240px,1.2fr)',
-  time: 'minmax(170px,1fr)',
-  duration: 'minmax(90px,0.6fr)',
-  status: 'minmax(180px,1fr)',
-  size: 'minmax(70px,0.6fr)',
+  user: 'minmax(130px,0.8fr)',
+  application: 'minmax(90px,0.6fr)',
+  operation: 'minmax(240px,1.6fr)',
+  time: 'minmax(170px,0.9fr)',
+  duration: 'minmax(90px,0.5fr)',
+  status: 'minmax(210px,1.5fr)',
+  size: 'minmax(70px,0.4fr)',
   match: 'minmax(320px,1.6fr)'
 };
 

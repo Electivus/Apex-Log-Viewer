@@ -182,7 +182,7 @@ export function LogRow({
               <Badge
                 data-testid="logs-reason-badge"
                 variant="secondary"
-                className={cn(BADGE, 'min-w-0 max-w-[45%] border-border/70 bg-muted/70 text-muted-foreground')}
+                className={cn(BADGE, 'min-w-14 max-w-[45%] shrink-[100] border-border/70 bg-muted/70 text-muted-foreground')}
                 title={primaryReason}
               >
                 <span className="truncate">{primaryReason}</span>

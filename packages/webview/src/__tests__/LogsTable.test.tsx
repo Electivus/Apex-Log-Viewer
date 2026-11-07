@@ -228,4 +228,52 @@ describe('LogsTable', () => {
     expect(screen.queryByText(deprecatedColumnLabel)).toBeNull();
     expect(screen.queryByText('Match')).toBeNull();
   });
+
+  describe('column widths', () => {
+    function renderResizable(widths: Record<string, number>) {
+      const state = { config: { ...defaultColumnsConfig, widths } as any, persisted: [] as boolean[] };
+      render(
+        <LogsTable
+          rows={createRows(1)}
+          logHead={{}}
+          matchSnippets={{}}
+          t={t as any}
+          onOpen={() => {}}
+          onReplay={() => {}}
+          locale="en-US"
+          sortBy="time"
+          sortDir="desc"
+          onSort={() => {}}
+          columnsConfig={state.config}
+          onColumnsConfigChange={(updater: any, options?: { persist?: boolean }) => {
+            state.config = updater(state.config);
+            state.persisted.push(options?.persist ?? true);
+          }}
+          fullLogSearchEnabled={false}
+          hasSearchText={false}
+        />
+      );
+      return state;
+    }
+
+    it('saves a dragged width when the pointer is released', () => {
+      const state = renderResizable({});
+      fireEvent.pointerDown(screen.getByRole('separator', { name: 'Resize User' }), { pointerId: 1, clientX: 0 });
+      act(() => {
+        window.dispatchEvent(new MouseEvent('pointermove', { clientX: 300 }));
+      });
+      expect(state.config.widths.user).toBe(300);
+      expect(state.persisted).toEqual([false]);
+      act(() => {
+        window.dispatchEvent(new MouseEvent('pointerup'));
+      });
+      expect(state.persisted).toEqual([false, true]);
+    });
+
+    it('returns a column to its default width on a double click', () => {
+      const state = renderResizable({ user: 300, time: 200 });
+      fireEvent.doubleClick(screen.getByRole('separator', { name: 'Resize User' }));
+      expect(state.config.widths).toEqual({ time: 200 });
+    });
+  });
 });
