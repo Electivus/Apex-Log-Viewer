@@ -50,6 +50,15 @@ async function openCommandPalette(page: Page): Promise<void> {
   }
 }
 
+/**
+ * Presses a key in the palette input. A webview that loads or gets activated takes the focus a moment later, also from
+ * an open palette, and `page.keyboard` then sends the key to the webview. `Locator.press` focuses the input first.
+ * Escape needs none of this: a webview forwards it to the workbench, which closes the palette.
+ */
+async function pressInPalette(page: Page, key: string): Promise<void> {
+  await getQuickInput(page).input.press(key, { timeout: QUICK_INPUT_TIMEOUT_MS });
+}
+
 function noMatchingResults(widget: ReturnType<Page['locator']>) {
   return widget.getByText('No matching results', { exact: true });
 }
@@ -89,7 +98,10 @@ async function readCommandRows(widget: Locator): Promise<CommandRow[]> {
   );
 }
 
-type ExactRowResult = { found: true } | { found: false; labels: string[] };
+type ExactRowMiss = { status: 'unlisted'; labels: string[] } | { status: 'stuck'; detail: string };
+type ExactRowResult = { status: 'focused' } | ExactRowMiss;
+
+const NO_ROWS: ExactRowMiss = { status: 'unlisted', labels: [] };
 
 /**
  * Moves the quick pick focus to the first row labelled exactly `label`, or else to the first row whose English title
@@ -97,38 +109,50 @@ type ExactRowResult = { found: true } | { found: false; labels: string[] };
  * commands, and puts recently used ones first, so its first row can be another command: `View: Close Editor` lists
  * `View: Close All Editor Groups` first, and `Electivus Apex Logs: Refresh Logs` can list `Electivus Apex Logs:
  * Refresh Custom Logs` first. The rows must read the same twice in a row, so a list that is still filtering is not
- * trusted.
+ * trusted. A listed row that the focus cannot reach is `stuck`, not `unlisted`.
  */
 async function focusExactRow(page: Page, label: string): Promise<ExactRowResult> {
   const { widget } = getQuickInput(page);
   const deadline = Date.now() + COMMAND_ROW_TIMEOUT_MS;
   let previous = '';
-  let labels: string[] = [];
+  let presses = 0;
 
   for (;;) {
     const rows = await readCommandRows(widget);
-    labels = rows.map(row => row.label);
     const snapshot = JSON.stringify(rows);
     const settled = snapshot === previous;
     previous = snapshot;
+    const target = rows.find(row => row.label === label) ?? rows.find(row => row.alias === label);
+    const focused = rows.find(row => row.focused);
+    const move =
+      target && focused
+        ? {
+            target,
+            focused,
+            key: target.index > focused.index ? 'ArrowDown' : 'ArrowUp',
+            distance: Math.abs(target.index - focused.index)
+          }
+        : undefined;
 
-    if (settled) {
-      const target = rows.find(row => row.label === label) ?? rows.find(row => row.alias === label);
-      const focused = rows.find(row => row.focused);
-      if (target && focused) {
-        if (target.index === focused.index) {
-          return { found: true };
-        }
-        const key = target.index > focused.index ? 'ArrowDown' : 'ArrowUp';
-        for (let step = 0; step < Math.abs(target.index - focused.index); step++) {
-          await page.keyboard.press(key);
-        }
-        previous = '';
-      }
+    if (settled && move?.distance === 0) {
+      return { status: 'focused' };
     }
 
     if (Date.now() >= deadline) {
-      return { found: false, labels };
+      return move?.distance && presses
+        ? {
+            status: 'stuck',
+            detail: `Keys are not moving the palette focus: ${presses} ${move.key} presses left it on row ${move.focused.index} ("${move.focused.label}"), and "${label}" is row ${move.target.index}`
+          }
+        : { status: 'unlisted', labels: rows.map(row => row.label) };
+    }
+
+    if (settled && move) {
+      for (let step = 0; step < move.distance; step++) {
+        await pressInPalette(page, move.key);
+      }
+      presses += move.distance;
+      previous = '';
     }
     await page.waitForTimeout(COMMAND_ROW_POLL_MS);
   }
@@ -141,6 +165,10 @@ function describeRows(labels: string[]): string {
         .map(label => `"${label}"`)
         .join(', ')
     : 'none';
+}
+
+function describeMiss(miss: ExactRowMiss, unlisted: string): string {
+  return miss.status === 'stuck' ? miss.detail : `${unlisted} ${describeRows(miss.labels)}`;
 }
 
 interface PaletteQuery {
@@ -175,14 +203,14 @@ export async function runCommand(page: Page, command: string): Promise<void> {
   }
 
   const row = await focusExactRow(page, commandLabel(command));
-  if (!row.found) {
+  if (row.status !== 'focused') {
     await page.keyboard.press('Escape');
     throw new Error(
-      `${failurePrefix}No palette row is labelled exactly "${commandLabel(command)}"; the palette listed ${describeRows(row.labels)}`
+      `${failurePrefix}${describeMiss(row, `No palette row is labelled exactly "${commandLabel(command)}"; the palette listed`)}`
     );
   }
 
-  await page.keyboard.press('Enter');
+  await pressInPalette(page, 'Enter');
 }
 
 export async function waitForCommandAvailable(
@@ -197,12 +225,13 @@ export async function waitForCommandAvailable(
   let failurePrefix = '';
   while (Date.now() < deadline) {
     const opened = await openCommandPaletteWithCommand(page, query);
-    const row = opened.hasMatches ? await focusExactRow(page, commandLabel(query)) : undefined;
+    const row = opened.hasMatches ? await focusExactRow(page, commandLabel(query)) : NO_ROWS;
     await page.keyboard.press('Escape');
-    if (row?.found) {
+    // This wait asks only that the row is listed, so a focus that cannot reach it still counts.
+    if (row.status !== 'unlisted') {
       return;
     }
-    labels = row?.labels ?? [];
+    labels = row.labels;
     failurePrefix = opened.failurePrefix;
     await page.waitForTimeout(500);
   }
@@ -220,22 +249,22 @@ export async function runCommandWhenAvailable(
     const timeoutMs = options?.timeoutMs ?? 60_000;
     const deadline = Date.now() + timeoutMs;
 
-    let labels: string[] = [];
+    let miss = NO_ROWS;
     let failurePrefix = '';
     while (Date.now() < deadline) {
       const opened = await openCommandPaletteWithCommand(page, command);
-      const row = opened.hasMatches ? await focusExactRow(page, commandLabel(command)) : undefined;
-      if (row?.found) {
-        await page.keyboard.press('Enter');
+      const row = opened.hasMatches ? await focusExactRow(page, commandLabel(command)) : NO_ROWS;
+      if (row.status === 'focused') {
+        await pressInPalette(page, 'Enter');
         return;
       }
-      labels = row?.labels ?? [];
+      miss = row;
       failurePrefix = opened.failurePrefix;
       await page.keyboard.press('Escape');
       await page.waitForTimeout(500);
     }
     throw new Error(
-      `${failurePrefix}Timed out waiting for command to appear in palette: "${command}"; the palette last listed ${describeRows(labels)}`
+      `${failurePrefix}${describeMiss(miss, `Timed out waiting for command to appear in palette: "${command}"; the palette last listed`)}`
     );
   });
 }
@@ -250,10 +279,10 @@ export async function openView(page: Page, viewName: string): Promise<void> {
   await page.waitForTimeout(50);
 
   const row = await focusExactRow(page, viewName);
-  if (!row.found) {
+  if (row.status !== 'focused') {
     await page.keyboard.press('Escape');
-    throw new Error(`View not found in picker: "${viewName}"; the picker listed ${describeRows(row.labels)}`);
+    throw new Error(describeMiss(row, `View not found in picker: "${viewName}"; the picker listed`));
   }
 
-  await page.keyboard.press('Enter');
+  await pressInPalette(page, 'Enter');
 }

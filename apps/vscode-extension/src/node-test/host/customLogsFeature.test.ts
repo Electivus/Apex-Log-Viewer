@@ -55,7 +55,7 @@ function load(options: { enabled: boolean; logsOrg?: string; tabGroups?: Tab[][]
   const listeners = new Set<(event: ConfigurationEvent) => void>();
   const views = new Map<string, { retainContextWhenHidden?: boolean }>();
   const commands = new Map<string, () => Promise<void>>();
-  const executed: string[] = [];
+  const executed: unknown[][] = [];
   const events: string[] = [];
   const watchers = { started: 0, disposed: 0 };
   const documents = { registered: 0, disposed: 0 };
@@ -129,7 +129,7 @@ function load(options: { enabled: boolean; logsOrg?: string; tabGroups?: Tab[][]
         commands.set(id, handler);
         return { dispose: () => void commands.delete(id) };
       },
-      executeCommand: async (id: string) => void executed.push(id)
+      executeCommand: async (...call: unknown[]) => void executed.push(call)
     }
   };
 
@@ -370,7 +370,7 @@ suite('Custom Logs feature switch', () => {
     host.quickPick.answer = 'Show Custom Logs';
     await host.commands.get('electivus.apexLogViewer.customLogs.captureStatus')!();
     assert.deepEqual(host.quickPick.offered, ['Show Custom Logs', 'Stop capture']);
-    assert.deepEqual(host.executed, ['electivus.apexLogViewer.customLogsView.focus']);
+    assert.deepEqual(host.executed, [['electivus.apexLogViewer.customLogsView.focus']], 'Show moves the focus to the view');
 
     host.change(SETTING, false);
 
@@ -450,7 +450,11 @@ suite('Custom Logs feature switch', () => {
     await host.commands.get('electivus.apexLogViewer.customLogs.configure')!();
 
     assert.deepEqual(host.editor.shows, [{ selectedOrg: 'logs@example.com' }]);
-    assert.deepEqual(host.executed, ['electivus.apexLogViewer.customLogsView.focus']);
+    assert.deepEqual(
+      host.executed,
+      [['electivus.apexLogViewer.customLogsView.focus', { preserveFocus: true }]],
+      'Refresh reveals the view and leaves the focus where it is'
+    );
     assert.equal(host.configured.length, 1);
     assert.deepEqual(host.events, [
       'command.customLogs.openEditor',

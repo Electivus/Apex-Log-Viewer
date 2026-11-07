@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ListImperativeAPI } from 'react-window';
 import { createRoot } from 'react-dom/client';
 import { getMessages } from './i18n';
+import { decodeLogLine } from '@alv/protocol/logText';
 import type { OrgItem } from '@alv/protocol/types';
 import type {
   ExtensionToWebviewMessage,
@@ -171,7 +172,7 @@ export function TailApp({
       if (onlyUserDebug && !isUserDebug) {
         continue;
       }
-      if (q && !l.toLowerCase().includes(q)) {
+      if (q && !l.toLowerCase().includes(q) && !decodeLogLine(l).toLowerCase().includes(q)) {
         continue;
       }
       out.push(i);
