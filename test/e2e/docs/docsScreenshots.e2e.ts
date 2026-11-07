@@ -79,7 +79,7 @@ async function waitForLogsFrame(page: Page): Promise<Frame> {
 async function waitForViewerFrame(page: Page): Promise<Frame> {
   return await waitForWebviewFrame(
     page,
-    async frame => await frame.locator('text=Apex Log Viewer').first().isVisible(),
+    async frame => await frame.locator('[data-testid="log-viewer"]').first().isVisible(),
     { timeoutMs: 180_000 }
   );
 }
