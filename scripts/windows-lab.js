@@ -96,8 +96,12 @@ function parseRequest(argv) {
   };
 }
 
+function shutdownDeadline(now, hours) {
+  return new Date(Math.ceil((now.getTime() + hours * 3600 * 1000) / 60000) * 60000);
+}
+
 function shutdownTimeUtc(now, hours) {
-  const at = new Date(Math.ceil((now.getTime() + hours * 3600 * 1000) / 60000) * 60000);
+  const at = shutdownDeadline(now, hours);
   return `${String(at.getUTCHours()).padStart(2, '0')}${String(at.getUTCMinutes()).padStart(2, '0')}`;
 }
 
@@ -415,22 +419,39 @@ class Lab {
     this.az(['group', 'create', '-n', this.group, '-l', this.request.location, '--tags', LAB_TAG, '-o', 'none']);
     const state = this.readVm();
     const password = this.ensurePassword(Boolean(state));
+    const deadline = shutdownDeadline(now(), this.request.hours).getTime();
     const time = shutdownTimeUtc(now(), this.request.hours);
 
-    phase('Deploying');
-    this.convergeInfrastructure(state, password, operatorIp, time);
-    const guard = this.readGuard();
-    if (guard?.status !== 'Enabled' || guard.time !== time) {
-      throw new Error('The Azure auto-shutdown did not land. Run down now, then up again.');
+    let bootstrapped;
+    let failure;
+    try {
+      phase('Deploying');
+      this.convergeInfrastructure(state, password, operatorIp, time);
+      const guard = this.readGuard();
+      if (guard?.status !== 'Enabled' || guard.time !== time) {
+        throw new Error('The Azure auto-shutdown did not land. Run down now, then up again.');
+      }
+
+      phase('Bootstrapping');
+      bootstrapped = this.bootstrap();
+      fs.writeFileSync(this.knownHostsFile, `${HOST_KEY_ALIAS} ${bootstrapped.hostKey}\n`, { mode: 0o600 });
+
+      const code = await this.ssh(['echo', 'ssh-ok'], false);
+      if (code !== 0) throw new Error(`SSH to the VM failed with exit code ${code}.`);
+    } catch (error) {
+      failure = error;
     }
+    // The schedule is a daily time, so once that time passes it would next fire about 24 hours later.
+    if (now().getTime() >= deadline) {
+      const stopped = this.az(['vm', 'deallocate', '-g', this.group, '-n', VM_NAME, '-o', 'none'], {
+        allowFailure: true
+      });
+      log(stopped.status === 0 ? 'Deallocated the VM.' : 'Could not deallocate the VM. Run down now.');
+      throw failure ?? new Error(`The ${time} UTC auto-shutdown passed while up ran. Rerun up with a larger --hours.`);
+    }
+    if (failure) throw failure;
 
-    phase('Bootstrapping');
-    const { hostKey, steps, versions } = this.bootstrap();
-    fs.writeFileSync(this.knownHostsFile, `${HOST_KEY_ALIAS} ${hostKey}\n`, { mode: 0o600 });
-
-    const code = await this.ssh(['echo', 'ssh-ok'], false);
-    if (code !== 0) throw new Error(`SSH to the VM failed with exit code ${code}.`);
-
+    const { steps, versions } = bootstrapped;
     log(`Bootstrap steps: ${steps.join(', ')}`);
     log(
       `Ready: git ${versions.git}, node ${versions.node}, pnpm ${versions.pnpm}, commit ${versions.ref}, Defender realtime ${versions.defenderRealtime}.`

@@ -58,6 +58,7 @@ Use `down` when you come back within a few days and want to keep `node_modules` 
 Each `up` sets an Azure auto-shutdown that deallocates the VM. The deployment holds the VM and the schedule together, so ARM creates the schedule even if your Mac dies after it submits. In a test, a schedule armed for 3 minutes ahead deallocated the VM within about a minute of its time. The guard does not cover these cases:
 
 - **The disk and the public IP.** The guard deallocates only the VM. After it fires, the OS disk and the public IP keep billing until you run `down` or `destroy`.
+- **A Mac that dies during `up`.** The schedule is a daily time. If that time passes while `up` runs, `up` deallocates the VM and fails. If the Mac dies first, the VM can run until that time comes again.
 - **A manual start.** The schedule is a daily time of day. If you start the VM from the portal or with `az vm start`, it runs until that time comes again, which can be almost 24 hours. Start it with `up`.
 - **A schedule that someone changes or disables.** `status` shows the schedule. It warns only when the schedule is absent.
 - **A failure in the Azure scheduler.** Azure does not guarantee when the schedule fires.

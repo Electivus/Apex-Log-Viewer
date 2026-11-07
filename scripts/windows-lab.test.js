@@ -121,6 +121,56 @@ test('each lab reads its own known hosts file', async () => {
   ]);
 });
 
+function fakeUp({ deployMinutes = 0, bootstrapMinutes = 0, bootstrapFails = false }) {
+  const started = Date.parse('2026-11-07T12:00:00Z');
+  let elapsedMinutes = 0;
+  const time = shutdownTimeUtc(new Date(started), 0.25);
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-windows-lab-test-'));
+  const fake = fakeDeps(args => {
+    if (isCall(args, 'vm', 'show')) return { status: 3, stdout: '', stderr: 'ResourceNotFound' };
+    if (isCall(args, 'deployment', 'group', 'create')) elapsedMinutes += deployMinutes;
+    if (isCall(args, 'network', 'public-ip', 'show')) return { status: 0, stdout: '192.0.2.1\n', stderr: '' };
+    if (isCall(args, 'resource', 'show')) {
+      return { status: 0, stdout: JSON.stringify({ status: 'Enabled', time }), stderr: '' };
+    }
+    if (isCall(args, 'vm', 'run-command')) {
+      elapsedMinutes += bootstrapMinutes;
+      const message = bootstrapFails ? 'no sentinel' : 'ALV_HOST_KEY=ssh-ed25519 AAAA\nALV_BOOTSTRAP_OK';
+      return { status: 0, stdout: JSON.stringify({ value: [{ message }] }), stderr: '' };
+    }
+    return undefined;
+  });
+  Object.assign(fake.deps, {
+    home,
+    now: () => new Date(started + elapsedMinutes * 60000),
+    operatorIp: () => '192.0.2.1',
+    keychainRead: () => 'stored',
+    ensureSshKey: keyFile => fs.writeFileSync(`${keyFile}.pub`, 'ssh-ed25519 AAAA\n'),
+    runSsh: async () => 0
+  });
+  return fake;
+}
+
+const deallocations = calls => calls.filter(args => isCall(args, 'vm', 'deallocate'));
+
+test('up deallocates the VM and fails when the auto-shutdown passes while it runs', async () => {
+  const { calls, deps } = fakeUp({ deployMinutes: 16 });
+  await assert.rejects(runCli(['up', '--hours', '0.25'], deps), /auto-shutdown passed while up ran/);
+  assert.equal(deallocations(calls).length, 1);
+});
+
+test('up reports its own failure and still deallocates when the deadline has passed', async () => {
+  const { calls, deps } = fakeUp({ bootstrapMinutes: 16, bootstrapFails: true });
+  await assert.rejects(runCli(['up', '--hours', '0.25'], deps), /bootstrap did not finish/);
+  assert.equal(deallocations(calls).length, 1);
+});
+
+test('up leaves the VM running when it finishes before the deadline', async () => {
+  const { calls, deps } = fakeUp({ deployMinutes: 2, bootstrapMinutes: 4 });
+  assert.equal(await runCli(['up', '--hours', '0.25'], deps), 0);
+  assert.equal(deallocations(calls).length, 0);
+});
+
 test('down skips what is already gone', async () => {
   const { calls, deps } = fakeDeps(args => {
     if (isCall(args, 'group', 'exists')) return { status: 0, stdout: 'true\n', stderr: '' };
