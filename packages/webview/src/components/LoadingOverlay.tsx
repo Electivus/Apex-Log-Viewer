@@ -1,13 +1,22 @@
 import React, { useEffect, useRef } from 'react';
 import { Loader2 } from 'lucide-react';
 
+// After a first open, no frame holds the focus unless this call takes it, and keys can then stop reaching VS Code.
+// The first overlay of a document comes with that load, so it keeps the call.
+let isFirstOverlay = true;
+
 export function LoadingOverlay({ show, label }: { show: boolean; label?: string }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (show) {
+    if (!show) {
+      return;
+    }
+    // After the load, focus() would pull the focus out of the palette, an editor or a terminal, even from a hidden panel.
+    if (isFirstOverlay || document.hasFocus()) {
       ref.current?.focus();
     }
+    isFirstOverlay = false;
   }, [show]);
 
   if (!show) {
