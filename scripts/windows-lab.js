@@ -246,7 +246,7 @@ class Lab {
     this.deps = deps;
     this.group = request.group;
     this.keyFile = path.join(deps.home, 'id_ed25519');
-    this.knownHostsFile = path.join(deps.home, 'known_hosts');
+    this.knownHostsFile = path.join(deps.home, `known_hosts-${request.group}`);
   }
 
   az(args, options) {

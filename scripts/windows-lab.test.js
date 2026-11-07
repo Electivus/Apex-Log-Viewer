@@ -103,6 +103,24 @@ test('destroy of an absent lab deletes only the password of its own group', asyn
   );
 });
 
+test('each lab reads its own known hosts file', async () => {
+  const knownHostsFiles = [];
+  const { deps } = fakeDeps(args =>
+    isCall(args, 'network', 'public-ip', 'show') ? { status: 0, stdout: '192.0.2.1\n', stderr: '' } : undefined
+  );
+  deps.runSsh = async args => {
+    knownHostsFiles.push(args.find(arg => arg.startsWith('UserKnownHostsFile=')));
+    return 0;
+  };
+  for (const location of ['eastus', 'westus']) {
+    assert.equal(await runCli(['ssh', '--location', location, '--', 'true'], deps), 0);
+  }
+  assert.deepEqual(knownHostsFiles, [
+    'UserKnownHostsFile=/nonexistent/known_hosts-rg-alv-windows-lab-eastus',
+    'UserKnownHostsFile=/nonexistent/known_hosts-rg-alv-windows-lab-westus'
+  ]);
+});
+
 test('down skips what is already gone', async () => {
   const { calls, deps } = fakeDeps(args => {
     if (isCall(args, 'group', 'exists')) return { status: 0, stdout: 'true\n', stderr: '' };
