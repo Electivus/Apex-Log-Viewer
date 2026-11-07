@@ -78,13 +78,6 @@ export function registerCustomLogDocuments(): vscode.Disposable {
   });
 }
 
-export function closeCustomLogDocumentTabs(): void {
-  const tabs = vscode.window.tabGroups.all
-    .flatMap(group => group.tabs)
-    .filter(tab => tab.input instanceof vscode.TabInputText && tab.input.uri.scheme === CUSTOM_LOG_DOCUMENT_SCHEME);
-  void vscode.window.tabGroups.close(tabs);
-}
-
 export async function openCustomLogDocument(document: CustomLogDocument): Promise<void> {
   if (!registered) {
     throw new Error('Custom log documents are not registered.');
