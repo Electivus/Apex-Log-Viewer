@@ -199,6 +199,62 @@ describe('Logs webview App', () => {
     });
   }, 20000);
 
+  describe('switching orgs', () => {
+    const orgs = [
+      { username: 'a@example.com', alias: 'Org A' },
+      { username: 'b@example.com', alias: 'Org B' }
+    ];
+    const row = {
+      Id: '07L000000000001AAA',
+      StartTime: '2026-11-07T10:00:00.000Z',
+      Operation: 'Op',
+      Application: 'App',
+      DurationMilliseconds: 1,
+      Status: 'Success',
+      Request: '',
+      LogLength: 10,
+      LogUser: { Name: 'User A' }
+    };
+
+    function renderWithRowsOfOrgA() {
+      const { vscode, posted } = createVsCodeMock();
+      const bus = new EventTarget();
+      render(<LogsApp vscode={vscode} messageBus={bus} />);
+      sendMessage(bus, { type: 'orgs', data: orgs, selected: 'a@example.com' });
+      sendMessage(bus, { type: 'logs', data: [row], hasMore: true } as ExtensionToWebviewMessage);
+      return { bus, posted };
+    }
+
+    it('drops the rows of the previous org as soon as the user picks another org', async () => {
+      const { posted } = renderWithRowsOfOrgA();
+      await screen.findByText('User A');
+
+      fireEvent.click(screen.getByRole('combobox'));
+      fireEvent.click(within(screen.getByRole('listbox')).getByText('Org B'));
+
+      expect(screen.queryByText('User A')).toBeNull();
+      expect(posted).toContainEqual({ type: 'selectOrg', target: 'b@example.com' });
+    });
+
+    it('drops the rows when the extension selects another org', async () => {
+      const { bus } = renderWithRowsOfOrgA();
+      await screen.findByText('User A');
+
+      sendMessage(bus, { type: 'orgs', data: orgs, selected: 'b@example.com' });
+
+      await waitFor(() => expect(screen.queryByText('User A')).toBeNull());
+    });
+
+    it('keeps the rows when the extension repeats the selected org', async () => {
+      const { bus } = renderWithRowsOfOrgA();
+      await screen.findByText('User A');
+
+      sendMessage(bus, { type: 'orgs', data: orgs, selected: 'a@example.com' });
+
+      expect(screen.getByText('User A')).toBeInTheDocument();
+    });
+  });
+
   it('surfaces manual pagination when filters are active', async () => {
     const { vscode, posted } = createVsCodeMock();
     const bus = new EventTarget();

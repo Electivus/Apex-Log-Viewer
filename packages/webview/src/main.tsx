@@ -108,6 +108,18 @@ export function LogsApp({
     errorsFound: 0
   });
   const [bodySearch, setBodySearch] = useState<BodySearchResult>(NO_BODY_MATCHES);
+  const selectedOrgRef = useRef<string | undefined>(undefined);
+  // Row actions resolve the selected org when they run, so rows of the previous org must not stay clickable.
+  const showOrg = (next: string | undefined) => {
+    if (next && selectedOrgRef.current && next !== selectedOrgRef.current) {
+      setRows([]);
+      setHasMore(false);
+      setLogHead({});
+      setBodySearch(NO_BODY_MATCHES);
+    }
+    selectedOrgRef.current = next ?? selectedOrgRef.current;
+    setSelectedOrg(next);
+  };
   const [fullLogSearchEnabled, setFullLogSearchEnabled] = useState(false);
   const [logsColumns, setLogsColumns] = useState<NormalizedLogsColumnsConfig>(DEFAULT_LOGS_COLUMNS_CONFIG);
   const queryRef = useRef(initialUiState.query);
@@ -221,7 +233,7 @@ export function LogsApp({
           break;
         case 'orgs':
           setOrgs(msg.data || []);
-          setSelectedOrg(msg.selected);
+          showOrg(msg.selected);
           break;
       }
     };
@@ -360,7 +372,8 @@ export function LogsApp({
     vscode.postMessage({ type: 'clearLogs', scope });
   };
   const onSelectOrg = (v: string) => {
-    setSelectedOrg(v);
+    showOrg(v);
+    setLoading(true);
     vscode.postMessage({ type: 'selectOrg', target: v });
   };
   const onOpenDebugFlags = () => vscode.postMessage({ type: 'openDebugFlags' });
