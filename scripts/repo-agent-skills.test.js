@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const test = require('node:test');
+const YAML = require('yaml');
 const repoRoot = path.resolve(__dirname, '..');
 
 // Repo-only agent skills live in .agents/skills/<name>/, which Hermes, Codex and other agents read.
@@ -58,5 +59,18 @@ test('every repo skill names itself and stays out of the public skills catalog',
     assert.match(frontmatter, /^description: \S/m, `${name}/SKILL.md description`);
     // `npx skills add electivus/apex-log-viewer` publishes every skill it finds unless it is internal.
     assert.match(frontmatter, /^metadata:\n(?:\s+#.*\n)*\s+internal: true$/m, `${name}/SKILL.md metadata.internal`);
+  }
+});
+
+test('every path filter of the capture lease workflow matches a tracked file', () => {
+  const workflow = YAML.parse(
+    fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'capture-lease-check.yml'), 'utf8')
+  );
+  for (const entry of workflow.on.pull_request.paths) {
+    const target = entry.replace(/\/\*\*$/, '');
+    assert.ok(
+      indexEntries(target).length > 0,
+      `capture-lease-check.yml paths entry ${entry} matches no tracked file, so the check would never run`
+    );
   }
 });
