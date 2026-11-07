@@ -21,8 +21,11 @@ suite('integration: extension activation and commands', () => {
     assert.ok(commands.includes('electivus.apexLogViewer.logs.openEditor'), 'registers electivus.apexLogViewer.logs.openEditor');
     assert.ok(commands.includes('electivus.apexLogViewer.tail.openEditor'), 'registers electivus.apexLogViewer.tail.openEditor');
 
-    // Executing refresh should be a no-op (no view resolved yet) and not throw.
+    for (const view of ['logsView', 'tailView', 'customLogsView']) {
+      const focusCommand = `electivus.apexLogViewer.${view}.focus`;
+      assert.ok(commands.includes(focusCommand), `VS Code registers ${focusCommand}, which the reveal paths run`);
+    }
+
     await vscode.commands.executeCommand('electivus.apexLogViewer.logs.refresh');
-    // Don't execute tail here to avoid terminal side-effects in CI.
   });
 });

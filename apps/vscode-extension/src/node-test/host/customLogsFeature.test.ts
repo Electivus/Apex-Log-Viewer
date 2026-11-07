@@ -325,7 +325,7 @@ suite('Custom Logs feature switch', () => {
     host.quickPick.answer = 'Show Custom Logs';
     await host.commands.get('electivus.apexLogViewer.customLogs.captureStatus')!();
     assert.deepEqual(host.quickPick.offered, ['Show Custom Logs', 'Stop capture']);
-    assert.ok(host.executed.includes('workbench.view.extension.electivus-apex-log-viewer-custom-logs'));
+    assert.deepEqual(host.executed, ['electivus.apexLogViewer.customLogsView.focus']);
 
     host.change(SETTING, false);
 
@@ -405,10 +405,7 @@ suite('Custom Logs feature switch', () => {
     await host.commands.get('electivus.apexLogViewer.customLogs.configure')!();
 
     assert.deepEqual(host.editor.shows, [{ selectedOrg: 'logs@example.com' }]);
-    assert.deepEqual(host.executed.slice(0, 2), [
-      'workbench.view.extension.electivus-apex-log-viewer-custom-logs',
-      'workbench.viewsService.openView'
-    ]);
+    assert.deepEqual(host.executed, ['electivus.apexLogViewer.customLogsView.focus']);
     assert.equal(host.configured.length, 1);
     assert.deepEqual(host.events, [
       'command.customLogs.openEditor',
