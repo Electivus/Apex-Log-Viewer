@@ -1,8 +1,15 @@
 import { openView, runCommand, runCommandWhenAvailable, waitForCommandAvailable } from '../commandPalette';
 
-function createComposableLocator(
-  ...delegates: Array<{ waitFor: (...args: any[]) => Promise<void>; fill: (...args: any[]) => Promise<void> }>
-) {
+const QUICK_ACCESS_ROWS = ['Go to File', 'Show and Run Commands', 'Search for Text'];
+const PALETTE_SHORTCUT = process.platform === 'darwin' ? 'Meta+Shift+P' : 'Control+Shift+P';
+
+interface FakeInputLocator {
+  waitFor: (...args: any[]) => Promise<void>;
+  fill: (...args: any[]) => Promise<void>;
+  inputValue: () => Promise<string>;
+}
+
+function createComposableLocator(...delegates: FakeInputLocator[]) {
   return {
     waitFor: async (...args: any[]) => {
       let lastError: unknown;
@@ -28,7 +35,18 @@ function createComposableLocator(
       }
       throw lastError;
     },
-    or(other: { waitFor: (...args: any[]) => Promise<void>; fill: (...args: any[]) => Promise<void> }) {
+    inputValue: async () => {
+      let lastError: unknown;
+      for (const delegate of delegates) {
+        try {
+          return await delegate.inputValue();
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError;
+    },
+    or(other: FakeInputLocator) {
       return createComposableLocator(...delegates, other);
     },
     first() {
@@ -45,6 +63,7 @@ function createFakePage(
     keyboardShortcutMissesQuickInput?: boolean;
     quickInputWaitFailuresBeforeVisible?: number;
     quickAccessClickError?: Error;
+    typedTextIsLost?: boolean;
     /** Rows the palette lists for a query, as a label or a translated label with its English alias; by default only the queried label. */
     labelsFor?: (query: string) => Array<string | { label: string; alias: string }>;
   }
@@ -67,10 +86,14 @@ function createFakePage(
     }
   });
   const recordFill = (value: string) => {
+    if (options?.typedTextIsLost) {
+      return;
+    }
     lastQuery = value;
     focusedIndex = 0;
     filled.push(value);
   };
+  const inputValue = jest.fn(async () => lastQuery);
   const readRows = jest.fn(async () =>
     currentRows().map((row, index) => ({ index, ...row, focused: index === focusedIndex }))
   );
@@ -132,17 +155,20 @@ function createFakePage(
 
   const legacyInputLocator = {
     waitFor: legacyInputWaitFor,
-    fill: legacyInputFill
+    fill: legacyInputFill,
+    inputValue
   };
 
   const comboboxLocator = {
     waitFor: comboboxWaitFor,
-    fill: comboboxFill
+    fill: comboboxFill,
+    inputValue
   };
 
   const textboxLocator = {
     waitFor: textboxWaitFor,
-    fill: textboxFill
+    fill: textboxFill,
+    inputValue
   };
 
   const widgetLocator = {
@@ -163,6 +189,9 @@ function createFakePage(
               throw strictModeError;
             }),
             fill: jest.fn(async () => {
+              throw strictModeError;
+            }),
+            inputValue: jest.fn(async () => {
               throw strictModeError;
             })
           });
@@ -386,6 +415,81 @@ describe('runCommand', () => {
     );
     expect(fake.executed).toEqual([]);
     expect(fake.keyboardPress.mock.calls.map(call => call[0]).slice(-1)).toEqual(['Escape']);
+  });
+});
+
+describe('a window that has stopped taking keyboard input', () => {
+  const lostKeys = (query: string) =>
+    `Keys are not reaching VS Code: ${PALETTE_SHORTCUT} and the typed query were lost, so the palette input holds "" instead of "${query}".`;
+
+  test('runCommand names the lost shortcut when it opened Quick Access through the button', async () => {
+    const fake = createFakePage([false], {
+      keyboardShortcutMissesQuickInput: true,
+      typedTextIsLost: true,
+      labelsFor: () => QUICK_ACCESS_ROWS
+    });
+
+    await expect(runCommand(fake.page, 'View: Close Editor')).rejects.toThrow(
+      `${lostKeys('> View: Close Editor')} No palette row is labelled exactly "View: Close Editor"; the palette listed "Go to File", "Show and Run Commands", "Search for Text"`
+    );
+    expect(fake.executed).toEqual([]);
+  });
+
+  test('runCommand names the lost shortcut when an earlier failure left the palette open', async () => {
+    const fake = createFakePage([false], { typedTextIsLost: true, labelsFor: () => QUICK_ACCESS_ROWS });
+
+    await expect(runCommand(fake.page, 'View: Close Editor')).rejects.toThrow(lostKeys('> View: Close Editor'));
+    expect(fake.quickAccessClick).not.toHaveBeenCalled();
+  });
+
+  test('runCommandWhenAvailable names the lost shortcut when it times out', async () => {
+    const fake = createFakePage([false, false], { typedTextIsLost: true, labelsFor: () => QUICK_ACCESS_ROWS });
+
+    await expect(
+      runCommandWhenAvailable(fake.page, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 1 })
+    ).rejects.toThrow(
+      `${lostKeys('> Electivus Apex Logs: Refresh Logs')} Timed out waiting for command to appear in palette: "Electivus Apex Logs: Refresh Logs"`
+    );
+  });
+
+  test('waitForCommandAvailable names the lost shortcut when it times out', async () => {
+    const fake = createFakePage([false, false], { typedTextIsLost: true, labelsFor: () => QUICK_ACCESS_ROWS });
+
+    await expect(
+      waitForCommandAvailable(fake.page, 'Electivus Apex Logs: Tail Logs', { timeoutMs: 1 })
+    ).rejects.toThrow(
+      `${lostKeys('> Electivus Apex Logs: Tail Logs')} Timed out waiting for command to appear in palette: "Electivus Apex Logs: Tail Logs"`
+    );
+  });
+
+  test('names the shortcut when neither it nor the button opens the palette', async () => {
+    const fake = createFakePage([false], {
+      keyboardShortcutMissesQuickInput: true,
+      quickAccessClickError: new Error('Open Quick Access button not found')
+    });
+
+    await expect(runCommand(fake.page, 'View: Close Editor')).rejects.toThrow(
+      `Neither ${PALETTE_SHORTCUT} nor the Open Quick Access button opened the palette`
+    );
+  });
+
+  test('blames the palette contents when the query reached the input through the button', async () => {
+    const fake = createFakePage([false], {
+      keyboardShortcutMissesQuickInput: true,
+      labelsFor: () => ['Clear Command History']
+    });
+
+    await expect(runCommand(fake.page, 'View: Close Editor')).rejects.toThrow(
+      /^No palette row is labelled exactly "View: Close Editor"; the palette listed "Clear Command History"$/
+    );
+  });
+
+  test('still runs the command when the button opened the palette and the query reached the input', async () => {
+    const fake = createFakePage([false], { keyboardShortcutMissesQuickInput: true });
+
+    await runCommand(fake.page, 'View: Close Editor');
+
+    expect(fake.executed).toEqual(['View: Close Editor']);
   });
 });
 
