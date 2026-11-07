@@ -4,7 +4,7 @@ Thanks for taking the time to contribute! This guide covers local setup, coding 
 
 ## Quick Start
 
-- Requirements: Node.js 24.15.0+ (use `nvm use` to respect `.nvmrc`), VS Code 1.90+, Salesforce CLI (`sf` recommended or legacy `sfdx`).
+- Requirements: Node.js 24.16.0+ (use `nvm use` to respect `.nvmrc`), VS Code 1.90+, Salesforce CLI (`sf` recommended or legacy `sfdx`).
 - Clone and install: `pnpm install --frozen-lockfile`
 - Build once: `pnpm run build`
 - Dev mode: `pnpm run watch` then press `F5` in VS Code to launch the Extension Development Host.
