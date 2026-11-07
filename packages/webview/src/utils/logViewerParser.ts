@@ -40,7 +40,7 @@ function parseLogLine(raw: string, index: number): ParsedLogEntry | undefined {
   if (!line) {
     return undefined;
   }
-  if (!line.includes('|')) {
+  if (!APEX_EVENT_LINE.test(line)) {
     return {
       id: index,
       timestamp: '',
