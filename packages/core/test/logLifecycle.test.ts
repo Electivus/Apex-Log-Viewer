@@ -2035,6 +2035,39 @@ test('Apex Log Lifecycle counts canonical logs without requiring sync state', as
   }
 });
 
+test('Apex Log Lifecycle status does not pick an org when no target is named', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-status-unnamed-'));
+  const logIds: Record<string, string> = {
+    'a@example.com': '07L000000000025AAA',
+    'b@example.com': '07L000000000026AAA'
+  };
+  const remote: ApexLogRemote = {
+    resolveOrg: async targetOrg => ({ username: targetOrg ?? assert.fail('the test names the org it syncs') }),
+    listLogs: async ({ org }) => [{ logId: logIds[org.username]!, startTime: '2026-11-06T10:00:00.000Z' }],
+    readBody: async () => 'log body'
+  };
+  const lifecycle = createApexLogLifecycle({ remote });
+
+  try {
+    await lifecycle.sync({ workspaceRoot, targetOrg: 'a@example.com' });
+    const single = await lifecycle.status({ workspaceRoot });
+    assert.equal(single.resolvedUsername, 'a@example.com', 'one org in the store is not a guess');
+
+    await lifecycle.sync({ workspaceRoot, targetOrg: 'b@example.com' });
+    await assert.rejects(
+      lifecycle.status({ workspaceRoot }),
+      error =>
+        error instanceof ApexLogLifecycleError &&
+        error.code === 'org-resolution' &&
+        error.context.operation === 'status' &&
+        /a@example\.com, b@example\.com/.test(error.message)
+    );
+  } finally {
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test('Apex Log Lifecycle reports corrupt local state through a stable persistence error', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-corrupt-state-'));
   const statePath = path.join(workspaceRoot, 'apexlogs', '.alv', 'sync-state.json');

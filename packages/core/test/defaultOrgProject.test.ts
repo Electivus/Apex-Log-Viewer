@@ -131,3 +131,72 @@ test('a surface with no project path keeps resolving from the process working di
     process.chdir(sfHome);
   }
 });
+
+const SYNCED_LOGS: Record<string, string> = {
+  [GLOBAL_ORG]: '07L000000000001AAA',
+  [WORKSPACE_ORG]: '07L000000000002AAA'
+};
+
+/** A workspace whose Apex log store holds both orgs of SYNCED_LOGS. */
+async function workspaceWithTwoSyncedOrgs(values?: Record<string, string>): Promise<string> {
+  const workspace = workspaceFolder(values);
+  const core = createApexLogViewerCore({
+    apexLogRemote: {
+      resolveOrg: async targetOrg => ({ username: targetOrg ?? assert.fail('the test names the org it syncs') }),
+      listLogs: async ({ org }) => [{ logId: SYNCED_LOGS[org.username]!, startTime: '2026-11-06T10:00:00.000Z' }],
+      readBody: async () => 'log body'
+    }
+  });
+  for (const username of Object.keys(SYNCED_LOGS)) {
+    assert.equal((await core.log.sync({ targetOrg: username, workspaceRoot: workspace })).status, 'success');
+  }
+  core.dispose();
+  return workspace;
+}
+
+test('log status reports the org the project names, not the first org in the store', async () => {
+  const workspace = await workspaceWithTwoSyncedOrgs();
+  const core = createApexLogViewerCore({ projectPath: () => workspace });
+
+  const status = await core.log.status({ workspaceRoot: workspace });
+
+  assert.equal(status.targetOrg, WORKSPACE_ORG);
+  assert.equal(status.lastSyncedLogId, SYNCED_LOGS[WORKSPACE_ORG]);
+  assert.equal(status.logCount, 1);
+});
+
+test('log status follows the working directory on a surface with no project path, as log sync does', async () => {
+  const workspace = await workspaceWithTwoSyncedOrgs();
+  fs.writeFileSync(path.join(workspace, 'sfdx-project.json'), '{"packageDirectories":[{"path":"force-app"}]}');
+  process.chdir(workspace);
+  try {
+    const status = await createApexLogViewerCore().log.status({ workspaceRoot: workspace });
+
+    assert.equal(status.targetOrg, WORKSPACE_ORG);
+    assert.equal(status.lastSyncedLogId, SYNCED_LOGS[WORKSPACE_ORG]);
+  } finally {
+    process.chdir(sfHome);
+  }
+});
+
+test('log status reports no state for a configured org the store never synced', async () => {
+  const workspace = await workspaceWithTwoSyncedOrgs({ 'target-org': CWD_ORG });
+  const core = createApexLogViewerCore({ projectPath: () => workspace });
+
+  const status = await core.log.status({ workspaceRoot: workspace });
+
+  assert.equal(status.targetOrg, CWD_ORG);
+  assert.equal(status.hasState, false);
+  assert.equal(status.logCount, 0);
+  assert.equal(status.lastSyncedLogId, undefined);
+});
+
+test('an explicit target org still wins over the org the project names', async () => {
+  const workspace = await workspaceWithTwoSyncedOrgs();
+  const core = createApexLogViewerCore({ projectPath: () => workspace });
+
+  const status = await core.log.status({ targetOrg: GLOBAL_ORG, workspaceRoot: workspace });
+
+  assert.equal(status.targetOrg, GLOBAL_ORG);
+  assert.equal(status.lastSyncedLogId, SYNCED_LOGS[GLOBAL_ORG]);
+});

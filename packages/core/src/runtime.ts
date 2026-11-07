@@ -1596,8 +1596,11 @@ export function createApexLogViewerCore(
       status: (params: LogsStatusParams = {}, callOptions?: CoreCallOptions) =>
         call('log.status', callOptions, async signal => {
           const workspaceRoot = asString(params.workspaceRoot) ?? process.cwd();
-          const result = await rawLogLifecycle.status({ workspaceRoot, targetOrg: params.targetOrg }, { signal });
-          const targetOrg = result.resolvedUsername ?? asString(params.targetOrg) ?? 'default';
+          // Without a target, the org `log sync` would use. The Salesforce CLI's config and aliases are local files.
+          const defaultOrg = asString(params.targetOrg) ? undefined : await getDefaultTargetOrg(projectPath);
+          const requested = defaultOrg ? (await resolveUsername(defaultOrg, projectPath)).username : params.targetOrg;
+          const result = await rawLogLifecycle.status({ workspaceRoot, targetOrg: requested }, { signal });
+          const targetOrg = result.resolvedUsername ?? asString(requested) ?? 'default';
           return {
             targetOrg,
             safeTargetOrg: safeTargetOrg(targetOrg),
