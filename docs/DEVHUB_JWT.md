@@ -79,8 +79,9 @@ All six existing administrative commands authenticate before reading or mutating
 ```powershell
 pnpm run scratch-pool:list -- --pool-key '<configured pool>' --json
 pnpm run scratch-pool:reconcile -- --pool-key '<configured pool>'
-pnpm run scratch-pool:prewarm -- --pool-key '<configured pool>' --limit 1
 ```
+
+`prewarm` also takes these inputs, but it refuses to run outside CI because a local identity would own the scratch orgs it creates. Run it through the Slot Recovery workflow; see [Slot ownership](SCRATCH_ORG_POOL.md#slot-ownership).
 
 `--target-org`, when supplied to a pool command, must equal `SF_DEVHUB_USERNAME`. It cannot select an alias or override the JWT identity. `list` omits scratch authorization URLs and lease tokens even with `--json`.
 
@@ -90,7 +91,7 @@ An independent consumer uses `SF_SCRATCH_STRATEGY=pool` and `SF_SCRATCH_POOL_NAM
 
 ### Ownership transition
 
-Before replacing an identity, inspect the configured pool's `ScratchUsername__c`, `ScratchOrgInfoId__c` and `ActiveScratchOrgId__c`, and establish who owns those resources. Drain existing leases before maintenance. If deletion returns `INSUFFICIENT_ACCESS`, the command reports that the existing owner or administrator must delete that scratch; it does not create a replacement or clear the only stored credential. Failed prewarm returns the slot to `available` with `needs_recreate`; a consumer whose deletion is denied takes the next slot, then releases the denied one as a recoverable `broken` slot with the prior credential retained. Do not repeatedly prewarm it under an identity that lacks deletion access.
+Before replacing an identity, inspect the configured pool's `ScratchUsername__c`, `ScratchOrgInfoId__c` and `ActiveScratchOrgId__c`, and establish who owns those resources. Drain existing leases before maintenance. If deletion returns `INSUFFICIENT_ACCESS`, the command reports that the existing owner or administrator must delete that scratch; it does not create a replacement or clear the only stored credential. Failed prewarm returns the slot to `available` with `needs_recreate`; a consumer whose deletion is denied takes the next slot, then releases the denied one as a recoverable `broken` slot with the prior credential retained. Slot Recovery retries that slot on every run and fails until the deletion, and it warms the other slots meanwhile.
 
 Historical signup records need no second deletion when a fresh read explicitly reports `Status=Deleted` and a complete query confirms no corresponding `ActiveScratchOrg`. Both consumer recreation and administrative prewarm check stored IDs and fallback metadata. Denied, missing or incomplete reads do not establish that a scratch is deleted; active resources still require authorized cleanup. Preserve historical records and existing slot credentials during this check.
 
