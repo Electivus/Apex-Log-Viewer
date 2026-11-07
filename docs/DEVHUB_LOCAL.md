@@ -53,7 +53,7 @@ Point `ALV_SF_BIN_PATH` directly to the generated executable `alv-sf-node/sf` fi
 Example operator configuration (adjust the Node version when `.nvmrc` changes):
 
 ```bash
-export PATH="$HOME/.nvm/versions/node/v24.15.0/bin:$PATH"
+export PATH="$HOME/.nvm/versions/node/v24.22.2/bin:$PATH"
 export ALV_SF_BIN_PATH="$HOME/.local/share/electivus/apex-log-viewer/runtime/alv-sf-node/sf"
 export VSCODE_TEST_VERSION=stable
 export SF_SCRATCH_STRATEGY=pool
