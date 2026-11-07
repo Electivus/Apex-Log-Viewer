@@ -651,6 +651,21 @@ export class DebugFlagsPanel {
     query: string,
     limit: number
   ): Promise<DebugFlagUser[]> {
+    const users = await this.searchUsersOnce(auth, query, limit);
+    const username = (auth.username || '').trim().toLowerCase();
+    const isAuthenticatedUser = (user: DebugFlagUser) => user.username.toLowerCase() === username;
+    if (!username || query.trim() || users.length < limit || users.some(isAuthenticatedUser)) {
+      return users;
+    }
+    const [own] = (await this.searchUsersOnce(auth, username, limit)).filter(isAuthenticatedUser);
+    return own ? [own, ...users.slice(0, limit - 1)] : users;
+  }
+
+  private async searchUsersOnce(
+    auth: Awaited<ReturnType<DebugFlagsPanel['getSelectedAuth']>>,
+    query: string,
+    limit: number
+  ): Promise<DebugFlagUser[]> {
     try {
       const result = await runtimeClient.usersSearch({
         targetOrg: this.getRuntimeTargetOrg(),

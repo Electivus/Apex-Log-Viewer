@@ -51,11 +51,6 @@ async function waitForDebugFlagsFrame(page: Page, timeoutMs: number): Promise<Fr
         .locator('[data-testid="debug-flags-user-search"]')
         .first()
         .isVisible()
-        .catch(() => false)) ||
-      (await frame
-        .locator('text=Apex Debug Flags')
-        .first()
-        .isVisible()
         .catch(() => false)),
     { timeoutMs }
   );
