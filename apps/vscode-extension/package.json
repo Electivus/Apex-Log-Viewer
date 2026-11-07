@@ -66,6 +66,7 @@
     "media/debugFlags.js",
     "media/customLogs.js",
     "media/customLogViewer.js",
+    "media/walkthrough/**",
     "schemas/sfdx-project.electivus.schema.json",
     "bin/**",
     "README.md",
@@ -269,6 +270,59 @@
         }
       ]
     },
+    "walkthroughs": [
+      {
+        "id": "electivus.apexLogViewer.gettingStarted",
+        "title": "%walkthrough.title%",
+        "description": "%walkthrough.description%",
+        "steps": [
+          {
+            "id": "openPanel",
+            "title": "%walkthrough.step.openPanel.title%",
+            "description": "%walkthrough.step.openPanel.description%",
+            "media": {
+              "markdown": "media/walkthrough/open-panel.md"
+            },
+            "completionEvents": [
+              "onView:electivus.apexLogViewer.logsView"
+            ]
+          },
+          {
+            "id": "chooseOrg",
+            "title": "%walkthrough.step.chooseOrg.title%",
+            "description": "%walkthrough.step.chooseOrg.description%",
+            "media": {
+              "markdown": "media/walkthrough/choose-org.md"
+            },
+            "completionEvents": [
+              "onCommand:electivus.apexLogViewer.org.select"
+            ]
+          },
+          {
+            "id": "debugFlags",
+            "title": "%walkthrough.step.debugFlags.title%",
+            "description": "%walkthrough.step.debugFlags.description%",
+            "media": {
+              "markdown": "media/walkthrough/debug-flags.md"
+            },
+            "completionEvents": [
+              "onStepSelected"
+            ]
+          },
+          {
+            "id": "openLog",
+            "title": "%walkthrough.step.openLog.title%",
+            "description": "%walkthrough.step.openLog.description%",
+            "media": {
+              "markdown": "media/walkthrough/open-log.md"
+            },
+            "completionEvents": [
+              "onStepSelected"
+            ]
+          }
+        ]
+      }
+    ],
     "commands": [
       {
         "command": "electivus.apexLogViewer.logs.refresh",

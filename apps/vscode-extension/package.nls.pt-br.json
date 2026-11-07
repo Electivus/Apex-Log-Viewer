@@ -63,5 +63,15 @@
   "logsCleanup.hintStorageFull": "Os logs da org parecem estar cheios. Use “Limpar logs” → “Todos da org” para liberar espaço.",
   "logsCleanup.actionClearAll": "Limpar logs da org…",
   "diagnostics.copied": "Electivus Apex Logs: pacote de diagnóstico copiado para a área de transferência.",
-  "diagnostics.copyFailed": "Electivus Apex Logs: falha ao copiar diagnóstico: {0}"
+  "diagnostics.copyFailed": "Electivus Apex Logs: falha ao copiar diagnóstico: {0}",
+  "walkthrough.title": "Comece com o Apex Logs",
+  "walkthrough.description": "Encontre seus logs do Apex, escolha uma org, ative os debug flags e leia um erro.",
+  "walkthrough.step.openPanel.title": "Abra o painel Apex Logs",
+  "walkthrough.step.openPanel.description": "Traga a lista de logs do Apex para a frente.\n[Abrir Apex Logs](command:electivus.apexLogViewer.logsView.focus)",
+  "walkthrough.step.chooseOrg.title": "Escolha uma org",
+  "walkthrough.step.chooseOrg.description": "Escolha a org Salesforce cujos logs você quer ler.\n[Escolher uma org](command:electivus.apexLogViewer.org.select)",
+  "walkthrough.step.debugFlags.title": "Ative os debug flags",
+  "walkthrough.step.debugFlags.description": "O Apex só grava logs enquanto há um trace flag ativo.\n[Abrir Apex Logs](command:electivus.apexLogViewer.logsView.focus)",
+  "walkthrough.step.openLog.title": "Abra um log e vá até o erro",
+  "walkthrough.step.openLog.description": "Leia um log e filtre apenas o que falhou.\n[Atualizar logs](command:electivus.apexLogViewer.logs.refresh)"
 }

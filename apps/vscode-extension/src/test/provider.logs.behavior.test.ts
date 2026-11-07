@@ -977,6 +977,26 @@ suite('SfLogsViewProvider behavior', () => {
     assert.equal(progressOptions?.cancellable, false, 'org listing progress should not advertise cancellation');
   });
 
+  test('announces the selected org label only when it changes', async () => {
+    const { SfLogsViewProvider, cli } = createProviderHarness();
+    cli.orgList = async () => [
+      { username: 'demo@example.com', alias: 'Demo', isDefaultUsername: true },
+      { username: 'other@example.com' }
+    ];
+    const provider = new SfLogsViewProvider(makeContext());
+    await connectProvider(provider, []);
+    const labels: Array<string | undefined> = [];
+    provider.onDidChangeSelectedOrgLabel(label => labels.push(label));
+
+    assert.equal(provider.getSelectedOrgLabel(), undefined, 'no org is known before the panel lists them');
+    await provider.sendOrgs();
+    await provider.sendOrgs();
+    provider.setSelectedOrg('other@example.com');
+
+    assert.deepEqual(labels, ['Demo', 'other@example.com']);
+    assert.equal(provider.getSelectedOrgLabel(), 'other@example.com');
+  });
+
   test('refresh posts API version fallback warning when available', async () => {
     const { SfLogsViewProvider, cli, http, workspace } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });

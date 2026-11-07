@@ -83,6 +83,8 @@
   "No Salesforce org is selected.": "No Salesforce org is selected.",
   "Open a Salesforce project to configure Custom Logs.": "Open a Salesforce project to configure Custom Logs.",
   "Open in Apex Log Viewer": "Open in Apex Log Viewer",
+  "Open the Apex Logs panel to browse, search and debug Apex logs.": "Open the Apex Logs panel to browse, search and debug Apex logs.",
+  "Open the Apex Logs panel to browse, search and debug the Apex logs of {0}.": "Open the Apex Logs panel to browse, search and debug the Apex logs of {0}.",
   "Opening Apex Log…": "Opening Apex Log…",
   "Org log storage appears to be full. Use “Clear logs” → “All org logs” to free up space.": "Org log storage appears to be full. Use “Clear logs” → “All org logs” to free up space.",
   "Payload": "Payload",
