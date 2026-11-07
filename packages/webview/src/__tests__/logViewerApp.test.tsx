@@ -260,6 +260,24 @@ describe('Log Viewer App', () => {
     screen.getByText('1/3');
   });
 
+  it('shows the pipes the developer wrote in the failure banner', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<LogViewerApp vscode={vscode} messageBus={bus} />);
+
+    send(bus, {
+      type: 'logViewerInit',
+      logId: 'failure-pipes',
+      locale: 'en-US',
+      fileName: 'FailurePipes.log',
+      lines: ['10:19:25.120 (177599203)|FATAL_ERROR|System.IllegalArgumentException: fatal&#124;one']
+    });
+
+    expect(await screen.findByTestId('log-viewer-failure')).toHaveTextContent(
+      'System.IllegalArgumentException: fatal|one'
+    );
+  });
+
   it('finds a debug entry by the pipes it shows and by the text in the log', async () => {
     const { vscode } = createVsCodeMock();
     const bus = new EventTarget();
