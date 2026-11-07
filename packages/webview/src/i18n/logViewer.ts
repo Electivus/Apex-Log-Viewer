@@ -1,6 +1,5 @@
 export type LogViewerMessages = {
   title: string;
-  subtitle: string;
   searchPlaceholder: string;
   previousMatch: string;
   nextMatch: string;
@@ -17,16 +16,13 @@ export type LogViewerMessages = {
   noEntriesMatch: string;
   status: {
     totalLines: string;
-    debugStatements: string;
-    errorEvents: string;
-    soqlQueries: string;
-    dmlOperations: string;
     size: string;
     updated: string;
     loading: string;
     failed: string;
     ready: string;
   };
+  failure: { label: string; goToError: string };
   diagnostics: {
     title: string;
     total: string;
@@ -45,7 +41,6 @@ export type LogViewerMessages = {
 
 export const logViewerEn: LogViewerMessages = {
   title: 'Apex Log Viewer',
-  subtitle: 'Debug Log Analysis',
   searchPlaceholder: 'Search entries…',
   previousMatch: 'Previous match',
   nextMatch: 'Next match',
@@ -62,16 +57,13 @@ export const logViewerEn: LogViewerMessages = {
   noEntriesMatch: 'No entries match the current filters.',
   status: {
     totalLines: 'Total Lines: {count}',
-    debugStatements: 'Debug Statements: {count}',
-    errorEvents: 'Error Events: {count}',
-    soqlQueries: 'SOQL Queries: {count}',
-    dmlOperations: 'DML Operations: {count}',
     size: 'Size: {size}',
     updated: 'Updated: {date}',
     loading: 'Loading…',
     failed: 'Not loaded',
     ready: 'Ready'
   },
+  failure: { label: 'Failure', goToError: 'Go to error' },
   diagnostics: {
     title: 'Diagnostics',
     total: '{count} total',
@@ -90,7 +82,6 @@ export const logViewerEn: LogViewerMessages = {
 
 export const logViewerPtBR: LogViewerMessages = {
   title: 'Apex Log Viewer',
-  subtitle: 'Análise de log de depuração',
   searchPlaceholder: 'Buscar entradas…',
   previousMatch: 'Ocorrência anterior',
   nextMatch: 'Próxima ocorrência',
@@ -107,16 +98,13 @@ export const logViewerPtBR: LogViewerMessages = {
   noEntriesMatch: 'Nenhuma entrada corresponde aos filtros atuais.',
   status: {
     totalLines: 'Total de linhas: {count}',
-    debugStatements: 'Instruções de debug: {count}',
-    errorEvents: 'Eventos de erro: {count}',
-    soqlQueries: 'Consultas SOQL: {count}',
-    dmlOperations: 'Operações DML: {count}',
     size: 'Tamanho: {size}',
     updated: 'Atualizado: {date}',
     loading: 'Carregando…',
     failed: 'Não carregado',
     ready: 'Pronto'
   },
+  failure: { label: 'Falha', goToError: 'Ir para o erro' },
   diagnostics: {
     title: 'Diagnósticos',
     total: '{count} no total',

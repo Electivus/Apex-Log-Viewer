@@ -74,7 +74,8 @@ export function deriveLogSummary(entries: readonly ParsedLogEntry[]): LogSummary
   }
 
   const codeUnit = entries.find(entry => entry.type === 'CODE_UNIT_STARTED');
-  const entryPoint = codeUnit && payloadTokens(codeUnit).find(token => !BRACKETED_TOKEN.test(token) && !SALESFORCE_ID.test(token));
+  const entryPoint =
+    codeUnit && payloadTokens(codeUnit).find(token => !BRACKETED_TOKEN.test(token) && !SALESFORCE_ID.test(token));
   if (entryPoint) {
     summary.entryPoint = entryPoint;
   }
@@ -110,7 +111,6 @@ function elapsedSpanMs(entries: readonly ParsedLogEntry[]): number | undefined {
   return (last - first) / NANOSECONDS_PER_MILLISECOND;
 }
 
-/** The entry point names the log. Without one, the file name does, and the rest stays as detail. */
 export function describeLog(summary: LogSummary, fileName: string): LogHeading {
   const title = summary.entryPoint ?? (fileName || undefined);
   const details = [

@@ -1,12 +1,12 @@
 import React from 'react';
-import { AlertOctagon, Bug, Database, Edit3, Filter, Eye } from 'lucide-react';
 import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { cn } from '../../lib/utils';
 import { logViewerEn, type LogViewerMessages } from '../../i18n/logViewer';
 import { fillTemplate } from '../../utils/customLogs/format';
+import type { LogCategory } from '../../utils/logViewerParser';
+import { CATEGORY_VISUALS } from './logVisuals';
 
 export type LogFilter = 'all' | 'debug' | 'error' | 'soql' | 'dml';
+type ChipFilter = Exclude<LogFilter, 'all'>;
 
 interface Props {
   active: LogFilter;
@@ -22,6 +22,20 @@ interface Props {
   t?: LogViewerMessages;
 }
 
+type LogCounts = Props['counts'];
+
+const CHIPS: ReadonlyArray<{
+  filter: ChipFilter;
+  category: LogCategory;
+  label: (t: LogViewerMessages) => string;
+  count: (counts: LogCounts) => number;
+}> = [
+  { filter: 'debug', category: 'debug', label: t => t.debugOnly, count: counts => counts.debug },
+  { filter: 'error', category: 'error', label: t => t.errors, count: counts => counts.errors },
+  { filter: 'soql', category: 'soql', label: () => 'SOQL', count: counts => counts.soql },
+  { filter: 'dml', category: 'dml', label: () => 'DML', count: counts => counts.dml }
+];
+
 function formatCount(n: number, locale: string) {
   try {
     return n.toLocaleString(locale || undefined);
@@ -31,86 +45,39 @@ function formatCount(n: number, locale: string) {
 }
 
 export function LogViewerFilters({ active, onChange, counts, locale, t = logViewerEn }: Props) {
-  const showing =
-    active === 'debug'
-      ? counts.debug
-      : active === 'error'
-        ? counts.errors
-        : active === 'soql'
-          ? counts.soql
-          : active === 'dml'
-            ? counts.dml
-            : counts.total;
+  const showing = CHIPS.find(chip => chip.filter === active)?.count(counts) ?? counts.total;
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-background/40 px-5 py-3 text-sm">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <Filter className="h-4 w-4" />
-          <span>{t.filters}</span>
-        </div>
-        <Button
-          size="sm"
-          variant={active === 'debug' ? 'default' : 'outline'}
-          onClick={() => onChange(active === 'debug' ? 'all' : 'debug')}
-          className={cn(
-            'flex items-center gap-2',
-            active === 'debug' ? 'bg-sky-600 text-white hover:bg-sky-700' : 'bg-transparent'
-          )}
-        >
-          <Bug className="h-3.5 w-3.5" />
-          {t.debugOnly}
-        </Button>
-        <Button
-          size="sm"
-          variant={active === 'error' ? 'default' : 'ghost'}
-          onClick={() => onChange(active === 'error' ? 'all' : 'error')}
-          className={cn(
-            'flex items-center gap-2',
-            active === 'error'
-              ? 'bg-rose-600 text-white hover:bg-rose-700'
-              : 'text-muted-foreground hover:text-foreground'
-          )}
-        >
-          <AlertOctagon className="h-3.5 w-3.5" />
-          {t.errors}
-        </Button>
-        <Button
-          size="sm"
-          variant={active === 'soql' ? 'default' : 'ghost'}
-          onClick={() => onChange(active === 'soql' ? 'all' : 'soql')}
-          className={cn(
-            'flex items-center gap-2',
-            active === 'soql'
-              ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-              : 'text-muted-foreground hover:text-foreground'
-          )}
-        >
-          <Database className="h-3.5 w-3.5" />
-          SOQL
-        </Button>
-        <Button
-          size="sm"
-          variant={active === 'dml' ? 'default' : 'ghost'}
-          onClick={() => onChange(active === 'dml' ? 'all' : 'dml')}
-          className={cn(
-            'flex items-center gap-2',
-            active === 'dml'
-              ? 'bg-orange-600 text-white hover:bg-orange-700'
-              : 'text-muted-foreground hover:text-foreground'
-          )}
-        >
-          <Edit3 className="h-3.5 w-3.5" />
-          DML
-        </Button>
+    <section className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-1">
+      <span className="text-muted-foreground">{t.filters}</span>
+      <div role="group" aria-label={t.filters} className="flex flex-wrap items-center gap-1.5">
+        {CHIPS.map(chip => {
+          const pressed = active === chip.filter;
+          const count = chip.count(counts);
+          const { icon: Icon } = CATEGORY_VISUALS[chip.category];
+          return (
+            <Button
+              key={chip.filter}
+              type="button"
+              size="sm"
+              variant={pressed ? 'default' : 'outline'}
+              aria-pressed={pressed}
+              className="log-toggle"
+              disabled={count === 0 && !pressed}
+              onClick={() => onChange(pressed ? 'all' : chip.filter)}
+            >
+              <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>{chip.label(t)}</span>
+              <span className="font-normal tabular-nums">{formatCount(count, locale)}</span>
+            </Button>
+          );
+        })}
       </div>
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Eye className="h-4 w-4" />
-        <span>{t.showing}</span>
-        <Badge variant="secondary" className="bg-muted/50 text-foreground">
-          {fillTemplate(showing === 1 ? t.entriesOne : t.entriesOther, { count: formatCount(showing, locale) })}
-        </Badge>
-      </div>
-    </div>
+      <span className="flex-1" />
+      <span className="text-muted-foreground">{t.showing}</span>
+      <span className="tabular-nums text-foreground">
+        {fillTemplate(showing === 1 ? t.entriesOne : t.entriesOther, { count: formatCount(showing, locale) })}
+      </span>
+    </section>
   );
 }
