@@ -426,6 +426,21 @@ test('prewarm --limit counts created scratch orgs, not denied slots', async t =>
   assert.equal(state.slots[2].LastRunResult__c, undefined);
 });
 
+for (const ci of [undefined, 'false', '0']) {
+  test(`prewarm refuses before any pool access outside CI (CI=${ci})`, async t => {
+    const { state, dependencies } = poolSalesforce(t);
+    if (ci === undefined) delete process.env.CI;
+    else process.env.CI = ci;
+    await assert.rejects(main(['prewarm', '--pool-key', 'isolated'], dependencies), /only CI may create/);
+    assert.deepEqual(state.requests, []);
+    assert.equal(state.cliCalls.some(call => call.args[0] === 'data'), false);
+    assert.equal(state.created, false);
+    assert.equal(state.keyFiles.every(key => !existsSync(key)), true);
+    const listed = await main(['list', '--pool-key', 'isolated', '--json'], dependencies);
+    assert.equal(listed.slots.length, 1);
+  });
+}
+
 test('admin renews an expired REST token in its originating JWT home before retrying the conditional update', async t => {
   const { state, dependencies } = poolSalesforce(t);
   const request = dependencies.fetchImpl;

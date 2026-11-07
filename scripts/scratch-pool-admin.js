@@ -1204,6 +1204,13 @@ async function prewarmSlot(targetOrg, pool, slot) {
 }
 
 async function prewarmPool(targetOrg, poolKey, options = {}) {
+  if (!/^(1|true)$/i.test(String(process.env.CI || '').trim())) {
+    throw new Error(
+      "Prewarm creates scratch orgs, and only CI may create a slot's scratch org, because CI cannot delete one that another identity owns. " +
+        'Run recovery with: gh workflow run slot-recovery.yml. See docs/SCRATCH_ORG_POOL.md#slot-ownership.'
+    );
+  }
+
   const pool = await getPoolByKey(targetOrg, poolKey);
   if (!pool?.Id) {
     throw new Error(`Scratch pool '${poolKey}' was not found.`);
@@ -1310,6 +1317,7 @@ Prewarm options:
 
 General notes:
   - Complete Dev Hub JWT inputs are required locally and in CI (docs/DEVHUB_JWT.md).
+  - prewarm runs only in CI, because a local identity would own the scratch orgs it creates (docs/SCRATCH_ORG_POOL.md#slot-ownership).
   - --target-org, when supplied, must match SF_DEVHUB_USERNAME; it cannot select an alias.
   - Use --json for machine-readable output.
 `);
