@@ -56,6 +56,7 @@
 
 ### Fixes
 
+- Log Viewer: one click on `Go to error`, on a diagnostic or on `Previous match` now brings the entry into view in a long log. Before, the rows above it grew after the jump and pushed it out, so a second click was needed. `Next match` and `Previous match` now jump at once instead of animating.
 - Logs panel search: the Match column shows `|` instead of `&#124;`, as the Log Viewer does, and a search with `|` finds text that the log holds as `&#124;`. A search with `&#124;` still works. The `Execute Anonymous:` source stays as written
 - Log Viewer and Tail: debug messages and other log text show `|` instead of `&#124;`, the form Salesforce writes to the log. Both still find a line by either form, and `View Raw` keeps the log as Salesforce wrote it. Text that a developer wrote as `&#124;` also shows as `|`, because the log cannot tell the two apart
 - Logs and Tail: the unchecked switch now shows its outline and thumb. An `Execute Anonymous:` source line that contains `|` is no longer read as an error event. The open-in-editor title actions show their icon. The panels are named Apex Logs, Apex Tail and Custom Logs, and the delete confirmation names the org it will empty.

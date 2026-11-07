@@ -15,7 +15,8 @@ const resetListScrollCalls = () => {
 jest.mock('react-window', () => {
   const React = require('react');
   return {
-    List: ({ listRef, rowCount, rowHeight, rowComponent, rowProps, style, className }: any) => {
+    useDynamicRowHeight: () => ({}),
+    List: ({ listRef, rowCount, rowComponent, rowProps, style, className }: any) => {
       const rows = Array.from({ length: rowCount }).map((_: unknown, index: number) =>
         React.createElement(
           React.Fragment,
@@ -23,9 +24,7 @@ jest.mock('react-window', () => {
           rowComponent({
             ...rowProps,
             index,
-            style: {
-              height: rowHeight(index)
-            }
+            style: {}
           })
         )
       );
