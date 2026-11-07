@@ -8,6 +8,8 @@ const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 const SETTING = 'electivus.apexLogViewer.customLogs.enabled';
 const VIEW_ID = 'electivus.apexLogViewer.customLogsView';
 const LONG_FIELD_SCHEME = 'electivus-custom-log';
+const VIEWER_VIEW_TYPE = 'electivus.apexLogViewer.customLogs.viewerPanel';
+const EDITOR_VIEW_TYPE = 'electivus.apexLogViewer.customLogsView.editorPanel';
 const COMMANDS = [
   'electivus.apexLogViewer.customLogs.captureStatus',
   'electivus.apexLogViewer.customLogs.configure',
@@ -31,11 +33,21 @@ class TabInputText {
   constructor(readonly uri: { scheme: string; path: string }) {}
 }
 
+class TabInputWebview {
+  constructor(readonly viewType: string) {}
+}
+
 type Tab = { label: string; input: unknown };
 
 const textTab = (scheme: string, path: string): Tab => ({
   label: `${scheme}:${path}`,
   input: new TabInputText({ scheme, path })
+});
+
+/** VS Code 1.145.2 reports a panel's view type with this prefix on the tab, though the API says it maps to the panel's. */
+const webviewTab = (viewType: string, reportedPrefix = 'mainThreadWebview-'): Tab => ({
+  label: viewType,
+  input: new TabInputWebview(`${reportedPrefix}${viewType}`)
 });
 
 function load(options: { enabled: boolean; logsOrg?: string; tabGroups?: Tab[][] }) {
@@ -63,6 +75,7 @@ function load(options: { enabled: boolean; logsOrg?: string; tabGroups?: Tab[][]
   const vscodeStub = {
     Disposable,
     TabInputText,
+    TabInputWebview,
     workspace: {
       onDidChangeConfiguration: (listener: (event: ConfigurationEvent) => void) => {
         listeners.add(listener);
@@ -167,6 +180,7 @@ function load(options: { enabled: boolean; logsOrg?: string; tabGroups?: Tab[][]
     './utils/logger': { logWarn: () => undefined },
     '../panel/CustomLogsEditorPanel': {
       CustomLogsEditorPanel: {
+        viewType: EDITOR_VIEW_TYPE,
         initialize: (_context: unknown, track: (tab: never) => { dispose(): void }) => {
           editor.initialized += 1;
           editor.trackCapture = track;
@@ -178,6 +192,7 @@ function load(options: { enabled: boolean; logsOrg?: string; tabGroups?: Tab[][]
     },
     '../panel/CustomLogViewerPanel': {
       CustomLogViewerPanel: {
+        viewType: VIEWER_VIEW_TYPE,
         initialize: () => void (viewer.initialized += 1),
         closeAll: () => void (viewer.closedAll += 1)
       }
@@ -314,6 +329,36 @@ suite('Custom Logs feature switch', () => {
     host.change(SETTING, true);
 
     assert.deepEqual(host.openTabs(), [[`${LONG_FIELD_SCHEME}:/Message - Log-1 #1.txt`]]);
+  });
+
+  test('closes the viewer and editor tabs of an earlier extension host in every group when it turns off, and no other webview', () => {
+    const logViewer = 'electivus.apexLogViewer.logsView.logPanel';
+    const foreign = `other.extension.${VIEWER_VIEW_TYPE}`;
+    const host = load({
+      enabled: true,
+      tabGroups: [
+        [webviewTab(VIEWER_VIEW_TYPE), webviewTab(logViewer)],
+        [webviewTab(EDITOR_VIEW_TYPE), webviewTab(foreign), webviewTab(VIEWER_VIEW_TYPE, '')]
+      ]
+    });
+
+    host.change(SETTING, false);
+
+    assert.deepEqual(host.openTabs(), [[logViewer], [foreign]]);
+  });
+
+  test('closes the viewer and editor tabs of an earlier extension host when it starts with the setting off', () => {
+    const host = load({ enabled: false, tabGroups: [[webviewTab(VIEWER_VIEW_TYPE), webviewTab(EDITOR_VIEW_TYPE)]] });
+
+    assert.deepEqual(host.openTabs(), [[]]);
+  });
+
+  test('keeps the viewer and editor tabs open while the setting stays on', () => {
+    const host = load({ enabled: true, tabGroups: [[webviewTab(VIEWER_VIEW_TYPE), webviewTab(EDITOR_VIEW_TYPE)]] });
+
+    host.change('electivus.apexLogViewer.logging.trace', true);
+
+    assert.deepEqual(host.openTabs(), [[VIEWER_VIEW_TYPE, EDITOR_VIEW_TYPE]]);
   });
 
   test('the capture status item stays hidden without a capture, offers Show and Stop on click, and is disposed when the setting turns off', async () => {
