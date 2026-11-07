@@ -362,6 +362,13 @@ class ConditionalUpdateConflictError extends Error {
   }
 }
 
+class ScratchDeleteDeniedError extends Error {
+  constructor() {
+    super('INSUFFICIENT_ACCESS: The configured identity cannot delete this scratch. Have its existing owner or administrator drain and delete it before transitioning this slot; keep the stored credential until deletion is confirmed.');
+    this.name = 'ScratchDeleteDeniedError';
+  }
+}
+
 function toHttpDateString(value) {
   if (!value) {
     return '';
@@ -411,9 +418,9 @@ async function callSalesforceRest(targetOrg, method, resourcePath, body, options
       throw new Error('NOT_FOUND: Salesforce record no longer exists.');
     }
     if (codes.some(code => ['INSUFFICIENT_ACCESS_OR_READONLY', 'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY'].includes(code))) {
-      throw new Error(method === 'DELETE'
-        ? 'INSUFFICIENT_ACCESS: The configured identity cannot delete this scratch. Have its existing owner or administrator drain and delete it before transitioning this slot; keep the stored credential until deletion is confirmed.'
-        : 'INSUFFICIENT_ACCESS: Check the configured identity\'s pool object, field and Apex REST permissions.');
+      throw method === 'DELETE'
+        ? new ScratchDeleteDeniedError()
+        : new Error('INSUFFICIENT_ACCESS: Check the configured identity\'s pool object, field and Apex REST permissions.');
     }
     throw new Error(`Salesforce REST pool operation failed (HTTP ${response.status}); response body redacted.`);
   }
@@ -1219,19 +1226,39 @@ async function prewarmPool(targetOrg, poolKey, options = {}) {
     slotsToPrewarm.push(slot);
   }
 
-  const limit = options.limit ? Math.max(1, options.limit) : slotsToPrewarm.length;
-  const selectedSlots = slotsToPrewarm.slice(0, limit);
+  let slotsLeft = options.limit ? Math.max(1, options.limit) : slotsToPrewarm.length;
   const prewarmedSlotKeys = [];
+  const deniedSlotKeys = [];
+  const deniedSlotsMessage = () =>
+    `INSUFFICIENT_ACCESS: Scratch org delete denied for ${deniedSlotKeys.join(', ')}. Have each scratch org's owner or an administrator delete it; the next Slot Recovery run then recreates the slot.`;
 
-  for (const slot of selectedSlots) {
+  for (const slot of slotsToPrewarm) {
+    if (slotsLeft === 0) {
+      break;
+    }
     console.log(`[scratch-pool] prewarming ${slot.SlotKey__c} (${slot.ScratchAlias__c})...`);
-    const result = await prewarmSlot(targetOrg, pool, slot);
+    let result;
+    try {
+      result = await prewarmSlot(targetOrg, pool, slot);
+    } catch (error) {
+      if (error instanceof ScratchDeleteDeniedError) {
+        deniedSlotKeys.push(slot.SlotKey__c);
+        console.log(`[scratch-pool] skipped ${slot.SlotKey__c} (${slot.ScratchAlias__c}): ${error.message}`);
+        continue;
+      }
+      throw deniedSlotKeys.length > 0 ? new Error(`${error.message} ${deniedSlotsMessage()}`) : error;
+    }
+    slotsLeft -= 1;
     if (result.skipped) {
       console.log(`[scratch-pool] skipped ${result.slotKey} (${result.scratchAlias}): ${result.skipReason}.`);
       continue;
     }
     prewarmedSlotKeys.push(result.slotKey);
     console.log(`[scratch-pool] prewarmed ${result.slotKey} (${result.scratchAlias}).`);
+  }
+
+  if (deniedSlotKeys.length > 0) {
+    throw new Error(deniedSlotsMessage());
   }
 
   const refreshedSlots = await getSlotsByPoolIdForMaintenance(targetOrg, pool.Id);
