@@ -91,6 +91,7 @@
 - Scratch-org pool admin commands: `pnpm run scratch-pool:bootstrap`, `pnpm run scratch-pool:list`, `pnpm run scratch-pool:reconcile`, `pnpm run scratch-pool:prewarm`, `pnpm run scratch-pool:disable-slot`, and `pnpm run scratch-pool:reset-slot`. Pass script flags after `--` so pnpm forwards them to the script.
 - Telemetry usage reports: `pnpm run telemetry:report -- --subscription=<sub-id> --resource-group=<rg> --app=<app-name>`.
 - Azure Monitor infrastructure helpers: preview with `pnpm run azure:monitor:what-if`; deploy with `pnpm run azure:monitor:deploy`.
+- Real Windows x64 on demand from a Mac: `node scripts/windows-lab.js up`, then `ssh -- <command>`, `status`, `down` or `destroy`. It keeps everything in one dedicated Azure group behind an Azure auto-shutdown; see `docs/WINDOWS_LAB.md`.
 
 ## VS Code Test Runtime Policy
 
