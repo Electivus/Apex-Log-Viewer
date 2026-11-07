@@ -116,8 +116,8 @@ test('each lab reads its own known hosts file', async () => {
     assert.equal(await runCli(['ssh', '--location', location, '--', 'true'], deps), 0);
   }
   assert.deepEqual(knownHostsFiles, [
-    'UserKnownHostsFile=/nonexistent/known_hosts-rg-alv-windows-lab-eastus',
-    'UserKnownHostsFile=/nonexistent/known_hosts-rg-alv-windows-lab-westus'
+    `UserKnownHostsFile=${path.join('/nonexistent', 'known_hosts-rg-alv-windows-lab-eastus')}`,
+    `UserKnownHostsFile=${path.join('/nonexistent', 'known_hosts-rg-alv-windows-lab-westus')}`
   ]);
 });
 
