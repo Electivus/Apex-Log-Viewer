@@ -1528,6 +1528,63 @@ suite('SfLogsViewProvider behavior', () => {
     assert.ok(searchCalls.includes('error'), 'should re-run active search query after bulk download');
   });
 
+  suite('clearLogs confirmation', () => {
+    const cases: Array<{
+      name: string;
+      selected: string | undefined;
+      orgs: Array<{ username: string; alias?: string }>;
+      mine: string;
+      all: string;
+    }> = [
+      {
+        name: 'names the alias when the org has one',
+        selected: 'dev@example.com',
+        orgs: [{ username: 'dev@example.com', alias: 'Dev Sandbox' }, { username: 'other@example.com' }],
+        mine: 'Delete your Apex logs for Dev Sandbox?',
+        all: 'Delete all Apex logs for Dev Sandbox?'
+      },
+      {
+        name: 'names the username when the org has no alias',
+        selected: 'dev@example.com',
+        orgs: [{ username: 'dev@example.com' }],
+        mine: 'Delete your Apex logs for dev@example.com?',
+        all: 'Delete all Apex logs for dev@example.com?'
+      },
+      {
+        name: 'falls back to the generic wording when no org is selected',
+        selected: undefined,
+        orgs: [],
+        mine: 'Delete your Apex logs for the selected org?',
+        all: 'Delete all Apex logs for the selected org?'
+      }
+    ];
+
+    for (const scenario of cases) {
+      test(`${scenario.name}, and a cancel deletes nothing`, async () => {
+        const { SfLogsViewProvider, cli, vscode: vscodeMock } = createProviderHarness();
+        cli.orgList = async () => scenario.orgs;
+        const provider = new SfLogsViewProvider(makeContext()) as any;
+        provider.orgManager.setSelectedOrg(scenario.selected);
+        const titles: string[] = [];
+        let progressStarted = false;
+        vscodeMock.window.showWarningMessage = async (title: string) => {
+          titles.push(title);
+          return undefined;
+        };
+        vscodeMock.window.withProgress = async () => {
+          progressStarted = true;
+          return undefined;
+        };
+
+        await provider.clearLogs('mine');
+        await provider.clearLogs('all');
+
+        assert.deepEqual(titles, [scenario.mine, scenario.all]);
+        assert.equal(progressStarted, false, 'a cancelled confirmation must not start the deletion');
+      });
+    }
+  });
+
   test('downloadAllLogs supports cancellation while shared sync is running', async () => {
     const { SfLogsViewProvider, cli, vscode: vscodeMock } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });

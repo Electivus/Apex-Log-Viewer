@@ -120,7 +120,7 @@ The extension activates automatically when the workspace contains `sfdx-project.
 ### Open the Logs Panel
 
 1. Open the VS Code panel area.
-2. Switch to **Electivus Apex Logs**.
+2. Switch to **Apex Logs**.
 3. Run `Electivus Apex Logs: Refresh Logs` if the panel is not already populated.
 
 ### Search Downloaded Logs

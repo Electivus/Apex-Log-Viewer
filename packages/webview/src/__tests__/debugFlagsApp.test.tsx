@@ -33,7 +33,7 @@ describe('DebugFlags webview App', () => {
     expect(posted[0]).toEqual({ type: 'debugFlagsReady' });
 
     sendMessage(bus, { type: 'debugFlagsInit', locale: 'pt-BR', defaultTtlMinutes: 30 });
-    await screen.findByText('Apex Debug Flags');
+    await screen.findByTestId('debug-flags-user-search');
 
     sendMessage(bus, {
       type: 'debugFlagsOrgs',
@@ -845,6 +845,90 @@ describe('DebugFlags webview App', () => {
 
       sendMessage(bus, statusFor(user, { logType: 'USER_DEBUG', isActive: false, otherLogType: activeDeveloperLog }));
       expect(note()).toHaveTextContent('A DEVELOPER_LOG trace flag is also active on this target until');
+    });
+  });
+
+  describe('layout and picker order', () => {
+    const ada = { id: '005000000000001AAA', name: 'Ada Lovelace', username: 'ada@example.com', active: true };
+    const me = { id: '005000000000009AAA', name: 'Zed Me', username: 'user@example.com', active: true };
+
+    function renderWithUsers(users: Array<typeof ada>, levels: string[] = ['ALV_E2E']) {
+      const { vscode } = createVsCodeMock();
+      const bus = new EventTarget();
+      render(<DebugFlagsApp vscode={vscode} messageBus={bus} />);
+      sendMessage(bus, { type: 'debugFlagsInit', locale: 'en', defaultTtlMinutes: 30 });
+      sendMessage(bus, {
+        type: 'debugFlagsOrgs',
+        data: [{ username: 'user@example.com', alias: 'Main', isDefaultUsername: true }],
+        selected: 'user@example.com'
+      });
+      sendMessage(bus, { type: 'debugFlagsDebugLevels', data: levels, active: levels[0] });
+      sendMessage(bus, { type: 'debugFlagsUsers', query: '', data: users });
+      return bus;
+    }
+
+    it('lists the org user first with a You badge, and keeps the others in host order', () => {
+      renderWithUsers([ada, me]);
+
+      const rows = screen.getAllByTestId(/^debug-flags-user-row-/);
+      expect(rows.map(row => row.getAttribute('data-testid'))).toEqual([
+        `debug-flags-user-row-${me.id}`,
+        `debug-flags-user-row-${ada.id}`
+      ]);
+      expect(rows[0]).toHaveTextContent('You');
+      expect(rows[1]).not.toHaveTextContent('You');
+    });
+
+    it('shows no badge when the org user is not in the list', () => {
+      renderWithUsers([ada]);
+
+      expect(screen.queryByTestId('debug-flags-you-badge')).toBeNull();
+    });
+
+    it('explains why Apply is off until a target is chosen', () => {
+      renderWithUsers([ada]);
+
+      const apply = screen.getByTestId('debug-flags-apply');
+      expect(apply).toBeDisabled();
+      expect(screen.getByTestId('debug-flags-apply-hint')).toHaveTextContent(
+        'Select a user or a special target to apply a debug flag.'
+      );
+      expect(apply).toHaveAccessibleDescription('Select a user or a special target to apply a debug flag.');
+
+      fireEvent.click(screen.getByTestId(`debug-flags-user-row-${ada.id}`));
+
+      expect(apply).not.toBeDisabled();
+      expect(screen.queryByTestId('debug-flags-apply-hint')).toBeNull();
+    });
+
+    it('asks for a debug level when the org has none', () => {
+      renderWithUsers([ada], []);
+
+      fireEvent.click(screen.getByTestId(`debug-flags-user-row-${ada.id}`));
+
+      expect(screen.getByTestId('debug-flags-apply')).toBeDisabled();
+      expect(screen.getByTestId('debug-flags-apply-hint')).toHaveTextContent(
+        'Select a debug level to apply a debug flag.'
+      );
+    });
+
+    it('keeps the log type help behind a disclosure and the page free of a title card', () => {
+      renderWithUsers([ada]);
+
+      const help = screen.getByTestId('debug-flags-log-type-help') as HTMLDetailsElement;
+      expect(help.open).toBe(false);
+      expect(screen.getByText('About log types').tagName).toBe('SUMMARY');
+      expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+    });
+
+    it('marks the selected target as pressed for assistive technology', () => {
+      renderWithUsers([ada]);
+      const row = screen.getByTestId(`debug-flags-user-row-${ada.id}`);
+      expect(row).toHaveAttribute('aria-pressed', 'false');
+
+      fireEvent.click(row);
+
+      expect(row).toHaveAttribute('aria-pressed', 'true');
     });
   });
 });

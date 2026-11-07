@@ -4,6 +4,6 @@ import { createSessionEditorPanel } from './sessionEditorPanel';
 
 export const LogsEditorPanel = createSessionEditorPanel({
   viewType: 'electivus.apexLogViewer.logsView.editorPanel',
-  title: () => localize('salesforce.logs.view.name', 'Electivus Apex Logs'),
+  title: () => localize('salesforce.logs.view.name', 'Apex Logs'),
   createController: context => new SfLogsViewProvider(context)
 });

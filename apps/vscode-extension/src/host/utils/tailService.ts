@@ -6,6 +6,7 @@ import { runtimeClient } from '../../runtime/runtimeClient';
 import { logInfo, logWarn, logError, showOutput } from './logger';
 import { localize } from './localize';
 import { getErrorMessage } from './error';
+import { getTelemetryErrorCode } from '../../shared/telemetryErrorCodes';
 import { getWorkspaceRoot } from './workspace';
 import {
   createConnectionFromAuth,
@@ -25,6 +26,10 @@ export const MIN_TAIL_BUFFER_LINES = 1000;
 export const MAX_TAIL_BUFFER_LINES = 200000;
 
 const SUBSCRIBE_ACK_TIMEOUT_SECONDS = 30;
+
+export type TailStartResult =
+  | { outcome: 'ok' | 'cancel' | 'alreadyRunning' }
+  | { outcome: 'error'; code: string };
 
 type TailRun = { subscribed: boolean };
 
@@ -81,15 +86,15 @@ export class TailService {
     this.stop();
   }
 
-  async start(debugLevel?: string): Promise<void> {
+  async start(debugLevel?: string): Promise<TailStartResult> {
     if (this.run) {
       logInfo('Tail: start requested but already running.');
-      return;
+      return { outcome: 'alreadyRunning' };
     }
     if (!debugLevel) {
       this.post({ type: 'error', message: localize('tailSelectDebugLevel', 'Select a debug level') });
       logWarn('Tail: start aborted; no debug level selected.');
-      return;
+      return { outcome: 'error', code: 'NO_DEBUG_LEVEL' };
     }
     const run: TailRun = { subscribed: false };
     this.run = run;
@@ -102,7 +107,7 @@ export class TailService {
       const auth = await this.getOrgAuth();
       if (!current()) {
         logWarn('Tail: start aborted while awaiting auth');
-        return;
+        return { outcome: 'cancel' };
       }
       this.currentAuth = auth;
       logInfo('Tail: acquired auth for', auth.username || '(default)', 'at', auth.instanceUrl);
@@ -110,7 +115,7 @@ export class TailService {
       const primed = await this.primeSeenLogs(auth, startedAtMs);
       if (!current()) {
         logWarn('Tail: start aborted after priming');
-        return;
+        return { outcome: 'cancel' };
       }
 
       try {
@@ -130,13 +135,13 @@ export class TailService {
       if (!current()) {
         client.disconnect();
         logWarn('Tail: start aborted before subscribing');
-        return;
+        return { outcome: 'cancel' };
       }
       this.streamingClient = client;
       logInfo('Tail: subscribing to /systemTopic/Logging…');
       await this.waitForSubscription(client);
       if (!current()) {
-        return;
+        return { outcome: 'cancel' };
       }
 
       run.subscribed = true;
@@ -153,16 +158,18 @@ export class TailService {
       if (primed) {
         void this.backfillStartWindow(run, auth);
       }
+      return { outcome: 'ok' };
     } catch (e) {
       const msg = getErrorMessage(e);
       if (!current()) {
         logInfo('Tail: start abandoned after stop ->', msg);
-        return;
+        return { outcome: 'cancel' };
       }
       logError('Tail: start failed ->', msg);
       this.post({ type: 'error', message: msg });
       showOutput(true);
       this.stop();
+      return { outcome: 'error', code: getTelemetryErrorCode(e) };
     }
   }
 
