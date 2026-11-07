@@ -358,22 +358,26 @@ export function LogViewerApp({
   }, [matchIndices, trimmedSearch]);
 
   const previousSearchRef = useRef<string>(trimmedSearch);
+  const scrolledMatchRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
-    if (activeMatchIndex < 0) {
-      previousSearchRef.current = trimmedSearch;
-      return;
-    }
-    const target = matchIndices[activeMatchIndex];
-    if (target === undefined) {
-      previousSearchRef.current = trimmedSearch;
-      return;
-    }
     const previousSearch = previousSearchRef.current;
+    previousSearchRef.current = trimmedSearch;
+    const target = activeMatchIndex < 0 ? undefined : matchIndices[activeMatchIndex];
+    if (target === undefined) {
+      scrolledMatchRef.current = undefined;
+      return;
+    }
+    // Pinning a failure or a diagnostic also rebuilds the matches. Only a change the search or filter made may move the
+    // list, or the search would scroll away from the entry the user just jumped to.
+    const match = JSON.stringify([trimmedSearch, activeMatchIndex, visibleEntries[target]?.id, filter]);
+    if (match === scrolledMatchRef.current) {
+      return;
+    }
+    scrolledMatchRef.current = match;
     const behavior: ScrollBehavior = previousSearch === trimmedSearch ? 'smooth' : 'auto';
     listRef.current?.scrollToRow({ index: target, align: 'center', behavior });
-    previousSearchRef.current = trimmedSearch;
-  }, [activeMatchIndex, matchIndices, trimmedSearch]);
+  }, [activeMatchIndex, filter, matchIndices, trimmedSearch, visibleEntries]);
 
   const goToNextMatch = useCallback(() => {
     if (matchIndices.length === 0) {

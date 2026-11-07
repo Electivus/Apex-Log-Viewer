@@ -859,6 +859,39 @@ describe('Log Viewer App', () => {
       expect(entryList().getByText('EXCEPTION_THROWN')).toBeInTheDocument();
     });
 
+    it('stays on the failing entry when a search has an active match elsewhere', async () => {
+      open(failingLines);
+      await screen.findByRole('alert', { name: 'Failure' });
+
+      fireEvent.change(screen.getByPlaceholderText('Search entries…'), { target: { value: 'n=3' } });
+      await waitFor(() => expect(listScrollCalls.at(-1)).toBe(5));
+
+      resetListScrollCalls();
+      fireEvent.click(screen.getByRole('button', { name: 'Go to error' }));
+      await waitFor(() => expect(listScrollCalls.at(-1)).toBe(7));
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+      expect(listScrollCalls.at(-1)).toBe(7);
+    });
+
+    it('stays on the failing entry when a filter had hidden it and a search is active', async () => {
+      open(failingLines);
+      await screen.findByRole('alert', { name: 'Failure' });
+
+      fireEvent.change(screen.getByPlaceholderText('Search entries…'), { target: { value: 'n=3' } });
+      fireEvent.click(screen.getByRole('button', { name: /Debug Only/ }));
+      await waitFor(() => expect(entryList().queryByText('FATAL_ERROR')).toBeNull());
+
+      resetListScrollCalls();
+      fireEvent.click(screen.getByRole('button', { name: 'Go to error' }));
+      await waitFor(() => expect(entryList().getByText('FATAL_ERROR')).toBeInTheDocument());
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+      expect(listScrollCalls.at(-1)).toBe(1);
+    });
+
     it('shows no banner for a clean log and falls back to the file name for the title', async () => {
       open(['12:00:00.0 (1000)|USER_DEBUG|[1]|DEBUG|all good']);
 
