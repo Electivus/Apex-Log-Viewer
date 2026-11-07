@@ -10,6 +10,9 @@ import { getWorkspaceRoot } from '../utils/workspace';
 import { LogViewerPanel } from '../../panel/LogViewerPanel';
 import { runtimeClient } from '../../runtime/runtimeClient';
 
+export type OpenLogOutcome = 'ok' | 'error' | 'cancel';
+export type ReplayLogOutcome = OpenLogOutcome | 'unavailable';
+
 export type EnsureLogsSavedItemStatus = 'downloaded' | 'existing' | 'missing' | 'failed' | 'cancelled';
 
 export type EnsureLogsSavedItemResult = {
@@ -84,8 +87,8 @@ export class LogService {
     return { filePath: file.localPath, source: file.source === 'remote' ? 'downloaded' : 'existing' };
   }
 
-  async openLog(logId: string, selectedOrg?: string): Promise<void> {
-    await vscode.window.withProgress(
+  async openLog(logId: string, selectedOrg?: string): Promise<OpenLogOutcome> {
+    return vscode.window.withProgress<OpenLogOutcome>(
       {
         location: vscode.ProgressLocation.Notification,
         title: localize('openingApexLog', 'Opening Apex Log…'),
@@ -98,18 +101,22 @@ export class LogService {
           const targetPath = (await this.ensureLogFileResult({ logId, selectedOrg, signal: controller.signal }))
             .filePath;
           if (ct.isCancellationRequested) {
-            return;
+            return 'cancel';
           }
           await LogViewerPanel.show({ logId, filePath: targetPath, signal: controller.signal });
-          if (!controller.signal.aborted) {
-            logInfo('LogService: opened log in viewer', logId);
+          if (controller.signal.aborted) {
+            return 'cancel';
           }
+          logInfo('LogService: opened log in viewer', logId);
+          return 'ok';
         } catch (e) {
-          if (!controller.signal.aborted) {
-            const msg = getErrorMessage(e);
-            logWarn('LogService: openLog failed ->', msg);
-            void vscode.window.showErrorMessage(localize('openLogFailed', 'Failed to open Apex log: {0}', msg));
+          if (controller.signal.aborted) {
+            return 'cancel';
           }
+          const msg = getErrorMessage(e);
+          logWarn('LogService: openLog failed ->', msg);
+          void vscode.window.showErrorMessage(localize('openLogFailed', 'Failed to open Apex log: {0}', msg));
+          return 'error';
         }
       }
     );
@@ -215,8 +222,8 @@ export class LogService {
     return normalized.includes('abort') || normalized.includes('canceled') || normalized.includes('cancelled');
   }
 
-  async debugLog(logId: string, selectedOrg?: string): Promise<void> {
-    await vscode.window.withProgress(
+  async debugLog(logId: string, selectedOrg?: string): Promise<ReplayLogOutcome> {
+    return vscode.window.withProgress<ReplayLogOutcome>(
       {
         location: vscode.ProgressLocation.Notification,
         title: localize('replayStarting', 'Starting Apex Replay Debugger…'),
@@ -227,13 +234,16 @@ export class LogService {
         ct.onCancellationRequested(() => controller.abort());
         try {
           const ok = await ensureReplayDebuggerAvailable();
-          if (!ok || ct.isCancellationRequested) {
-            return;
+          if (ct.isCancellationRequested) {
+            return 'cancel';
+          }
+          if (!ok) {
+            return 'unavailable';
           }
           const targetPath = (await this.ensureLogFileResult({ logId, selectedOrg, signal: controller.signal }))
             .filePath;
           if (ct.isCancellationRequested) {
-            return;
+            return 'cancel';
           }
           const uri = vscode.Uri.file(targetPath);
           try {
@@ -244,14 +254,17 @@ export class LogService {
               await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
             }
           }
+          return controller.signal.aborted ? 'cancel' : 'ok';
         } catch (e) {
-          if (!controller.signal.aborted) {
-            const msg = getErrorMessage(e);
-            logWarn('LogService: debugLog failed ->', msg);
-            void vscode.window.showErrorMessage(
-              localize('startReplayFailed', 'Failed to start Apex Replay Debugger: {0}', msg)
-            );
+          if (controller.signal.aborted) {
+            return 'cancel';
           }
+          const msg = getErrorMessage(e);
+          logWarn('LogService: debugLog failed ->', msg);
+          void vscode.window.showErrorMessage(
+            localize('startReplayFailed', 'Failed to start Apex Replay Debugger: {0}', msg)
+          );
+          return 'error';
         }
       }
     );

@@ -11,6 +11,7 @@ import { logInfo, logWarn } from '../host/utils/logger';
 import { recordInboundMessage } from '../host/utils/responsiveness';
 import { safeSendEvent } from '../shared/telemetry';
 import { getTelemetryErrorCode } from '../shared/telemetryErrorCodes';
+import type { ReplayLogOutcome } from '../host/services/logService';
 import { ensureReplayDebuggerAvailable } from '../host/utils/replayDebugger';
 import { buildWebviewHtml } from '../host/utils/webviewHtml';
 import {
@@ -178,7 +179,13 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       // Surface loading while ensuring TraceFlag and priming tail
       this.post({ type: 'loading', value: true }, 'replayable');
       try {
-        await this.tailService.start(typeof message.debugLevel === 'string' ? message.debugLevel.trim() : undefined);
+        const t0 = Date.now();
+        const result = await this.tailService.start(
+          typeof message.debugLevel === 'string' ? message.debugLevel.trim() : undefined
+        );
+        if (result.outcome !== 'alreadyRunning') {
+          safeSendEvent('tail.start', { ...result }, { durationMs: Date.now() - t0 });
+        }
       } finally {
         this.post({ type: 'loading', value: false }, 'replayable');
       }
@@ -527,8 +534,9 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
 
   private async replayLog(logId: string): Promise<void> {
     const t0 = Date.now();
+    let outcome: ReplayLogOutcome;
     try {
-      await vscode.window.withProgress(
+      outcome = await vscode.window.withProgress<ReplayLogOutcome>(
         {
           location: vscode.ProgressLocation.Notification,
           title: localize('replayStarting', 'Starting Apex Replay Debugger…'),
@@ -538,12 +546,15 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
           const controller = new AbortController();
           ct.onCancellationRequested(() => controller.abort());
           const ok = await ensureReplayDebuggerAvailable();
-          if (!ok || ct.isCancellationRequested) {
-            return;
+          if (ct.isCancellationRequested) {
+            return 'cancel';
+          }
+          if (!ok) {
+            return 'unavailable';
           }
           const filePath = await this.tailService.ensureLogSaved(logId, controller.signal);
           if (ct.isCancellationRequested) {
-            return;
+            return 'cancel';
           }
           const uri = vscode.Uri.file(filePath);
           try {
@@ -554,26 +565,23 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
               await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
             }
           }
+          return controller.signal.aborted ? 'cancel' : 'ok';
         }
       );
-      logInfo('Tail: replay requested for', logId);
-      try {
-        const durationMs = Date.now() - t0;
-        safeSendEvent('logs.replay', { view: 'tail', outcome: 'ok' }, { durationMs });
-      } catch {}
+      if (outcome === 'ok') {
+        logInfo('Tail: replay requested for', logId);
+      }
     } catch (e) {
       if (isAbortLikeError(e)) {
-        // cancellation; no error message
+        outcome = 'cancel';
       } else {
         const msg = getErrorMessage(e);
         logWarn('Tail: replay failed ->', msg);
         this.post({ type: 'error', message: msg }, 'replayable');
-        try {
-          const durationMs = Date.now() - t0;
-          safeSendEvent('logs.replay', { view: 'tail', outcome: 'error' }, { durationMs });
-        } catch {}
+        outcome = 'error';
       }
     }
+    safeSendEvent('logs.replay', { view: 'tail', outcome }, { durationMs: Date.now() - t0 });
   }
 
   private handleSessionDetach(reason: WebviewSessionDetachReason): void {

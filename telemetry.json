@@ -228,19 +228,19 @@
       }
     },
     "log.open": {
-      "description": "Open-log flow from the tail view.",
+      "description": "Open-log flow from the Logs or Tail view. `cancel` means the user cancelled the progress notification, which only the Logs view shows.",
       "properties": {
         "outcome": {
           "classification": "SystemMetaData",
           "purpose": "FeatureInsight",
           "required": true,
-          "values": ["ok", "error"]
+          "values": ["ok", "error", "cancel"]
         },
         "view": {
           "classification": "SystemMetaData",
           "purpose": "FeatureInsight",
           "required": true,
-          "values": ["tail"]
+          "values": ["logs", "tail"]
         }
       },
       "measurements": {
@@ -251,19 +251,41 @@
       }
     },
     "logs.replay": {
-      "description": "Replay flow from the tail view.",
+      "description": "Replay flow from the Logs or Tail view. `cancel` means the user cancelled; `unavailable` means the Apex Replay Debugger could not be made available.",
       "properties": {
         "outcome": {
           "classification": "SystemMetaData",
           "purpose": "FeatureInsight",
           "required": true,
-          "values": ["ok", "error"]
+          "values": ["ok", "error", "cancel", "unavailable"]
         },
         "view": {
           "classification": "SystemMetaData",
           "purpose": "FeatureInsight",
           "required": true,
-          "values": ["tail"]
+          "values": ["logs", "tail"]
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        }
+      }
+    },
+    "tail.start": {
+      "description": "Start button in the Tail view, one event per real attempt. command.tail only counts opening the view. A click while Tail is starting or running sends nothing.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["ok", "error", "cancel"]
+        },
+        "code": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "pattern": "^[A-Z0-9_]+$"
         }
       },
       "measurements": {
