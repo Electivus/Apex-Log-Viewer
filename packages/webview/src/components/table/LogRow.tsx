@@ -39,7 +39,7 @@ function Snippet({ snippet }: { snippet?: { text: string; ranges: SnippetRanges 
   if (!snippet || !snippet.text) {
     return <span className="text-muted-foreground/70">—</span>;
   }
-  const { text, ranges } = focusSnippet(snippet.text, snippet.ranges ?? []);
+  const { text, ranges } = focusSnippet(snippet.text, snippet.ranges);
   const pieces: React.ReactNode[] = [];
   let cursor = 0;
   [...ranges]
@@ -182,7 +182,7 @@ export function LogRow({
               <Badge
                 data-testid="logs-reason-badge"
                 variant="secondary"
-                className={cn(BADGE, 'min-w-0 border-border/70 bg-muted/70 text-muted-foreground')}
+                className={cn(BADGE, 'min-w-0 max-w-[45%] border-border/70 bg-muted/70 text-muted-foreground')}
                 title={primaryReason}
               >
                 <span className="truncate">{primaryReason}</span>

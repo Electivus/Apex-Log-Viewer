@@ -3,7 +3,6 @@ import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { LogsColumnKey } from '@alv/protocol/logsColumns';
 import { getLogsColumnLabel, LOGS_COLUMN_MIN_WIDTH_PX } from '../../utils/logsColumns';
-import { SCROLLBAR_GUTTER } from './useVirtualListElement';
 
 type SortKey = Exclude<LogsColumnKey, 'match'>;
 
@@ -141,7 +140,7 @@ export const LogsHeader = React.forwardRef<HTMLDivElement, Props>(
     };
 
     return (
-      <div ref={ref} className={cn('shrink-0 overflow-x-hidden border-b border-border bg-card', SCROLLBAR_GUTTER)}>
+      <div ref={ref} className="shrink-0 overflow-x-hidden overflow-y-scroll border-b border-border bg-card">
         <div
           role="row"
           style={{ gridTemplateColumns: gridTemplate, minWidth: minWidthPx }}

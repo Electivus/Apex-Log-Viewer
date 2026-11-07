@@ -144,7 +144,7 @@ export function LogsTable({
   }, [listElement]);
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <div className="flex min-h-[148px] min-w-0 flex-1 flex-col">
       <LogsHeader
         ref={headerRef}
         t={t}
@@ -168,7 +168,7 @@ export function LogsTable({
           });
         }}
       />
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-[120px] flex-1">
         <VirtualList
           className={SCROLLBAR_GUTTER}
           style={{ height: '100%', width: '100%' }}
