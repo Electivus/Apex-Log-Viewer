@@ -91,4 +91,120 @@
   body.vscode-high-contrast .match-highlight {
     color: var(--vscode-editor-findMatchHighlightForeground, #020617);
   }
+
+  /* The category colors only the icon, the tint and the border. Badge text stays on --foreground so it reads in every theme. */
+  .log-cat-error {
+    --cat: var(--vscode-charts-red, #f14c4c);
+  }
+
+  .log-cat-debug {
+    --cat: var(--vscode-charts-blue, #3794ff);
+  }
+
+  .log-cat-soql {
+    --cat: var(--vscode-charts-green, #89d185);
+  }
+
+  .log-cat-dml {
+    --cat: var(--vscode-charts-orange, #d18616);
+  }
+
+  .log-cat-code {
+    --cat: var(--vscode-charts-purple, #b180d7);
+  }
+
+  .log-cat-limit {
+    --cat: var(--vscode-charts-yellow, #cca700);
+  }
+
+  .log-cat-neutral {
+    --cat: var(--vscode-descriptionForeground, #9d9d9d);
+  }
+
+  .log-cat-badge {
+    color: var(--foreground);
+    border-color: color-mix(in srgb, var(--cat) 55%, transparent);
+    background-color: color-mix(in srgb, var(--cat) 14%, transparent);
+  }
+
+  .log-cat-icon {
+    color: var(--cat);
+  }
+
+  .log-sev-error {
+    --sev: var(--vscode-editorError-foreground, #f14c4c);
+  }
+
+  .log-sev-warning {
+    --sev: var(--vscode-editorWarning-foreground, #cca700);
+  }
+
+  .log-sev-icon {
+    color: var(--sev);
+  }
+
+  .log-row {
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  }
+
+  .log-row:hover:not(.log-row-highlighted, .log-row-match, .log-row-active-match, .log-selected) {
+    background-color: var(--vscode-list-hoverBackground, color-mix(in srgb, currentColor 6%, transparent));
+  }
+
+  .log-row-highlighted {
+    background-color: var(--vscode-list-inactiveSelectionBackground, color-mix(in srgb, currentColor 10%, transparent));
+  }
+
+  .log-row-match {
+    background-color: color-mix(
+      in srgb,
+      var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33)) 45%,
+      transparent
+    );
+  }
+
+  .log-row-active-match {
+    background-color: color-mix(
+      in srgb,
+      var(--vscode-editor-findMatchBackground, rgba(162, 122, 255, 0.4)) 55%,
+      transparent
+    );
+    outline: 1px solid var(--vscode-editor-findMatchBorder, var(--vscode-focusBorder, currentColor));
+    outline-offset: -1px;
+  }
+
+  .log-find-mark {
+    border-radius: 2px;
+    background-color: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
+    outline: 1px solid var(--vscode-editor-findMatchHighlightBorder, transparent);
+    color: inherit;
+  }
+
+  .log-row-active-match .log-find-mark {
+    background-color: var(--vscode-editor-findMatchBackground, rgba(162, 122, 255, 0.4));
+    outline-color: var(--vscode-editor-findMatchBorder, transparent);
+  }
+
+  /* The entry a diagnostic or the failure banner points at. The bar and outline mark it without relying on the fill. */
+  .log-selected {
+    background-color: var(--vscode-list-activeSelectionBackground, color-mix(in srgb, currentColor 14%, transparent));
+    box-shadow: inset 3px 0 0 var(--vscode-focusBorder, currentColor);
+    outline: 1px solid var(--vscode-list-focusOutline, var(--vscode-focusBorder, currentColor));
+    outline-offset: -1px;
+  }
+
+  /* The pressed fill is the page color in High Contrast themes, so the outline carries the state. */
+  .log-toggle[aria-pressed='true'] {
+    outline: 1px solid var(--vscode-contrastActiveBorder, transparent);
+    outline-offset: 1px;
+  }
+
+  .log-failure-banner {
+    background-color: var(
+      --vscode-inputValidation-errorBackground,
+      color-mix(in srgb, var(--destructive) 16%, transparent)
+    );
+    border-color: var(--vscode-inputValidation-errorBorder, var(--destructive));
+    color: var(--vscode-inputValidation-errorForeground, var(--foreground));
+  }
 }
