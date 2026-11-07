@@ -25,8 +25,7 @@ describe('logViewerParser', () => {
   });
 
   it('keeps an Execute Anonymous source line containing pipes as plain text', () => {
-    const source =
-      "Execute Anonymous: System.debug(LoggingLevel.ERROR, 'order=42|status=FAILED|reason=x');";
+    const source = "Execute Anonymous: System.debug(LoggingLevel.ERROR, 'order=42|status=FAILED|reason=x');";
     const parsed = parseLogLines([source, '12:00:00.000 (1)|EXECUTION_STARTED']);
 
     expect(parsed).toHaveLength(2);

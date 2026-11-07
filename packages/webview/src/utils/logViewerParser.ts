@@ -57,7 +57,7 @@ function parseLogLine(raw: string, index: number): ParsedLogEntry | undefined {
   }
   const prefix = parts[0] ?? '';
   const tsMatch = prefix.match(/^(\d{1,2}:\d{2}:\d{2}\.\d+)(?:\s+\((\d+)\))?/);
-  const timestamp = tsMatch ? tsMatch[1] ?? '' : prefix.trim();
+  const timestamp = tsMatch ? (tsMatch[1] ?? '') : prefix.trim();
   const elapsed = tsMatch?.[2];
   const type = (parts[1] ?? '').trim() || 'UNKNOWN';
   const category = categorize(type);
