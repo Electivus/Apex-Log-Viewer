@@ -57,6 +57,8 @@ const ptBrByLegacyKey = {
   'customLogs.status.reconnecting': 'Reconectando',
   'customLogs.status.reconnecting.detail': 'Reconectando a {0} (tentativa {1}).',
   'customLogs.status.reveal': 'Mostrar Logs Personalizados',
+  'logsStatus.tooltip': 'Abra o painel Apex Logs para navegar, buscar e depurar logs do Apex.',
+  'logsStatus.tooltip.org': 'Abra o painel Apex Logs para navegar, buscar e depurar os logs do Apex de {0}.',
   'customLogs.status.stop': 'Parar captura',
   'customLogs.configure.noWorkspace': 'Abra um projeto Salesforce para configurar os Logs Personalizados.',
   'customLogs.configure.noProjectFile':
