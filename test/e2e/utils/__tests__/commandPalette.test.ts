@@ -7,6 +7,7 @@ interface FakeInputLocator {
   waitFor: (...args: any[]) => Promise<void>;
   fill: (...args: any[]) => Promise<void>;
   inputValue: () => Promise<string>;
+  press: (...args: any[]) => Promise<void>;
 }
 
 function createComposableLocator(...delegates: FakeInputLocator[]) {
@@ -46,6 +47,18 @@ function createComposableLocator(...delegates: FakeInputLocator[]) {
       }
       throw lastError;
     },
+    press: async (...args: any[]) => {
+      let lastError: unknown;
+      for (const delegate of delegates) {
+        try {
+          await delegate.press(...args);
+          return;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError;
+    },
     or(other: FakeInputLocator) {
       return createComposableLocator(...delegates, other);
     },
@@ -65,6 +78,10 @@ function createFakePage(
     quickAccessClickError?: Error;
     typedTextIsLost?: boolean;
     closesAfterFill?: boolean;
+    /** A webview takes the keyboard focus once the query is in the input, as an activated webview does a moment later. */
+    webviewTakesFocusAfterFill?: boolean;
+    /** Arrow keys do not move the row focus even with the input focused. */
+    arrowKeysDoNothing?: boolean;
     /** Rows the palette lists for a query, as a label or a translated label with its English alias; by default only the queried label. */
     labelsFor?: (query: string) => Array<string | { label: string; alias: string }>;
   }
@@ -73,12 +90,19 @@ function createFakePage(
   let focusedIndex = 0;
   const filled: string[] = [];
   const executed: string[] = [];
+  const webviewKeys: string[] = [];
+  let webviewHasFocus = false;
   const labelsFor = options?.labelsFor ?? ((query: string) => [query.replace(/^>\s*/, '')]);
   const currentRows = () =>
     labelsFor(lastQuery).map(row => (typeof row === 'string' ? { label: row, alias: '' } : row));
   const currentLabels = () => currentRows().map(row => row.label);
   const keyboardPress = jest.fn(async (key: string) => {
-    if (key === 'ArrowDown') {
+    if (webviewHasFocus && key !== 'Escape') {
+      // A webview forwards Escape to the workbench, which closes the palette; it keeps the other keys.
+      webviewKeys.push(key);
+    } else if (options?.arrowKeysDoNothing && key.startsWith('Arrow')) {
+      return;
+    } else if (key === 'ArrowDown') {
       focusedIndex = Math.min(focusedIndex + 1, currentLabels().length - 1);
     } else if (key === 'ArrowUp') {
       focusedIndex = Math.max(focusedIndex - 1, 0);
@@ -93,7 +117,12 @@ function createFakePage(
     lastQuery = value;
     focusedIndex = 0;
     filled.push(value);
+    webviewHasFocus = options?.webviewTakesFocusAfterFill ?? false;
   };
+  const inputPress = jest.fn(async (key: string) => {
+    webviewHasFocus = false;
+    await keyboardPress(key);
+  });
   const inputValue = jest.fn(async () => {
     if (options?.closesAfterFill) {
       throw new Error('Timed out reading the quick input');
@@ -167,19 +196,22 @@ function createFakePage(
   const legacyInputLocator = {
     waitFor: legacyInputWaitFor,
     fill: legacyInputFill,
-    inputValue
+    inputValue,
+    press: inputPress
   };
 
   const comboboxLocator = {
     waitFor: comboboxWaitFor,
     fill: comboboxFill,
-    inputValue
+    inputValue,
+    press: inputPress
   };
 
   const textboxLocator = {
     waitFor: textboxWaitFor,
     fill: textboxFill,
-    inputValue
+    inputValue,
+    press: inputPress
   };
 
   const widgetLocator = {
@@ -203,6 +235,9 @@ function createFakePage(
               throw strictModeError;
             }),
             inputValue: jest.fn(async () => {
+              throw strictModeError;
+            }),
+            press: jest.fn(async () => {
               throw strictModeError;
             })
           });
@@ -251,7 +286,8 @@ function createFakePage(
     isVisible,
     readRows,
     filled,
-    executed
+    executed,
+    webviewKeys
   };
 }
 
@@ -520,6 +556,95 @@ describe('a window that has stopped taking keyboard input', () => {
 
     expect(fake.quickAccessClick).toHaveBeenCalled();
     expect(fake.pointerOnQuickAccess()).toBe(false);
+  });
+});
+
+describe('a webview that takes the focus after the palette opened', () => {
+  const closeEditorRows = () => ['View: Close All Editor Groups', 'View: Close All Editors', 'View: Close Editor'];
+
+  test('runCommand moves to the exact row and runs it', async () => {
+    const fake = createFakePage([false], { webviewTakesFocusAfterFill: true, labelsFor: closeEditorRows });
+
+    await runCommand(fake.page, 'View: Close Editor');
+
+    expect(fake.executed).toEqual(['View: Close Editor']);
+    expect(fake.webviewKeys).toEqual([]);
+  });
+
+  test('runCommand presses Enter in the palette when the first row is the requested one', async () => {
+    const fake = createFakePage([false], { webviewTakesFocusAfterFill: true });
+
+    await runCommand(fake.page, 'View: Close Editor');
+
+    expect(fake.executed).toEqual(['View: Close Editor']);
+    expect(fake.webviewKeys).toEqual([]);
+  });
+
+  test('runCommandWhenAvailable moves to the exact row and runs it', async () => {
+    const fake = createFakePage([false], { webviewTakesFocusAfterFill: true, labelsFor: closeEditorRows });
+
+    await runCommandWhenAvailable(fake.page, 'View: Close Editor', { timeoutMs: 1_000 });
+
+    expect(fake.executed).toEqual(['View: Close Editor']);
+    expect(fake.webviewKeys).toEqual([]);
+  });
+
+  test('openView runs both the command and the picker row in the palette', async () => {
+    const fake = createFakePage([false], {
+      webviewTakesFocusAfterFill: true,
+      labelsFor: query => (query.startsWith('view ') ? ['Apex Logs', 'Apex Tail'] : [query.replace(/^>\s*/, '')])
+    });
+
+    await openView(fake.page, 'Apex Tail');
+
+    expect(fake.executed).toEqual(['View: Open View', 'Apex Tail']);
+    expect(fake.webviewKeys).toEqual([]);
+  });
+});
+
+describe('arrow keys that do not move the palette focus', () => {
+  const closeEditorRows = () => ['View: Close All Editor Groups', 'View: Close All Editors', 'View: Close Editor'];
+  const lostKeys =
+    /Keys are not moving the palette focus: \d+ ArrowDown presses left it on row 0 \("View: Close All Editor Groups"\), and "View: Close Editor" is row 2/;
+
+  test('runCommand names the lost keys rather than the listed row', async () => {
+    const fake = createFakePage([false], { arrowKeysDoNothing: true, labelsFor: closeEditorRows });
+
+    const failure = runCommand(fake.page, 'View: Close Editor');
+
+    await expect(failure).rejects.toThrow(lostKeys);
+    await expect(failure).rejects.not.toThrow('No palette row');
+    expect(fake.executed).toEqual([]);
+    expect(fake.keyboardPress.mock.calls.map(call => call[0]).slice(-1)).toEqual(['Escape']);
+  });
+
+  test('runCommandWhenAvailable names the lost keys when it times out', async () => {
+    const fake = createFakePage([false], { arrowKeysDoNothing: true, labelsFor: closeEditorRows });
+
+    const failure = runCommandWhenAvailable(fake.page, 'View: Close Editor', { timeoutMs: 1 });
+
+    await expect(failure).rejects.toThrow(lostKeys);
+    await expect(failure).rejects.not.toThrow('Timed out waiting for command to appear');
+    expect(fake.executed).toEqual([]);
+  });
+
+  test('openView names the lost keys rather than the listed view', async () => {
+    const fake = createFakePage([false], {
+      arrowKeysDoNothing: true,
+      labelsFor: query => (query.startsWith('view ') ? ['Apex Logs', 'Apex Tail'] : [query.replace(/^>\s*/, '')])
+    });
+
+    await expect(openView(fake.page, 'Apex Tail')).rejects.toThrow(
+      /Keys are not moving the palette focus: \d+ ArrowDown presses left it on row 0 \("Apex Logs"\), and "Apex Tail" is row 1/
+    );
+  });
+
+  test('waitForCommandAvailable still reports a listed command as available', async () => {
+    const fake = createFakePage([false], { arrowKeysDoNothing: true, labelsFor: closeEditorRows });
+
+    await expect(
+      waitForCommandAvailable(fake.page, 'View: Close Editor', { timeoutMs: 1_000 })
+    ).resolves.toBeUndefined();
   });
 });
 

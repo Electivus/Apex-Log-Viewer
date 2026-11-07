@@ -186,6 +186,63 @@ describe('Tail webview App', () => {
     await screen.findByText('USER_DEBUG|keep-this-line');
   });
 
+  describe('escaped pipes', () => {
+    const lines = [
+      '10:22:43.0 (959762)|USER_DEBUG|[1]|DEBUG|order=42&#124;status=FAILED',
+      '10:22:43.0 (1073642)|USER_DEBUG|[2]|ERROR|order=43&#124;status=FAILED',
+      'line2&#124;y<z',
+      '10:22:43.0 (1093570)|USER_DEBUG|[4]|ERROR|literal=&amp;#124;',
+      "Execute Anonymous: String sourceLiteral = 'in-source=&#124;';"
+    ];
+
+    async function renderTail() {
+      const { vscode } = createVsCodeMock();
+      const bus = new EventTarget();
+      render(<TailApp vscode={vscode} messageBus={bus} />);
+      send(bus, { type: 'init', locale: 'en' });
+      send(bus, { type: 'tailData', lines });
+      await screen.findAllByRole('row');
+    }
+
+    const rowTexts = () => screen.getAllByRole('row').map(row => row.textContent);
+
+    it('shows the pipes the developer wrote without colors', async () => {
+      await renderTail();
+
+      expect(rowTexts()).toEqual([
+        '10:22:43.0 (959762)|USER_DEBUG|[1]|DEBUG|order=42|status=FAILED',
+        '10:22:43.0 (1073642)|USER_DEBUG|[2]|ERROR|order=43|status=FAILED',
+        'line2|y<z',
+        '10:22:43.0 (1093570)|USER_DEBUG|[4]|ERROR|literal=&amp;#124;',
+        "Execute Anonymous: String sourceLiteral = 'in-source=&#124;';"
+      ]);
+    });
+
+    it('shows the pipes the developer wrote with colors', async () => {
+      await renderTail();
+      fireEvent.click(screen.getByRole('switch', { name: 'Color' }));
+
+      expect(rowTexts()).toEqual([
+        '10:22:43.0 (959762) | USER_DEBUG | [debug] | order=42|status=FAILED',
+        '10:22:43.0 (1073642) | USER_DEBUG | [2]|ERROR|order=43|status=FAILED',
+        'line2|y<z',
+        '10:22:43.0 (1093570) | USER_DEBUG | [4]|ERROR|literal=&amp;#124;',
+        "Execute Anonymous: String sourceLiteral = 'in-source=&#124;';"
+      ]);
+    });
+
+    it('finds a line by the text it shows and by the text in the log', async () => {
+      await renderTail();
+      const search = screen.getByPlaceholderText('Search live logs…');
+
+      fireEvent.change(search, { target: { value: 'order=42|status' } });
+      expect(rowTexts()).toEqual(['10:22:43.0 (959762)|USER_DEBUG|[1]|DEBUG|order=42|status=FAILED']);
+
+      fireEvent.change(search, { target: { value: 'order=43&#124;status' } });
+      expect(rowTexts()).toEqual(['10:22:43.0 (1073642)|USER_DEBUG|[2]|ERROR|order=43|status=FAILED']);
+    });
+  });
+
   it('pauses Auto-scroll when the user scrolls up and resumes it at the bottom', async () => {
     const { vscode, getSavedState } = createVsCodeMock();
     const bus = new EventTarget();
@@ -218,6 +275,29 @@ describe('Tail webview App', () => {
     scrollListTo(800);
     await waitFor(() => expect(autoScroll).toHaveAttribute('aria-checked', 'true'));
     expect((getSavedState() as any)?.autoScroll).toBe(true);
+  });
+
+  it('keeps all the text of a line that is not a log event when Color is on', async () => {
+    const { vscode } = createVsCodeMock({ colorize: true });
+    const bus = new EventTarget();
+    render(<TailApp vscode={vscode} messageBus={bus} />);
+    send(bus, { type: 'init', locale: 'en' });
+
+    const header =
+      '=== ApexLog 07L000000000001AAA | 2026-11-07T18:26:46.000+0000 | /services/data/v60.0/tooling/executeAnonymous | Success | 1415';
+    // The log does not escape the source that Execute Anonymous echoes, so `&#124;` is what the developer wrote.
+    const sourceEcho = "Execute Anonymous: System.debug('order=42|status=FAILED&#124;X');";
+    send(bus, {
+      type: 'tailData',
+      lines: [header, sourceEcho, '18:26:46.120 (177599203)|USER_DEBUG|[1]|DEBUG|ok']
+    });
+
+    await screen.findAllByRole('row');
+    expect(screen.getAllByRole('row').map(row => row.textContent)).toEqual([
+      header,
+      sourceEcho,
+      '18:26:46.120 (177599203) | USER_DEBUG | [debug] | ok'
+    ]);
   });
 
   it('restores and persists tail UI state through the VS Code webview api', async () => {

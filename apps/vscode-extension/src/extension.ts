@@ -196,7 +196,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionExports {
       const t0 = Date.now();
       const viewAlreadyResolved = provider.hasResolvedView();
       try {
-        await vscode.commands.executeCommand(`${SfLogsViewProvider.viewType}.focus`);
+        // A refresh asks for data, not for the keyboard. Moving the focus into a webview that is still loading also
+        // drops the next key press.
+        await vscode.commands.executeCommand(`${SfLogsViewProvider.viewType}.focus`, { preserveFocus: true });
       } catch (e) {
         logWarn('Command electivus.apexLogViewer.logs.refresh: failed to open logs view ->', getErrorMessage(e));
       }
