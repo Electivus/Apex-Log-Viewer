@@ -62,7 +62,7 @@ function poolSalesforce(t) {
     Pool__c: pool.Id, Pool__r: pool, LeaseState__c: 'available', HealthState__c: 'needs_recreate',
     LastModifiedDate: '2026-09-01T00:00:00.000Z' };
   const authUrl = 'force://PlatformCLI::fixture-refresh@scratch.example.com';
-  const state = { pool, slot, authUrl, created: false, imported: false, deleted: false,
+  const state = { pool, slot, slots: [slot], authUrl, created: false, imported: false, deleted: false,
     keyFiles: [], cliCalls: [], requests: [], failures: [], homes: new Map() };
   t.after(() => {
     for (const key of state.keyFiles) {
@@ -122,7 +122,11 @@ function poolSalesforce(t) {
           if (args[0] === 'data' && args[1] === 'query') {
             const query = args[args.indexOf('--query') + 1];
             if (query.includes('FROM ALV_ScratchOrgPool__c')) return { done: true, records: [pool] };
-            if (query.includes('FROM ALV_ScratchOrgPoolSlot__c')) return { done: true, records: [{ ...slot }] };
+            if (query.includes('FROM ALV_ScratchOrgPoolSlot__c')) {
+              const slotKey = /SlotKey__c = '([^']+)'/.exec(query)?.[1];
+              const records = state.slots.filter(item => !slotKey || item.SlotKey__c === slotKey);
+              return { done: true, records: records.map(item => ({ ...item })) };
+            }
             if (query.includes('FROM ScratchOrgInfo') && state.latestQueryResponse) return state.latestQueryResponse;
             if (query.includes('FROM ScratchOrgInfo'))
               return {
@@ -176,7 +180,7 @@ function poolSalesforce(t) {
       if (body.LeaseState__c === 'provisioning') {
         assert.equal(options.headers['If-Unmodified-Since'], 'Tue, 01 Sep 2026 00:00:00 GMT');
       }
-      Object.assign(url.endsWith('/pool-id') ? pool : slot, body);
+      Object.assign(url.endsWith('/pool-id') ? pool : state.slots.find(item => url.endsWith(`/${item.Id}`)), body);
     } else if (options.method === 'DELETE') state.deleted = true;
     return { ok: true, status: 204, text: async () => '' };
   });
@@ -338,6 +342,88 @@ test('prewarm preserves an existing scratch credential when its owner must perfo
   assert.equal(state.slot.HealthState__c, 'needs_recreate');
   assert.equal(state.cliCalls.some(call => call.args[1] === 'logout'), false);
   assert.equal(state.cliCalls.some(call => call.args.slice(0, 3).join(' ') === 'org create scratch'), false);
+});
+
+// Each entry is one slot in key order. A foreign slot holds a scratch org that this identity cannot delete.
+function poolWithSlots(t, kinds) {
+  const { state, dependencies } = poolSalesforce(t);
+  state.slots = kinds.map((kind, index) => ({
+    ...state.slot,
+    Id: `slot-id-${index + 1}`,
+    SlotKey__c: `slot-0${index + 1}`,
+    ScratchAlias__c: `ISOLATED_0${index + 1}`,
+    ...(kind === 'foreign'
+      ? {
+          ScratchAuthUrl__c: state.authUrl,
+          ScratchOrgInfoId__c: `foreign-info-${index + 1}`,
+          ActiveScratchOrgId__c: `foreign-active-${index + 1}`
+        }
+      : {})
+  }));
+  const request = dependencies.fetchImpl;
+  dependencies.fetchImpl = async (url, options) => {
+    if (options.method === 'DELETE' && url.includes('/ActiveScratchOrg/foreign-')) {
+      return {
+        ok: false,
+        status: 400,
+        text: async () =>
+          JSON.stringify([
+            { errorCode: 'INSUFFICIENT_ACCESS_OR_READONLY', message: 'insufficient access rights on object id' }
+          ])
+      };
+    }
+    const startsNextSlot = options.method === 'PATCH' && JSON.parse(options.body).LeaseState__c === 'provisioning';
+    if (startsNextSlot) state.created = false;
+    return request(url, options);
+  };
+  const created = () =>
+    state.cliCalls
+      .filter(call => call.args.slice(0, 3).join(' ') === 'org create scratch')
+      .map(call => call.args[call.args.indexOf('--alias') + 1]);
+  return { state, dependencies, created };
+}
+
+test('prewarm warms the slots after a denied scratch delete and fails naming each denied slot', async t => {
+  const { state, dependencies, created } = poolWithSlots(t, ['foreign', 'free', 'foreign', 'free']);
+  await assert.rejects(main(['prewarm', '--pool-key', 'isolated'], dependencies), error => {
+    assert.match(error.message, /INSUFFICIENT_ACCESS/);
+    assert.match(error.message, /slot-01, slot-03/);
+    assert.doesNotMatch(error.message, /slot-02|slot-04/);
+    return true;
+  });
+  assert.deepEqual(created(), ['ISOLATED_02', 'ISOLATED_04']);
+  assert.deepEqual(
+    state.slots.map(slot => slot.HealthState__c),
+    ['needs_recreate', 'healthy', 'needs_recreate', 'healthy']
+  );
+  for (const [index, slot] of [[1, state.slots[0]], [3, state.slots[2]]]) {
+    assert.equal(slot.LeaseState__c, 'available');
+    assert.equal(slot.ScratchAuthUrl__c, state.authUrl);
+    assert.equal(slot.ActiveScratchOrgId__c, `foreign-active-${index}`);
+    assert.match(slot.LastError__c, /INSUFFICIENT_ACCESS/);
+  }
+  assert.deepEqual(state.failures, []);
+  assert.equal(state.keyFiles.every(key => !existsSync(key)), true);
+});
+
+test('prewarm stops at a signup failure after a denied delete and still names the denied slot', async t => {
+  const { state, dependencies, created } = poolWithSlots(t, ['foreign', 'free', 'free']);
+  state.signupError = 'C-1016 daily signup limit reached';
+  await assert.rejects(main(['prewarm', '--pool-key', 'isolated'], dependencies), error => {
+    assert.match(error.message, /C-1016/);
+    assert.match(error.message, /slot-01/);
+    return true;
+  });
+  assert.deepEqual(created(), ['ISOLATED_02']);
+  assert.equal(state.slots[1].LastRunResult__c, 'prewarm_failed');
+  assert.equal(state.slots[2].LastRunResult__c, undefined);
+});
+
+test('prewarm --limit counts created scratch orgs, not denied slots', async t => {
+  const { state, dependencies, created } = poolWithSlots(t, ['foreign', 'free', 'free']);
+  await assert.rejects(main(['prewarm', '--pool-key', 'isolated', '--limit', '1'], dependencies), /slot-01/);
+  assert.deepEqual(created(), ['ISOLATED_02']);
+  assert.equal(state.slots[2].LastRunResult__c, undefined);
 });
 
 test('admin renews an expired REST token in its originating JWT home before retrying the conditional update', async t => {
