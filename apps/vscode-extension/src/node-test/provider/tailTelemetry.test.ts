@@ -10,6 +10,7 @@ const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 
 const ORG = 'tail-user@example.com';
 const AUTH_FAILURE = `Authentication failed for ${ORG} at https://example.my.salesforce.com`;
+const LOG_ID = '07L000000000002AAA';
 
 type Gate = { promise: Promise<void>; open: () => void };
 
@@ -29,12 +30,27 @@ async function until(condition: () => boolean): Promise<void> {
   }
 }
 
+type Cancel = () => void;
+
 type Behavior = {
   onAuthRequest?: (state: { ready: boolean }) => Promise<unknown>;
+  replayAvailable?: (cancel: Cancel) => boolean;
+  resolvePath?: (cancel: Cancel) => void;
 };
 
 async function openTail(telemetry: RealTelemetry, behavior: Behavior = {}) {
   const state = { ready: false };
+  let onCancel: (() => void) | undefined;
+  const token = {
+    isCancellationRequested: false,
+    onCancellationRequested: (listener: () => void) => {
+      onCancel = listener;
+    }
+  };
+  const cancel: Cancel = () => {
+    token.isCancellationRequested = true;
+    onCancel?.();
+  };
   const clock = new FakeClock();
   const noEvent = () => ({ dispose: () => undefined });
   const quiet = {
@@ -50,7 +66,11 @@ async function openTail(telemetry: RealTelemetry, behavior: Behavior = {}) {
     orgList: async () => [{ username: ORG, isDefaultUsername: true }],
     getOrgAuth: async () =>
       (await behavior.onAuthRequest?.(state)) ?? { username: ORG, instanceUrl: 'https://example.my.salesforce.com' },
-    logsList: async () => []
+    logsList: async () => [],
+    requireLocalLogPath: async ({ logId }: { logId: string }) => {
+      behavior.resolvePath?.(cancel);
+      return { logId, localPath: '/tmp/tail.log', source: 'local' };
+    }
   };
   const tailServiceModule = proxyquireStrict('../../host/utils/tailService', {
     './logger': quiet,
@@ -73,8 +93,16 @@ async function openTail(telemetry: RealTelemetry, behavior: Behavior = {}) {
   const { SfLogTailViewProvider } = proxyquireStrict('../../provider/SfLogTailViewProvider', {
     vscode: {
       ...vscodeStub,
+      Uri: { ...vscodeStub.Uri, file: (fsPath: string) => ({ fsPath }) },
+      ProgressLocation: { Notification: 15 },
       workspace: { onDidChangeConfiguration: noEvent },
-      window: { ...vscodeStub.window, state: { active: true }, onDidChangeWindowState: noEvent }
+      window: {
+        ...vscodeStub.window,
+        state: { active: true },
+        onDidChangeWindowState: noEvent,
+        withProgress: async (_options: unknown, task: (progress: unknown, token: unknown) => unknown) =>
+          task({}, token)
+      }
     },
     '../host/utils/localize': localize,
     '../host/salesforce/traceflags': {
@@ -85,7 +113,9 @@ async function openTail(telemetry: RealTelemetry, behavior: Behavior = {}) {
     '../host/utils/logger': quiet,
     '../host/utils/responsiveness': { recordInboundMessage: () => undefined },
     '../shared/telemetry': telemetry.module,
-    '../host/utils/replayDebugger': { ensureReplayDebuggerAvailable: async () => true },
+    '../host/utils/replayDebugger': {
+      ensureReplayDebuggerAvailable: async () => behavior.replayAvailable?.(cancel) ?? true
+    },
     '../host/utils/webviewHtml': { buildWebviewHtml: () => '<html></html>' },
     '../host/utils/tailService': tailServiceModule,
     '../host/utils/config': {
@@ -109,7 +139,7 @@ async function openTail(telemetry: RealTelemetry, behavior: Behavior = {}) {
   return { host, provider };
 }
 
-suite('Tail start telemetry', () => {
+suite('Tail telemetry', () => {
   let telemetry: RealTelemetry;
   setup(() => {
     telemetry = activateRealTelemetry();
@@ -123,9 +153,10 @@ suite('Tail start telemetry', () => {
     return telemetry.eventsNamed('tail.start');
   }
 
-  function assertOnlyStart(properties: Record<string, string>) {
-    const events = startEvents();
-    assert.equal(events.length, 1, 'exactly one tail.start event');
+  function assertOnly(name: string, properties: Record<string, string>) {
+    assert.deepEqual(telemetry.catalogWarnings, [], 'telemetry.json accepted every property and measurement');
+    const events = telemetry.eventsNamed(name);
+    assert.equal(events.length, 1, `exactly one ${name} event`);
     assert.deepEqual(events[0]?.properties, properties);
     assert.equal(typeof events[0]?.measurements?.durationMs, 'number');
   }
@@ -134,7 +165,7 @@ suite('Tail start telemetry', () => {
     const { host, provider } = await openTail(telemetry);
     await host.emit({ type: 'tailStart', debugLevel: 'ALV_E2E' });
     assert.equal(host.last('tailStatus')?.running, true);
-    assertOnlyStart({ outcome: 'ok' });
+    assertOnly('tail.start', { outcome: 'ok' });
     provider.dispose();
   });
 
@@ -147,7 +178,7 @@ suite('Tail start telemetry', () => {
       }
     });
     await host.emit({ type: 'tailStart', debugLevel: 'ALV_E2E' });
-    assertOnlyStart({ outcome: 'error', code: 'AUTH_FAILED' });
+    assertOnly('tail.start', { outcome: 'error', code: 'AUTH_FAILED' });
     const payload = JSON.stringify(telemetry.sent);
     assert.ok(!payload.includes(ORG) && !payload.includes('salesforce.com'), 'no org value in the payload');
     provider.dispose();
@@ -167,7 +198,7 @@ suite('Tail start telemetry', () => {
     await host.emit({ type: 'tailStop' });
     auth.open();
     await starting;
-    assertOnlyStart({ outcome: 'cancel' });
+    assertOnly('tail.start', { outcome: 'cancel' });
     provider.dispose();
   });
 
@@ -186,14 +217,63 @@ suite('Tail start telemetry', () => {
     assert.deepEqual(startEvents(), [], 'the duplicate click sent nothing');
     auth.open();
     await first;
-    assertOnlyStart({ outcome: 'ok' });
+    assertOnly('tail.start', { outcome: 'ok' });
     provider.dispose();
   });
 
   test('reports NO_DEBUG_LEVEL for an empty debug level', async () => {
     const { host, provider } = await openTail(telemetry);
     await host.emit({ type: 'tailStart', debugLevel: '  ' });
-    assertOnlyStart({ outcome: 'error', code: 'NO_DEBUG_LEVEL' });
+    assertOnly('tail.start', { outcome: 'error', code: 'NO_DEBUG_LEVEL' });
+    provider.dispose();
+  });
+
+  const silentReplays: Array<[string, string, Behavior]> = [
+    ['ok when the debugger launches', 'ok', {}],
+    ['unavailable when the debugger cannot be made available', 'unavailable', { replayAvailable: () => false }],
+    [
+      'cancel when cancelled while checking the debugger',
+      'cancel',
+      {
+        replayAvailable: cancel => {
+          cancel();
+          return false;
+        }
+      }
+    ],
+    ['cancel when cancelled while resolving the log', 'cancel', { resolvePath: cancel => cancel() }],
+    [
+      'cancel when the request aborts',
+      'cancel',
+      {
+        resolvePath: cancel => {
+          cancel();
+          throw new Error('Request aborted');
+        }
+      }
+    ]
+  ];
+  for (const [label, outcome, behavior] of silentReplays) {
+    test(`replay reports ${label}`, async () => {
+      const { host, provider } = await openTail(telemetry, behavior);
+      await host.emit({ type: 'replay', logId: LOG_ID });
+      assertOnly('logs.replay', { outcome, view: 'tail' });
+      assert.equal(host.last('error')?.message, undefined, 'no error reaches the Tail view');
+      assert.ok(!JSON.stringify(telemetry.sent).includes(LOG_ID), 'the log id is not in the payload');
+      provider.dispose();
+    });
+  }
+
+  test('replay reports error and still tells the user', async () => {
+    const { host, provider } = await openTail(telemetry, {
+      resolvePath: () => {
+        throw new Error(`boom for ${LOG_ID}`);
+      }
+    });
+    await host.emit({ type: 'replay', logId: LOG_ID });
+    assertOnly('logs.replay', { outcome: 'error', view: 'tail' });
+    assert.equal(host.last('error')?.message, `boom for ${LOG_ID}`);
+    assert.ok(!JSON.stringify(telemetry.sent).includes(LOG_ID), 'the log id is not in the payload');
     provider.dispose();
   });
 });
