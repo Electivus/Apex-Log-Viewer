@@ -46,16 +46,15 @@ Pool maintenance:
 ```bash
 pnpm run scratch-pool:list -- --target-org DevHubElectivus --pool-key alv-e2e
 pnpm run scratch-pool:reconcile -- --target-org DevHubElectivus --pool-key alv-e2e
-pnpm run scratch-pool:prewarm -- --target-org DevHubElectivus --pool-key alv-e2e
 pnpm run scratch-pool:disable-slot -- --target-org DevHubElectivus --pool-key alv-e2e --slot-key slot-02 --reason "maintenance"
 pnpm run scratch-pool:reset-slot -- --target-org DevHubElectivus --pool-key alv-e2e --slot-key slot-02 --reason "force recreate"
 ```
 
 After this migration, `reconcile` marks any slot without a stored `sfdxAuthUrl` as `needs_recreate`, so the next CI lease recreates it once and stores a fresh reusable auth URL.
 
-`prewarm` is the maintenance command to eagerly create every pending scratch org slot instead of waiting for the first E2E worker to trigger recreation. Use `--limit <n>` when you want to warm the pool gradually.
+`prewarm` is the maintenance command to eagerly create every pending scratch org slot instead of waiting for the first E2E worker to trigger recreation. Use `--limit <n>` when you want to warm the pool gradually; a denied slot does not count toward the limit, because it creates no scratch org. `prewarm` refuses to run outside CI, so run it through [Slot Recovery](#slot-recovery); see [Slot ownership](#slot-ownership).
 
-`prewarm` takes a conditional maintenance lease per slot and skips slots that are leased or provisioning, so it is safe while Real Org E2E runs. When a scratch creation fails, prewarm marks that slot `needs_recreate` and stops. If the process is cancelled or times out mid-slot, that slot stays `provisioning` until its 90-minute maintenance lease expires.
+`prewarm` takes a conditional maintenance lease per slot and skips slots that are leased or provisioning, so it is safe while Real Org E2E runs. When a scratch creation fails, prewarm marks that slot `needs_recreate` and stops. When a scratch org delete is denied, prewarm marks that slot `needs_recreate`, keeps its stored credential and continues with the next slot. If the process is cancelled or times out mid-slot, that slot stays `provisioning` until its 90-minute maintenance lease expires.
 
 `reconcile` refreshes each slot's scratch-org inventory from the Dev Hub and is also safe while Real Org E2E runs. It skips slots that are `leased`, `provisioning` or `repairing`. It writes each slot with a conditional update and skips a slot that changed after it was read. It never moves a `needs_recreate` or `broken` slot back to `healthy`. Skipped slots are listed, each with its reason, in `skippedSlots`. A retired slot returns to service only through recreation: `prewarm` (or the next CI Pool Lease that lands on it) replaces its scratch org, and `reset-slot` forces that recreation for a slot that is not yet retired.
 
@@ -65,7 +64,11 @@ A lease that expires without being released, whether a Pool Lease or a maintenan
 
 The Slot Recovery workflow (`.github/workflows/slot-recovery.yml`) runs `prewarm` for `SF_SCRATCH_POOL_NAME` outside any Real Org E2E run, so a lease almost never waits for scratch creation. It runs after every completed E2E workflow run, whatever its conclusion, hourly, and on manual dispatch. Overlapping triggers collapse into one run at a time. It never runs `reconcile`.
 
-A run fails when prewarm cannot create a scratch org, for example at the Dev Hub's daily signup limit; the next trigger retries the remaining retired slots. A successful prewarm logs the healthy and `needs_recreate` slot counts. To confirm the outcome, dispatch the workflow and check the pool:
+A run fails when prewarm cannot create a scratch org, for example at the Dev Hub's daily signup limit; the next trigger retries the remaining retired slots.
+
+A run also fails when prewarm cannot delete a slot's scratch org. Prewarm warms the other slots first, and then fails with an `INSUFFICIENT_ACCESS` error that names each denied slot. If a signup failure stops the run after a denied delete, the error shows both. Every later run retries the denied slots and fails until the scratch org is deleted; see [Slot ownership](#slot-ownership).
+
+A successful prewarm logs the healthy and `needs_recreate` slot counts. To confirm the outcome, dispatch the workflow and check the pool:
 
 ```bash
 gh workflow run slot-recovery.yml --repo Electivus/Apex-Log-Viewer
@@ -79,9 +82,9 @@ An identity can delete only the scratch orgs it owns, and the CI identity has no
 - **Only CI creates a slot's scratch org.** A Pool Lease outside CI reuses healthy slots and never recreates one. This covers `SF_DEVHUB_ALIAS` and any local JWT identity, because a local JWT user can differ from the CI user. Acquire prefers a healthy slot, so a refusal means that no healthy slot was free. The lease then fails with an explanation, keeps the slot's health and stored credential, and records `recreate-refused` in `LastRunResult__c`. Retry after Slot Recovery restores a healthy slot, or unset `SF_SCRATCH_POOL_NAME` and `SF_SCRATCH_STRATEGY` to use the single scratch.
 - **A denied delete skips the slot.** A slot can still hold a scratch org that CI cannot delete, for example after an identity change or a run from an older checkout. The lease keeps that slot leased and takes the next one, because acquire would otherwise assign the same slot again. When the lease holds a usable slot, it releases the denied slot as `broken` with its stored credential. The job fails only when no other slot becomes free before `SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS`, and that error names the denied slots.
 
-A skipped slot stays out of use until its owner or an administrator deletes the scratch org. Slot Recovery stops at the first denied slot and fails with `INSUFFICIENT_ACCESS`, so a failed Slot Recovery run is the signal to act. `pnpm run scratch-pool:list` shows the reason in `LastError__c`. After the deletion, the next Slot Recovery run or CI lease recreates the slot.
+A skipped slot stays out of use until its owner or an administrator deletes the scratch org. Slot Recovery warms the other slots and then fails with `INSUFFICIENT_ACCESS`, naming each denied slot, so a failed Slot Recovery run is the signal to act. `pnpm run scratch-pool:list` shows the reason in `LastError__c`. After the deletion, the next Slot Recovery run or CI lease recreates the slot.
 
-Run recovery through `gh workflow run slot-recovery.yml`, not a local `scratch-pool:prewarm`, because a local JWT identity owns the scratch orgs it creates. The same applies to the proxy lab: it sets `CI=true` in its container, so do not point a local proxy-lab run at a shared pool.
+Run recovery through `gh workflow run slot-recovery.yml`. `scratch-pool:prewarm` refuses to run outside CI, because a local JWT identity owns the scratch orgs it creates. The proxy lab sets `CI=true` in its container, so this check does not stop it. Do not point a local proxy-lab run at a shared pool.
 
 ## Authentication model
 
