@@ -59,7 +59,7 @@ function createExtensionHarness(options: {
   const webviewProviderRegistrations: Array<{ viewId: string; options?: any }> = [];
   const customLogsRegistrations: Array<{ logsSelectedOrg: () => string | undefined }> = [];
   const clipboardWrites: string[] = [];
-  const executedCommands: string[] = [];
+  const executedCommands: unknown[][] = [];
   const codeLensSelectors: unknown[] = [];
   const apexLogEditorContextRegistrations: number[] = [];
 
@@ -107,7 +107,7 @@ function createExtensionHarness(options: {
         commands.set(command, handler);
         return createDisposable();
       },
-      executeCommand: async (command: string) => void executedCommands.push(command)
+      executeCommand: async (...call: unknown[]) => void executedCommands.push(call)
     },
     languages: {
       registerCodeLensProvider: (selector: unknown) => {
@@ -549,13 +549,13 @@ suite('extension activation gating', () => {
     assert.equal(typeof refreshEvent?.measurements?.durationMs, 'number');
   });
 
-  test('refresh command reveals the Logs view through its focus command only', async () => {
+  test('refresh command reveals the Logs view through its focus command and leaves the focus where it is', async () => {
     const harness = createExtensionHarness({});
 
     await harness.extension.activate(createContext());
     await harness.commands.get('electivus.apexLogViewer.logs.refresh')!();
 
-    assert.deepEqual(harness.executedCommands, ['electivus.apexLogViewer.logsView.focus']);
+    assert.deepEqual(harness.executedCommands, [['electivus.apexLogViewer.logsView.focus', { preserveFocus: true }]]);
   });
 
   test('refresh command skips provider.refresh until the logs view has resolved', async () => {
