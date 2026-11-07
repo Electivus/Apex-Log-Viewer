@@ -535,7 +535,6 @@ function createWriter(layout: Layout, index: LineIndex, lease: Lease, start: Wri
     advance: checkpoint =>
       enqueue(async () => {
         usable();
-        if (!(await lease.stillHeld())) throw new LeaseLostError();
         const written: EventCheckpoint = {
           version: FORMAT_VERSION,
           orgId: checkpoint.orgId,
