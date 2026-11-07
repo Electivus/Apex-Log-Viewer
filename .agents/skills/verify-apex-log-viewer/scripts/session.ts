@@ -261,16 +261,13 @@ async function openDebugFlagsFromTailWithRetry(): Promise<Frame> {
 /**
  * VS Code draws modal confirmations (Download all logs, Clear logs) as native dialogs by default, which
  * Playwright cannot click. With `window.dialogStyle: custom` they render in the workbench as `.monaco-dialog-box`.
- * A webview that loads or gets activated takes the focus late, which by default closes a palette opened meanwhile,
- * and the next `fill` then waits on a hidden input. VS Code reads both settings on each use, so writing them after
- * launch is enough.
+ * VS Code reads the setting on each use, so writing it after launch is enough.
  */
 async function writeDriverSettings(userDataDir: string): Promise<void> {
   const file = path.join(userDataDir, 'User', 'settings.json');
   await mkdir(path.dirname(file), { recursive: true });
   const settings = JSON.parse(await readFile(file, 'utf8').catch(() => '{}')) as Record<string, unknown>;
   settings['window.dialogStyle'] = 'custom';
-  settings['workbench.quickOpen.closeOnFocusLost'] = false;
   await writeFile(file, JSON.stringify(settings, null, 2), 'utf8');
 }
 

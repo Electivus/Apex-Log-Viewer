@@ -5,6 +5,7 @@ import {
   closeVsCodeApp,
   concealVsCodeWindows,
   createMissingSupportExtensionsError,
+  createVsCodeUserDataDir,
   hasExtensionHostStarted,
   hasLanguagePackFor,
   launchUntilExtensionHostStarts,
@@ -144,6 +145,33 @@ describe('VS Code display language', () => {
       expect(await hasLanguagePackFor(userDataDir, 'pt-br')).toBe(true);
     } finally {
       await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('VS Code user profile', () => {
+  const readProfileSettings = async (): Promise<Record<string, unknown>> => {
+    const userDataDir = await createVsCodeUserDataDir();
+    try {
+      return JSON.parse(await readFile(path.join(userDataDir, 'User', 'settings.json'), 'utf8'));
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  };
+
+  test('keeps a palette open when a webview takes the focus', async () => {
+    expect((await readProfileSettings())['workbench.quickOpen.closeOnFocusLost']).toBe(false);
+  });
+
+  test('keeps the palette setting next to the proxy settings', async () => {
+    process.env.ALV_E2E_PROXY_STRICT_SSL = '0';
+    try {
+      expect(await readProfileSettings()).toEqual({
+        'workbench.quickOpen.closeOnFocusLost': false,
+        'http.proxyStrictSSL': false
+      });
+    } finally {
+      delete process.env.ALV_E2E_PROXY_STRICT_SSL;
     }
   });
 });
