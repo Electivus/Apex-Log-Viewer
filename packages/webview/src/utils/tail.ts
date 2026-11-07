@@ -1,4 +1,5 @@
 import React from 'react';
+import { decodeLogText } from './logViewerParser';
 
 // Types used by tail view helpers
 export type ParsedApexLine = {
@@ -83,14 +84,14 @@ export function parseApexLine(line: string): ParsedApexLine {
   if ((category ?? '').toUpperCase().includes('USER_DEBUG')) {
     const idxDebug = parts.findIndex(p => p.trim().toUpperCase() === 'DEBUG');
     if (idxDebug >= 0 && idxDebug + 1 < parts.length) {
-      debugMessage = parts.slice(idxDebug + 1).join('|');
+      debugMessage = decodeLogText(parts.slice(idxDebug + 1).join('|'));
     }
   }
   return {
     time,
     nanos,
     category: category?.trim(),
-    tokens: parts.slice(2),
+    tokens: parts.slice(2).map(decodeLogText),
     debugMessage
   };
 }

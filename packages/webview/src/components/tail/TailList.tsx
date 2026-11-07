@@ -2,6 +2,7 @@ import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import type { Messages } from '../../i18n';
 import { List, type ListImperativeAPI } from 'react-window';
 import { cn } from '../../lib/utils';
+import { decodeLogLine } from '../../utils/logViewerParser';
 import { apexLineStyle, categoryStyle, contentHighlightRules, highlightContent, parseApexLine } from '../../utils/tail';
 
 type TailListProps = {
@@ -303,7 +304,7 @@ function RowContent({
   if (!colorize || selected) {
     return (
       <div ref={ref} style={commonStyle} className="px-3 py-1.5 text-xs leading-relaxed">
-        {text}
+        {decodeLogLine(text)}
       </div>
     );
   }
@@ -314,7 +315,7 @@ function RowContent({
   const lineFallback = apexLineStyle(text, colorize);
 
   if (!parsed.time && !cat) {
-    const segs = highlightContent(text, contentHighlightRules);
+    const segs = highlightContent(decodeLogLine(text), contentHighlightRules);
     return (
       <div
         ref={ref}

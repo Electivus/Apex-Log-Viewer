@@ -10,6 +10,7 @@ import type {
 import { TailToolbar } from './components/tail/TailToolbar';
 import { TailList } from './components/tail/TailList';
 import { LoadingOverlay } from './components/LoadingOverlay';
+import { decodeLogLine } from './utils/logViewerParser';
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
 
@@ -171,7 +172,7 @@ export function TailApp({
       if (onlyUserDebug && !isUserDebug) {
         continue;
       }
-      if (q && !l.toLowerCase().includes(q)) {
+      if (q && !l.toLowerCase().includes(q) && !decodeLogLine(l).toLowerCase().includes(q)) {
         continue;
       }
       out.push(i);

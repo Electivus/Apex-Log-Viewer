@@ -42,7 +42,7 @@ describe('logViewerParser', () => {
     expect(parsed.filter(entry => entry.category === 'error')).toHaveLength(1);
   });
 
-  // Every log line below was captured from a real org. Salesforce writes `|` as `&#124;` and no other character changes.
+  // Salesforce writes `|` as `&#124;` and no other character changes.
   describe('escaped pipes', () => {
     it('shows a debug message with the pipes the developer wrote and keeps the raw line as logged', () => {
       const raw = '10:14:58.51 (53050648)|USER_DEBUG|[1]|ERROR|order=42&#124;status=FAILED&#124;reason=x';

@@ -15,6 +15,17 @@ export interface ParsedLogEntry {
 }
 
 const APEX_EVENT_LINE = /^\d{1,2}:\d{2}:\d{2}\.\d+(?:\s+\(\d+\))?\s*\|/;
+const SOURCE_ECHO_PREFIX = 'Execute Anonymous: ';
+
+/** Salesforce writes `|` in log text as `&#124;`. It changes no other character, not even `&`. */
+export function decodeLogText(text: string): string {
+  return text.replace(/&#124;/g, '|');
+}
+
+/** The log does not escape the Apex source that Execute Anonymous echoes. */
+export function decodeLogLine(line: string): string {
+  return line.startsWith(SOURCE_ECHO_PREFIX) ? line : decodeLogText(line);
+}
 
 export function parseLogLines(lines: string[]): ParsedLogEntry[] {
   const entries: ParsedLogEntry[] = [];
@@ -23,7 +34,7 @@ export function parseLogLines(lines: string[]): ParsedLogEntry[] {
     const previousEntry = entries[entries.length - 1];
     if (previousEntry?.category === 'debug' && !APEX_EVENT_LINE.test(raw.trimEnd())) {
       const continuation = raw.trimEnd();
-      previousEntry.message = `${previousEntry.message}\n${continuation}`;
+      previousEntry.message = `${previousEntry.message}\n${decodeLogText(continuation)}`;
       previousEntry.raw = `${previousEntry.raw}\n${raw}`;
       continue;
     }
@@ -45,7 +56,7 @@ function parseLogLine(raw: string, index: number): ParsedLogEntry | undefined {
       id: index,
       timestamp: '',
       type: 'INFO',
-      message: line,
+      message: decodeLogLine(line),
       raw,
       category: 'other'
     };
@@ -62,7 +73,7 @@ function parseLogLine(raw: string, index: number): ParsedLogEntry | undefined {
   const type = (parts[1] ?? '').trim() || 'UNKNOWN';
   const category = categorize(type);
 
-  const restParts = parts.slice(2).map(p => p.trim());
+  const restParts = parts.slice(2).map(p => decodeLogText(p.trim()));
   let tokens = restParts.filter(p => p.length > 0);
   let lineNumber: number | undefined;
   if (tokens.length > 0) {
