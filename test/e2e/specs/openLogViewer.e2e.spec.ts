@@ -30,16 +30,16 @@ test('searches a gitignored Apex log body and opens it in the Log Viewer panel',
   await closeQuickInputIfOpen(vscodePage);
   await matchingRow.click();
 
-  // Find the Log Viewer panel webview by its stable header text.
+  // Find the Log Viewer webview by its stable test id.
   const viewerFrame = await waitForWebviewFrame(
     vscodePage,
-    async frame => await frame.locator('text=Apex Log Viewer').first().isVisible(),
+    async frame => await frame.locator('[data-testid="log-viewer"]').first().isVisible(),
     { timeoutMs: 180_000 }
   );
 
-  await expect(viewerFrame.locator('text=Apex Log Viewer').first()).toBeVisible();
+  await expect(viewerFrame.locator('[data-testid="log-viewer"]').first()).toBeVisible();
 
-  // The header shows the file name; it should include the seeded log id (e.g., 07L...log).
+  // The header lists the file name beside the entry point; it should include the seeded log id (e.g., 07L...log).
   await expect(viewerFrame.locator(`text=${seededLog.logId}`).first()).toBeVisible({ timeout: 60_000 });
 
   // Use the built-in search to ensure the marker is present in the parsed entries.
