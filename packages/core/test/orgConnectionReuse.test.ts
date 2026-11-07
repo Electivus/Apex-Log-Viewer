@@ -189,12 +189,18 @@ async function until(condition: () => boolean): Promise<void> {
   while (!condition()) await new Promise(resolve => setImmediate(resolve));
 }
 
+/**
+ * Replaces the org's auth file, as a new login does. `write` alone merges with the file last-write-wins, and the file's
+ * mtime can run ahead of the clock the SDK stamps its writes with, so a save just after the SDK rewrote the file can
+ * lose to the token already there. Removing the file first leaves nothing to merge with.
+ */
 async function saveOrgAuth(
   username: string,
   instanceUrl: string,
   tokens: { accessToken: string; refreshToken?: string }
 ): Promise<void> {
   const state = await StateAggregator.getInstance();
+  await state.orgs.remove(username);
   state.orgs.set(username, {
     username,
     orgId: '00D000000000001AAA',
