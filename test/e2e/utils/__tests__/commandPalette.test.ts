@@ -64,6 +64,7 @@ function createFakePage(
     quickInputWaitFailuresBeforeVisible?: number;
     quickAccessClickError?: Error;
     typedTextIsLost?: boolean;
+    closesAfterFill?: boolean;
     /** Rows the palette lists for a query, as a label or a translated label with its English alias; by default only the queried label. */
     labelsFor?: (query: string) => Array<string | { label: string; alias: string }>;
   }
@@ -93,7 +94,12 @@ function createFakePage(
     focusedIndex = 0;
     filled.push(value);
   };
-  const inputValue = jest.fn(async () => lastQuery);
+  const inputValue = jest.fn(async () => {
+    if (options?.closesAfterFill) {
+      throw new Error('Timed out reading the quick input');
+    }
+    return lastQuery;
+  });
   const readRows = jest.fn(async () =>
     currentRows().map((row, index) => ({ index, ...row, focused: index === focusedIndex }))
   );
@@ -478,6 +484,14 @@ describe('a window that has stopped taking keyboard input', () => {
       keyboardShortcutMissesQuickInput: true,
       labelsFor: () => ['Clear Command History']
     });
+
+    await expect(runCommand(fake.page, 'View: Close Editor')).rejects.toThrow(
+      /^No palette row is labelled exactly "View: Close Editor"; the palette listed "Clear Command History"$/
+    );
+  });
+
+  test('makes no claim about keys when the palette closed before its input could be read', async () => {
+    const fake = createFakePage([false], { closesAfterFill: true, labelsFor: () => ['Clear Command History'] });
 
     await expect(runCommand(fake.page, 'View: Close Editor')).rejects.toThrow(
       /^No palette row is labelled exactly "View: Close Editor"; the palette listed "Clear Command History"$/
