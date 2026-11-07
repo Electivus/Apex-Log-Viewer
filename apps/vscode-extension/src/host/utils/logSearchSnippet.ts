@@ -1,19 +1,21 @@
+import { decodeLogLineRanges } from '../../shared/logText';
 import type { RipgrepMatch } from './ripgrep';
 
 export function buildLogSearchSnippet(match: RipgrepMatch): { text: string; ranges: [number, number][] } | undefined {
   const rawLine = typeof match.lineText === 'string' ? match.lineText : '';
-  const line = rawLine.replace(/\r?\n$/, '');
-  if (!line) {
+  const trimmedLine = rawLine.replace(/\r?\n$/, '');
+  if (!trimmedLine) {
     return undefined;
   }
   const rawRanges = Array.isArray(match.submatches) ? match.submatches : [];
-  const charRanges = rawRanges
+  const rawCharRanges = rawRanges
     .map(({ start, end }) => {
-      const charStart = byteOffsetToStringIndex(line, start ?? 0);
-      const charEnd = byteOffsetToStringIndex(line, end ?? 0);
+      const charStart = byteOffsetToStringIndex(trimmedLine, start ?? 0);
+      const charEnd = byteOffsetToStringIndex(trimmedLine, end ?? 0);
       return [charStart, Math.max(charStart, charEnd)] as [number, number];
     })
     .filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && end > start);
+  const { text: line, ranges: charRanges } = decodeLogLineRanges(trimmedLine, rawCharRanges);
 
   const context = 60;
   const earliest = charRanges.length > 0 ? Math.min(...charRanges.map(r => r[0])) : 0;
