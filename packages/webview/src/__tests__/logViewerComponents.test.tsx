@@ -303,12 +303,10 @@ describe('Log viewer components', () => {
       details: 'Context info'
     };
 
-    it('measures row and applies highlight styling', () => {
-      const measured: number[] = [];
-      const { container } = render(<LogEntryRow entry={baseEntry} highlighted onMeasured={value => measured.push(value)} />);
+    it('applies highlight styling', () => {
+      const { container } = render(<LogEntryRow entry={baseEntry} highlighted />);
       const row = container.firstElementChild as HTMLDivElement | null;
       expect(row?.className).toContain('log-row-highlighted');
-      expect(measured.length).toBeGreaterThan(0);
       expect(screen.getByText('Context info')).toBeInTheDocument();
     });
 
@@ -316,7 +314,7 @@ describe('Log viewer components', () => {
       'applies visuals for %s entries',
       category => {
         const entry = { ...baseEntry, category, type: category.toUpperCase(), details: undefined };
-        render(<LogEntryRow entry={entry} highlighted={false} onMeasured={() => {}} />);
+        render(<LogEntryRow entry={entry} highlighted={false} />);
         const badge = screen.getByTitle(entry.type);
         expect(badge.className).toContain('log-cat-badge');
         expect(badge.className).toMatch(/log-cat-(debug|soql|dml|code|limit|error|neutral)/);
@@ -332,7 +330,6 @@ describe('Log viewer components', () => {
           isMatch
           isActiveMatch
           searchTerm="debug"
-          onMeasured={() => {}}
         />
       );
       const candidates = screen.getAllByText(/Debug/i);
@@ -354,7 +351,7 @@ describe('Log viewer components', () => {
         }
       ];
       render(
-        <LogEntryRow entry={baseEntry} highlighted={false} diagnostics={diagnostics} onMeasured={() => {}} />
+        <LogEntryRow entry={baseEntry} highlighted={false} diagnostics={diagnostics} />
       );
       const passiveBadge = screen.getByText('Mapped warning');
       expect(passiveBadge.className).toContain('log-sev-warning');
@@ -379,7 +376,6 @@ describe('Log viewer components', () => {
           diagnostics={diagnostics}
           activeDiagnosticId={3}
           isActiveDiagnostic
-          onMeasured={() => {}}
         />
       );
       const rowElement = container.firstElementChild as HTMLDivElement | null;
@@ -403,8 +399,8 @@ describe('Log viewer components', () => {
     it('lays every row on the same fixed tracks, whatever its type says', () => {
       const { container } = render(
         <>
-          <LogEntryRow entry={entry} highlighted={false} onMeasured={() => {}} />
-          <LogEntryRow entry={{ ...entry, id: 2, type: 'USER_DEBUG', category: 'debug' }} highlighted={false} onMeasured={() => {}} />
+          <LogEntryRow entry={entry} highlighted={false} />
+          <LogEntryRow entry={{ ...entry, id: 2, type: 'USER_DEBUG', category: 'debug' }} highlighted={false} />
         </>
       );
       const [long, short] = Array.from(container.children) as HTMLElement[];
@@ -414,7 +410,7 @@ describe('Log viewer components', () => {
     });
 
     it('truncates a long type and keeps it readable in the title', () => {
-      render(<LogEntryRow entry={entry} highlighted={false} onMeasured={() => {}} />);
+      render(<LogEntryRow entry={entry} highlighted={false} />);
       const badge = screen.getByTitle('CUMULATIVE_LIMIT_USAGE_END_OF_TRANSACTION');
       expect(badge.querySelector('.truncate')).toHaveTextContent('CUMULATIVE_LIMIT_USAGE_END_OF_TRANSACTION');
       expect(badge.className).toContain('max-w-full');
@@ -429,7 +425,7 @@ describe('Log viewer components', () => {
         raw: '12:00:00.0 (1)|EXECUTION_STARTED',
         category: 'other'
       };
-      const { container } = render(<LogEntryRow entry={started} highlighted={false} onMeasured={() => {}} />);
+      const { container } = render(<LogEntryRow entry={started} highlighted={false} />);
       expect(container).not.toHaveTextContent('12:00:00.0 (1)|EXECUTION_STARTED');
       const message = container.firstElementChild!.children[3]!;
       expect(message).toHaveTextContent('');
@@ -653,7 +649,7 @@ describe('Log viewer components', () => {
       screen.getByText('No entries match the current filters.');
     });
 
-    it('renders rows, measures height, and forwards highlight category', async () => {
+    it('renders rows and forwards highlight category', async () => {
       const entries: ParsedLogEntry[] = [
         {
           id: 0,
@@ -673,14 +669,11 @@ describe('Log viewer components', () => {
         }
       ];
 
-      const captured: { measured: number[]; highlighted: Record<string, unknown> } = {
-        measured: [],
-        highlighted: {}
-      };
+      const captured: { highlighted: Record<string, unknown> } = { highlighted: {} };
 
-      const VirtualList = ({ rowCount, rowHeight, rowComponent, rowProps, listRef }: any) => {
+      const VirtualList = ({ rowCount, rowComponent, rowProps, listRef }: any) => {
         const rows = Array.from({ length: rowCount }).map((_, index) => {
-          const rendered = rowComponent({ ...rowProps, index, style: { height: rowHeight(index) } });
+          const rendered = rowComponent({ ...rowProps, index, style: {} });
           return <React.Fragment key={index}>{rendered}</React.Fragment>;
         });
         return (
@@ -700,12 +693,7 @@ describe('Log viewer components', () => {
         );
       };
 
-      const StubRow = ({ entry, highlighted, onMeasured, isMatch, isActiveMatch, diagnostics, activeDiagnosticId, isActiveDiagnostic }: any) => {
-        React.useEffect(() => {
-          const value = 72 + entry.id;
-          captured.measured.push(value);
-          onMeasured(value);
-        }, [entry, onMeasured]);
+      const StubRow = ({ entry, highlighted, isMatch, isActiveMatch, diagnostics, activeDiagnosticId, isActiveDiagnostic }: any) => {
         captured.highlighted[entry.id] = highlighted;
         captured.highlighted[`${entry.id}-match`] = isMatch;
         captured.highlighted[`${entry.id}-active`] = isActiveMatch;
@@ -739,10 +727,6 @@ describe('Log viewer components', () => {
         expect(captured.highlighted['0-active-diag']).toBe(true);
         expect(captured.highlighted['0-active-diag-id']).toBe(1);
       });
-
-      await waitFor(() => {
-        expect(captured.measured.length).toBeGreaterThan(0);
-      });
     });
 
     it('scrolls only with active diagnostic entry index, not unmapped id alone', async () => {
@@ -752,7 +736,7 @@ describe('Log viewer components', () => {
         { id: 1, timestamp: '00:01', type: 'SOQL', message: 'B', raw: 'raw', category: 'soql' }
       ];
 
-      const VirtualList = ({ rowCount, rowHeight, rowComponent, rowProps, listRef }: any) => {
+      const VirtualList = ({ rowCount, rowComponent, rowProps, listRef }: any) => {
         return (
           <div
             ref={el => {
@@ -765,7 +749,7 @@ describe('Log viewer components', () => {
             }}
           >
             {Array.from({ length: rowCount }).map((_, index) => (
-              <React.Fragment key={index}>{rowComponent({ ...rowProps, index, style: { height: rowHeight(index) } })}</React.Fragment>
+              <React.Fragment key={index}>{rowComponent({ ...rowProps, index, style: {} })}</React.Fragment>
             ))}
           </div>
         );
@@ -803,7 +787,7 @@ describe('Log viewer components', () => {
         { id: 1, timestamp: '00:01', type: 'SOQL', message: 'B', raw: 'raw', category: 'soql' }
       ];
 
-      const VirtualList = ({ rowCount, rowHeight, rowComponent, rowProps, listRef }: any) => {
+      const VirtualList = ({ rowCount, rowComponent, rowProps, listRef }: any) => {
         return (
           <div
             ref={el => {
@@ -816,7 +800,7 @@ describe('Log viewer components', () => {
             }}
           >
             {Array.from({ length: rowCount }).map((_, index) => (
-              <React.Fragment key={index}>{rowComponent({ ...rowProps, index, style: { height: rowHeight(index) } })}</React.Fragment>
+              <React.Fragment key={index}>{rowComponent({ ...rowProps, index, style: {} })}</React.Fragment>
             ))}
           </div>
         );
@@ -861,12 +845,12 @@ describe('Log viewer components', () => {
       ];
       const captured: { style?: React.CSSProperties } = {};
 
-      const VirtualList = ({ rowCount, rowHeight, rowComponent, rowProps, style }: any) => {
+      const VirtualList = ({ rowCount, rowComponent, rowProps, style }: any) => {
         captured.style = style;
         return (
           <div style={style}>
             {Array.from({ length: rowCount }).map((_, index) => (
-              <React.Fragment key={index}>{rowComponent({ ...rowProps, index, style: { height: rowHeight(index) } })}</React.Fragment>
+              <React.Fragment key={index}>{rowComponent({ ...rowProps, index, style: {} })}</React.Fragment>
             ))}
           </div>
         );

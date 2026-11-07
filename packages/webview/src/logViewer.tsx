@@ -357,12 +357,9 @@ export function LogViewerApp({
     });
   }, [matchIndices, trimmedSearch]);
 
-  const previousSearchRef = useRef<string>(trimmedSearch);
   const scrolledMatchRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
-    const previousSearch = previousSearchRef.current;
-    previousSearchRef.current = trimmedSearch;
     const target = activeMatchIndex < 0 ? undefined : matchIndices[activeMatchIndex];
     if (target === undefined) {
       scrolledMatchRef.current = undefined;
@@ -375,8 +372,7 @@ export function LogViewerApp({
       return;
     }
     scrolledMatchRef.current = match;
-    const behavior: ScrollBehavior = previousSearch === trimmedSearch ? 'smooth' : 'auto';
-    listRef.current?.scrollToRow({ index: target, align: 'center', behavior });
+    listRef.current?.scrollToRow({ index: target, align: 'center' });
   }, [activeMatchIndex, filter, matchIndices, trimmedSearch, visibleEntries]);
 
   const goToNextMatch = useCallback(() => {

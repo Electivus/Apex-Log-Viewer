@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef } from 'react';
+import React from 'react';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
 import type { ParsedLogEntry } from '../../utils/logViewerParser';
@@ -17,7 +17,6 @@ interface Props {
   diagnostics?: readonly LogViewerMappedDiagnostic[];
   activeDiagnosticId?: number;
   searchTerm?: string;
-  onMeasured: (height: number) => void;
 }
 
 export function LogEntryRow({
@@ -28,26 +27,8 @@ export function LogEntryRow({
   isActiveMatch,
   diagnostics,
   activeDiagnosticId,
-  searchTerm,
-  onMeasured
+  searchTerm
 }: Props) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const measure = () => onMeasured(Math.ceil(el.scrollHeight) + 1);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => {
-      try {
-        ro.disconnect();
-      } catch (e) {
-        console.warn('LogEntryRow: failed to disconnect ResizeObserver', e);
-      }
-    };
-  }, [entry, onMeasured]);
-
   const { className: categoryClass, icon: Icon } = CATEGORY_VISUALS[entry.category];
   const normalizedTerm = (searchTerm ?? '').trim();
   const showMatchHighlight = normalizedTerm.length > 0 && isMatch;
@@ -56,7 +37,6 @@ export function LogEntryRow({
 
   return (
     <div
-      ref={ref}
       className={cn(
         'log-row grid items-start gap-x-3 px-3 py-1 text-xs',
         ROW_COLUMNS,

@@ -7,6 +7,16 @@ export type ListImperativeAPI = {
   scrollToRow: (opts: { align?: Align; behavior?: 'auto' | 'instant' | 'smooth'; index: number }) => void;
 };
 
+export type RowComponentProps<RowProps extends object = object> = RowProps & {
+  ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' };
+  index: number;
+  style: React.CSSProperties;
+};
+
+export function useDynamicRowHeight(_options: { defaultRowHeight: number }) {
+  return {};
+}
+
 export function List(props: any) {
   // Minimal stub for TypeScript compile-time; runtime is proxyquired in tests
   return React.createElement('div', {
