@@ -1623,18 +1623,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   }
 
   public async tailLogs() {
-    await vscode.commands.executeCommand('workbench.view.extension.electivus-apex-log-viewer-tail');
-    try {
-      await vscode.commands.executeCommand('workbench.viewsService.openView', 'electivus.apexLogViewer.tailView');
-    } catch {
-      // Compatibility fallback for VS Code versions where workbench.viewsService.openView
-      // is unavailable.
-      try {
-        await vscode.commands.executeCommand('workbench.action.openView', 'electivus.apexLogViewer.tailView');
-      } catch {
-        // Container command above already focused the Tail panel; keep it best-effort.
-      }
-    }
+    await vscode.commands.executeCommand('electivus.apexLogViewer.tailView.focus');
   }
 
   private async openDebugFlags(): Promise<void> {

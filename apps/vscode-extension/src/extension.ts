@@ -192,12 +192,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionExports {
       const t0 = Date.now();
       const viewAlreadyResolved = provider.hasResolvedView();
       try {
-        await vscode.commands.executeCommand('workbench.view.extension.electivus-apex-log-viewer-logs');
-        try {
-          await vscode.commands.executeCommand('workbench.viewsService.openView', 'electivus.apexLogViewer.logsView');
-        } catch {
-          await vscode.commands.executeCommand('workbench.action.openView', 'electivus.apexLogViewer.logsView');
-        }
+        await vscode.commands.executeCommand(`${SfLogsViewProvider.viewType}.focus`);
       } catch (e) {
         logWarn('Command electivus.apexLogViewer.logs.refresh: failed to open logs view ->', getErrorMessage(e));
       }
