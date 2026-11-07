@@ -1,9 +1,12 @@
 import React, { useLayoutEffect, useRef } from 'react';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
-import type { LogCategory, ParsedLogEntry } from '../../utils/logViewerParser';
+import type { ParsedLogEntry } from '../../utils/logViewerParser';
 import type { LogViewerMappedDiagnostic } from '../../utils/logViewerDiagnostics';
-import { Bug, Database, Edit3, Settings, Info, AlertTriangle, AlertOctagon, Cpu } from 'lucide-react';
+import { CATEGORY_VISUALS, SEVERITY_VISUALS } from './logVisuals';
+
+/** Fixed tracks keep the message column at one position for every row, whatever the badge says. */
+const ROW_COLUMNS = 'grid-cols-[5.5rem_10.5rem_3rem_minmax(0,1fr)]';
 
 interface Props {
   entry: ParsedLogEntry;
@@ -45,7 +48,7 @@ export function LogEntryRow({
     };
   }, [entry, onMeasured]);
 
-  const { badgeClass, icon: Icon, iconClass } = getCategoryVisuals(entry.category);
+  const { className: categoryClass, icon: Icon } = CATEGORY_VISUALS[entry.category];
   const normalizedTerm = (searchTerm ?? '').trim();
   const showMatchHighlight = normalizedTerm.length > 0 && isMatch;
   const rowDiagnostics = diagnostics ?? [];
@@ -55,49 +58,52 @@ export function LogEntryRow({
     <div
       ref={ref}
       className={cn(
-        'flex items-start gap-3 border-b border-border/40 px-4 py-2 text-xs transition-colors',
-        !(highlighted || showMatchHighlight || isActiveMatch) && 'hover:bg-muted/20',
-        highlighted && 'bg-sky-500/10',
-        isActiveDiagnostic && 'bg-amber-500/20 ring-2 ring-amber-400/60',
-        showMatchHighlight && 'bg-amber-500/10',
-        isActiveMatch && !isActiveDiagnostic && 'bg-amber-500/20 ring-1 ring-amber-400'
+        'log-row grid items-start gap-x-3 px-3 py-1 text-xs',
+        ROW_COLUMNS,
+        highlighted && 'log-row-highlighted',
+        showMatchHighlight && 'log-row-match',
+        isActiveMatch && 'log-row-active-match',
+        isActiveDiagnostic && 'log-selected'
       )}
     >
-      <div className="mt-0.5 min-w-[84px] font-mono text-[11px] text-muted-foreground">
-        {entry.timestamp || '—'}
-      </div>
-      <div className="flex min-w-[140px] items-center gap-2">
-        <Icon className={cn('h-3.5 w-3.5', iconClass)} />
-        <Badge className={cn('border px-2 py-0.5 text-[11px] uppercase tracking-wide', badgeClass)}>
-          {entry.type}
-        </Badge>
-      </div>
-      <div className="min-w-[50px] font-mono text-[11px] text-muted-foreground">
+      <div className="font-mono text-[11px] leading-5 text-muted-foreground">{entry.timestamp || '—'}</div>
+      <span
+        title={entry.type}
+        className={cn(
+          'log-cat-badge inline-flex min-w-0 max-w-full items-center gap-1 justify-self-start rounded-sm border px-1.5 text-[11px] font-medium leading-5',
+          categoryClass
+        )}
+      >
+        <Icon className="log-cat-icon h-3 w-3 shrink-0" aria-hidden="true" />
+        <span className="truncate">{entry.type}</span>
+      </span>
+      <div className="font-mono text-[11px] leading-5 text-muted-foreground">
         {entry.lineNumber ? `[${entry.lineNumber}]` : ''}
       </div>
-      <div className="flex-1 space-y-1 text-[12px] leading-relaxed text-foreground">
-        <div className="whitespace-pre-wrap break-words text-sm">
-          {highlightText(entry.message || entry.raw, normalizedTerm)}
-        </div>
+      <div className="min-w-0 space-y-1 leading-5 text-foreground">
+        <div className="whitespace-pre-wrap break-words">{highlightText(entry.message, normalizedTerm)}</div>
         {entry.details && (
-          <div className="whitespace-pre-wrap rounded-md bg-muted/15 px-3 py-1 font-mono text-[11px] text-muted-foreground shadow-inner">
+          <div className="whitespace-pre-wrap break-words rounded-sm bg-muted/40 px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
             {highlightText(entry.details, normalizedTerm)}
           </div>
         )}
         {rowDiagnostics.length > 0 && (
-          <div className="mt-1 flex flex-wrap gap-2" role="list">
+          <div className="flex flex-wrap gap-1.5" role="list">
             {rowDiagnostics.map(diagnostic => {
               const isActive = hasActiveDiagnostic && diagnostic.originalIndex === activeDiagnosticId;
+              const { className: severityClass, icon: SeverityIcon } = SEVERITY_VISUALS[diagnostic.severity];
               return (
                 <Badge
                   key={diagnostic.originalIndex}
+                  role="listitem"
                   variant="outline"
                   className={cn(
-                    'text-[11px]',
-                    isActive ? 'border-amber-300 bg-amber-500/30 text-amber-100' : 'border-muted-foreground/30 bg-muted/20',
-                    diagnostic.severity === 'error' ? 'text-red-200' : 'text-amber-200'
+                    'gap-1 rounded-sm px-1.5 py-0 text-[11px] leading-5',
+                    severityClass,
+                    isActive ? 'border-ring bg-muted' : 'bg-muted/40'
                   )}
                 >
+                  <SeverityIcon className="log-sev-icon h-3 w-3 shrink-0" aria-hidden="true" />
                   {diagnostic.summary}
                 </Badge>
               );
@@ -132,7 +138,7 @@ function highlightText(text: string | undefined, term: string) {
     }
     const matchText = text.slice(matchIndex, matchIndex + trimmed.length);
     parts.push(
-      <mark key={`match-${key++}`} className="rounded-sm bg-amber-500/40 px-[1px] text-foreground">
+      <mark key={`match-${key++}`} className="log-find-mark">
         {matchText}
       </mark>
     );
@@ -143,53 +149,4 @@ function highlightText(text: string | undefined, term: string) {
     parts.push(text.slice(index));
   }
   return <>{parts}</>;
-}
-
-function getCategoryVisuals(category: LogCategory) {
-  switch (category) {
-    case 'debug':
-      return { badgeClass: 'border-sky-500/40 bg-sky-500/15 text-sky-200', icon: Bug, iconClass: 'text-sky-400' };
-    case 'soql':
-      return {
-        badgeClass: 'border-emerald-500/40 bg-emerald-500/15 text-emerald-200',
-        icon: Database,
-        iconClass: 'text-emerald-400'
-      };
-    case 'dml':
-      return {
-        badgeClass: 'border-orange-500/40 bg-orange-500/15 text-orange-200',
-        icon: Edit3,
-        iconClass: 'text-orange-400'
-      };
-    case 'code':
-      return {
-        badgeClass: 'border-purple-500/40 bg-purple-500/15 text-purple-200',
-        icon: Settings,
-        iconClass: 'text-purple-400'
-      };
-    case 'limit':
-      return {
-        badgeClass: 'border-yellow-500/40 bg-yellow-500/15 text-yellow-200',
-        icon: AlertTriangle,
-        iconClass: 'text-yellow-400'
-      };
-    case 'error':
-      return {
-        badgeClass: 'border-red-500/40 bg-red-500/15 text-red-200',
-        icon: AlertOctagon,
-        iconClass: 'text-red-400'
-      };
-    case 'system':
-      return {
-        badgeClass: 'border-slate-500/40 bg-slate-500/15 text-slate-200',
-        icon: Cpu,
-        iconClass: 'text-slate-300'
-      };
-    default:
-      return {
-        badgeClass: 'border-border/60 bg-muted/10 text-muted-foreground',
-        icon: Info,
-        iconClass: 'text-muted-foreground'
-      };
-  }
 }

@@ -1,11 +1,11 @@
 import React from 'react';
-import { AlertCircle, AlertTriangle, Filter, ScanSearch } from 'lucide-react';
+import { AlertCircle, ScanSearch } from 'lucide-react';
 import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
 import type { LogViewerMappedDiagnostic } from '../../utils/logViewerDiagnostics';
 import { logViewerEn, type LogViewerMessages } from '../../i18n/logViewer';
 import { fillTemplate } from '../../utils/customLogs/format';
+import { SEVERITY_VISUALS } from './logVisuals';
 
 type SeverityFilter = 'all' | 'error' | 'warning';
 type TriageState = 'loading' | 'unavailable' | 'empty' | 'ready';
@@ -20,6 +20,8 @@ interface Props {
   triageState: TriageState;
   t?: LogViewerMessages;
 }
+
+const NOTICE = 'flex h-24 items-center justify-center px-3 text-center text-sm text-muted-foreground';
 
 export function LogDiagnosticsSidebar({
   diagnostics,
@@ -39,100 +41,94 @@ export function LogDiagnosticsSidebar({
     return diagnostic.severity === filter;
   });
   const summaryText = primaryReason?.trim() ? primaryReason : undefined;
+  const tabs: ReadonlyArray<{ filter: SeverityFilter; label: string }> = [
+    { filter: 'all', label: t.all },
+    { filter: 'error', label: t.errors },
+    { filter: 'warning', label: t.warnings }
+  ];
 
   return (
-    <aside className="flex h-full w-80 flex-col gap-2 border-l border-border/60 bg-muted/20 px-4 py-4">
-      <div className="mb-1 flex items-center justify-between gap-2">
+    <aside className="flex max-h-56 min-h-0 flex-col border-l border-border lg:max-h-none">
+      <div className="flex shrink-0 items-center justify-between gap-2 px-3 pt-2">
         <div className="flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">
-          <ScanSearch className="h-3.5 w-3.5" />
+          <ScanSearch className="h-3.5 w-3.5" aria-hidden="true" />
           <span>{t.title}</span>
         </div>
         <span className="text-[11px] text-muted-foreground">
           {fillTemplate(t.total, { count: diagnostics.length })}
         </span>
       </div>
-      <div className="flex items-center gap-1">
-        <Button
-          size="sm"
-          variant={filter === 'all' ? 'default' : 'ghost'}
-          onClick={() => onFilterChange('all')}
-          className={cn('h-7 px-2 text-[11px]', filter === 'all' ? 'bg-slate-600 text-white' : 'text-muted-foreground')}
-        >
-          {t.all}
-        </Button>
-        <Button
-          size="sm"
-          variant={filter === 'error' ? 'default' : 'ghost'}
-          onClick={() => onFilterChange('error')}
-          className={cn('h-7 px-2 text-[11px]', filter === 'error' ? 'bg-rose-600 text-white' : 'text-muted-foreground')}
-        >
-          {t.errors}
-        </Button>
-        <Button
-          size="sm"
-          variant={filter === 'warning' ? 'default' : 'ghost'}
-          onClick={() => onFilterChange('warning')}
-          className={cn('h-7 px-2 text-[11px]', filter === 'warning' ? 'bg-amber-600 text-white' : 'text-muted-foreground')}
-        >
-          {t.warnings}
-        </Button>
+      <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-1">
+        {tabs.map(tab => (
+          <Button
+            key={tab.filter}
+            type="button"
+            size="sm"
+            variant={filter === tab.filter ? 'default' : 'ghost'}
+            aria-pressed={filter === tab.filter}
+            className="log-toggle"
+            onClick={() => onFilterChange(tab.filter)}
+          >
+            {tab.label}
+          </Button>
+        ))}
       </div>
-      <div className="rounded-md border border-border/60 bg-background/80">
-        {triageState === 'loading' ? (
-          <div className="flex h-32 items-center justify-center p-4 text-sm text-muted-foreground">{t.loading}</div>
-        ) : triageState === 'unavailable' ? (
-          <div className="flex h-32 items-center justify-center p-4 text-sm text-muted-foreground">{t.unavailable}</div>
-        ) : triageState === 'empty' ? (
-          <div className="flex h-32 items-center justify-center p-4 text-sm text-muted-foreground">{t.none}</div>
-        ) : diagnostics.length === 0 && summaryText ? (
-          <div className="space-y-3 p-4">
-            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">
-              <AlertCircle className="h-3.5 w-3.5" />
-              <span>{t.summary}</span>
-            </div>
-            <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-sm text-foreground">{summaryText}</div>
+      {triageState === 'loading' ? (
+        <div className={NOTICE}>{t.loading}</div>
+      ) : triageState === 'unavailable' ? (
+        <div className={NOTICE}>{t.unavailable}</div>
+      ) : triageState === 'empty' ? (
+        <div className={NOTICE}>{t.none}</div>
+      ) : diagnostics.length === 0 && summaryText ? (
+        <div className="space-y-2 px-3 py-2">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">
+            <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>{t.summary}</span>
           </div>
-        ) : visibleDiagnostics.length === 0 ? (
-          <div className="flex h-32 items-center justify-center p-4 text-sm text-muted-foreground">{t.none}</div>
-        ) : (
-          <ul className="max-h-[calc(100vh-220px)] overflow-y-auto p-2 text-sm">
-            {visibleDiagnostics.map(diagnostic => {
-              const isActive = diagnostic.originalIndex === activeId;
-              const isError = diagnostic.severity === 'error';
-              const displayLineNumber = diagnostic.mappedLineNumber ?? diagnostic.line;
-              return (
-                <li key={diagnostic.originalIndex}>
-                  <button
-                    type="button"
-                    onClick={() => onSelectDiagnostic(diagnostic.originalIndex)}
-                    className={cn(
-                      'mb-2 block w-full rounded-md border border-transparent p-2 text-left transition-colors',
-                      isActive
-                        ? 'bg-amber-500/20 border-amber-500/40 text-amber-100'
-                        : 'text-muted-foreground hover:bg-background/50 hover:text-foreground'
-                    )}
-                  >
-                    <div className="mb-1 flex items-center gap-2">
-                      {isError ? <AlertCircle className="h-3.5 w-3.5 text-red-300" /> : <AlertTriangle className="h-3.5 w-3.5 text-amber-300" />}
-                      <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{diagnostic.code.replace(/_/g, ' ')}</span>
-                      <span className="ml-auto flex items-center gap-1">
-                        <Filter className="h-3 w-3 text-muted-foreground" />
-                        <Badge variant="outline" className={cn('text-[10px]', isError ? 'border-red-500/40 text-red-200' : 'border-amber-500/40 text-amber-200')}>
-                          {t.severity[diagnostic.severity]}
-                        </Badge>
-                      </span>
-                    </div>
-                    <div className="break-words text-foreground">{diagnostic.summary}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
+          <div className="text-sm text-foreground">{summaryText}</div>
+        </div>
+      ) : visibleDiagnostics.length === 0 ? (
+        <div className={NOTICE}>{t.none}</div>
+      ) : (
+        <ul className="m-0 min-h-0 flex-1 list-none overflow-y-auto p-1 text-sm">
+          {visibleDiagnostics.map(diagnostic => {
+            const isActive = diagnostic.originalIndex === activeId;
+            const { className: severityClass, icon: SeverityIcon } = SEVERITY_VISUALS[diagnostic.severity];
+            const displayLineNumber = diagnostic.mappedLineNumber ?? diagnostic.line;
+            const message = diagnostic.mappedMessage ?? diagnostic.summary;
+            const secondaryText = isActive ? 'text-foreground' : 'text-muted-foreground';
+            return (
+              <li key={diagnostic.originalIndex}>
+                <button
+                  type="button"
+                  onClick={() => onSelectDiagnostic(diagnostic.originalIndex)}
+                  className={cn(
+                    'block w-full rounded-sm px-2 py-1.5 text-left text-foreground transition-colors',
+                    isActive ? 'log-selected' : 'hover:bg-muted/60'
+                  )}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <SeverityIcon
+                      className={cn('log-sev-icon h-3.5 w-3.5 shrink-0', severityClass)}
+                      role="img"
+                      aria-label={t.severity[diagnostic.severity]}
+                    />
+                    <span className={cn('text-[11px] uppercase tracking-wide', secondaryText)}>
+                      {diagnostic.code.replace(/_/g, ' ')}
+                    </span>
+                    <span className={cn('ml-auto shrink-0 text-xs', secondaryText)}>
                       {displayLineNumber !== undefined ? fillTemplate(t.line, { line: displayLineNumber }) : t.unmapped}
-                    </div>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
+                    </span>
+                  </div>
+                  <div title={message} className="mt-0.5 line-clamp-3 break-words">
+                    {message}
+                  </div>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </aside>
   );
 }

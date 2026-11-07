@@ -148,7 +148,7 @@ describe('logViewerDiagnostics', () => {
 
     const visible = buildVisibleEntries({
       entries: result.mappedEntries,
-      activeDiagnostic,
+      pinnedEntryId: activeDiagnostic?.mappedEntryId,
       shouldIncludeEntry: entry => entry.category === 'error'
     });
 
@@ -233,10 +233,52 @@ describe('logViewerDiagnostics', () => {
 
     const visible = buildVisibleEntries({
       entries: result.mappedEntries,
-      activeDiagnostic,
+      pinnedEntryId: activeDiagnostic.mappedEntryId,
       shouldIncludeEntry: () => false
     });
 
     expect(visible).toEqual([]);
+  });
+
+  it('carries the mapped error entry\'s own message and ignores an unrelated event on the same line', () => {
+    const entries: ParsedLogEntry[] = [
+      {
+        id: 0,
+        timestamp: '00:00:00.000',
+        type: 'SOQL_EXECUTE_BEGIN',
+        message: 'Aggregations:0 | SELECT Id FROM Account',
+        raw: 'raw-0',
+        category: 'soql',
+        lineNumber: 5
+      },
+      {
+        id: 1,
+        timestamp: '00:00:01.000',
+        type: 'EXCEPTION_THROWN',
+        message: 'System.MathException: Divide by 0',
+        raw: 'raw-1',
+        category: 'error',
+        lineNumber: 5
+      },
+      {
+        id: 2,
+        timestamp: '00:00:02.000',
+        type: 'DML_BEGIN',
+        message: 'Op:Insert | Type:Account | Rows:1',
+        raw: 'raw-2',
+        category: 'dml',
+        lineNumber: 9
+      }
+    ];
+
+    const result = mapDiagnosticsToEntries(entries, [
+      { code: 'fatal_exception', severity: 'error', summary: 'Fatal exception', line: 5, eventType: 'EXCEPTION_THROWN' },
+      { code: 'dml_failure', severity: 'error', summary: 'DML failure', line: 9 }
+    ]);
+
+    expect(result.mappedEntries[1]!.diagnostics[0]).toMatchObject({
+      mappedMessage: 'System.MathException: Divide by 0'
+    });
+    expect(result.mappedEntries[2]!.diagnostics[0]!.mappedMessage).toBeUndefined();
   });
 });
