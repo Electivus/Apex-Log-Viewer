@@ -251,7 +251,7 @@
       }
     },
     "logs.replay": {
-      "description": "Replay flow from the Logs or Tail view. Only the Logs view reports `cancel`, when the user cancelled, and `unavailable`, when the Apex Replay Debugger could not be made available. The Tail view reports `ok` for both.",
+      "description": "Replay flow from the Logs or Tail view. `cancel` means the user cancelled; `unavailable` means the Apex Replay Debugger could not be made available.",
       "properties": {
         "outcome": {
           "classification": "SystemMetaData",
