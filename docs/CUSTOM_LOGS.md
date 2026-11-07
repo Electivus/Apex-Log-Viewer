@@ -9,7 +9,7 @@ Both surfaces read the same mapping from `sfdx-project.json` and return the same
 
 ## Turn on Custom Logs
 
-The Custom Logs panel in VS Code is experimental and off by default. While it is off, VS Code shows no **Electivus Custom Logs** tab and no Custom Logs commands, and the extension runs none of the Custom Logs code: no `sfdx-project.json` watcher, no Salesforce requests, and no telemetry.
+The Custom Logs panel in VS Code is experimental and off by default. While it is off, VS Code shows no **Custom Logs** tab and no Custom Logs commands, and the extension runs none of the Custom Logs code: no `sfdx-project.json` watcher, no Salesforce requests, and no telemetry.
 
 To turn it on, set `electivus.apexLogViewer.customLogs.enabled` to `true` in the Settings editor or in `settings.json`:
 
@@ -19,7 +19,7 @@ To turn it on, set `electivus.apexLogViewer.customLogs.enabled` to `true` in the
 }
 ```
 
-The **Electivus Custom Logs** tab appears in the panel area and the commands appear in the Command Palette. VS Code does not need a reload. Set the value back to `false` to hide the tab and the commands again. That also closes an open Custom Logs editor tab and its transaction viewers.
+The **Custom Logs** tab appears in the panel area and the commands appear in the Command Palette. VS Code does not need a reload. Set the value back to `false` to hide the tab and the commands again. That also closes an open Custom Logs editor tab and its transaction viewers.
 
 The setting controls only the VS Code panel. The `sf electivus custom-log` commands do not read it and work in every case, so you can use them before you turn the panel on.
 

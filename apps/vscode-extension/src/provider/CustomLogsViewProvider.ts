@@ -160,7 +160,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
   private readonly webviewSurface = createWebviewSurface({
     surface: 'customLogs',
     label: 'Custom Logs',
-    title: () => localize('customLogs.view.name', 'Electivus Custom Logs'),
+    title: () => localize('customLogs.view.name', 'Custom Logs'),
     readyType: 'customLogsReady',
     parseInbound: parseCustomLogsFromWebviewMessage,
     log: { info: logInfo, warn: logWarn }
@@ -957,7 +957,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       webview,
       this.context.extensionUri,
       'customLogs.js',
-      localize('customLogs.view.name', 'Electivus Custom Logs'),
+      localize('customLogs.view.name', 'Custom Logs'),
       { mountSequence }
     );
   }

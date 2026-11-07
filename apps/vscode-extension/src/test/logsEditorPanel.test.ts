@@ -13,7 +13,7 @@ function createPanel() {
     active: true,
     visible: true,
     options: {},
-    title: 'Electivus Apex Logs',
+    title: 'Apex Logs',
     viewColumn: 1,
     webview: {},
     revealCount: 0,

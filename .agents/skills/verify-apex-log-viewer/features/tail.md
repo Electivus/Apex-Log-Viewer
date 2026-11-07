@@ -17,7 +17,7 @@ Tail streams new Apex logs from the selected org while it runs. The user picks a
 ## How to get to it (user POV)
 
 - Run `Electivus Apex Logs: Tail Logs` from the command palette. It reveals the view and copies the Logs panel's org; it does not press Start.
-- Click the `Electivus Apex Logs Tail` tab in the bottom panel.
+- Click the `Apex Tail` tab in the bottom panel.
 - Run `Electivus Apex Logs: Open Tail in Editor Area`.
 
 ## Driving it with verify steps

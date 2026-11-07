@@ -13,7 +13,7 @@ function createPanel() {
     active: true,
     visible: true,
     options: {},
-    title: 'Electivus Apex Logs Tail',
+    title: 'Apex Tail',
     viewColumn: 1,
     webview: {},
     revealCount: 0,

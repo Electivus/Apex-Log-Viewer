@@ -539,13 +539,13 @@ describe('openView', () => {
     const fake = createFakePage([false], {
       labelsFor: query =>
         query.startsWith('view ')
-          ? ['Electivus Apex Logs', 'Electivus Apex Logs Tail', 'Electivus Apex Logs Tail']
+          ? ['Apex Logs', 'Apex Tail', 'Apex Tail']
           : [query.replace(/^>\s*/, '')]
     });
 
-    await openView(fake.page, 'Electivus Apex Logs Tail');
+    await openView(fake.page, 'Apex Tail');
 
-    expect(fake.filled).toEqual(['> View: Open View', 'view Electivus Apex Logs Tail']);
-    expect(fake.executed).toEqual(['View: Open View', 'Electivus Apex Logs Tail']);
+    expect(fake.filled).toEqual(['> View: Open View', 'view Apex Tail']);
+    expect(fake.executed).toEqual(['View: Open View', 'Apex Tail']);
   });
 });
