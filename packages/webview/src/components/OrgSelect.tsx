@@ -94,6 +94,10 @@ export function OrgSelect({
   };
 
   const handleListKeyDown = (event: React.KeyboardEvent) => {
+    // Enter during IME composition confirms the text, it does not choose an org.
+    if (event.nativeEvent.isComposing) {
+      return;
+    }
     const last = options.length - 1;
     switch (event.key) {
       case 'ArrowDown':

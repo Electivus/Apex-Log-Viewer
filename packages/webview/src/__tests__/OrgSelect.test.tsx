@@ -143,6 +143,18 @@ describe('OrgSelect', () => {
     expect(changes).toEqual(['user9@example.com']);
   });
 
+  it('does not choose an org when Enter confirms an IME composition', () => {
+    const { changes, trigger } = renderPicker(manyOrgs, 'user1@example.com');
+    fireEvent.click(trigger());
+    const search = screen.getByRole('searchbox');
+
+    fireEvent.change(search, { target: { value: 'sandbox 9' } });
+    fireEvent.keyDown(search, { key: 'Enter', isComposing: true });
+
+    expect(changes).toEqual([]);
+    expect(search).toBeInTheDocument();
+  });
+
   it('starts on the selected org and stays within the list at its ends', () => {
     const { trigger } = renderPicker(fewOrgs, 'u2@example.com');
     fireEvent.click(trigger());
