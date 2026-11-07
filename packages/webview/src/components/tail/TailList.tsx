@@ -293,12 +293,14 @@ function RowContent({
     // row's edge. The ResizeObserver above measures the taller row.
     overflowWrap: 'anywhere',
     background: selected ? SELECTED_ROW_BACKGROUND : 'transparent',
+    color: selected ? 'var(--vscode-list-activeSelectionForeground, inherit)' : undefined,
     outline: selected ? '1px solid var(--vscode-contrastActiveBorder, transparent)' : 'none',
     borderLeft: selected ? '3px solid var(--vscode-focusBorder)' : '3px solid transparent',
     cursor: 'pointer'
   };
 
-  if (!colorize) {
+  // Token colors are chosen for the editor background, so a selected row drops them for the selection foreground.
+  if (!colorize || selected) {
     return (
       <div ref={ref} style={commonStyle} className="px-3 py-1.5 text-xs leading-relaxed">
         {text}
@@ -319,7 +321,7 @@ function RowContent({
         style={{
           ...commonStyle,
           ...lineFallback,
-          background: selected ? SELECTED_ROW_BACKGROUND : lineFallback.background || 'transparent'
+          background: lineFallback.background || 'transparent'
         }}
         className="px-3 py-1.5 text-xs leading-relaxed"
       >
