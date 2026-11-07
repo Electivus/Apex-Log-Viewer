@@ -1,4 +1,5 @@
 import { isErrorEventType } from '@alv/protocol/logErrorSignals';
+import { decodeLogLine, decodeLogText } from '@alv/protocol/logText';
 
 export type LogCategory = 'debug' | 'soql' | 'dml' | 'code' | 'limit' | 'system' | 'error' | 'other';
 
@@ -23,7 +24,7 @@ export function parseLogLines(lines: string[]): ParsedLogEntry[] {
     const previousEntry = entries[entries.length - 1];
     if (previousEntry?.category === 'debug' && !APEX_EVENT_LINE.test(raw.trimEnd())) {
       const continuation = raw.trimEnd();
-      previousEntry.message = `${previousEntry.message}\n${continuation}`;
+      previousEntry.message = `${previousEntry.message}\n${decodeLogText(continuation)}`;
       previousEntry.raw = `${previousEntry.raw}\n${raw}`;
       continue;
     }
@@ -45,7 +46,7 @@ function parseLogLine(raw: string, index: number): ParsedLogEntry | undefined {
       id: index,
       timestamp: '',
       type: 'INFO',
-      message: line,
+      message: decodeLogLine(line),
       raw,
       category: 'other'
     };
@@ -62,7 +63,7 @@ function parseLogLine(raw: string, index: number): ParsedLogEntry | undefined {
   const type = (parts[1] ?? '').trim() || 'UNKNOWN';
   const category = categorize(type);
 
-  const restParts = parts.slice(2).map(p => p.trim());
+  const restParts = parts.slice(2).map(p => decodeLogText(p.trim()));
   let tokens = restParts.filter(p => p.length > 0);
   let lineNumber: number | undefined;
   if (tokens.length > 0) {

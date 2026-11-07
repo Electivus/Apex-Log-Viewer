@@ -55,6 +55,8 @@
 
 ### Fixes
 
+- Logs panel search: the Match column shows `|` instead of `&#124;`, as the Log Viewer does, and a search with `|` finds text that the log holds as `&#124;`. A search with `&#124;` still works. The `Execute Anonymous:` source stays as written
+- Log Viewer and Tail: debug messages and other log text show `|` instead of `&#124;`, the form Salesforce writes to the log. Both still find a line by either form, and `View Raw` keeps the log as Salesforce wrote it. Text that a developer wrote as `&#124;` also shows as `|`, because the log cannot tell the two apart
 - Logs and Tail: the unchecked switch now shows its outline and thumb. An `Execute Anonymous:` source line that contains `|` is no longer read as an error event. The open-in-editor title actions show their icon. The panels are named Apex Logs, Apex Tail and Custom Logs, and the delete confirmation names the org it will empty.
 - Logs, Tail and Custom Logs: a reload no longer takes the focus from the Command Palette, an editor or a terminal. The loading overlay took the focus each time it appeared, even from a hidden panel, which closed an open palette and sent the next keystrokes to the webview. The overlay now takes the focus only when its webview already holds it, or on the first load of a webview, so that keys keep reaching VS Code after a first open.
 - Refresh Logs, Tail Logs, Refresh Custom Logs and the capture status item's Show Custom Logs no longer open the `View: Open View` picker. They reveal the panel, and the picker no longer takes the keys of the next command.
