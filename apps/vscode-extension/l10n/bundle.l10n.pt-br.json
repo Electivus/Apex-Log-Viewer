@@ -78,6 +78,8 @@
   "No Salesforce org is selected.": "Nenhuma org Salesforce está selecionada.",
   "Open a Salesforce project to configure Custom Logs.": "Abra um projeto Salesforce para configurar os Logs Personalizados.",
   "Open in Apex Log Viewer": "Abrir no Apex Log Viewer",
+  "Open the Apex Logs panel to browse, search and debug Apex logs.": "Abra o painel Apex Logs para navegar, buscar e depurar logs do Apex.",
+  "Open the Apex Logs panel to browse, search and debug the Apex logs of {0}.": "Abra o painel Apex Logs para navegar, buscar e depurar os logs do Apex de {0}.",
   "Opening Apex Log…": "Abrindo log Apex…",
   "Org log storage appears to be full. Use “Clear logs” → “All org logs” to free up space.": "O armazenamento de logs da org parece cheio. Use “Limpar logs” → “Deletar todos os logs da org” para liberar espaço.",
   "Processed {0}/{1} logs…": "{0}/{1} logs processados…",

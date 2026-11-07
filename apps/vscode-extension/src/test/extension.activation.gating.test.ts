@@ -58,6 +58,7 @@ function createExtensionHarness(options: {
   const logsRefreshCalls: number[] = [];
   const webviewProviderRegistrations: Array<{ viewId: string; options?: any }> = [];
   const customLogsRegistrations: Array<{ logsSelectedOrg: () => string | undefined }> = [];
+  const logsStatusBars: Array<{ focusCommand: string; shown: boolean }> = [];
   const clipboardWrites: string[] = [];
   const executedCommands: string[] = [];
   const codeLensSelectors: unknown[] = [];
@@ -209,6 +210,16 @@ function createExtensionHarness(options: {
         return createDisposable();
       }
     },
+    './host/logsStatusBar': {
+      registerLogsStatusBar: (_source: unknown, focusCommand: string) => {
+        const bar = { focusCommand, shown: false };
+        logsStatusBars.push(bar);
+        return {
+          showForProject: () => void (bar.shown = true),
+          dispose: () => undefined
+        };
+      }
+    },
     './host/customLogsFeature': {
       registerCustomLogsFeature: (_context: unknown, logsSelectedOrg: () => string | undefined) => {
         customLogsRegistrations.push({ logsSelectedOrg });
@@ -343,6 +354,7 @@ function createExtensionHarness(options: {
     logsRefreshCalls,
     webviewProviderRegistrations,
     customLogsRegistrations,
+    logsStatusBars,
     clipboardWrites,
     executedCommands,
     codeLensSelectors,
@@ -409,6 +421,9 @@ suite('extension activation gating', () => {
 
     const activationEvent = harness.events.find(event => event.name === 'extension.activate');
     assert.equal(activationEvent?.props?.hasSalesforceProject, 'false');
+    assert.deepEqual(harness.logsStatusBars, [
+      { focusCommand: 'electivus.apexLogViewer.logsView.focus', shown: false }
+    ]);
 
     await harness.commands.get('electivus.apexLogViewer.log.openViewer')!();
 
@@ -439,6 +454,7 @@ suite('extension activation gating', () => {
 
     const activationEvent = harness.events.find(event => event.name === 'extension.activate');
     assert.equal(activationEvent?.props?.hasSalesforceProject, 'true');
+    assert.equal(harness.logsStatusBars[0]?.shown, true, 'a Salesforce project shows the Logs status item');
 
     assert.deepEqual(harness.orgListCalls, []);
   });

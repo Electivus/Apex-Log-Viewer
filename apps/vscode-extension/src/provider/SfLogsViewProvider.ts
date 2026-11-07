@@ -3,6 +3,7 @@ import * as path from 'path';
 import { localize } from '../host/utils/localize';
 import { clearListCache, getApiVersionFallbackWarning } from '../host/salesforce/http';
 import { pickSelectedOrg } from '../host/utils/orgs';
+import { selectedOrgLabel } from '../host/logsStatusPresentation';
 import type { ApexLogRow, OrgItem } from '../shared/types';
 import type { OrgAuth } from '../host/salesforce/types';
 import {
@@ -77,6 +78,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private orgsSnapshot: OrgItem[] = [];
   private selectedOrgSnapshot: string | undefined;
   private hasOrgsSnapshot = false;
+  private lastOrgLabel: string | undefined;
+  private readonly orgLabelListeners = new Set<(label: string | undefined) => void>();
   private orgsBootstrapNeedsRefresh = false;
   private logHeadByLogId = new Map<string, LogHeadSnapshot>();
   private errorByLogId = new Map<string, LogTriageSummary>();
@@ -193,6 +196,25 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     return this.orgManager.getSelectedOrg();
   }
 
+  public getSelectedOrgLabel(): string | undefined {
+    return selectedOrgLabel(this.orgsSnapshot, this.orgManager.getSelectedOrg());
+  }
+
+  public onDidChangeSelectedOrgLabel(listener: (label: string | undefined) => void): { dispose(): void } {
+    this.orgLabelListeners.add(listener);
+    return { dispose: () => void this.orgLabelListeners.delete(listener) };
+  }
+
+  private notifyOrgLabel(): void {
+    const label = this.getSelectedOrgLabel();
+    if (label !== this.lastOrgLabel) {
+      this.lastOrgLabel = label;
+      for (const listener of [...this.orgLabelListeners]) {
+        listener(label);
+      }
+    }
+  }
+
   public isReady(): boolean {
     return this.session.ready && !this.disposed;
   }
@@ -249,6 +271,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     }
     vscode.Disposable.from(...this.disposables).dispose();
     this.disposables.length = 0;
+    this.orgLabelListeners.clear();
   }
 
   public async refresh() {
@@ -1605,6 +1628,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     }
     this.orgManager.setSelectedOrg(selected);
     this.selectedOrgSnapshot = selected;
+    this.notifyOrgLabel();
   }
 
   public async syncSelectedOrg(username?: string): Promise<void> {
@@ -1817,6 +1841,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         this.hasOrgsSnapshot = true;
         this.orgsSnapshot = Array.isArray(msg.data) ? [...msg.data] : [];
         this.selectedOrgSnapshot = msg.selected;
+        this.notifyOrgLabel();
         break;
       case 'logs':
         this.hasLogsSnapshot = true;

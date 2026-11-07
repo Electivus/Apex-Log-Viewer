@@ -23,6 +23,7 @@ import { DebugFlagsPanel } from './panel/DebugFlagsPanel';
 import { LogsEditorPanel } from './panel/LogsEditorPanel';
 import { TailEditorPanel } from './panel/TailEditorPanel';
 import { registerCustomLogsFeature } from './host/customLogsFeature';
+import { registerLogsStatusBar } from './host/logsStatusBar';
 import { runtimeClient } from './runtime/runtimeClient';
 import { getBooleanConfig, affectsConfiguration } from './host/utils/config';
 import { getErrorMessage } from './host/utils/error';
@@ -182,6 +183,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionExports {
       webviewOptions: { retainContextWhenHidden: true }
     })
   );
+
+  const logsStatusBar = registerLogsStatusBar(provider, `${SfLogsViewProvider.viewType}.focus`);
+  context.subscriptions.push(logsStatusBar);
 
   // Custom Logs is experimental: its view provider, watcher and commands exist only while its setting is on.
   const customLogs = registerCustomLogsFeature(context, () => provider.getSelectedOrg());
@@ -396,6 +400,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionExports {
     } catch (e) {
       logWarn('Failed to detect the Salesforce project ->', getErrorMessage(e));
       return;
+    }
+    if (salesforceProject) {
+      logsStatusBar.showForProject();
     }
     if (salesforceProject?.sourceApiVersion) {
       setApiVersion(salesforceProject.sourceApiVersion);

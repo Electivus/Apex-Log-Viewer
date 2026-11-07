@@ -63,5 +63,15 @@
   "logsCleanup.hintStorageFull": "Org log storage appears to be full. Use “Clear logs” → “All org logs” to free up space.",
   "logsCleanup.actionClearAll": "Clear org logs…",
   "diagnostics.copied": "Electivus Apex Logs: diagnostics package copied to clipboard.",
-  "diagnostics.copyFailed": "Electivus Apex Logs: failed to copy diagnostics: {0}"
+  "diagnostics.copyFailed": "Electivus Apex Logs: failed to copy diagnostics: {0}",
+  "walkthrough.title": "Get started with Apex Logs",
+  "walkthrough.description": "Find your Apex logs, pick an org, turn on debug flags and read an error.",
+  "walkthrough.step.openPanel.title": "Open the Apex Logs panel",
+  "walkthrough.step.openPanel.description": "Bring the list of Apex logs forward.\n[Open Apex Logs](command:electivus.apexLogViewer.logsView.focus)",
+  "walkthrough.step.chooseOrg.title": "Choose an org",
+  "walkthrough.step.chooseOrg.description": "Pick the Salesforce org whose logs you want to read.\n[Choose an org](command:electivus.apexLogViewer.org.select)",
+  "walkthrough.step.debugFlags.title": "Turn on debug flags",
+  "walkthrough.step.debugFlags.description": "Apex writes logs only while a trace flag is active.\n[Open Apex Logs](command:electivus.apexLogViewer.logsView.focus)",
+  "walkthrough.step.openLog.title": "Open a log and go to the error",
+  "walkthrough.step.openLog.description": "Read a log and filter it down to what failed.\n[Refresh Logs](command:electivus.apexLogViewer.logs.refresh)"
 }
