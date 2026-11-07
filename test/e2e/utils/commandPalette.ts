@@ -4,11 +4,12 @@ import { timeE2eStep } from './timing';
 const COMMAND_PALETTE_SHORTCUT_TIMEOUT_MS = 3_000;
 const OPEN_QUICK_ACCESS_BUTTON_TIMEOUT_MS = 2_000;
 const QUICK_INPUT_TIMEOUT_MS = 15_000;
+const QUICK_INPUT_READ_TIMEOUT_MS = 500;
 const COMMAND_ROW_TIMEOUT_MS = 2_000;
 const COMMAND_ROW_POLL_MS = 50;
 
-function getModifierKey(): 'Control' | 'Meta' {
-  return process.platform === 'darwin' ? 'Meta' : 'Control';
+function getPaletteShortcut(): string {
+  return process.platform === 'darwin' ? 'Meta+Shift+P' : 'Control+Shift+P';
 }
 
 function getQuickInput(page: Page): { widget: Locator; input: Locator } {
@@ -23,8 +24,8 @@ async function waitForQuickInput(page: Page, timeout: number): Promise<void> {
 }
 
 async function openCommandPalette(page: Page): Promise<void> {
-  const modifier = getModifierKey();
-  await page.keyboard.press(`${modifier}+Shift+P`);
+  const shortcut = getPaletteShortcut();
+  await page.keyboard.press(shortcut);
 
   try {
     await waitForQuickInput(page, COMMAND_PALETTE_SHORTCUT_TIMEOUT_MS);
@@ -39,7 +40,11 @@ async function openCommandPalette(page: Page): Promise<void> {
     }
   }
 
-  await waitForQuickInput(page, QUICK_INPUT_TIMEOUT_MS);
+  try {
+    await waitForQuickInput(page, QUICK_INPUT_TIMEOUT_MS);
+  } catch (error) {
+    throw new Error(`Neither ${shortcut} nor the Open Quick Access button opened the palette`, { cause: error });
+  }
 }
 
 function noMatchingResults(widget: ReturnType<Page['locator']>) {
@@ -135,26 +140,42 @@ function describeRows(labels: string[]): string {
     : 'none';
 }
 
-async function openCommandPaletteWithCommand(page: Page, command: string): Promise<boolean> {
+interface PaletteQuery {
+  hasMatches: boolean;
+  failurePrefix: string;
+}
+
+async function openCommandPaletteWithCommand(page: Page, command: string): Promise<PaletteQuery> {
   await openCommandPalette(page);
   const { widget, input } = getQuickInput(page);
-  await input.fill(normalizeCommandQuery(command));
+  const query = normalizeCommandQuery(command);
+  await input.fill(query);
   await page.waitForTimeout(50);
-  return !(await noMatchingResults(widget).isVisible());
+  // Playwright's `fill` succeeds even when the window drops the text, so only the input value shows the loss.
+  // `getByRole` skips a hidden input, so a palette that closed since the fill cannot be read.
+  const value = await input.inputValue({ timeout: QUICK_INPUT_READ_TIMEOUT_MS }).catch(() => undefined);
+  return {
+    hasMatches: !(await noMatchingResults(widget).isVisible()),
+    failurePrefix:
+      value === undefined || value === query
+        ? ''
+        : `Keys are not reaching VS Code: ${getPaletteShortcut()} and the typed query were lost, so the palette input holds "${value}" instead of "${query}". `
+  };
 }
 
 /** Runs the palette command whose label is exactly `command`, and fails if the palette has none. */
 export async function runCommand(page: Page, command: string): Promise<void> {
-  if (!(await openCommandPaletteWithCommand(page, command))) {
+  const { hasMatches, failurePrefix } = await openCommandPaletteWithCommand(page, command);
+  if (!hasMatches) {
     await page.keyboard.press('Escape');
-    throw new Error(`Command not found in palette: "${command}"`);
+    throw new Error(`${failurePrefix}Command not found in palette: "${command}"`);
   }
 
   const row = await focusExactRow(page, commandLabel(command));
   if (!row.found) {
     await page.keyboard.press('Escape');
     throw new Error(
-      `No palette row is labelled exactly "${commandLabel(command)}"; the palette listed ${describeRows(row.labels)}`
+      `${failurePrefix}No palette row is labelled exactly "${commandLabel(command)}"; the palette listed ${describeRows(row.labels)}`
     );
   }
 
@@ -170,18 +191,20 @@ export async function waitForCommandAvailable(
   const deadline = Date.now() + timeoutMs;
 
   let labels: string[] = [];
+  let failurePrefix = '';
   while (Date.now() < deadline) {
-    const ok = await openCommandPaletteWithCommand(page, query);
-    const row = ok ? await focusExactRow(page, commandLabel(query)) : undefined;
+    const opened = await openCommandPaletteWithCommand(page, query);
+    const row = opened.hasMatches ? await focusExactRow(page, commandLabel(query)) : undefined;
     await page.keyboard.press('Escape');
     if (row?.found) {
       return;
     }
     labels = row?.labels ?? [];
+    failurePrefix = opened.failurePrefix;
     await page.waitForTimeout(500);
   }
   throw new Error(
-    `Timed out waiting for command to appear in palette: "${query}"; the palette last listed ${describeRows(labels)}`
+    `${failurePrefix}Timed out waiting for command to appear in palette: "${query}"; the palette last listed ${describeRows(labels)}`
   );
 }
 
@@ -195,19 +218,21 @@ export async function runCommandWhenAvailable(
     const deadline = Date.now() + timeoutMs;
 
     let labels: string[] = [];
+    let failurePrefix = '';
     while (Date.now() < deadline) {
-      const ok = await openCommandPaletteWithCommand(page, command);
-      const row = ok ? await focusExactRow(page, commandLabel(command)) : undefined;
+      const opened = await openCommandPaletteWithCommand(page, command);
+      const row = opened.hasMatches ? await focusExactRow(page, commandLabel(command)) : undefined;
       if (row?.found) {
         await page.keyboard.press('Enter');
         return;
       }
       labels = row?.labels ?? [];
+      failurePrefix = opened.failurePrefix;
       await page.keyboard.press('Escape');
       await page.waitForTimeout(500);
     }
     throw new Error(
-      `Timed out waiting for command to appear in palette: "${command}"; the palette last listed ${describeRows(labels)}`
+      `${failurePrefix}Timed out waiting for command to appear in palette: "${command}"; the palette last listed ${describeRows(labels)}`
     );
   });
 }
