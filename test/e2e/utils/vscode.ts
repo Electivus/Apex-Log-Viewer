@@ -381,13 +381,21 @@ function resolveVsCodeUserSettingsPath(userDataDir: string): string {
 }
 
 async function writeVsCodeUserSettings(userDataDir: string, settings: Record<string, unknown>): Promise<void> {
-  if (Object.keys(settings).length === 0) {
-    return;
-  }
-
   const settingsPath = resolveVsCodeUserSettingsPath(userDataDir);
   await mkdir(path.dirname(settingsPath), { recursive: true });
   await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+}
+
+/**
+ * A webview that loads or gets activated takes the focus late, which by default closes a palette opened meanwhile,
+ * and the next `fill` then waits on a hidden input.
+ */
+const PALETTE_USER_SETTINGS = { 'workbench.quickOpen.closeOnFocusLost': false };
+
+export async function createVsCodeUserDataDir(): Promise<string> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-user-'));
+  await writeVsCodeUserSettings(dir, { ...PALETTE_USER_SETTINGS, ...resolveVsCodeUserProxySettings() });
+  return dir;
 }
 
 function redactProxyUrlCredentials(value: unknown): unknown {
@@ -888,12 +896,7 @@ export async function launchVsCode(options: {
       )
   );
 
-  const createUserDataDir = async (): Promise<string> => {
-    const dir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-user-'));
-    await writeVsCodeUserSettings(dir, resolveVsCodeUserProxySettings());
-    return dir;
-  };
-  const installUserDataDir = await createUserDataDir();
+  const installUserDataDir = await createVsCodeUserDataDir();
   let extensionsDir = resolveCachedSupportExtensionsDir(vscodeCachePath, vscodeVersion, supportExtensionIds);
   const supportExtensionsLockPath = resolveSupportExtensionsLockPath(extensionsDir);
   await mkdir(extensionsDir, { recursive: true });
@@ -951,7 +954,7 @@ export async function launchVsCode(options: {
 
   let unusedUserDataDir: string | undefined = installUserDataDir;
   const launchWindow = async () => {
-    const userDataDir = unusedUserDataDir ?? (await createUserDataDir());
+    const userDataDir = unusedUserDataDir ?? (await createVsCodeUserDataDir());
     unusedUserDataDir = undefined;
     if (locale) {
       await timeE2eStep(

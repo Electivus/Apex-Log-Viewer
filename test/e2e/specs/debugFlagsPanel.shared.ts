@@ -87,7 +87,7 @@ async function countDebugFlagsFrames(page: Page): Promise<number> {
 /**
  * The Apex Debug Flags editor is a singleton, so an open one would satisfy the frame wait after a click that never
  * reached the host. Close it first, so the only Debug Flags frame left to find is the one the next click opens.
- * A middle-click closes just that tab.
+ * A middle-click on the tab with another webview tab behind it, such as a Log Viewer, stops keys from reaching VS Code.
  */
 async function closeDebugFlagsEditor(page: Page): Promise<void> {
   const tab = page.locator('.tabs-container .tab[aria-label^="Apex Debug Flags"]');
@@ -96,7 +96,8 @@ async function closeDebugFlagsEditor(page: Page): Promise<void> {
       // A maximized panel hides the editor area, where the Debug Flags editor opens.
       await runCommand(page, 'View: Toggle Maximized Panel');
     }
-    await tab.first().click({ button: 'middle' });
+    await tab.first().click();
+    await runCommand(page, 'View: Close Editor');
     await expect(tab).toHaveCount(0, { timeout: 30_000 });
   }
   await expect
