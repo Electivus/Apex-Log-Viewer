@@ -728,7 +728,9 @@ describe('ensureScratchOrg', () => {
     process.env.SF_SCRATCH_STRATEGY = 'pool';
     process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
     if (identity === 'the alias') {
-      for (const field of ['CLIENT_ID', 'USERNAME', 'LOGIN_URL', 'PRIVATE_KEY']) delete process.env[`SF_DEVHUB_${field}`];
+      for (const field of ['CLIENT_ID', 'USERNAME', 'LOGIN_URL', 'PRIVATE_KEY']) {
+        delete process.env[`SF_DEVHUB_${field}`];
+      }
     }
     const storedAuthUrl = 'force://PlatformCLI::slot04-auth@scratch.example.com';
     let released: Record<string, unknown> | undefined;

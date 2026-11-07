@@ -20,10 +20,8 @@ function response(body: unknown, status = 200): Response {
 }
 
 // Salesforce answers a denied ActiveScratchOrg or ScratchOrgInfo delete with HTTP 400, not 403.
-const deniedDelete = () =>
-  response([{ errorCode: 'INSUFFICIENT_ACCESS_OR_READONLY', message: 'private-token' }], 400);
+const deniedDelete = () => response([{ errorCode: 'INSUFFICIENT_ACCESS_OR_READONLY', message: 'private-token' }], 400);
 
-// The acquire wait has a 30 s floor, so a test of an exhausted pool jumps past it.
 function skipPoolAcquireWait(): void {
   let now = Date.now();
   jest.spyOn(Date, 'now').mockImplementation(() => now);
@@ -34,7 +32,6 @@ function skipPoolAcquireWait(): void {
   }) as typeof setTimeout);
 }
 
-// A real pool assigns a leased slot to nobody else, so the next acquire finds no free slot.
 function onlySlot(slot: object): () => Response {
   let taken = false;
   return () => {

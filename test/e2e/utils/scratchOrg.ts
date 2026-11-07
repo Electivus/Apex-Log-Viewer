@@ -647,10 +647,8 @@ async function tryReleaseIncompletePoolLease(
   }
 }
 
-/** The slot's scratch org belongs to an identity whose orgs this one may not delete. */
 class ScratchDeleteDeniedError extends Error {}
 
-/** Only CI may replace a slot's scratch org, because CI could not delete one that another identity owns. */
 class SlotRecreateRefusedError extends Error {}
 
 async function deleteExistingPooledScratch(
@@ -659,7 +657,6 @@ async function deleteExistingPooledScratch(
 ): Promise<void> {
   const triedIds = new Set<string>();
 
-  /** Returns false when the record is already gone. */
   const deleteRecord = async (sobject: 'ActiveScratchOrg' | 'ScratchOrgInfo', id: string): Promise<boolean> => {
     try {
       await requestOrgJson(auth, 'DELETE', `/services/data/v${auth.apiVersion}/sobjects/${sobject}/${id}`);
@@ -1133,8 +1130,8 @@ async function leasePoolSlot(
       preservePreviousScratch = true;
       if (!envFlag('CI')) {
         throw new SlotRecreateRefusedError(
-          `Scratch-org pool slot '${slotKey}' needs a new scratch org, and only CI may create one. ` +
-            'Retry after Slot Recovery restores a healthy slot, or unset SF_SCRATCH_POOL_NAME and ' +
+          `Scratch-org pool slot '${slotKey}' needs a new scratch org, and only CI may create one, ` +
+            'because CI cannot delete a scratch org that another identity owns. Retry after Slot Recovery restores a healthy slot, or unset SF_SCRATCH_POOL_NAME and ' +
             'SF_SCRATCH_STRATEGY to use the single scratch.'
         );
       }
@@ -1213,15 +1210,11 @@ async function leasePoolSlot(
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const release = () => cleanup({ success: false, needsRecreate: true, lastRunResult: 'failed', errorMessage });
+    const releaseUnchanged = () => cleanup({ success: true, lastRunResult: 'recreate-refused', errorMessage });
     if (error instanceof ScratchDeleteDeniedError) {
       return { slotKey, reason: errorMessage, release };
     }
-    if (error instanceof SlotRecreateRefusedError) {
-      // A successful release keeps the slot's health and stored credential.
-      await cleanup({ success: true, lastRunResult: 'recreate-refused', errorMessage });
-      throw error;
-    }
-    await release();
+    await (error instanceof SlotRecreateRefusedError ? releaseUnchanged() : release());
     throw error;
   }
 }
