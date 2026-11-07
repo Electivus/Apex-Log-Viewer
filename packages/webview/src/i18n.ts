@@ -1,5 +1,6 @@
 import { customLogsEn, customLogsPtBR, type CustomLogsMessages } from './i18n/customLogs';
 import { logViewerEn, logViewerPtBR, type LogViewerMessages } from './i18n/logViewer';
+import { orgPickerEn, orgPickerPtBR, type OrgPickerMessages } from './i18n/orgPicker';
 
 export type { CustomLogsMessages, LogViewerMessages };
 
@@ -140,6 +141,7 @@ export type Messages = {
     managerValidation?: string;
   };
   customLogs: CustomLogsMessages;
+  orgPicker: OrgPickerMessages;
   logViewer: LogViewerMessages;
 };
 
@@ -282,6 +284,7 @@ const en: Messages = {
     managerValidation: 'DeveloperName and MasterLabel are required to save a DebugLevel.'
   },
   customLogs: customLogsEn,
+  orgPicker: orgPickerEn,
   logViewer: logViewerEn
 };
 
@@ -424,6 +427,7 @@ const ptBR: Messages = {
     managerValidation: 'DeveloperName e MasterLabel são obrigatórios para salvar um DebugLevel.'
   },
   customLogs: customLogsPtBR,
+  orgPicker: orgPickerPtBR,
   logViewer: logViewerPtBR
 };
 

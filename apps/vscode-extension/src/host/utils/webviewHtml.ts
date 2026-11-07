@@ -22,9 +22,10 @@ export function buildWebviewHtml(
   // registration or fetches (including log downloads) to fail on some
   // platforms, leading to sporadic "Could not register service worker" errors
   // or blocked network requests. Keeping other directives tight.
+  const lang = (vscode.env?.language ?? 'en').replace(/[^A-Za-z0-9-]/g, '') || 'en';
   const csp = `default-src 'none'; img-src ${webview.cspSource} https:; script-src ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; connect-src ${webview.cspSource}; worker-src ${webview.cspSource};`;
   return `<!DOCTYPE html>
-      <html lang="en">
+      <html lang="${lang}">
       <head>
       <meta charset="UTF-8">
       <meta http-equiv="Content-Security-Policy" content="${csp}">
