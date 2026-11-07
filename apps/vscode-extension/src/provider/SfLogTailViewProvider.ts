@@ -178,7 +178,13 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       // Surface loading while ensuring TraceFlag and priming tail
       this.post({ type: 'loading', value: true }, 'replayable');
       try {
-        await this.tailService.start(typeof message.debugLevel === 'string' ? message.debugLevel.trim() : undefined);
+        const t0 = Date.now();
+        const result = await this.tailService.start(
+          typeof message.debugLevel === 'string' ? message.debugLevel.trim() : undefined
+        );
+        if (result.outcome !== 'alreadyRunning') {
+          safeSendEvent('tail.start', { ...result }, { durationMs: Date.now() - t0 });
+        }
       } finally {
         this.post({ type: 'loading', value: false }, 'replayable');
       }
