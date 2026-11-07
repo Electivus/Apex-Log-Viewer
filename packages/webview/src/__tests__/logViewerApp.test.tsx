@@ -95,6 +95,8 @@ describe('Log Viewer App', () => {
     return { pending, fetchStub };
   }
 
+  const entryList = () => within(screen.getByTestId('virtual-list'));
+
   function send(bus: EventTarget, message: LogViewerToWebviewMessage) {
     act(() => {
       bus.dispatchEvent(new MessageEvent('message', { data: message }));
@@ -278,7 +280,7 @@ describe('Log Viewer App', () => {
       ]
     });
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Debug Only' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Debug Only/ }));
 
     const jsonEntry = await screen.findByText(content => content.includes('"account"') && content.includes('"name"'));
     expect(jsonEntry).toHaveTextContent('DEBUG | { "account" : { "name" : "Acme" } }');
@@ -308,7 +310,7 @@ describe('Log Viewer App', () => {
 
     await screen.findByText(/Alpha/);
     expect(screen.getByText('Loading diagnostics…')).toBeInTheDocument();
-    expect(document.querySelector('.ring-2')).toBeNull();
+    expect(document.querySelector('.log-selected')).toBeNull();
     expect(listScrollCalls).toHaveLength(0);
 
     const diagnostics: LogDiagnostic[] = [
@@ -328,7 +330,7 @@ describe('Log Viewer App', () => {
     const diagnosticsPanel = screen.getByText('Diagnostics').closest('aside');
     expect(diagnosticsPanel).not.toBeNull();
     const firstDiagnostic = await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Debug row has issue/ });
-    const secondDiagnostic = await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Error row warning/ });
+    const secondDiagnostic = await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Error row \| C/ });
     expect(firstDiagnostic).toBeInTheDocument();
     expect(secondDiagnostic).toBeInTheDocument();
     expect(listScrollCalls).toHaveLength(0);
@@ -347,13 +349,13 @@ describe('Log Viewer App', () => {
 
     const diagnosticsErrorFilter = within(diagnosticsPanel as HTMLElement).getByRole('button', { name: 'Errors' });
     fireEvent.click(diagnosticsErrorFilter);
-    expect(screen.getByText(/Error row \| C/)).toBeInTheDocument();
+    expect(entryList().getByText(/Error row \| C/)).toBeInTheDocument();
 
     const searchInput = screen.getByPlaceholderText('Search entries…');
     fireEvent.change(searchInput, { target: { value: '' } });
     fireEvent.change(searchInput, { target: { value: 'no-match-at-all' } });
     await waitFor(() => {
-      expect(screen.getByText(/Error row \| C/)).toBeInTheDocument();
+      expect(entryList().getByText(/Error row \| C/)).toBeInTheDocument();
     });
   });
 
@@ -394,7 +396,7 @@ describe('Log Viewer App', () => {
     const diagnosticsPanel = screen.getByText('Diagnostics').closest('aside');
     expect(diagnosticsPanel).not.toBeNull();
 
-    const diagnosticButton = await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /DML failure/ });
+    const diagnosticButton = await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Insert failed/ });
     fireEvent.click(diagnosticButton);
 
     await waitFor(() => {
@@ -430,10 +432,10 @@ describe('Log Viewer App', () => {
       }
     });
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Errors' })[0]!);
+    fireEvent.click(screen.getByRole('button', { name: 'Errors 1' }));
     await waitFor(() => {
       expect(screen.queryByText(/Alpha \| A/)).toBeNull();
-      expect(screen.getByText(/Error row \| B/)).toBeInTheDocument();
+      expect(entryList().getByText(/Error row \| B/)).toBeInTheDocument();
     });
 
     const diagnosticsPanel = screen.getByText('Diagnostics').closest('aside');
@@ -450,7 +452,7 @@ describe('Log Viewer App', () => {
 
     await waitFor(() => {
       expect(screen.queryByText(/Alpha \| A/)).toBeNull();
-      expect(screen.getByText(/Error row \| B/)).toBeInTheDocument();
+      expect(entryList().getByText(/Error row \| B/)).toBeInTheDocument();
       expect(within(diagnosticsPanel as HTMLElement).queryByRole('button', { name: /Debug row warning/ })).not.toBeInTheDocument();
     });
   });
@@ -503,7 +505,7 @@ describe('Log Viewer App', () => {
 
     await waitFor(() => {
       expect(within(diagnosticsPanel as HTMLElement).queryByRole('button', { name: /Initial warning/ })).not.toBeInTheDocument();
-      expect(within(diagnosticsPanel as HTMLElement).getByRole('button', { name: /Fresh error/ })).toBeInTheDocument();
+      expect(within(diagnosticsPanel as HTMLElement).getByRole('button', { name: /Beta \| B/ })).toBeInTheDocument();
     });
   });
 
@@ -621,13 +623,13 @@ describe('Log Viewer App', () => {
 
     const diagnosticsPanel = screen.getByText('Diagnostics').closest('aside');
     expect(diagnosticsPanel).not.toBeNull();
-    await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Active issue/ });
+    await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Error row \| B/ });
 
     send(bus, { type: 'logViewerError', message: 'Falha específica' });
 
     await screen.findByText('Falha específica');
     await waitFor(() => {
-      expect(within(diagnosticsPanel as HTMLElement).queryByRole('button', { name: /Active issue/ })).not.toBeInTheDocument();
+      expect(within(diagnosticsPanel as HTMLElement).queryByRole('button', { name: /Error row \| B/ })).not.toBeInTheDocument();
       expect(within(diagnosticsPanel as HTMLElement).getByText('No diagnostics found.')).toBeInTheDocument();
     });
   });
@@ -708,7 +710,7 @@ describe('Log Viewer App', () => {
 
     fireEvent.click(diagnosticsButton);
     await waitFor(() => {
-      expect(diagnosticsButton.className).toContain('bg-amber-500/20');
+      expect(diagnosticsButton.className).toContain('log-selected');
     });
     expect(screen.getByText(/Unmapped issue/)).toBeInTheDocument();
     expect(listScrollCalls).toHaveLength(0);
@@ -720,7 +722,7 @@ describe('Log Viewer App', () => {
       expect(within(diagnosticsPanel as HTMLElement).getByRole('button', { name: /Unmapped issue/ })).toBeInTheDocument();
     });
     const unmappedButton = await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Unmapped issue/ });
-    expect(unmappedButton.className).toContain('bg-amber-500/20');
+    expect(unmappedButton.className).toContain('log-selected');
     expect(listScrollCalls).toHaveLength(0);
   });
 
@@ -756,7 +758,7 @@ describe('Log Viewer App', () => {
     const diagnosticsPanel = screen.getByText('Diagnostics').closest('aside');
     expect(diagnosticsPanel).not.toBeNull();
     const firstDiagnostic = await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Debug row has issue/ });
-    const secondDiagnostic = await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Error row warning/ });
+    await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Error row \| C/ });
 
     fireEvent.click(firstDiagnostic);
     expect(screen.getByText(/Alpha/)).toBeInTheDocument();
@@ -772,12 +774,111 @@ describe('Log Viewer App', () => {
       fileName: 'remap.log',
       lines: ['12:00:03.000 (4)|EXCEPTION|[4]|Refreshed row|D']
     });
-    await screen.findByText(/Refreshed row/);
+    await entryList().findByText(/Refreshed row/);
 
     expect(screen.queryByText(/Alpha/)).toBeNull();
     await waitFor(() => {
       expect(within(diagnosticsPanel as HTMLElement).queryByRole('button', { name: /Debug row has issue/ })).not.toBeInTheDocument();
-      expect(within(diagnosticsPanel as HTMLElement).queryByRole('button', { name: /Error row warning/ })).not.toBeInTheDocument();
+      expect(within(diagnosticsPanel as HTMLElement).queryByRole('button', { name: /Error row \| C/ })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('failure banner and identity', () => {
+    const failingLines = [
+      '65.0 APEX_CODE,DEBUG',
+      '14:03:21.5 (1000000)|EXECUTION_STARTED',
+      '14:03:21.5 (2000000)|USER_INFO|[EXTERNAL]|005Hs00000AbCdE|ana@example.com|Pacific Standard Time|GMT-08:00',
+      '14:03:21.5 (3000000)|CODE_UNIT_STARTED|[EXTERNAL]|execute_anonymous_apex',
+      '14:03:21.5 (4000000)|SOQL_EXECUTE_BEGIN|[1]|Aggregations:0|SELECT Id FROM Account LIMIT 3',
+      '14:03:21.5 (5000000)|USER_DEBUG|[1]|DEBUG|n=3',
+      '14:03:21.9 (185000000)|EXCEPTION_THROWN|[1]|System.MathException: Divide by 0',
+      '14:03:21.9 (186000000)|FATAL_ERROR|System.MathException: Divide by 0',
+      '',
+      'AnonymousBlock: line 1, column 1',
+      '14:03:21.9 (187000000)|CODE_UNIT_FINISHED|execute_anonymous_apex'
+    ];
+
+    function open(lines: string[]) {
+      const { vscode } = createVsCodeMock();
+      const bus = new EventTarget();
+      render(<LogViewerApp vscode={vscode} messageBus={bus} />);
+      send(bus, {
+        type: 'logViewerInit',
+        logId: 'banner-log',
+        locale: 'en-US',
+        fileName: '07L000000000001.log',
+        lines
+      });
+      return bus;
+    }
+
+    it('says why the log failed, names the log by what it ran, and jumps to the failing entry', async () => {
+      open(failingLines);
+
+      const banner = await screen.findByRole('alert', { name: 'Failure' });
+      expect(within(banner).getByText('System.MathException: Divide by 0')).toBeInTheDocument();
+      expect(within(banner).getByText('Line 1')).toBeInTheDocument();
+
+      const heading = screen.getByRole('heading', { level: 1 });
+      expect(heading).toHaveTextContent('execute_anonymous_apex');
+      expect(heading.nextElementSibling).toHaveTextContent('ana@example.com · 186 ms · 14:03:21 · 07L000000000001.log');
+
+      expect(document.querySelector('.log-selected')).toBeNull();
+      resetListScrollCalls();
+      fireEvent.click(within(banner).getByRole('button', { name: 'Go to error' }));
+
+      await waitFor(() => expect(listScrollCalls.at(-1)).toBe(7));
+      const selected = document.querySelector('.log-selected');
+      expect(selected).toHaveTextContent('FATAL_ERROR');
+
+      resetListScrollCalls();
+      fireEvent.click(within(banner).getByRole('button', { name: 'Go to error' }));
+      await waitFor(() => expect(listScrollCalls.at(-1)).toBe(7));
+    });
+
+    it('brings the failing entry back when a filter had hidden it, and lets a diagnostic take over', async () => {
+      const bus = open(failingLines);
+      send(bus, {
+        type: 'logViewerTriageUpdate',
+        logId: 'banner-log',
+        triage: {
+          hasErrors: true,
+          reasons: [{ code: 'fatal_exception', severity: 'error', summary: 'Fatal exception', line: 1, eventType: 'EXCEPTION_THROWN' }]
+        }
+      });
+
+      fireEvent.click(await screen.findByRole('button', { name: /Debug Only/ }));
+      expect(entryList().queryByText('FATAL_ERROR')).toBeNull();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Go to error' }));
+      await waitFor(() => expect(entryList().getByText('FATAL_ERROR')).toBeInTheDocument());
+
+      const diagnosticsPanel = screen.getByText('Diagnostics').closest('aside') as HTMLElement;
+      fireEvent.click(within(diagnosticsPanel).getByRole('button', { name: /Divide by 0/ }));
+      await waitFor(() => expect(entryList().queryByText('FATAL_ERROR')).toBeNull());
+      expect(entryList().getByText('EXCEPTION_THROWN')).toBeInTheDocument();
+    });
+
+    it('shows no banner for a clean log and falls back to the file name for the title', async () => {
+      open(['12:00:00.0 (1000)|USER_DEBUG|[1]|DEBUG|all good']);
+
+      await entryList().findByText(/all good/);
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('07L000000000001.log');
+    });
+
+    it('shows the count on every filter chip and disables a chip with nothing to show', async () => {
+      open(failingLines);
+
+      const errors = await screen.findByRole('button', { name: 'Errors 2' });
+      expect(errors).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.getByRole('button', { name: 'Debug Only 1' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'SOQL 1' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'DML 0' })).toBeDisabled();
+
+      fireEvent.click(errors);
+      expect(screen.getByRole('button', { name: 'Errors 2' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByText('2 entries')).toBeInTheDocument();
     });
   });
 });

@@ -10,17 +10,22 @@ import { LogViewerHeader } from './components/log-viewer/LogViewerHeader';
 import { LogViewerFilters, type LogFilter } from './components/log-viewer/LogViewerFilters';
 import { LogEntryList } from './components/log-viewer/LogEntryList';
 import { LogDiagnosticsSidebar } from './components/log-viewer/LogDiagnosticsSidebar';
+import { LogFailureBanner } from './components/log-viewer/LogFailureBanner';
 import { LogViewerStatusBar } from './components/log-viewer/LogViewerStatusBar';
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
 import type { ListImperativeAPI } from 'react-window';
 import type { LogViewerMappedDiagnostic } from './utils/logViewerDiagnostics';
 import { buildVisibleEntries, mapDiagnosticsToEntries } from './utils/logViewerDiagnostics';
+import { deriveLogSummary, describeLog, findPrimaryFailure } from './utils/logViewerSummary';
 import { getMessages } from './i18n';
 import { fillTemplate } from './utils/customLogs/format';
 
 type TriageState = 'loading' | 'unavailable' | 'empty' | 'ready';
 type DiagnosticSeverityFilter = 'all' | 'error' | 'warning';
+
+/** `seq` lets a second click on the banner scroll back to an entry the person has scrolled away from. */
+type FailureJump = { entryId: number; seq: number };
 
 type Metadata = {
   sizeBytes?: number;
@@ -69,6 +74,7 @@ export function LogViewerApp({
   const [triageState, setTriageState] = useState<TriageState>('loading');
   const [activeDiagnosticId, setActiveDiagnosticId] = useState<number | undefined>(undefined);
   const [activeDiagnosticSeverityFilter, setActiveDiagnosticSeverityFilter] = useState<DiagnosticSeverityFilter>('all');
+  const [failureJump, setFailureJump] = useState<FailureJump | undefined>(undefined);
   const latestRequestId = useRef(0);
   const listRef = useRef<ListImperativeAPI | null>(null);
   const [activeMatchIndex, setActiveMatchIndex] = useState<number>(-1);
@@ -101,6 +107,7 @@ export function LogViewerApp({
           setTriageState('loading');
         }
         setActiveDiagnosticId(undefined);
+        setFailureJump(undefined);
         setActiveDiagnosticSeverityFilter('all');
         if (typeof msg.logUri === 'string' && msg.logUri.length > 0) {
           if (resolvedFetch) {
@@ -247,14 +254,16 @@ export function LogViewerApp({
     [filter]
   );
 
+  const pinnedEntryId = failureJump?.entryId ?? activeDiagnosticSummary?.mappedEntryId;
+
   const visibleDiagnosticRows = useMemo(
-      () =>
-        buildVisibleEntries({
-          entries: mappedDiagnostics.mappedEntries,
-          shouldIncludeEntry: shouldIncludeByFilter,
-          activeDiagnostic: activeDiagnosticSummary
-        }),
-    [mappedDiagnostics.mappedEntries, shouldIncludeByFilter, activeDiagnosticSummary]
+    () =>
+      buildVisibleEntries({
+        entries: mappedDiagnostics.mappedEntries,
+        shouldIncludeEntry: shouldIncludeByFilter,
+        pinnedEntryId
+      }),
+    [mappedDiagnostics.mappedEntries, shouldIncludeByFilter, pinnedEntryId]
   );
 
   const visibleEntries = useMemo(() => visibleDiagnosticRows.map(entry => entry.entry), [visibleDiagnosticRows]);
@@ -285,15 +294,31 @@ export function LogViewerApp({
   );
 
   const activeDiagnosticEntryIndex = useMemo(() => {
-    if (activeDiagnosticSummary?.mappedEntryId === undefined) {
+    if (pinnedEntryId === undefined) {
       return undefined;
     }
-    const index = visibleEntries.findIndex(entry => entry.id === activeDiagnosticSummary.mappedEntryId);
+    const index = visibleEntries.findIndex(entry => entry.id === pinnedEntryId);
     if (index < 0) {
       return undefined;
     }
     return index;
-  }, [activeDiagnosticSummary, visibleEntries]);
+  }, [pinnedEntryId, visibleEntries]);
+
+  const failure = useMemo(() => findPrimaryFailure(entries), [entries]);
+  const heading = useMemo(() => describeLog(deriveLogSummary(entries), fileName), [entries, fileName]);
+
+  const goToFailure = useCallback(() => {
+    if (!failure) {
+      return;
+    }
+    setActiveDiagnosticId(undefined);
+    setFailureJump(previous => ({ entryId: failure.entryId, seq: (previous?.seq ?? 0) + 1 }));
+  }, [failure]);
+
+  const selectDiagnostic = useCallback((nextActiveDiagnosticId: number) => {
+    setFailureJump(undefined);
+    setActiveDiagnosticId(current => (current === nextActiveDiagnosticId ? undefined : nextActiveDiagnosticId));
+  }, []);
 
   const trimmedSearch = useMemo(() => search.trim(), [search]);
 
@@ -382,9 +407,9 @@ export function LogViewerApp({
   };
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground">
+    <div data-testid="log-viewer" className="flex h-screen flex-col bg-background text-foreground">
       <LogViewerHeader
-        fileName={fileName}
+        heading={heading}
         search={search}
         onSearchChange={setSearch}
         onViewRaw={onViewRaw}
@@ -395,49 +420,47 @@ export function LogViewerApp({
         onPreviousMatch={goToPreviousMatch}
         t={t}
       />
+      {failure && !error && <LogFailureBanner failure={failure} onGoToError={goToFailure} t={t} />}
       <LogViewerFilters active={filter} onChange={setFilter} counts={counts} locale={locale} t={t} />
-      <main className="flex min-h-0 flex-1 flex-col bg-background/40">
-        <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto px-4 pb-3 lg:grid-cols-[1fr_22rem]">
-          <section className="flex min-h-[18rem] flex-col lg:min-h-0">
-            {error ? (
-              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                {error}
-              </div>
-            ) : loading ? (
-              <div className="rounded-md border border-border/40 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-                {t.loadingEntries}
-              </div>
-              ) : (
-              <LogEntryList
-                entries={visibleEntries}
-                entryDiagnosticSummaries={entryDiagnosticSummaries}
-                highlightCategory={highlightCategory}
-                matchIndices={matchIndices}
-                activeMatchIndex={activeMatchIndex >= 0 ? activeMatchIndex : undefined}
-                searchTerm={trimmedSearch}
-                listRef={listRef}
-                activeDiagnosticId={activeDiagnosticId}
-                activeDiagnosticEntryIndex={activeDiagnosticEntryIndex}
-                noEntriesText={t.noEntriesMatch}
-              />
-            )}
-          </section>
-          <LogDiagnosticsSidebar
-            diagnostics={orderedDiagnosticsWithMapping}
-            activeId={activeDiagnosticId}
-            filter={activeDiagnosticSeverityFilter}
-            onFilterChange={setActiveDiagnosticSeverityFilter}
-            onSelectDiagnostic={nextActiveDiagnosticId =>
-              setActiveDiagnosticId(current => (current === nextActiveDiagnosticId ? undefined : nextActiveDiagnosticId))
-            }
-            primaryReason={primaryReason}
-            triageState={triageState}
-            t={t}
-          />
-        </div>
+      <main className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,14rem)] lg:grid-cols-[minmax(0,1fr)_20rem] lg:grid-rows-1">
+        <section className="flex min-h-0 min-w-0 flex-col">
+          {error ? (
+            <div role="alert" className="px-3 py-2 text-sm text-destructive">
+              {error}
+            </div>
+          ) : loading ? (
+            <div role="status" className="px-3 py-2 text-sm text-muted-foreground">
+              {t.loadingEntries}
+            </div>
+          ) : (
+            <LogEntryList
+              entries={visibleEntries}
+              entryDiagnosticSummaries={entryDiagnosticSummaries}
+              highlightCategory={highlightCategory}
+              matchIndices={matchIndices}
+              activeMatchIndex={activeMatchIndex >= 0 ? activeMatchIndex : undefined}
+              searchTerm={trimmedSearch}
+              listRef={listRef}
+              activeDiagnosticId={activeDiagnosticId}
+              activeDiagnosticEntryIndex={activeDiagnosticEntryIndex}
+              scrollRequest={failureJump?.seq}
+              noEntriesText={t.noEntriesMatch}
+            />
+          )}
+        </section>
+        <LogDiagnosticsSidebar
+          diagnostics={orderedDiagnosticsWithMapping}
+          activeId={activeDiagnosticId}
+          filter={activeDiagnosticSeverityFilter}
+          onFilterChange={setActiveDiagnosticSeverityFilter}
+          onSelectDiagnostic={selectDiagnostic}
+          primaryReason={primaryReason}
+          triageState={triageState}
+          t={t}
+        />
       </main>
       <LogViewerStatusBar
-        counts={counts}
+        totalLines={counts.total}
         locale={locale}
         metadata={metadata}
         state={error ? 'failed' : loading ? 'loading' : 'ready'}

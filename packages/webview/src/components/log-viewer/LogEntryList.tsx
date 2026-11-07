@@ -18,6 +18,8 @@ interface Props {
   entryDiagnosticSummaries?: readonly LogEntryDiagnosticSummary[];
   activeDiagnosticId?: number;
   activeDiagnosticEntryIndex?: number;
+  /** A new value scrolls to the active entry again, for a jump that points at the same row twice. */
+  scrollRequest?: number;
   searchTerm?: string;
   listRef?: React.RefObject<ListImperativeAPI | null>;
   virtualListComponent?: typeof List;
@@ -33,13 +35,14 @@ export function LogEntryList({
   entryDiagnosticSummaries,
   activeDiagnosticId,
   activeDiagnosticEntryIndex,
+  scrollRequest,
   searchTerm,
   listRef,
   virtualListComponent,
   RowComponent,
   noEntriesText = logViewerEn.noEntriesMatch
 }: Props) {
-  const defaultRowHeight = 64;
+  const defaultRowHeight = 31;
   const rowHeightsRef = useRef<Record<number, number>>({});
   const internalListRef = useRef<ListImperativeAPI | null>(null);
   const resolvedListRef = listRef ?? internalListRef;
@@ -108,7 +111,7 @@ export function LogEntryList({
       align: 'center',
       behavior: 'auto'
     });
-  }, [activeDiagnosticEntryIndex, activeDiagnosticId, entries.length, resolvedListRef]);
+  }, [activeDiagnosticEntryIndex, activeDiagnosticId, scrollRequest, entries.length, resolvedListRef]);
 
   const data = useMemo(
     () => ({
@@ -164,9 +167,9 @@ export function LogEntryList({
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/60 bg-background/60 shadow-inner">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {entries.length === 0 ? (
-        <div className="px-6 py-8 text-sm text-muted-foreground">{noEntriesText}</div>
+        <div className="px-3 py-6 text-sm text-muted-foreground">{noEntriesText}</div>
       ) : (
         <VirtualList
           listRef={resolvedListRef}

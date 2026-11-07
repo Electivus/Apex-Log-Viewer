@@ -7,6 +7,8 @@ export interface LogViewerMappedDiagnostic extends LogDiagnostic {
   originalIndex: number;
   mappedEntryId?: number;
   mappedLineNumber?: number;
+  /** The mapped entry's own text, when that entry is the event the diagnostic reports. */
+  mappedMessage?: string;
 }
 
 export interface LogEntryDiagnosticGroup {
@@ -23,7 +25,7 @@ export interface MappedDiagnosticsResult {
 export interface BuildVisibleEntriesArgs {
   entries: ReadonlyArray<LogEntryDiagnosticGroup>;
   shouldIncludeEntry: (entry: ParsedLogEntry) => boolean;
-  activeDiagnostic?: LogViewerMappedDiagnostic;
+  pinnedEntryId?: number;
 }
 
 const hasExactLine = (line: number | undefined): line is number => {
@@ -64,6 +66,14 @@ function pickMatchingEntryForDiagnostic(
   }
 
   return candidates[0];
+}
+
+/** A line number can also land on an unrelated event, such as a query, whose text would not explain the diagnostic. */
+function messageOfReportedEvent(entry: ParsedLogEntry, reason: LogDiagnostic): string | undefined {
+  const message = entry.message.trim();
+  const reportsReason =
+    entry.category === 'error' || entry.type.trim().toUpperCase() === reason.eventType?.trim().toUpperCase();
+  return message && reportsReason ? message : undefined;
 }
 
 export function orderDiagnostics(reasons: readonly LogDiagnostic[]): LogViewerMappedDiagnostic[] {
@@ -129,7 +139,8 @@ export function mapDiagnosticsToEntries(
       target.diagnostics.push({
         ...reason,
         mappedEntryId: target.entry.id,
-        mappedLineNumber: reason.line
+        mappedLineNumber: reason.line,
+        mappedMessage: messageOfReportedEvent(target.entry, reason)
       });
       continue;
     }
@@ -139,7 +150,8 @@ export function mapDiagnosticsToEntries(
       fallbackTarget.diagnostics.push({
         ...reason,
         mappedEntryId: fallbackTarget.entry.id,
-        mappedLineNumber: fallbackTarget.entry.lineNumber ?? reason.line
+        mappedLineNumber: fallbackTarget.entry.lineNumber ?? reason.line,
+        mappedMessage: messageOfReportedEvent(fallbackTarget.entry, reason)
       });
       continue;
     }
@@ -162,17 +174,7 @@ export function mapDiagnosticsToEntries(
 export function buildVisibleEntries({
   entries,
   shouldIncludeEntry,
-  activeDiagnostic
+  pinnedEntryId
 }: BuildVisibleEntriesArgs): LogEntryDiagnosticGroup[] {
-  const activeMappedEntryId = activeDiagnostic?.mappedEntryId;
-
-  return entries.filter(({ entry }) => {
-    if (shouldIncludeEntry(entry)) {
-      return true;
-    }
-    if (activeMappedEntryId === undefined) {
-      return false;
-    }
-    return entry.id === activeMappedEntryId;
-  });
+  return entries.filter(({ entry }) => shouldIncludeEntry(entry) || entry.id === pinnedEntryId);
 }

@@ -324,7 +324,7 @@ function createHelpers() {
     frameWith,
     logsFrame: (timeoutMs?: number) => frameWith('[data-testid="logs-open-debug-flags"]', timeoutMs),
     tailFrame: (timeoutMs?: number) => frameWith('[data-testid="tail-open-debug-flags"]', timeoutMs),
-    viewerFrame: (timeoutMs?: number) => frameWith('text=Apex Log Viewer', timeoutMs),
+    viewerFrame: (timeoutMs?: number) => frameWith('[data-testid="log-viewer"]', timeoutMs),
     debugFlagsFrame: (timeoutMs?: number) => frameWith(DEBUG_FLAGS_FRAME, timeoutMs),
     setWorkspaceSetting,
     customLogsFrame: async (timeoutMs?: number) => {
