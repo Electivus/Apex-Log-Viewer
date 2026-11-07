@@ -187,6 +187,10 @@
 
   /* The entry a diagnostic or the failure banner points at. The bar and outline mark it without relying on the fill. */
   .log-selected {
+    /* Some themes pair a dark selection fill with light text, so everything inside must follow the selection foreground. */
+    --foreground: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
+    --muted-foreground: var(--vscode-list-activeSelectionForeground, var(--vscode-descriptionForeground));
+    color: var(--foreground);
     background-color: var(--vscode-list-activeSelectionBackground, color-mix(in srgb, currentColor 14%, transparent));
     box-shadow: inset 3px 0 0 var(--vscode-focusBorder, currentColor);
     outline: 1px solid var(--vscode-list-focusOutline, var(--vscode-focusBorder, currentColor));

@@ -758,7 +758,7 @@ describe('Log Viewer App', () => {
     const diagnosticsPanel = screen.getByText('Diagnostics').closest('aside');
     expect(diagnosticsPanel).not.toBeNull();
     const firstDiagnostic = await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Debug row has issue/ });
-    const secondDiagnostic = await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Error row \| C/ });
+    await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Error row \| C/ });
 
     fireEvent.click(firstDiagnostic);
     expect(screen.getByText(/Alpha/)).toBeInTheDocument();
