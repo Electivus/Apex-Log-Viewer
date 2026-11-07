@@ -1,0 +1,47 @@
+name: diag-win-core-crash
+on:
+  push:
+    branches:
+      - diag/win-core-crash
+permissions:
+  contents: read
+jobs:
+  hammer:
+    name: core suite (node ${{ matrix.node }} ${{ matrix.shard }})
+    runs-on: windows-latest
+    timeout-minutes: 85
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['24.15.0', '24.22.2']
+        shard: [a, b, c]
+    env:
+      DIAG_OUT: D:\diag
+      DIAG_MINUTES: '45'
+      DIAG_REUSE_ROUNDS: '120'
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build:core
+      - name: Versions
+        run: node -p "process.version + ' uv ' + process.versions.uv"
+      - name: Clock probe
+        run: node .diag/clock-probe.mjs
+      - name: orgConnectionReuse loop
+        run: node .diag/loop-reuse.mjs
+      - name: Core suite loop
+        run: node .diag/loop-core.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: diag-core-${{ matrix.node }}-${{ matrix.shard }}
+          retention-days: 3
+          if-no-files-found: warn
+          path: D:\diag\*.log
