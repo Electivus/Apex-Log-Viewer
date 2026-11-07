@@ -190,6 +190,7 @@
     /* Some themes pair a dark selection fill with light text, so everything inside must follow the selection foreground. */
     --foreground: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
     --muted-foreground: var(--vscode-list-activeSelectionForeground, var(--vscode-descriptionForeground));
+    --muted: color-mix(in srgb, var(--foreground) 12%, transparent);
     color: var(--foreground);
     background-color: var(--vscode-list-activeSelectionBackground, color-mix(in srgb, currentColor 14%, transparent));
     box-shadow: inset 3px 0 0 var(--vscode-focusBorder, currentColor);
