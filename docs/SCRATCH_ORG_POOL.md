@@ -51,15 +51,15 @@ pnpm run scratch-pool:disable-slot -- --target-org DevHubElectivus --pool-key al
 pnpm run scratch-pool:reset-slot -- --target-org DevHubElectivus --pool-key alv-e2e --slot-key slot-02 --reason "force recreate"
 ```
 
-After this migration, `reconcile` marks any slot without a stored `sfdxAuthUrl` as `needs_recreate`, so the next lease recreates it once and stores a fresh reusable auth URL.
+After this migration, `reconcile` marks any slot without a stored `sfdxAuthUrl` as `needs_recreate`, so the next CI lease recreates it once and stores a fresh reusable auth URL.
 
 `prewarm` is the maintenance command to eagerly create every pending scratch org slot instead of waiting for the first E2E worker to trigger recreation. Use `--limit <n>` when you want to warm the pool gradually.
 
 `prewarm` takes a conditional maintenance lease per slot and skips slots that are leased or provisioning, so it is safe while Real Org E2E runs. When a scratch creation fails, prewarm marks that slot `needs_recreate` and stops. If the process is cancelled or times out mid-slot, that slot stays `provisioning` until its 90-minute maintenance lease expires.
 
-`reconcile` refreshes each slot's scratch-org inventory from the Dev Hub and is also safe while Real Org E2E runs. It skips slots that are `leased`, `provisioning` or `repairing`. It writes each slot with a conditional update and skips a slot that changed after it was read. It never moves a `needs_recreate` or `broken` slot back to `healthy`. Skipped slots are listed, each with its reason, in `skippedSlots`. A retired slot returns to service only through recreation: `prewarm` (or the next Pool Lease that lands on it) replaces its scratch org, and `reset-slot` forces that recreation for a slot that is not yet retired.
+`reconcile` refreshes each slot's scratch-org inventory from the Dev Hub and is also safe while Real Org E2E runs. It skips slots that are `leased`, `provisioning` or `repairing`. It writes each slot with a conditional update and skips a slot that changed after it was read. It never moves a `needs_recreate` or `broken` slot back to `healthy`. Skipped slots are listed, each with its reason, in `skippedSlots`. A retired slot returns to service only through recreation: `prewarm` (or the next CI Pool Lease that lands on it) replaces its scratch org, and `reset-slot` forces that recreation for a slot that is not yet retired.
 
-A lease that expires without being released, whether a Pool Lease or a maintenance lease, is reclaimed the next time an acquire scans the pool. This happens when a job is cancelled, times out or loses its runner. The reclaim retires the environment: the slot becomes `available` and `needs_recreate`, or stays `broken`. It also loses its stored auth URL, gets `LastRunResult__c` set to `lease-expired`, and records the expired lease's state and owner in `LastError__c`. Slot Recovery or the next Pool Lease then recreates the environment, so a scratch org abandoned mid-change never returns to circulation.
+A lease that expires without being released, whether a Pool Lease or a maintenance lease, is reclaimed the next time an acquire scans the pool. This happens when a job is cancelled, times out or loses its runner. The reclaim retires the environment: the slot becomes `available` and `needs_recreate`, or stays `broken`. It also loses its stored auth URL, gets `LastRunResult__c` set to `lease-expired`, and records the expired lease's state and owner in `LastError__c`. Slot Recovery or the next CI Pool Lease then recreates the environment, so a scratch org abandoned mid-change never returns to circulation.
 
 ## Slot Recovery
 
@@ -71,6 +71,17 @@ A run fails when prewarm cannot create a scratch org, for example at the Dev Hub
 gh workflow run slot-recovery.yml --repo Electivus/Apex-Log-Viewer
 node scripts/devhub-local.js run -- corepack pnpm run scratch-pool:list -- --pool-key '<configured pool>'
 ```
+
+## Slot ownership
+
+An identity can delete only the scratch orgs it owns, and the CI identity has no broader grant. CI and Slot Recovery must be able to delete every scratch org that a slot references, so two rules apply:
+
+- **Only CI creates a slot's scratch org.** A Pool Lease outside CI reuses healthy slots and never recreates one. This covers `SF_DEVHUB_ALIAS` and any local JWT identity, because a local JWT user can differ from the CI user. Acquire prefers a healthy slot, so a refusal means that no healthy slot was free. The lease then fails with an explanation, keeps the slot's health and stored credential, and records `recreate-refused` in `LastRunResult__c`. Retry after Slot Recovery restores a healthy slot, or unset `SF_SCRATCH_POOL_NAME` and `SF_SCRATCH_STRATEGY` to use the single scratch.
+- **A denied delete skips the slot.** A slot can still hold a scratch org that CI cannot delete, for example after an identity change or a run from an older checkout. The lease keeps that slot leased and takes the next one, because acquire would otherwise assign the same slot again. When the lease holds a usable slot, it releases the denied slot as `broken` with its stored credential. The job fails only when no other slot becomes free before `SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS`, and that error names the denied slots.
+
+A skipped slot stays out of use until its owner or an administrator deletes the scratch org. Slot Recovery stops at the first denied slot and fails with `INSUFFICIENT_ACCESS`, so a failed Slot Recovery run is the signal to act. `pnpm run scratch-pool:list` shows the reason in `LastError__c`. After the deletion, the next Slot Recovery run or CI lease recreates the slot.
+
+Run recovery through `gh workflow run slot-recovery.yml`, not a local `scratch-pool:prewarm`, because a local JWT identity owns the scratch orgs it creates. The same applies to the proxy lab: it sets `CI=true` in its container, so do not point a local proxy-lab run at a shared pool.
 
 ## Authentication model
 
@@ -97,6 +108,8 @@ Set these env vars before running Playwright:
 - `SF_SCRATCH_STRATEGY=pool`
 - `SF_SCRATCH_POOL_NAME=alv-e2e`
 - Complete JWT inputs from `DEVHUB_JWT.md`, or an explicit authenticated local alias with JWT absent
+
+A local Pool Lease reuses healthy slots and never recreates one; see [Slot ownership](#slot-ownership).
 
 Optional tuning:
 
