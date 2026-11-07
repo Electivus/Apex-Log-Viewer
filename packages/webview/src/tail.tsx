@@ -20,7 +20,7 @@ interface TailUiState {
   onlyUserDebug: boolean;
   autoScroll: boolean;
   colorize: boolean;
-  debugLevel: string;
+  debugLevelByOrg: Record<string, string>;
   selectedIndex?: number;
 }
 
@@ -37,7 +37,7 @@ function readInitialUiState(vscode: VsCodeWebviewApi<WebviewToExtensionMessage>)
     onlyUserDebug: raw.onlyUserDebug === true,
     autoScroll: raw.autoScroll !== false,
     colorize: raw.colorize === true,
-    debugLevel: typeof raw.debugLevel === 'string' ? raw.debugLevel : '',
+    debugLevelByOrg: typeof raw.debugLevelByOrg === 'object' && raw.debugLevelByOrg !== null ? raw.debugLevelByOrg : {},
     selectedIndex:
       typeof raw.selectedIndex === 'number' && Number.isInteger(raw.selectedIndex) && raw.selectedIndex >= 0
         ? raw.selectedIndex
@@ -69,7 +69,8 @@ export function TailApp({
   const autoScrollPausedByScrollRef = useRef(false);
   const [colorize, setColorize] = useState(initialUiStateRef.current.colorize);
   const [debugLevels, setDebugLevels] = useState<string[]>([]);
-  const [debugLevel, setDebugLevel] = useState(initialUiStateRef.current.debugLevel);
+  const [activeDebugLevel, setActiveDebugLevel] = useState<string | undefined>(undefined);
+  const [debugLevelByOrg, setDebugLevelByOrg] = useState(initialUiStateRef.current.debugLevelByOrg);
   const [error, setError] = useState<string | undefined>(undefined);
   const [selectedIndex, setSelectedIndex] = useState<number | undefined>(initialUiStateRef.current.selectedIndex);
   const [loading, setLoading] = useState(false);
@@ -103,16 +104,8 @@ export function TailApp({
         setSelectedOrg(msg.selected);
       }
       if (msg.type === 'debugLevels') {
-        const nextLevels = msg.data || [];
-        setDebugLevels(nextLevels);
-        const active = msg.active;
-        if (typeof active === 'string' && active) {
-          setDebugLevel(prev => (prev && nextLevels.includes(prev) ? prev : active));
-        } else if (nextLevels.length > 0) {
-          setDebugLevel(prev => (prev && nextLevels.includes(prev) ? prev : nextLevels[0]!));
-        } else {
-          setDebugLevel('');
-        }
+        setDebugLevels(msg.data || []);
+        setActiveDebugLevel(msg.active);
       }
       if (msg.type === 'tailStatus') {
         setRunning(!!msg.running);
@@ -148,10 +141,10 @@ export function TailApp({
       onlyUserDebug,
       autoScroll,
       colorize,
-      debugLevel,
+      debugLevelByOrg,
       selectedIndex
     } satisfies TailUiState);
-  }, [autoScroll, colorize, debugLevel, onlyUserDebug, query, selectedIndex, vscode]);
+  }, [autoScroll, colorize, debugLevelByOrg, onlyUserDebug, query, selectedIndex, vscode]);
 
   useEffect(() => {
     tailMaxLinesRef.current = tailMaxLines;
@@ -211,17 +204,22 @@ export function TailApp({
     scrollToIndex(selectedIndex, 'auto');
   }, [selectedIndex, query, lines.length, scrollToIndex]);
 
+  const orgKey = selectedOrg ?? '';
+  const rememberedDebugLevel = debugLevelByOrg[orgKey];
+  const debugLevel =
+    rememberedDebugLevel && debugLevels.includes(rememberedDebugLevel)
+      ? rememberedDebugLevel
+      : activeDebugLevel || debugLevels[0] || '';
+  const rememberDebugLevel = (level: string) => setDebugLevelByOrg(prev => ({ ...prev, [orgKey]: level }));
+
   const start = () => {
     setError(undefined);
-    const effectiveDebugLevel = debugLevel || debugLevels[0] || '';
-    if (!effectiveDebugLevel) {
+    if (!debugLevel) {
       setError(t.tail?.selectDebugLevel ?? 'Select a debug level');
       return;
     }
-    if (effectiveDebugLevel !== debugLevel) {
-      setDebugLevel(effectiveDebugLevel);
-    }
-    vscode.postMessage({ type: 'tailStart', debugLevel: effectiveDebugLevel });
+    rememberDebugLevel(debugLevel);
+    vscode.postMessage({ type: 'tailStart', debugLevel });
   };
   const stop = () => vscode.postMessage({ type: 'tailStop' });
   const clear = () => vscode.postMessage({ type: 'tailClear' });
@@ -280,7 +278,7 @@ export function TailApp({
         onToggleColorize={setColorize}
         debugLevels={debugLevels}
         debugLevel={debugLevel}
-        onDebugLevelChange={setDebugLevel}
+        onDebugLevelChange={rememberDebugLevel}
         autoScroll={autoScroll}
         onToggleAutoScroll={v => {
           setAutoScroll(v);

@@ -47,6 +47,7 @@
 
 ### Fixes
 
+- Tail: the `Debug level` select now remembers one level per org. A level you pick on one org stays after you switch to another org and back, and it no longer carries over to another org that has the same level. Before, the next Start could move your newest `DEVELOPER_LOG` trace flag to a level you did not pick for that org. The single level saved by an earlier version is ignored because it has no org, so each org opens once on its active level.
 - CLI: `sf electivus log status` without `--target-org` now reports the org that `log sync` would use, the project's `target-org` or else the global one, instead of the first org in the `apexlogs/` store. A configured org that was never synced reads `hasState: false`. With no default org and several orgs in the store, the command fails and asks for a target org instead of picking one.
 - Log Viewer: show the log entries in an editor narrower than 1024 px. There the viewer stacks the entries above the Diagnostics panel, and the entries row shrank to about 13 px, so no entry was visible; it now keeps at least 18rem and the view scrolls to the Diagnostics panel below.
 - Custom Logs: an event that a capture stored just before another process took its lease now shows in that capture. The process that took over receives the event again and stores nothing, so until now neither process showed it, although `custom-log list` did.
