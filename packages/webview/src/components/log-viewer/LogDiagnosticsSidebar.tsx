@@ -48,7 +48,7 @@ export function LogDiagnosticsSidebar({
   ];
 
   return (
-    <aside className="flex min-h-0 flex-col border-l border-border">
+    <aside className="flex max-h-56 min-h-0 flex-col border-l border-border lg:max-h-none">
       <div className="flex shrink-0 items-center justify-between gap-2 px-3 pt-2">
         <div className="flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">
           <ScanSearch className="h-3.5 w-3.5" aria-hidden="true" />

@@ -426,7 +426,7 @@ export function LogViewerApp({
       />
       {failure && !error && <LogFailureBanner failure={failure} onGoToError={goToFailure} t={t} />}
       <LogViewerFilters active={filter} onChange={setFilter} counts={counts} locale={locale} t={t} />
-      <main className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,14rem)] lg:grid-cols-[minmax(0,1fr)_20rem] lg:grid-rows-1">
+      <main className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(10rem,1fr)_minmax(7rem,auto)] overflow-y-auto lg:overflow-hidden lg:grid-cols-[minmax(0,1fr)_20rem] lg:grid-rows-1">
         <section className="flex min-h-0 min-w-0 flex-col">
           {error ? (
             <div role="alert" className="px-3 py-2 text-sm text-destructive">
