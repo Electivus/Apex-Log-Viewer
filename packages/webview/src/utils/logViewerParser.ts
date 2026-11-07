@@ -1,4 +1,5 @@
 import { isErrorEventType } from '@alv/protocol/logErrorSignals';
+import { decodeLogLine, decodeLogText } from '@alv/protocol/logText';
 
 export type LogCategory = 'debug' | 'soql' | 'dml' | 'code' | 'limit' | 'system' | 'error' | 'other';
 
@@ -15,17 +16,6 @@ export interface ParsedLogEntry {
 }
 
 const APEX_EVENT_LINE = /^\d{1,2}:\d{2}:\d{2}\.\d+(?:\s+\(\d+\))?\s*\|/;
-const SOURCE_ECHO_PREFIX = 'Execute Anonymous: ';
-
-/** Salesforce writes `|` in log text as `&#124;`. It changes no other character, not even `&`. */
-export function decodeLogText(text: string): string {
-  return text.replace(/&#124;/g, '|');
-}
-
-/** The log does not escape the Apex source that Execute Anonymous echoes. */
-export function decodeLogLine(line: string): string {
-  return line.startsWith(SOURCE_ECHO_PREFIX) ? line : decodeLogText(line);
-}
 
 export function parseLogLines(lines: string[]): ParsedLogEntry[] {
   const entries: ParsedLogEntry[] = [];

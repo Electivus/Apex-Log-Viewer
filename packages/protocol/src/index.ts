@@ -8,6 +8,7 @@ export * from './debugFlagsTypes.js';
 export * from './debugLevelPresets.js';
 export * from './format.js';
 export * from './logErrorSignals.js';
+export * from './logText.js';
 export * from './logTriage.js';
 export * from './logViewerMessages.js';
 export * from './logsColumns.js';

@@ -1,5 +1,5 @@
 import React from 'react';
-import { decodeLogText } from './logViewerParser';
+import { decodeLogText } from '@alv/protocol/logText';
 
 // Types used by tail view helpers
 export type ParsedApexLine = {
