@@ -42,12 +42,21 @@ export function escapeSoqlLikeLiteral(value: string): string {
 
 const EXPONENT_FORM = /^(-?)(\d+)(?:\.(\d+))?e([+-]\d+)$/;
 
+/** SOQL reads digits without a decimal point as a 32-bit integer and refuses a larger magnitude, whatever the sign (measured). */
+const SOQL_MAX_INTEGER_LITERAL = 2_147_483_647;
+
 /**
  * A finite number as a SOQL numeric literal. SOQL has no exponent notation, and `String` writes
- * one at and above 1e21 and below 1e-6, so those are spelled out with the same digits.
+ * one at and above 1e21 and below 1e-6, so those are spelled out with the same digits. A whole
+ * number past the 32-bit range, such as an epoch in milliseconds, gets `.0` so SOQL reads it as a decimal.
  */
 export function soqlNumberLiteral(value: number): string {
   if (!Number.isFinite(value)) throw new AlvError('INVALID_ARGUMENT', `${value} is not a finite number.`);
+  const digits = plainDigits(value);
+  return Number.isInteger(value) && Math.abs(value) > SOQL_MAX_INTEGER_LITERAL ? `${digits}.0` : digits;
+}
+
+function plainDigits(value: number): string {
   const text = String(value);
   const exponent = EXPONENT_FORM.exec(text);
   if (!exponent) return text;

@@ -608,7 +608,7 @@ test('unlocked Nebula entries list each linked entry with its header read throug
 
   assertSoql(
     plan.soql,
-    `SELECT ${ENTRY_ROW_SELECT_UNLOCKED} FROM LogEntry__c WHERE Log__c != null AND LoggingLevelOrdinal__c >= 8 AND Log__r.LoggedByUsername__c = 'o\\'brien@acme.com' AND EpochTimestamp__c >= 1793232000000 AND EpochTimestamp__c < 1793318400000 AND (CreatedDate < 2026-10-29T23:29:49.000Z OR (CreatedDate = 2026-10-29T23:29:49.000Z AND Id < 'a01000000000001AAA')) ORDER BY CreatedDate DESC, Id DESC LIMIT 2`
+    `SELECT ${ENTRY_ROW_SELECT_UNLOCKED} FROM LogEntry__c WHERE Log__c != null AND LoggingLevelOrdinal__c >= 8 AND Log__r.LoggedByUsername__c = 'o\\'brien@acme.com' AND EpochTimestamp__c >= 1793232000000.0 AND EpochTimestamp__c < 1793318400000.0 AND (CreatedDate < 2026-10-29T23:29:49.000Z OR (CreatedDate = 2026-10-29T23:29:49.000Z AND Id < 'a01000000000001AAA')) ORDER BY CreatedDate DESC, Id DESC LIMIT 2`
   );
 });
 
@@ -630,7 +630,7 @@ test('a LoggerEndUser entries list selects no field describe hides from them', (
 
   assertSoql(
     plan.soql,
-    `SELECT ${ENTRY_ROW_SELECT_MANAGED_ENDUSER} FROM Nebula__LogEntry__c WHERE Nebula__Log__c != null AND Nebula__Log__r.Nebula__LoggedByUsername__c = 'dev@acme.com' AND Nebula__EpochTimestamp__c >= 1793232000000 ORDER BY CreatedDate DESC, Id DESC LIMIT 6`
+    `SELECT ${ENTRY_ROW_SELECT_MANAGED_ENDUSER} FROM Nebula__LogEntry__c WHERE Nebula__Log__c != null AND Nebula__Log__r.Nebula__LoggedByUsername__c = 'dev@acme.com' AND Nebula__EpochTimestamp__c >= 1793232000000.0 ORDER BY CreatedDate DESC, Id DESC LIMIT 6`
   );
 });
 
