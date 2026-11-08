@@ -9,16 +9,17 @@ import type {
 import { customLogError } from './errors.js';
 import {
   assertNever,
-  filterableField,
   headerObject,
   isEventSource,
   listedObject,
+  listingOf,
   expandedPayloadFields,
   readablePayloadFields,
   type CatalogEntry,
   type ResolvedEventObject,
   type ResolvedEventPayload,
   type ResolvedField,
+  type ResolvedListing,
   type ResolvedPayload,
   type ResolvedRecordSource,
   type ResolvedShape,
@@ -192,13 +193,19 @@ export function eventCapabilities(event: ResolvedEventObject): CustomLogSourceIn
   };
 }
 
+/** What a list of `listing` can filter on. `sources` reports it, so a flag and the query cannot disagree. */
+export function capabilitiesOf(
+  listing: ResolvedListing
+): Pick<CustomLogSourceInfo['capabilities'], 'levelFilter' | 'userFilter'> {
+  return { levelFilter: listing.filters.level.kind !== 'none', userFilter: listing.filters.user !== undefined };
+}
+
 type ReadyFacts = Pick<CustomLogSourceInfo, 'capabilities' | 'payload'> & { objects: CustomLogSourceObjects };
 
 function readyFacts(shape: ResolvedShape): ReadyFacts {
   switch (shape.kind) {
     case 'transactions':
     case 'entries': {
-      const listed = listedObject(shape);
       const header = headerObject(shape);
       const transactionPayload = payloadInfo(header?.payload);
       const entryPayload = payloadInfo(shape.entry.payload);
@@ -208,9 +215,8 @@ function readyFacts(shape: ResolvedShape): ReadyFacts {
           entry: shape.entry.object
         },
         capabilities: {
-          levelFilter: listed.levelPredicate.kind !== 'none',
-          userFilter: filterableField(listed.roles.user) !== undefined,
-          apexLogLink: listed.roles.requestId !== undefined
+          ...capabilitiesOf(listingOf(shape)),
+          apexLogLink: listedObject(shape).roles.requestId !== undefined
         },
         payload: {
           ...(transactionPayload ? { transaction: transactionPayload } : {}),

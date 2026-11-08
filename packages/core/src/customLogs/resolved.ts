@@ -172,12 +172,19 @@ export type ResolvedEventObject = DecodableEntryObject & {
   readonly payload?: ResolvedEventPayload;
 };
 
+/**
+ * The entry's reference to its header, with the relationship name describe reports (`Log__r`,
+ * managed `Nebula__Log__r`). The only source of a relationship prefix, so no code builds `__r`
+ * names from `__c` ones.
+ */
+export type ResolvedParent = ResolvedField & { readonly relationshipName: string };
+
 export type ResolvedRecordShape =
   | { readonly kind: 'entries'; readonly entry: ResolvedEntryObject }
   | {
       readonly kind: 'transactions';
       readonly transaction: ResolvedTransactionObject;
-      readonly entry: ResolvedEntryObject & { readonly parent: ResolvedField };
+      readonly entry: ResolvedEntryObject & { readonly parent: ResolvedParent };
     };
 
 export type ResolvedEventShape = { readonly kind: 'events'; readonly event: ResolvedEventObject };
@@ -199,6 +206,53 @@ export function listedObject(shape: ResolvedRecordShape): ResolvedTransactionObj
       return shape.transaction;
     case 'entries':
       return shape.entry;
+    default:
+      return assertNever(shape, 'record shape');
+  }
+}
+
+/** What a list filters on, each a field of the listed object. `user` is filterable or absent. */
+export type ListingFilters = {
+  readonly level: EntryLevelPredicate | HeaderLevelPredicate;
+  readonly user: ResolvedField | undefined;
+  readonly time: ResolvedTimeField;
+};
+
+/**
+ * What one list row reads: the single switch over the source shape. The SELECT, the decoder, the
+ * WHERE, the filter capabilities and the cursor kind all derive from it, so none can disagree.
+ */
+export type ResolvedListing =
+  | {
+      readonly rows: 'headers';
+      readonly cursorKind: 'list';
+      readonly header: ResolvedTransactionObject;
+      readonly filters: ListingFilters;
+    }
+  | {
+      readonly rows: 'entries';
+      readonly cursorKind: 'list';
+      readonly entry: ResolvedEntryObject;
+      readonly filters: ListingFilters;
+    };
+
+function entryFilters(entry: ResolvedEntryObject): ListingFilters {
+  return { level: entry.levelPredicate, user: filterableField(entry.roles.user), time: entry.timeFilter };
+}
+
+export function listingOf(shape: ResolvedRecordShape): ResolvedListing {
+  switch (shape.kind) {
+    case 'transactions': {
+      const header = shape.transaction;
+      return {
+        rows: 'headers',
+        cursorKind: 'list',
+        header,
+        filters: { level: header.levelPredicate, user: filterableField(header.roles.user), time: header.timeFilter }
+      };
+    }
+    case 'entries':
+      return { rows: 'entries', cursorKind: 'list', entry: shape.entry, filters: entryFilters(shape.entry) };
     default:
       return assertNever(shape, 'record shape');
   }

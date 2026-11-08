@@ -129,6 +129,37 @@ test('managed Nebula qualifies every custom name with its namespace and keeps th
   assert.equal(source.shape.kind === 'transactions' && source.shape.transaction.object, 'Nebula__Log__c');
 });
 
+test('the entry parent carries the relationship name describe reports, namespaced on managed', () => {
+  const parentOf = (source: ResolvedSource) =>
+    source.shape.kind === 'transactions'
+      ? [source.shape.entry.parent.api, source.shape.entry.parent.relationshipName]
+      : [];
+
+  assert.deepEqual(parentOf(ready(resolveDefinition(nebula, 'builtin', '', unlockedEndUser))), ['Log__c', 'Log__r']);
+  assert.deepEqual(
+    parentOf(ready(resolveDefinition(NEBULA_MANAGED_PRESET.definition, 'builtin', 'Nebula', managedEndUser))),
+    ['Nebula__Log__c', 'Nebula__Log__r']
+  );
+});
+
+test('a parent without a relationship name in describe makes the source unavailable', () => {
+  const describes = new Map(unlockedAdmin);
+  const entry = describes.get('LogEntry__c')!;
+  describes.set('LogEntry__c', {
+    ...entry,
+    fields: entry.fields.map(field => {
+      if (field.name !== 'Log__c') return field;
+      const { relationshipName: _relationshipName, ...rest } = field;
+      return rest;
+    })
+  });
+
+  const result = resolveDefinition(nebula, 'builtin', '', describes);
+
+  assert.equal(result.state === 'unavailable' && result.reason, 'fieldTypeMismatch');
+  assert.match(result.state === 'unavailable' ? result.message : '', /entry\.parent \("Log__c"\)/);
+});
+
 test('a LoggerEndUser describe drops the fields it omits and keeps the Has flags', () => {
   const source = ready(resolveDefinition(NEBULA_MANAGED_PRESET.definition, 'builtin', 'Nebula', managedEndUser));
   assert.equal(source.shape.kind, 'transactions');

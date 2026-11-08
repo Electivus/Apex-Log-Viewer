@@ -42,6 +42,7 @@ import {
   type ResolvedEventPayload,
   type ResolvedField,
   type ResolvedLongField,
+  type ResolvedParent,
   type ResolvedPayload,
   type ResolvedPayloadPath,
   type ResolvedRecordShape,
@@ -177,6 +178,19 @@ class ObjectResolver {
     const field = this.field(path, types, what);
     if (!field) this.hidden.push(what);
     return field;
+  }
+
+  /** The entry's reference to its header, with the relationship name a header field is read through. */
+  parent(path: string): ResolvedParent {
+    const field = this.required(path, ['reference'], 'entry.parent');
+    const relationshipName = findField(this.describe, field.api)?.relationshipName;
+    if (!relationshipName) {
+      throw new Fail({
+        reason: 'fieldTypeMismatch',
+        message: `entry.parent ("${field.api}") has no relationship name in describe, so an entry cannot read its header.`
+      });
+    }
+    return { ...field, relationshipName };
   }
 
   /**
@@ -411,7 +425,8 @@ function headOf(definition: SourceDefinition, origin: CustomLogSourceOrigin, nam
  *
  * - Required role missing or hidden → `unavailable: requiredFieldMissing`.
  * - A role, detail flag or payload field whose type is outside its accepted types
- *   (role table, FLAG_TYPES, LONG_TEXT_TYPES) → `unavailable: fieldTypeMismatch`.
+ *   (role table, FLAG_TYPES, LONG_TEXT_TYPES) → `unavailable: fieldTypeMismatch`, as is an
+ *   `entry.parent` describe reports no relationship name for.
  * - Optional role, column, detail flag hidden → dropped, listed in `hidden`.
  * - Detail or payload text hidden → kept as `{ state: 'hidden' }`, listed in `hidden`.
  * - Relationship path `Rel.Field`: the first hop must be a reference whose `relationshipName`
@@ -486,7 +501,7 @@ function resolveRecordSource({
     let hidden: string[];
     switch (shape.kind) {
       case 'transactions': {
-        const parent = entryResolver.required(shape.entry.parent, ['reference'], 'entry.parent');
+        const parent = entryResolver.parent(shape.entry.parent);
         const withParent = { ...entry, parent };
         const transactionResolver = new ObjectResolver(transactionDescribe!, describes, namespace);
         resolvedShape = {

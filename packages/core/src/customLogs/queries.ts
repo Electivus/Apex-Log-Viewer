@@ -49,11 +49,13 @@ import {
   filterableField,
   headerObject,
   listedObject,
+  listingOf,
   type EntryLevelPredicate,
   type FieldLevelPredicate,
   type HeaderLevelPredicate,
   type ResolvedEntryObject,
   type ResolvedField,
+  type ResolvedListing,
   type ResolvedPayload,
   type ResolvedRecordShape,
   type ResolvedRecordSource,
@@ -302,38 +304,34 @@ function recordIdentity(record: Record<string, unknown>): RowIdentity {
   return { id: String(record.Id), createdDate: createdDateOf(record) };
 }
 
-/** What a list row (or `get`'s header row) reads: the header object, or the entry object of an `entries` source. */
-function rowObject(source: ResolvedRecordSource) {
-  const { shape, levels } = source;
-  switch (shape.kind) {
-    case 'transactions': {
-      const { transaction } = shape;
-      const { roles } = transaction;
+/** How a listing reads its rows: the object, the fields, and the decoder. */
+type RowReader = {
+  readonly object: string;
+  readonly select: Select;
+  readonly decode: (record: Record<string, unknown>) => CustomLogRow;
+};
+
+function rowListing(source: ResolvedRecordSource, listing: ResolvedListing): RowReader {
+  const { levels } = source;
+  switch (listing.rows) {
+    case 'headers': {
+      const { header } = listing;
       return {
-        object: transaction.object,
-        timeFilter: transaction.timeFilter,
-        levelPredicate: transaction.levelPredicate,
-        user: filterableField(roles.user),
-        select: new Select().add(...Object.values(roles), ...transaction.columns, payloadField(transaction.payload)),
-        decode: (record: Record<string, unknown>) =>
-          transactionRow(transaction, levels, recordSubject(transaction.payload, record, recordIdentity(record)))
+        object: header.object,
+        select: new Select().add(...Object.values(header.roles), ...header.columns, payloadField(header.payload)),
+        decode: record => transactionRow(header, levels, recordSubject(header.payload, record, recordIdentity(record)))
       };
     }
     case 'entries': {
-      const { entry } = shape;
-      const { roles } = entry;
+      const { entry } = listing;
       return {
         object: entry.object,
-        timeFilter: entry.timeFilter,
-        levelPredicate: entry.levelPredicate,
-        user: filterableField(roles.user),
-        select: new Select().add(...Object.values(roles), ...entry.columns, payloadField(entry.payload)),
-        decode: (record: Record<string, unknown>) =>
-          entryRow(entry, levels, recordSubject(entry.payload, record, recordIdentity(record)))
+        select: new Select().add(...Object.values(entry.roles), ...entry.columns, payloadField(entry.payload)),
+        decode: record => entryRow(entry, levels, recordSubject(entry.payload, record, recordIdentity(record)))
       };
     }
     default:
-      return assertNever(shape, 'source shape');
+      return assertNever(listing, 'listing');
   }
 }
 
@@ -351,27 +349,33 @@ function levelWhere(
 }
 
 /**
- * `transactions`: header object. `entries`: entry object; `title` is the message preview.
- * Both: `ORDER BY CreatedDate DESC, Id DESC`; `time` is the display time, or CreatedDate when null.
+ * Rows of the listing's object (`listingOf`; the source's own rows when omitted): headers of a
+ * `transactions` source, entries of an `entries` source, whose `title` is the message preview.
+ * Always `ORDER BY CreatedDate DESC, Id DESC`; `time` is the display time, or CreatedDate when null.
  * SELECT adds the payload field when readable; the decoder runs `decodePayload` per row,
  * `summarizePayloadFields` over the page, then `selectPayloadPaths` with `keep`.
  *
- * Filter → WHERE, by resolved capability:
+ * Filter → WHERE, by the listing's `filters`:
  * - minLevel → `levelPredicate` (ordinal ≥ n | IN raw spellings | `Id IN (SELECT parent …)`);
  *   `none` throws CUSTOM_LOG_UNSUPPORTED_FILTER.
  * - user → `<user> = '<escaped>'`; no filterable user role → UNSUPPORTED_FILTER.
  * - since/until → on `timeFilter` (the display time when filterable, else CreatedDate), literal per `encoding`.
  * - after → `(CreatedDate < :t OR (CreatedDate = :t AND Id < :id))`.
  */
-export function listPlan(source: ResolvedRecordSource, params: ListPlanParams): QueryPlan<Page<CustomLogRow>> {
-  const row = rowObject(source);
+export function listPlan(
+  source: ResolvedRecordSource,
+  params: ListPlanParams,
+  listing: ResolvedListing = listingOf(source.shape)
+): QueryPlan<Page<CustomLogRow>> {
+  const row = rowListing(source, listing);
+  const { filters } = listing;
   const { filter, after, limit } = params;
   const conditions = [
-    ...(filter.minLevel ? [levelWhere(source, row.levelPredicate, filter.minLevel)] : []),
+    ...(filter.minLevel ? [levelWhere(source, filters.level, filter.minLevel)] : []),
     ...(filter.user
-      ? [`${row.user?.api ?? unsupported(source, 'filterable user mapping')} = ${quote(filter.user)}`]
+      ? [`${filters.user?.api ?? unsupported(source, 'filterable user mapping')} = ${quote(filter.user)}`]
       : []),
-    ...timeWindow(row.timeFilter, filter),
+    ...timeWindow(filters.time, filter),
     ...(after ? [beforeCreated(after)] : [])
   ];
   return {
@@ -396,7 +400,7 @@ export function rowPlan(
   source: ResolvedRecordSource,
   id: RecordId
 ): QueryPlan<{ row: CustomLogRow; logPayload?: CustomLogLongValue } | undefined> {
-  const row = rowObject(source);
+  const row = rowListing(source, listingOf(source.shape));
   const payload = headerObject(source.shape)?.payload;
   return {
     soql: soql(`SELECT ${row.select} FROM ${row.object} WHERE Id = ${quote(id)} LIMIT 1`),
