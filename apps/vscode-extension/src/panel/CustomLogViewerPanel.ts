@@ -27,13 +27,31 @@ export interface CustomLogViewerShowOptions {
   logId: string;
   /** The entry JSON columns the source's mapping defaults, as the list that opens the log holds them. */
   payloadDefaults: readonly string[];
+  /** The entry the user opened. The panel pages until it holds it, then tells the webview to select it. */
+  focusEntryId?: string;
 }
 
 const ENTRIES_PAGE_SIZE = 200;
+const CHASE_PAGE_SIZE = 2_000;
+/** Bounds what one focus brings into the webview, so opening an entry of a huge transaction stays responsive. */
+const MAX_CHASED_ENTRIES = 10_000;
 const MAX_HELD_ENTRIES = 50;
 
 type ErrorScope = Extract<CustomLogViewerToWebviewMessage, { type: 'customLogViewerError' }>['scope'];
 type HeldEntry = { sequence: number; fields: BuiltLongFields };
+
+/** Where the next `get` page starts: unknown before the first page lands, `null` once every entry is delivered. */
+type EntryPages = { state: 'unloaded' } | { state: 'loaded'; cursor: string | null };
+
+/**
+ * The entry the list opened, from the request until the panel delivers it (`found`) or delivers every entry
+ * without it (`notFound`). Past MAX_CHASED_ENTRIES the panel answers `notLoaded` and stays pending, so the
+ * user's Load more can still find it. A newer request replaces an older one.
+ */
+type Focus = { state: 'idle' } | { state: 'pending'; entryId: string };
+type FocusAnswer = Extract<CustomLogViewerToWebviewMessage, { type: 'customLogViewerFocus' }>['state'];
+
+const IDLE: Focus = { state: 'idle' };
 
 export class CustomLogViewerPanel {
   private static context: vscode.ExtensionContext | undefined;
@@ -56,9 +74,12 @@ export class CustomLogViewerPanel {
     const existing = this.panels.get(key);
     if (existing) {
       existing.panel.reveal(undefined, false);
+      existing.focus(options.focusEntryId);
       return;
     }
-    this.panels.set(key, new CustomLogViewerPanel(context, payloadColumns, options, () => this.panels.delete(key)));
+    const viewer = new CustomLogViewerPanel(context, payloadColumns, options, () => this.panels.delete(key));
+    this.panels.set(key, viewer);
+    viewer.focus(options.focusEntryId);
   }
 
   static closeAll(): void {
@@ -75,7 +96,8 @@ export class CustomLogViewerPanel {
   private title: string;
   private apexLog: CustomLogApexLogLink = { state: 'noRequestId' };
   private headerPayload: HeldLongText | undefined;
-  private cursor: string | null = null;
+  private pages: EntryPages = { state: 'unloaded' };
+  private pendingFocus: Focus = IDLE;
   private readonly deliveredEntryIds = new Set<string>();
   private readonly heldEntries = new Map<string, HeldEntry>();
 
@@ -152,11 +174,18 @@ export class CustomLogViewerPanel {
     }
   }
 
+  /** Starts a delivery, cancelling the one in flight: a refresh supersedes a Load more and the reverse. */
   private begin(): AbortSignal {
     this.loadController?.abort();
     const controller = new AbortController();
     this.loadController = controller;
     return controller.signal;
+  }
+
+  private end(signal: AbortSignal): void {
+    if (this.loadController?.signal === signal) {
+      this.loadController = undefined;
+    }
   }
 
   private scope(projectDir: string | undefined) {
@@ -185,7 +214,7 @@ export class CustomLogViewerPanel {
         return;
       }
       this.apexLog = detail.apexLog;
-      this.cursor = detail.nextCursor;
+      this.pages = { state: 'loaded', cursor: detail.nextCursor };
       const header = buildHeaderPayloadField(detail.logPayload, this.labels().payload);
       this.headerPayload = header?.held;
       this.title = detail.log.title ?? this.options.logId;
@@ -213,6 +242,7 @@ export class CustomLogViewerPanel {
         hasMore: detail.nextCursor !== null
       });
       safeSendEvent('customLogs.openLog', { outcome: 'ok' }, { durationMs: Date.now() - startedAt });
+      await this.settleFocus(signal);
     } catch (error) {
       if (signal.aborted || this.disposed) {
         return;
@@ -224,26 +254,41 @@ export class CustomLogViewerPanel {
         this.post({ type: 'customLogViewerLoading', scope: 'log', value: false });
         this.post({ type: 'customLogViewerLoading', scope: 'entries', value: false });
       }
+      this.end(signal);
     }
   }
 
   private async loadMoreEntries(): Promise<void> {
-    const cursor = this.cursor;
-    if (cursor === null) {
+    if (this.pages.state !== 'loaded' || this.pages.cursor === null) {
       return;
     }
     const signal = this.begin();
+    try {
+      if (await this.appendPage(ENTRIES_PAGE_SIZE, signal)) {
+        await this.settleFocus(signal);
+      }
+    } finally {
+      this.end(signal);
+    }
+  }
+
+  /** The next page after the cursor, appended to the webview's entries. False when it was cancelled or failed. */
+  private async appendPage(limit: number, signal: AbortSignal): Promise<boolean> {
+    const cursor = this.pages.state === 'loaded' ? this.pages.cursor : null;
+    if (cursor === null) {
+      return false;
+    }
     this.post({ type: 'customLogViewerLoading', scope: 'entries', value: true });
     try {
       const projectDir = await findCustomLogsProjectDir();
       const detail = await runtimeClient.customLogGet(
-        { ...this.scope(projectDir), logId: this.options.logId, cursor, limit: ENTRIES_PAGE_SIZE },
+        { ...this.scope(projectDir), logId: this.options.logId, cursor, limit },
         signal
       );
       if (signal.aborted || this.disposed) {
-        return;
+        return false;
       }
-      this.cursor = detail.nextCursor;
+      this.pages = { state: 'loaded', cursor: detail.nextCursor };
       for (const entry of detail.entries) {
         this.deliveredEntryIds.add(entry.id);
       }
@@ -254,15 +299,70 @@ export class CustomLogViewerPanel {
         payloadFields: detail.payloadFields,
         hasMore: detail.nextCursor !== null
       });
+      return true;
     } catch (error) {
       if (!signal.aborted && !this.disposed) {
         this.showFailure('entries', error);
       }
+      return false;
     } finally {
       if (!signal.aborted && !this.disposed) {
         this.post({ type: 'customLogViewerLoading', scope: 'entries', value: false });
       }
     }
+  }
+
+  /**
+   * Asks the panel to select `entryId` once it holds it. Safe to repeat: a second request for the same entry
+   * settles again and posts the same answer.
+   */
+  private focus(entryId: string | undefined): void {
+    if (entryId === undefined) {
+      return;
+    }
+    this.pendingFocus = { state: 'pending', entryId };
+    // Before the webview is ready, its first load settles the focus; during a delivery, that delivery does.
+    if (!this.ready || this.loadController) {
+      return;
+    }
+    const signal = this.begin();
+    void this.settleFocus(signal).finally(() => this.end(signal));
+  }
+
+  /**
+   * Runs after every delivery. Chases pages of CHASE_PAGE_SIZE until the pending entry is delivered, the
+   * entries run out, or MAX_CHASED_ENTRIES are delivered. The request is read again after each page and
+   * answered before the next await, so a request made during the chase is the one answered.
+   */
+  private async settleFocus(signal: AbortSignal): Promise<void> {
+    for (;;) {
+      const focus = this.pendingFocus;
+      if (focus.state !== 'pending' || this.pages.state !== 'loaded' || signal.aborted || this.disposed) {
+        return;
+      }
+      if (this.deliveredEntryIds.has(focus.entryId)) {
+        this.answerFocus(focus, 'found');
+        return;
+      }
+      if (this.pages.cursor === null) {
+        this.answerFocus(focus, 'notFound');
+        return;
+      }
+      if (this.deliveredEntryIds.size >= MAX_CHASED_ENTRIES) {
+        this.answerFocus(focus, 'notLoaded');
+        return;
+      }
+      if (!(await this.appendPage(CHASE_PAGE_SIZE, signal))) {
+        return;
+      }
+    }
+  }
+
+  private answerFocus(focus: Extract<Focus, { state: 'pending' }>, state: FocusAnswer): void {
+    if (state !== 'notLoaded') {
+      this.pendingFocus = IDLE;
+    }
+    this.post({ type: 'customLogViewerFocus', entryId: focus.entryId, state });
   }
 
   private async fetchEntry(entryId: string): Promise<HeldEntry> {

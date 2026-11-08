@@ -137,7 +137,13 @@ function load() {
   fake.handlers.customLogEntry = async () => entryResult();
 
   async function open(
-    options: { targetOrg?: string; sourceId?: string; logId?: string; payloadDefaults?: string[] } = {}
+    options: {
+      targetOrg?: string;
+      sourceId?: string;
+      logId?: string;
+      payloadDefaults?: string[];
+      focusEntryId?: string;
+    } = {}
   ) {
     await CustomLogViewerPanel.show({
       targetOrg: 'dev@example.com',
@@ -155,6 +161,31 @@ function load() {
 }
 
 const textOf = (host: FakeHost) => JSON.stringify(host.posted);
+
+const entryIdAt = (index: number) => `a01${String(index).padStart(12, '0')}AAA`;
+
+/** A Nebula log of `total` entries that `get` pages by its cursor and limit, as core does. */
+function pagedLog(total: number) {
+  return async (params: { cursor?: string; limit?: number }) => {
+    const start = params.cursor ? Number(params.cursor) : 0;
+    const end = Math.min(total, start + (params.limit ?? 200));
+    return {
+      source: { id: 'nebula', label: 'Nebula Logger', shape: 'transactions' as const },
+      log: row(LOG_ID, 'Log-000739'),
+      entryColumns: [],
+      entries: Array.from({ length: end - start }, (_, offset) => entry(entryIdAt(start + offset), start + offset + 1)),
+      payloadFields: [],
+      nextCursor: end < total ? String(end) : null,
+      apexLog: LINKED
+    };
+  };
+}
+
+const focusAnswers = (host: FakeHost) =>
+  host.posted
+    .filter(message => message.type === 'customLogViewerFocus')
+    .map(message => [message.entryId, message.state] as const);
+const pageReads = (calls: Array<{ cursor?: string; limit?: number }>) => calls.map(call => [call.cursor, call.limit]);
 
 suite('Custom Logs viewer panel', () => {
   test('loads the log, its first entries and the source defaults, and never sends long text to the webview', async () => {
@@ -279,6 +310,138 @@ suite('Custom Logs viewer panel', () => {
 
       assert.equal(fake.calls.customLogGet.at(-1)?.cursor, undefined);
       assert.equal((host.last('customLogViewerEntries') as never as { mode: string }).mode, 'replace');
+    });
+  });
+
+  suite('landing on the entry the list opened', () => {
+    test('answers found after the first page that holds it, with one read', async () => {
+      const { fake, open } = load();
+      fake.handlers.customLogGet = pagedLog(3);
+
+      const host = await open({ focusEntryId: entryIdAt(1) });
+
+      assert.deepEqual(pageReads(fake.calls.customLogGet), [[undefined, 200]]);
+      assert.deepEqual(focusAnswers(host), [[entryIdAt(1), 'found']]);
+      const types = host.posted.map(message => message.type);
+      assert.ok(types.indexOf('customLogViewerEntries') < types.indexOf('customLogViewerFocus'));
+    });
+
+    test('chases pages of 2,000 from the cursor until the entry arrives', async () => {
+      const { fake, open } = load();
+      fake.handlers.customLogGet = pagedLog(4_500);
+
+      const host = await open({ focusEntryId: entryIdAt(4_300) });
+
+      assert.deepEqual(pageReads(fake.calls.customLogGet), [
+        [undefined, 200],
+        ['200', 2_000],
+        ['2200', 2_000],
+        ['4200', 2_000]
+      ]);
+      assert.deepEqual(focusAnswers(host), [[entryIdAt(4_300), 'found']]);
+      const appended = host.posted.filter(
+        message => message.type === 'customLogViewerEntries' && message.mode === 'append'
+      );
+      assert.equal(appended.length, 3);
+    });
+
+    test('stops at 10,000 entries with notLoaded, and the next Load more lands on it', async () => {
+      const { fake, open } = load();
+      fake.handlers.customLogGet = pagedLog(10_500);
+
+      const host = await open({ focusEntryId: entryIdAt(10_300) });
+
+      assert.equal(fake.calls.customLogGet.length, 6, 'the first page and five chased pages reach 10,200 entries');
+      assert.deepEqual(focusAnswers(host), [[entryIdAt(10_300), 'notLoaded']]);
+
+      await host.emit({ type: 'customLogViewerLoadMoreEntries' });
+
+      assert.deepEqual(pageReads(fake.calls.customLogGet).at(-1), ['10200', 200]);
+      assert.deepEqual(focusAnswers(host).at(-1), [entryIdAt(10_300), 'found']);
+    });
+
+    test('answers notFound when every entry is delivered without it', async () => {
+      const { fake, open } = load();
+      fake.handlers.customLogGet = pagedLog(300);
+
+      const host = await open({ focusEntryId: 'a01000000009999AAA' });
+
+      assert.deepEqual(pageReads(fake.calls.customLogGet), [
+        [undefined, 200],
+        ['200', 2_000]
+      ]);
+      assert.deepEqual(focusAnswers(host), [['a01000000009999AAA', 'notFound']]);
+    });
+
+    test('a second entry of an open log reveals its viewer and lands there, without a new panel', async () => {
+      const { fake, panels, open, CustomLogViewerPanel } = load();
+      fake.handlers.customLogGet = pagedLog(3);
+      const host = await open({ focusEntryId: entryIdAt(0) });
+
+      await CustomLogViewerPanel.show({
+        targetOrg: 'dev@example.com',
+        sourceId: 'nebula',
+        logId: LOG_ID,
+        payloadDefaults: [],
+        focusEntryId: entryIdAt(2)
+      });
+      await settle();
+
+      assert.equal(panels.length, 1);
+      assert.equal(host.revealed, 1);
+      assert.equal(fake.calls.customLogGet.length, 1, 'the entry was already delivered');
+      assert.deepEqual(focusAnswers(host), [
+        [entryIdAt(0), 'found'],
+        [entryIdAt(2), 'found']
+      ]);
+    });
+
+    test('a request made during a chase is the one answered', async () => {
+      const { fake, open, CustomLogViewerPanel } = load();
+      const paged = pagedLog(4_500);
+      fake.handlers.customLogGet = async params => {
+        if (params.cursor === '200') {
+          void CustomLogViewerPanel.show({
+            targetOrg: 'dev@example.com',
+            sourceId: 'nebula',
+            logId: LOG_ID,
+            payloadDefaults: [],
+            focusEntryId: entryIdAt(100)
+          });
+        }
+        return paged(params);
+      };
+
+      const host = await open({ focusEntryId: entryIdAt(4_300) });
+      await settle();
+
+      assert.deepEqual(focusAnswers(host), [[entryIdAt(100), 'found']]);
+      assert.equal(fake.calls.customLogGet.length, 2, 'the chase stops once the newer request is answered');
+    });
+
+    test('refresh keeps a request it has not answered', async () => {
+      const { fake, open } = load();
+      fake.handlers.customLogGet = pagedLog(10_500);
+      const host = await open({ focusEntryId: entryIdAt(10_300) });
+
+      await host.emit({ type: 'customLogViewerRefresh' });
+      await host.emit({ type: 'customLogViewerLoadMoreEntries' });
+
+      assert.deepEqual(focusAnswers(host), [
+        [entryIdAt(10_300), 'notLoaded'],
+        [entryIdAt(10_300), 'notLoaded'],
+        [entryIdAt(10_300), 'found']
+      ]);
+    });
+
+    test('opening the log without an entry answers nothing', async () => {
+      const { fake, open } = load();
+      fake.handlers.customLogGet = pagedLog(4_500);
+
+      const host = await open();
+
+      assert.equal(fake.calls.customLogGet.length, 1);
+      assert.deepEqual(focusAnswers(host), []);
     });
   });
 

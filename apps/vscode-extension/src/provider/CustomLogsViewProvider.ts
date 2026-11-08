@@ -626,7 +626,8 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       targetOrg: this.selectedOrg,
       sourceId: source.id,
       logId: row.log?.id ?? row.id,
-      payloadDefaults: source.payload.entry?.columns ?? []
+      payloadDefaults: source.payload.entry?.columns ?? [],
+      focusEntryId: row.id
     });
   }
 

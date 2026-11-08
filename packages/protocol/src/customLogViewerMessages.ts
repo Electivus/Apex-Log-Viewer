@@ -68,6 +68,12 @@ export type CustomLogViewerToWebviewMessage =
   /** `message` first, then each detail in definition order, then `payload`. */
   | { type: 'customLogViewerEntryFields'; entryId: string; fields: CustomLogLongFieldView[] }
   | { type: 'customLogViewerPayloadColumns'; value: CustomLogPayloadColumnsView }
+  /**
+   * The entry the list opened: `found` once the panel delivered it, `notLoaded` when it lies past the entries
+   * the panel brings in on its own (a Load more can still answer `found`), `notFound` when every entry was
+   * delivered without it.
+   */
+  | { type: 'customLogViewerFocus'; entryId: string; state: 'found' | 'notLoaded' | 'notFound' }
   | { type: 'customLogViewerLoading'; scope: 'log' | 'entries' | 'entry'; value: boolean }
   | { type: 'customLogViewerError'; scope: 'log' | 'entries' | 'entry' | 'field' | 'apexLog'; message: string };
 
