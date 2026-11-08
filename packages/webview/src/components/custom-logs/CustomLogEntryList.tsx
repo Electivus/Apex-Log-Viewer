@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { List } from 'react-window';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { List, type DynamicRowHeight } from 'react-window';
 import type { CustomLogEntry } from '@alv/protocol/customLogsTypes';
 import type { CustomLogsMessages } from '../../i18n';
 import { cn } from '../../lib/utils';
@@ -25,11 +25,72 @@ type EntryRowProps = {
   selectedId: string | undefined;
   firstPayloadColumnId: string | undefined;
   onSelect: (entry: CustomLogEntry) => void;
-  setRowHeight: (index: number, size: number) => void;
 };
 
 function detailLabel(key: string): string {
   return key.replace(/__c$/, '');
+}
+
+const entryIdOf = (row: Element) => row.querySelector('[data-entry-id]')?.getAttribute('data-entry-id');
+
+/**
+ * Row heights in react-window's dynamic row height protocol, kept per entry so a filter or sort that moves a row
+ * keeps its height. The List measures every row it renders through `observeRowElements`, and with dynamic heights
+ * its `scrollToRow` keeps following the row while the rows around it measure and the list resizes. A row not yet
+ * measured counts DEFAULT_ROW_HEIGHT, not the average, so measuring the rows in view never moves them.
+ */
+function useEntryRowHeights(entries: readonly CustomLogEntry[]): DynamicRowHeight {
+  const [heights, setHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const observerRef = useRef<ResizeObserver | null>(null);
+
+  const record = useCallback((measured: ReadonlyArray<readonly [string, number]>) => {
+    setHeights(previous => {
+      let next: Map<string, number> | undefined;
+      for (const [entryId, size] of measured) {
+        if ((next ?? previous).get(entryId) !== size) {
+          next ??= new Map(previous);
+          next.set(entryId, size);
+        }
+      }
+      return next ?? previous;
+    });
+  }, []);
+
+  const observeRowElements = useCallback(
+    (elements: Element[] | NodeListOf<Element>) => {
+      observerRef.current ??= new ResizeObserver(records =>
+        record(
+          records.flatMap(({ target, borderBoxSize }) => {
+            const entryId = entryIdOf(target);
+            const size = borderBoxSize[0]?.blockSize ?? 0;
+            return entryId && size > 0 ? [[entryId, Math.ceil(size)] as const] : [];
+          })
+        )
+      );
+      const observer = observerRef.current;
+      const rows = Array.from(elements);
+      rows.forEach(row => observer.observe(row));
+      return () => rows.forEach(row => observer.unobserve(row));
+    },
+    [record]
+  );
+
+  useEffect(() => () => observerRef.current?.disconnect(), []);
+
+  return useMemo<DynamicRowHeight>(
+    () => ({
+      getAverageRowHeight: () => DEFAULT_ROW_HEIGHT,
+      getRowHeight: index => heights.get(entries[index]?.id ?? ''),
+      setRowHeight: (index, size) => {
+        const entryId = entries[index]?.id;
+        if (entryId) {
+          record([[entryId, size]]);
+        }
+      },
+      observeRowElements
+    }),
+    [entries, heights, observeRowElements, record]
+  );
 }
 
 function EntryRowView({
@@ -42,36 +103,16 @@ function EntryRowView({
   totalWidth,
   selectedId,
   firstPayloadColumnId,
-  onSelect,
-  setRowHeight
+  onSelect
 }: EntryRowProps & { index: number; style: React.CSSProperties }) {
   const entry = entries[index];
-  const ref = useRef<HTMLDivElement | null>(null);
-  useLayoutEffect(() => {
-    const element = ref.current;
-    if (!element) {
-      return;
-    }
-    const measure = () => setRowHeight(index, Math.ceil(element.scrollHeight) + 1);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => {
-      try {
-        observer.disconnect();
-      } catch (e) {
-        console.warn('CustomLogEntryList: failed to disconnect ResizeObserver', e);
-      }
-    };
-  }, [entry, index, setRowHeight]);
   if (!entry) {
     return null;
   }
   const selected = entry.id === selectedId;
   return (
-    <div style={style}>
+    <div style={{ ...style, minHeight: DEFAULT_ROW_HEIGHT }}>
       <div
-        ref={ref}
         role="row"
         aria-selected={selected}
         data-entry-id={entry.id}
@@ -180,34 +221,14 @@ export function CustomLogEntryList({
 }: CustomLogEntryListProps) {
   const VirtualList = virtualListComponent ?? List;
   const { setListRef, headerRef, onKeyDown } = useGridList(entries, selectedId, onSelect, undefined, reveal);
-  const rowHeightsRef = useRef<Record<number, number>>({});
-  const rafRef = useRef<number | null>(null);
-  const [, forceRender] = useState(0);
+  const rowHeight = useEntryRowHeights(entries);
 
   const { gridTemplate, totalWidth } = useMemo(() => columnGrid(columns), [columns]);
   const firstPayloadColumnId = useMemo(() => columns.find(column => column.kind === 'payload')?.id, [columns]);
 
-  const setRowHeight = useCallback((index: number, size: number) => {
-    const next = Math.max(DEFAULT_ROW_HEIGHT, Math.ceil(size));
-    if (rowHeightsRef.current[index] !== next) {
-      rowHeightsRef.current[index] = next;
-      if (rafRef.current === null) {
-        rafRef.current = requestAnimationFrame(() => {
-          rafRef.current = null;
-          forceRender(value => value + 1);
-        });
-      }
-    }
-  }, []);
-
-  // Heights belong to positions, so a new order or a new set of rows measures again.
-  useEffect(() => {
-    rowHeightsRef.current = {};
-  }, [entries, columns]);
-
   const rowProps = useMemo<EntryRowProps>(
-    () => ({ t, entries, columns, gridTemplate, totalWidth, selectedId, firstPayloadColumnId, onSelect, setRowHeight }),
-    [t, entries, columns, gridTemplate, totalWidth, selectedId, firstPayloadColumnId, onSelect, setRowHeight]
+    () => ({ t, entries, columns, gridTemplate, totalWidth, selectedId, firstPayloadColumnId, onSelect }),
+    [t, entries, columns, gridTemplate, totalWidth, selectedId, firstPayloadColumnId, onSelect]
   );
 
   return (
@@ -240,7 +261,7 @@ export function CustomLogEntryList({
           className={SCROLLBAR_GUTTER}
           style={{ height: '100%', width: '100%' }}
           rowCount={entries.length}
-          rowHeight={(index: number) => rowHeightsRef.current[index] ?? DEFAULT_ROW_HEIGHT}
+          rowHeight={rowHeight}
           overscanCount={12}
           rowProps={rowProps}
           rowComponent={EntryRowView}

@@ -22,19 +22,23 @@ const mockScrolledRows: number[] = [];
 jest.mock('react-window', () => {
   const React = require('react');
   return {
+    // Like react-window's List over dynamic row heights: each row is laid out at its measured height, or at the
+    // average before it measured, and the rendered rows go to `observeRowElements` after every render.
     List: ({ listRef, rowCount, rowHeight, rowComponent, rowProps, style, className }: any) => {
+      const listElement = React.useRef(null);
       const items = Array.from({ length: rowCount }).map((_: unknown, index: number) =>
         React.createElement(rowComponent, {
           key: index,
           ...rowProps,
           index,
-          style: { height: typeof rowHeight === 'function' ? rowHeight(index) : rowHeight }
+          style: { height: rowHeight.getRowHeight(index) ?? rowHeight.getAverageRowHeight() }
         })
       );
+      React.useLayoutEffect(() => rowHeight.observeRowElements(Array.from(listElement.current.children)));
       const api = { element: null, scrollToRow: ({ index }: { index: number }) => mockScrolledRows.push(index) };
       // Like react-window's List: the handle reaches object and callback refs alike.
       React.useImperativeHandle(listRef, () => api, []);
-      return React.createElement('div', { 'data-testid': 'virtual-list', style, className }, items);
+      return React.createElement('div', { ref: listElement, 'data-testid': 'virtual-list', style, className }, items);
     }
   };
 });
@@ -430,6 +434,57 @@ describe('Custom Log viewer app', () => {
       mountViewer({ entries: [clipped] });
 
       expect(rowOf(clipped.id)).toHaveTextContent('A very long message …');
+    });
+  });
+
+  describe('row heights', () => {
+    const nextFrame = () => act(async () => await new Promise(resolve => setTimeout(resolve, 20)));
+    const heightOf = (id: string) => (rowOf(id).parentElement as HTMLElement).style.height;
+    const NoResizeObserver = globalThis.ResizeObserver;
+
+    beforeEach(() => {
+      // A browser reports each observed row's size soon after it lays the row out: the first entry wraps to 61 px.
+      globalThis.ResizeObserver = class {
+        constructor(private readonly callback: ResizeObserverCallback) {}
+        observe(target: Element) {
+          const entryId = target.querySelector('[data-entry-id]')?.getAttribute('data-entry-id');
+          const blockSize = entryId === entryIds.start ? 61 : 26;
+          setTimeout(() =>
+            this.callback(
+              [{ target, borderBoxSize: [{ blockSize, inlineSize: 800 }] } as unknown as ResizeObserverEntry],
+              this as unknown as ResizeObserver
+            )
+          );
+        }
+        unobserve() {}
+        disconnect() {}
+      } as unknown as typeof ResizeObserver;
+    });
+
+    afterEach(() => {
+      globalThis.ResizeObserver = NoResizeObserver;
+    });
+
+    it('keeps the measured height of a row that stays when the system switch shows more rows', async () => {
+      mountViewer();
+      await nextFrame();
+      expect(heightOf(entryIds.start)).toBe('61px');
+
+      fireEvent.click(screen.getByRole('switch', { name: /Show logger system messages/ }));
+      await nextFrame();
+
+      expect(heightOf(entryIds.start)).toBe('61px');
+      expect(heightOf(entryIds.system)).toBe('26px');
+    });
+
+    it('keeps the measured height of a row when a level filter narrows the list', async () => {
+      mountViewer();
+      await nextFrame();
+
+      fireEvent.click(within(levelGroup()).getByRole('button', { name: /INFO/ }));
+      await nextFrame();
+
+      expect(heightOf(entryIds.start)).toBe('61px');
     });
   });
 

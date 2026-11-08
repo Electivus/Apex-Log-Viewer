@@ -13,6 +13,13 @@ export type RowComponentProps<RowProps extends object = object> = RowProps & {
   style: React.CSSProperties;
 };
 
+export type DynamicRowHeight = {
+  getAverageRowHeight(): number;
+  getRowHeight(index: number): number | undefined;
+  setRowHeight(index: number, size: number): void;
+  observeRowElements: (elements: Element[] | NodeListOf<Element>) => () => void;
+};
+
 export function useDynamicRowHeight(_options: { defaultRowHeight: number }) {
   return {};
 }
