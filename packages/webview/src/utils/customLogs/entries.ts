@@ -5,8 +5,12 @@ import {
   type CustomLogScalar
 } from '@alv/protocol/customLogsTypes';
 import type { DiscoveredField, PayloadColumn } from './payloadRows';
-import { entrySearchText, searchItems, type SearchTerms } from './search';
+import { entrySearchText, matchesSearch, parseSearch, searchItems, type SearchTerms } from './search';
 import { dataColumnSortValue, extraDataColumns, payloadDataColumns, type DataColumn, type SortState } from './columns';
+
+const NO_LEVELS: ReadonlySet<CustomLogLevel> = new Set();
+const NO_DETAILS: ReadonlySet<string> = new Set();
+const NO_SEARCH = parseSearch('');
 
 export type EntryFilters = {
   /** Show only these levels. Empty shows every level. */
@@ -32,6 +36,30 @@ export function filterEntries(entries: readonly CustomLogEntry[], filters: Entry
     return true;
   });
   return searchItems(shown, filters.search, entrySearchText);
+}
+
+/**
+ * The smallest change to `filters` that shows `entry`: system messages on for a system entry, the level, long-field
+ * or search filter dropped when it hides the entry. `filters` itself when the entry already shows, so applying it
+ * twice changes nothing.
+ */
+export function revealEntry(filters: EntryFilters, entry: CustomLogEntry): EntryFilters {
+  const showSystem = filters.showSystem || entry.system;
+  const levels =
+    filters.levels.size === 0 || (entry.level !== undefined && filters.levels.has(entry.level))
+      ? filters.levels
+      : NO_LEVELS;
+  const details =
+    filters.details.size === 0 || entry.presentDetails.some(key => filters.details.has(key))
+      ? filters.details
+      : NO_DETAILS;
+  const search = matchesSearch(entrySearchText(entry), filters.search) ? filters.search : NO_SEARCH;
+  return showSystem === filters.showSystem &&
+    levels === filters.levels &&
+    details === filters.details &&
+    search === filters.search
+    ? filters
+    : { levels, details, showSystem, search };
 }
 
 /** Levels present in the entries, most severe first. */

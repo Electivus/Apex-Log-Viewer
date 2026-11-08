@@ -17,6 +17,8 @@ import type {
 import type { VsCodeWebviewApi } from '../vscodeApi';
 import { CustomLogViewerApp } from '../customLogViewer';
 
+const mockScrolledRows: number[] = [];
+
 jest.mock('react-window', () => {
   const React = require('react');
   return {
@@ -29,7 +31,7 @@ jest.mock('react-window', () => {
           style: { height: typeof rowHeight === 'function' ? rowHeight(index) : rowHeight }
         })
       );
-      const api = { element: null, scrollToRow: () => {} };
+      const api = { element: null, scrollToRow: ({ index }: { index: number }) => mockScrolledRows.push(index) };
       // Like react-window's List: the handle reaches object and callback refs alike.
       React.useImperativeHandle(listRef, () => api, []);
       return React.createElement('div', { 'data-testid': 'virtual-list', style, className }, items);
@@ -702,6 +704,145 @@ describe('Custom Log viewer app', () => {
       fireEvent.click(screen.getByRole('button', { name: '+ Field' }));
 
       expect(screen.getByRole('menuitemcheckbox', { name: /region/ })).toBeInTheDocument();
+    });
+  });
+
+  describe('opening an entry from the list', () => {
+    const focus = (bus: EventTarget, entryId: string, state: 'found' | 'notLoaded' | 'notFound' = 'found') =>
+      send(bus, { type: 'customLogViewerFocus', entryId, state });
+    const systemSwitch = () => screen.getByRole('switch', { name: /Show logger system messages/ });
+
+    beforeEach(() => {
+      mockScrolledRows.length = 0;
+    });
+
+    it('selects the entry, scrolls to it and asks for its long fields', () => {
+      const { bus, posted } = mountViewer();
+
+      focus(bus, entryIds.warn);
+
+      expect(rowOf(entryIds.warn)).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByTestId('custom-log-entry-detail')).toHaveTextContent('Retrying after timeout');
+      expect(posts(posted, 'customLogViewerOpenEntry')).toEqual([
+        { type: 'customLogViewerOpenEntry', entryId: entryIds.warn }
+      ]);
+      expect(mockScrolledRows).toEqual([shownIds().indexOf(entryIds.warn)]);
+    });
+
+    it('shows logger system messages to land on a system entry', () => {
+      const { bus } = mountViewer();
+      expect(rowOf(entryIds.system)).toBeNull();
+
+      focus(bus, entryIds.system);
+
+      expect(systemSwitch()).toBeChecked();
+      expect(rowOf(entryIds.system)).toHaveAttribute('aria-selected', 'true');
+      expect(mockScrolledRows).toEqual([shownIds().indexOf(entryIds.system)]);
+    });
+
+    it('drops only the filters that hide the entry, once, and leaves later filters to the user', () => {
+      const { bus } = mountViewer();
+      fireEvent.click(within(levelGroup()).getByRole('button', { name: /ERROR/ }));
+      fireEvent.change(viewerSearch(), { target: { value: 'divide' } });
+      expect(shownIds()).toEqual([entryIds.error]);
+
+      focus(bus, entryIds.warn);
+
+      expect(viewerSearch()).toHaveValue('');
+      expect(within(levelGroup()).getByRole('button', { name: /ERROR/ })).toHaveAttribute('aria-pressed', 'false');
+      expect(systemSwitch()).not.toBeChecked();
+      expect(rowOf(entryIds.warn)).toHaveAttribute('aria-selected', 'true');
+
+      fireEvent.click(within(levelGroup()).getByRole('button', { name: /ERROR/ }));
+      expect(shownIds()).toEqual([entryIds.error]);
+    });
+
+    it('keeps a search the entry matches', () => {
+      const { bus } = mountViewer();
+      fireEvent.change(viewerSearch(), { target: { value: 'httpclient' } });
+
+      focus(bus, entryIds.warn);
+
+      expect(viewerSearch()).toHaveValue('httpclient');
+      expect(shownIds()).toEqual([entryIds.warn, entryIds.debug]);
+      expect(mockScrolledRows).toEqual([0]);
+    });
+
+    it('lands on a second entry of the same log when the list opens it', () => {
+      const { bus } = mountViewer();
+      focus(bus, entryIds.warn);
+
+      focus(bus, entryIds.start);
+
+      expect(rowOf(entryIds.start)).toHaveAttribute('aria-selected', 'true');
+      expect(rowOf(entryIds.warn)).toHaveAttribute('aria-selected', 'false');
+      expect(mockScrolledRows).toEqual([shownIds().indexOf(entryIds.warn), shownIds().indexOf(entryIds.start)]);
+    });
+
+    it('says the entry lies past the loaded entries, then lands on it once Load more brings it in', () => {
+      const late = makeEntry('a025g00000Hk1C9AAJ', 6, 'Order 9 synced');
+      const { bus } = mountViewer({ hasMore: true });
+
+      focus(bus, late.id, 'notLoaded');
+      expect(screen.getByTestId('custom-log-focus-notice')).toHaveTextContent(
+        'The entry you opened comes after the 5 loaded entries. Use Load more entries to reach it.'
+      );
+
+      send(bus, { type: 'customLogViewerEntries', mode: 'append', entries: [late], payloadFields: [], hasMore: true });
+      focus(bus, late.id);
+
+      expect(screen.queryByTestId('custom-log-focus-notice')).toBeNull();
+      expect(rowOf(late.id)).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('says when the entry is no longer in the log, until dismissed', () => {
+      const { bus } = mountViewer();
+
+      focus(bus, 'a025g00000Hk1C9AAJ', 'notFound');
+      expect(screen.getByTestId('custom-log-focus-notice')).toHaveTextContent(
+        'The entry you opened is no longer in this log.'
+      );
+      expect(grid().querySelector('[aria-selected="true"]')).toBeNull();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+      expect(screen.queryByTestId('custom-log-focus-notice')).toBeNull();
+    });
+
+    it('lands on the entry Load more brings in after its notice was dismissed', () => {
+      const late = makeEntry('a025g00000Hk1C9AAJ', 6, 'Order 9 synced');
+      const { bus, posted } = mountViewer({ hasMore: true });
+      focus(bus, entryIds.warn);
+      focus(bus, late.id, 'notLoaded');
+      fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+      mockScrolledRows.length = 0;
+      posted.length = 0;
+
+      send(bus, { type: 'customLogViewerEntries', mode: 'append', entries: [late], payloadFields: [], hasMore: false });
+      focus(bus, late.id);
+
+      expect(rowOf(late.id)).toHaveAttribute('aria-selected', 'true');
+      expect(rowOf(entryIds.warn)).toHaveAttribute('aria-selected', 'false');
+      expect(mockScrolledRows).toEqual([shownIds().indexOf(late.id)]);
+      expect(posts(posted, 'customLogViewerOpenEntry')).toEqual([
+        { type: 'customLogViewerOpenEntry', entryId: late.id }
+      ]);
+    });
+
+    it('lands on the next entry the list opens after the notice of a gone entry was dismissed', () => {
+      const { bus, posted } = mountViewer();
+      focus(bus, entryIds.warn);
+      focus(bus, 'a025g00000Hk1C9AAJ', 'notFound');
+      fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+      mockScrolledRows.length = 0;
+      posted.length = 0;
+
+      focus(bus, entryIds.start);
+
+      expect(rowOf(entryIds.start)).toHaveAttribute('aria-selected', 'true');
+      expect(mockScrolledRows).toEqual([shownIds().indexOf(entryIds.start)]);
+      expect(posts(posted, 'customLogViewerOpenEntry')).toEqual([
+        { type: 'customLogViewerOpenEntry', entryId: entryIds.start }
+      ]);
     });
   });
 

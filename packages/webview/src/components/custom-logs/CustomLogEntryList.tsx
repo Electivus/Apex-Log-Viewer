@@ -12,7 +12,7 @@ import { ExtraCell } from './ExtraCell';
 import { LevelBadge } from './LevelBadge';
 import { PayloadCell } from './PayloadCell';
 import { SCROLLBAR_GUTTER } from '../table/useVirtualListElement';
-import { useGridList } from './useGridList';
+import { useGridList, type RevealRequest } from './useGridList';
 
 const DEFAULT_ROW_HEIGHT = 26;
 
@@ -156,6 +156,8 @@ type CustomLogEntryListProps = {
   onSelect: (entry: CustomLogEntry) => void;
   onToggleColumn: (path: string) => void;
   onRemoveColumn: (path: string) => void;
+  /** The entry the list opened, scrolled into view once it shows. */
+  reveal?: RevealRequest;
   virtualListComponent?: typeof List;
 };
 
@@ -173,10 +175,11 @@ export function CustomLogEntryList({
   onSelect,
   onToggleColumn,
   onRemoveColumn,
+  reveal,
   virtualListComponent
 }: CustomLogEntryListProps) {
   const VirtualList = virtualListComponent ?? List;
-  const { setListRef, headerRef, onKeyDown } = useGridList(entries, selectedId, onSelect);
+  const { setListRef, headerRef, onKeyDown } = useGridList(entries, selectedId, onSelect, undefined, reveal);
   const rowHeightsRef = useRef<Record<number, number>>({});
   const rafRef = useRef<number | null>(null);
   const [, forceRender] = useState(0);
