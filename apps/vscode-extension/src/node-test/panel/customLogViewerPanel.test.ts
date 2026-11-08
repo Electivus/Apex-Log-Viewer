@@ -448,12 +448,28 @@ suite('Custom Logs viewer panel', () => {
       const { memento, open } = load();
       const host = await open();
 
-      await host.emit({ type: 'customLogViewerSetPayloadColumns', added: ['http.status', 'orderId'] });
+      await host.emit({ type: 'customLogViewerShowPayloadColumn', path: 'http.status', shown: true });
+      await host.emit({ type: 'customLogViewerShowPayloadColumn', path: 'orderId', shown: true });
 
       assert.deepEqual(memento.values.get(STATE_KEY), { 'entry:nebula': ['http.status', 'orderId'] });
       assert.deepEqual(host.last('customLogViewerPayloadColumns'), {
         type: 'customLogViewerPayloadColumns',
         value: { defaults: ['orderId'], added: ['http.status'] }
+      });
+    });
+
+    test('keeps the column the list added to the same source when it hides one of its own', async () => {
+      const { memento, open } = load();
+      const host = await open();
+      await host.emit({ type: 'customLogViewerShowPayloadColumn', path: 'http.status', shown: true });
+      memento.values.set(STATE_KEY, { 'entry:nebula': ['http.status', 'traceId'] });
+
+      await host.emit({ type: 'customLogViewerShowPayloadColumn', path: 'http.status', shown: false });
+
+      assert.deepEqual(memento.values.get(STATE_KEY), { 'entry:nebula': ['traceId'] });
+      assert.deepEqual(host.last('customLogViewerPayloadColumns'), {
+        type: 'customLogViewerPayloadColumns',
+        value: { defaults: ['orderId'], added: ['traceId'] }
       });
     });
 

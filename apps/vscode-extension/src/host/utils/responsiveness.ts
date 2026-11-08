@@ -94,7 +94,7 @@ const INBOUND_MESSAGE_TYPES: ReadonlySet<string> = new Set(
     customLogsLoadMore: true,
     customLogsOpenLog: true,
     customLogsOpenPayload: true,
-    customLogsSetPayloadColumns: true,
+    customLogsShowPayloadColumn: true,
     customLogsOpenConfig: true,
     customLogsOpenEditor: true,
     customLogsCapture: true,
@@ -105,7 +105,7 @@ const INBOUND_MESSAGE_TYPES: ReadonlySet<string> = new Set(
     customLogViewerOpenField: true,
     customLogViewerCopyField: true,
     customLogViewerOpenApexLog: true,
-    customLogViewerSetPayloadColumns: true,
+    customLogViewerShowPayloadColumn: true,
     customLogViewerCopyText: true
   } satisfies Record<InboundMessageType, true>)
 );

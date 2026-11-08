@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
+  withPayloadColumn,
   type CustomLogColumn,
   type CustomLogConfigIssueView,
   type CustomLogPayloadField,
@@ -109,10 +110,13 @@ export function CustomLogsApp({
   // Every source lists entries, so its entry capabilities decide the Filters and the User column.
   const capabilities = selectedSource?.entryCapabilities ?? NO_CAPABILITIES;
 
-  const onAddedColumns = useCallback(
-    (added: string[]) => {
-      dispatch({ type: 'customLogsPayloadColumns', value: { ...columnsView, added } });
-      post({ type: 'customLogsSetPayloadColumns', added });
+  const onShowColumn = useCallback(
+    (path: string, shown: boolean) => {
+      dispatch({
+        type: 'customLogsPayloadColumns',
+        value: { ...columnsView, added: withPayloadColumn(columnsView.added, path, shown) }
+      });
+      post({ type: 'customLogsShowPayloadColumn', path, shown });
     },
     [columnsView, post]
   );
@@ -139,7 +143,7 @@ export function CustomLogsApp({
     payloadFields,
     itemCount: rows.length,
     columnsView,
-    onAddedColumns,
+    onShowColumn,
     buildColumns
   });
   const { discovered, activeColumns, lockedColumns, columns, terms } = workbench;

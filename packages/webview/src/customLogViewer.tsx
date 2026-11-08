@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client';
 import {
   mergePayloadFields,
+  withPayloadColumn,
   type CustomLogApexLogLink,
   type CustomLogColumn,
   type CustomLogEntry,
@@ -157,10 +158,10 @@ export function CustomLogViewerApp({
 
   const post = useCallback((message: CustomLogViewerFromWebviewMessage) => vscode.postMessage(message), [vscode]);
 
-  const onAddedColumns = useCallback(
-    (added: string[]) => {
-      setColumnsView(previous => ({ ...previous, added }));
-      post({ type: 'customLogViewerSetPayloadColumns', added });
+  const onShowColumn = useCallback(
+    (path: string, shown: boolean) => {
+      setColumnsView(previous => ({ ...previous, added: withPayloadColumn(previous.added, path, shown) }));
+      post({ type: 'customLogViewerShowPayloadColumn', path, shown });
     },
     [post]
   );
@@ -180,7 +181,7 @@ export function CustomLogViewerApp({
     payloadFields,
     itemCount: entries.length,
     columnsView,
-    onAddedColumns,
+    onShowColumn,
     buildColumns
   });
   const { discovered, activeColumns, lockedColumns, columns, terms } = workbench;

@@ -79,16 +79,15 @@ describe('Custom Logs JSON columns', () => {
       expect(headerLabels()).toContain('http.status');
     });
 
-    it('adds a column from the + Field picker and posts the added paths', () => {
+    it('adds a column from the + Field picker and posts that one column', () => {
       const { posted } = mountApp({ added: ['orderId'] });
 
       fireEvent.click(screen.getByRole('button', { name: '+ Field' }));
       fireEvent.click(screen.getByRole('menuitemcheckbox', { name: /http\.status/ }));
 
-      expect(lastPost(posted, 'customLogsSetPayloadColumns')).toEqual({
-        type: 'customLogsSetPayloadColumns',
-        added: ['orderId', 'http.status']
-      });
+      expect(posts(posted, 'customLogsShowPayloadColumn')).toEqual([
+        { type: 'customLogsShowPayloadColumn', path: 'http.status', shown: true }
+      ]);
       expect(headerLabels()).toEqual(['Time', 'Level', 'Title', 'User', 'Category', 'orderId', 'http.status']);
     });
 
@@ -106,17 +105,17 @@ describe('Custom Logs JSON columns', () => {
       expect(screen.getByText('From payload · 2 of 5')).toBeInTheDocument();
     });
 
-    it('removes an added column and posts the remaining ones', () => {
+    it('removes an added column and posts that it is hidden', () => {
       const { posted } = mountApp({ added: ['orderId', 'http.status'] });
 
       fireEvent.click(screen.getByRole('button', { name: 'Column menu for orderId' }));
       fireEvent.click(screen.getByRole('menuitem', { name: 'Remove column' }));
 
-      expect(lastPost(posted, 'customLogsSetPayloadColumns')).toEqual({
-        type: 'customLogsSetPayloadColumns',
-        added: ['http.status']
-      });
+      expect(posts(posted, 'customLogsShowPayloadColumn')).toEqual([
+        { type: 'customLogsShowPayloadColumn', path: 'orderId', shown: false }
+      ]);
       expect(headerLabels()).not.toContain('orderId');
+      expect(headerLabels()).toContain('http.status');
     });
 
     it('only hides a column pinned by the project, without posting, and brings it back from the picker', () => {
@@ -127,13 +126,13 @@ describe('Custom Logs JSON columns', () => {
       fireEvent.click(screen.getByRole('menuitem', { name: 'Hide column' }));
 
       expect(headerLabels()).not.toContain('orderId');
-      expect(posts(posted, 'customLogsSetPayloadColumns')).toEqual([]);
+      expect(posts(posted, 'customLogsShowPayloadColumn')).toEqual([]);
 
       fireEvent.click(screen.getByRole('button', { name: '+ Field' }));
       fireEvent.click(screen.getByRole('menuitemcheckbox', { name: /orderId/ }));
 
       expect(headerLabels()).toContain('orderId');
-      expect(posts(posted, 'customLogsSetPayloadColumns')).toEqual([]);
+      expect(posts(posted, 'customLogsShowPayloadColumn')).toEqual([]);
     });
 
     it('does not let the picker uncheck a column the project pins', () => {
@@ -348,18 +347,21 @@ describe('Custom Logs JSON columns', () => {
 
       fireEvent.click(within(leaf('http.status')).getByRole('button', { name: '+ Column' }));
 
-      expect(lastPost(posted, 'customLogsSetPayloadColumns')).toEqual({
-        type: 'customLogsSetPayloadColumns',
-        added: ['http.status']
+      expect(lastPost(posted, 'customLogsShowPayloadColumn')).toEqual({
+        type: 'customLogsShowPayloadColumn',
+        path: 'http.status',
+        shown: true
       });
       expect(within(leaf('http.status')).getByRole('button', { name: '✓ Column' })).toBeInTheDocument();
       expect(headerLabels()).toContain('http.status');
 
       fireEvent.click(within(leaf('http.status')).getByRole('button', { name: '✓ Column' }));
-      expect(lastPost(posted, 'customLogsSetPayloadColumns')).toEqual({
-        type: 'customLogsSetPayloadColumns',
-        added: []
+      expect(lastPost(posted, 'customLogsShowPayloadColumn')).toEqual({
+        type: 'customLogsShowPayloadColumn',
+        path: 'http.status',
+        shown: false
       });
+      expect(headerLabels()).not.toContain('http.status');
     });
 
     it('offers only + Column on a leaf, with the bracketed path for array elements', () => {
@@ -373,9 +375,10 @@ describe('Custom Logs JSON columns', () => {
       ).toEqual(['+ Column']);
 
       fireEvent.click(within(leaf('lines[0].sku')).getByRole('button', { name: '+ Column' }));
-      expect(lastPost(posted, 'customLogsSetPayloadColumns')).toEqual({
-        type: 'customLogsSetPayloadColumns',
-        added: ['lines[].sku']
+      expect(lastPost(posted, 'customLogsShowPayloadColumn')).toEqual({
+        type: 'customLogsShowPayloadColumn',
+        path: 'lines[].sku',
+        shown: true
       });
     });
 
@@ -389,8 +392,8 @@ describe('Custom Logs JSON columns', () => {
       fireEvent.click(rowOf(ids.failed));
 
       fireEvent.click(within(leaf('[0].status')).getByRole('button', { name: '+ Column' }));
-      const columnsPost = lastPost(posted, 'customLogsSetPayloadColumns');
-      expect(columnsPost).toEqual({ type: 'customLogsSetPayloadColumns', added: ['[].status'] });
+      const columnsPost = lastPost(posted, 'customLogsShowPayloadColumn');
+      expect(columnsPost).toEqual({ type: 'customLogsShowPayloadColumn', path: '[].status', shown: true });
       expect(parseCustomLogsFromWebviewMessage(columnsPost)).toEqual(columnsPost);
       expect(cellText(ids.failed, 5)).toBe('200, 500');
     });

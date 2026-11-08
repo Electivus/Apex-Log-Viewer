@@ -631,7 +631,7 @@ describe('Custom Log viewer app', () => {
       expect(viewerSearch()).toHaveFocus();
     });
 
-    it('adds a payload leaf as a column and posts the added paths', () => {
+    it('adds a payload leaf as a column and posts that one column', () => {
       const { posted } = mountViewer({ entries: payloadEntries, fields: payloadFields });
       fireEvent.click(rowOf(entryIds.payload));
 
@@ -643,8 +643,8 @@ describe('Custom Log viewer app', () => {
       ).toEqual(['+ Column']);
       fireEvent.click(within(leaf).getByRole('button', { name: '+ Column' }));
 
-      expect(posts(posted, 'customLogViewerSetPayloadColumns')).toEqual([
-        { type: 'customLogViewerSetPayloadColumns', added: ['http.status'] }
+      expect(posts(posted, 'customLogViewerShowPayloadColumn')).toEqual([
+        { type: 'customLogViewerShowPayloadColumn', path: 'http.status', shown: true }
       ]);
       expect(shownIds()).toHaveLength(3);
     });

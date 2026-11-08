@@ -137,8 +137,8 @@ export class CustomLogViewerPanel {
       case 'customLogViewerOpenApexLog':
         await this.openApexLog();
         break;
-      case 'customLogViewerSetPayloadColumns':
-        await this.setPayloadColumns(message.added);
+      case 'customLogViewerShowPayloadColumn':
+        await this.showPayloadColumn(message.path, message.shown);
         break;
       case 'customLogViewerCopyText':
         await this.copyText(message.text);
@@ -362,8 +362,8 @@ export class CustomLogViewerPanel {
     }
   }
 
-  private async setPayloadColumns(added: string[]): Promise<void> {
-    await this.payloadColumns.write(this.options.sourceId, added);
+  private async showPayloadColumn(path: string, shown: boolean): Promise<void> {
+    await this.payloadColumns.show(this.options.sourceId, path, shown);
     const value = this.payloadColumns.read(this.options.sourceId, this.options.payloadDefaults);
     this.post({ type: 'customLogViewerPayloadColumns', value });
     safeSendEvent('customLogs.payloadColumns', { outcome: 'ok', level: 'entry' }, { count: value.added.length });

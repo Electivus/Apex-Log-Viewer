@@ -21,8 +21,8 @@ export type PayloadWorkbenchOptions<Column extends { id: string }> = {
   payloadFields: readonly CustomLogPayloadField[];
   itemCount: number;
   columnsView: CustomLogPayloadColumnsView;
-  /** The user added or removed a JSON column: the app echoes it into its state and posts it to the host. */
-  onAddedColumns: (added: string[]) => void;
+  /** The user added or removed a JSON column: the app echoes it into its state and posts the change to the host. */
+  onShowColumn: (path: string, shown: boolean) => void;
   /** Must keep its identity while the app's own inputs are the same. */
   buildColumns: (payload: PayloadColumn[], discovered: DiscoveredField[]) => Column[];
 };
@@ -36,7 +36,7 @@ export function usePayloadWorkbench<Column extends { id: string }>({
   payloadFields,
   itemCount,
   columnsView,
-  onAddedColumns,
+  onShowColumn,
   buildColumns
 }: PayloadWorkbenchOptions<Column>) {
   const [search, setSearch] = useState(initial.search);
@@ -72,13 +72,9 @@ export function usePayloadWorkbench<Column extends { id: string }>({
         );
         return;
       }
-      onAddedColumns(
-        columnsView.added.includes(path)
-          ? columnsView.added.filter(column => column !== path)
-          : [...columnsView.added, path]
-      );
+      onShowColumn(path, !columnsView.added.includes(path));
     },
-    [columnsView, onAddedColumns]
+    [columnsView, onShowColumn]
   );
 
   const removeColumn = useCallback(

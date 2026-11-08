@@ -647,25 +647,44 @@ suite('Custom Logs view provider', () => {
   });
 
   suite('JSON columns', () => {
-    test('stores what the user adds per source and level, never in the project, and sends the effective columns back', async () => {
+    test('stores what the user adds per source, never in the project, and sends the effective columns back', async () => {
       const { memento, mount } = load();
       const host = new FakeHost();
       await mount(host);
       await host.emit({ type: 'customLogsSelectSource', sourceId: 'app-log' });
       assert.deepEqual(host.last('customLogsPayloadColumns')?.value, { defaults: ['orderId'], added: [] });
 
-      await host.emit({ type: 'customLogsSetPayloadColumns', added: ['http.status', 'orderId'] });
+      await host.emit({ type: 'customLogsShowPayloadColumn', path: 'http.status', shown: true });
+      await host.emit({ type: 'customLogsShowPayloadColumn', path: 'http.status', shown: true });
+      await host.emit({ type: 'customLogsShowPayloadColumn', path: 'region', shown: true });
+      await host.emit({ type: 'customLogsShowPayloadColumn', path: 'region', shown: false });
 
-      assert.deepEqual(memento.values.get(STATE_KEY), { 'entry:app-log': ['http.status', 'orderId'] });
+      assert.deepEqual(memento.values.get(STATE_KEY), { 'entry:app-log': ['http.status'] });
       assert.deepEqual(host.last('customLogsPayloadColumns')?.value, { defaults: ['orderId'], added: ['http.status'] });
     });
 
-    test('a source that maps no payload at its level keeps nothing', async () => {
+    test('keeps a column the transaction viewer added to the same source while the list adds its own', async () => {
+      const { memento, mount } = load();
+      const host = new FakeHost();
+      await mount(host);
+      await host.emit({ type: 'customLogsSelectSource', sourceId: 'app-log' });
+      memento.values.set(STATE_KEY, { 'entry:app-log': ['traceId'] });
+
+      await host.emit({ type: 'customLogsShowPayloadColumn', path: 'http.status', shown: true });
+
+      assert.deepEqual(memento.values.get(STATE_KEY), { 'entry:app-log': ['traceId', 'http.status'] });
+      assert.deepEqual(host.last('customLogsPayloadColumns')?.value, {
+        defaults: ['orderId'],
+        added: ['traceId', 'http.status']
+      });
+    });
+
+    test('a source that maps no entry payload keeps nothing', async () => {
       const { memento, mount } = load();
       const host = new FakeHost();
       await mount(host);
 
-      await host.emit({ type: 'customLogsSetPayloadColumns', added: ['http.status'] });
+      await host.emit({ type: 'customLogsShowPayloadColumn', path: 'http.status', shown: true });
 
       assert.equal(memento.values.has(STATE_KEY), false);
     });

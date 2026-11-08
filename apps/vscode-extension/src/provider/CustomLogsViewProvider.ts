@@ -345,8 +345,8 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       case 'customLogsOpenPayload':
         await this.openPayload(message.logId);
         return;
-      case 'customLogsSetPayloadColumns':
-        await this.setPayloadColumns(message.added);
+      case 'customLogsShowPayloadColumn':
+        await this.showPayloadColumn(message.path, message.shown);
         return;
       case 'customLogsCapture':
         await this.changeCapture(message);
@@ -405,13 +405,13 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     await this.run((signal, current) => this.fetchPage('append', signal, current));
   }
 
-  private async setPayloadColumns(added: string[]): Promise<void> {
+  private async showPayloadColumn(path: string, shown: boolean): Promise<void> {
     const source = this.selectedSource();
     if (!source?.payload.entry) {
-      logWarn('Custom Logs: ignored setPayloadColumns for a source that maps no entry payload');
+      logWarn('Custom Logs: ignored showPayloadColumn for a source that maps no entry payload');
       return;
     }
-    await this.payloadColumnsStore.write(source.id, added);
+    await this.payloadColumnsStore.show(source.id, path, shown);
     const value = this.columnsFor(source);
     this.post({ type: 'customLogsPayloadColumns', value });
     safeSendEvent('customLogs.payloadColumns', { outcome: 'ok', level: 'entry' }, { count: value.added.length });

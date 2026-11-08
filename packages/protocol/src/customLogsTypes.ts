@@ -259,9 +259,20 @@ export function parseCustomLogRowId(value: unknown): CustomLogRowId | undefined 
     : undefined;
 }
 
+/** A JSON column path a webview posts: 1 to 255 characters, without control characters or surrounding blanks. */
+export function parseCustomLogPayloadPath(value: unknown): string | undefined {
+  return typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= MAX_PAYLOAD_PATH_LENGTH &&
+    value.trim() === value &&
+    !CONTROL_CHARACTER_PATTERN.test(value)
+    ? value
+    : undefined;
+}
+
 /**
- * The user-added JSON column paths a webview posts: at most 50, each 1 to 255 characters without
- * control characters. Duplicates collapse, first occurrence wins. Anything malformed rejects the list.
+ * Stored JSON column paths: at most 50 valid paths. Duplicates collapse, first occurrence wins. Anything
+ * malformed rejects the list.
  */
 export function parseCustomLogPayloadColumns(value: unknown): string[] | undefined {
   if (!Array.isArray(value) || value.length > MAX_PAYLOAD_COLUMNS) {
@@ -269,18 +280,25 @@ export function parseCustomLogPayloadColumns(value: unknown): string[] | undefin
   }
   const paths: string[] = [];
   for (const item of value) {
-    if (
-      typeof item !== 'string' ||
-      item.length === 0 ||
-      item.length > MAX_PAYLOAD_PATH_LENGTH ||
-      item.trim() !== item ||
-      CONTROL_CHARACTER_PATTERN.test(item)
-    ) {
+    const path = parseCustomLogPayloadPath(item);
+    if (path === undefined) {
       return undefined;
     }
-    if (!paths.includes(item)) {
-      paths.push(item);
+    if (!paths.includes(path)) {
+      paths.push(path);
     }
   }
   return paths;
+}
+
+/**
+ * The added columns after one column was shown or hidden: a shown path goes last unless it is there already, a
+ * hidden one leaves. Applying the same change again changes nothing, and changes to two paths keep each other,
+ * so the list and the viewer can each apply their own to one stored list.
+ */
+export function withPayloadColumn(added: readonly string[], path: string, shown: boolean): string[] {
+  if (!shown) {
+    return added.filter(column => column !== path);
+  }
+  return added.includes(path) ? [...added] : [...added, path];
 }
