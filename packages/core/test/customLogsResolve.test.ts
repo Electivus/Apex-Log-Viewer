@@ -366,6 +366,7 @@ test('detection finds unlocked Nebula and leaves the managed distribution not in
     hiddenFields: [],
     unmappedLevels: [],
     capabilities: { levelFilter: false, userFilter: false, apexLogLink: false },
+    entryCapabilities: { levelFilter: false, userFilter: false },
     payload: {},
     state: 'notInstalled'
   });
@@ -626,6 +627,7 @@ test('sources reports a ready source the way the CLI contract shows it', () => {
       hiddenFields: undefined,
       unmappedLevels: [],
       capabilities: { levelFilter: true, userFilter: true, apexLogLink: true },
+      entryCapabilities: { levelFilter: true, userFilter: true },
       payload: {},
       state: 'ready'
     }
@@ -920,10 +922,12 @@ test('sources reports an event source with its event object, in-memory filters a
     hiddenFields: [],
     unmappedLevels: [],
     capabilities: { levelFilter: true, userFilter: true, apexLogLink: true },
+    entryCapabilities: { levelFilter: true, userFilter: true },
     payload: { entry: { field: 'RecordJson__c', columns: [] } },
     state: 'ready'
   });
   assert.deepEqual(bare.capabilities, { levelFilter: false, userFilter: false, apexLogLink: false });
+  assert.deepEqual(bare.entryCapabilities, { levelFilter: false, userFilter: false });
   assert.deepEqual(bare.payload, {});
 });
 

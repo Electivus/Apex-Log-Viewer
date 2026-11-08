@@ -167,14 +167,22 @@ function extras(
   return Object.fromEntries(columns.map(column => [column.key, scalar(read(record, column.api))]));
 }
 
+/** The logger's own bookkeeping: the whole message starts with the mapping's `systemMessagePrefix`. */
+function isSystemMessage(entry: DecodableEntryObject, message: string): boolean {
+  return entry.systemMessagePrefix !== undefined && message.startsWith(entry.systemMessagePrefix);
+}
+
 export function entryRow(entry: DecodableEntryObject, levels: LevelTable, subject: Subject): CustomLogRow {
   const { roles } = entry;
+  const message = messageOf(roles, subject);
   return defined({
     id: subject.identity.id,
     time: displayTime(roles.time, subject),
-    title: cell(messageOf(roles, subject)),
+    title: cell(message),
+    system: message !== undefined && isSystemMessage(entry, message) ? true : undefined,
     user: cell(roleText(subject, roles.user)),
     level: levelOf(entry, levels, subject),
+    origin: cell(roleText(subject, roles.origin)),
     transactionId: cell(roleText(subject, roles.transactionId)),
     requestId: cell(roleText(subject, roles.requestId)),
     extra: extras(entry.columns, subject.record),
@@ -237,7 +245,7 @@ export function entryDto(
     user: cell(roleText(subject, roles.user)),
     exceptionType: cell(roleText(subject, roles.exceptionType)),
     recordId: cell(roleText(subject, roles.recordId)),
-    system: entry.systemMessagePrefix !== undefined && full.startsWith(entry.systemMessagePrefix),
+    system: isSystemMessage(entry, full),
     presentDetails: entry.details
       .filter(detail => valueOf(subject, detail.presence) === true)
       .map(detail => detail.key),

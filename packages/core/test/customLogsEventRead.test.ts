@@ -300,6 +300,33 @@ test('list pages by cursor without repeating or dropping an event', async t => {
   );
 });
 
+test('entries changes nothing on an event source: the same rows, and either cursor continues the other', async t => {
+  const events = Array.from({ length: 4 }, (_, index) => logEvent(index + 1, T0 + index * MINUTE));
+  const { core, scope } = await world(t, { events });
+
+  const plain = await core.customLog.list({ ...scope, limit: 2 });
+  const entries = await core.customLog.list({ ...scope, limit: 2, entries: true });
+  const continued = await core.customLog.list({ ...scope, limit: 2, entries: true, cursor: plain.nextCursor! });
+
+  assert.deepEqual(entries, plain);
+  assert.deepEqual(messages(continued.rows), ['message 2', 'message 1']);
+});
+
+test('an event row whose message starts with the system prefix is marked system, like a record entry', async t => {
+  const events = [logEvent(1, T0, { message: 'ALV - flushed 2 events' }), logEvent(2, T0 + MINUTE)];
+  const { core, scope } = await world(t, { events, source: alvEvents({ systemMessagePrefix: 'ALV - ' }) });
+
+  const { rows } = await core.customLog.list(scope);
+
+  assert.deepEqual(
+    rows.map(row => [row.title, row.system]),
+    [
+      ['message 2', undefined],
+      ['ALV - flushed 2 events', true]
+    ]
+  );
+});
+
 test('two orgs under one project each read their own stored events', async t => {
   const { core, root, org, scope } = await world(t, { events: [logEvent(1, T0, { message: 'first org' })] });
   const second = `event-read-${nextUser++}@example.com`;

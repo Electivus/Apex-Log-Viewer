@@ -24,6 +24,7 @@ import {
 import { toSourceInfo } from '../src/customLogs/catalog.ts';
 import { resolveDefinition } from '../src/customLogs/resolve.ts';
 import { isEventSource, type CatalogEntry, type ResolvedRecordSource } from '../src/customLogs/resolved.ts';
+import { listingOf } from '../src/customLogs/resolved.ts';
 import { parseSinceExpression } from '../src/customLogs/since.ts';
 import { describeFixture } from './support/describeFixtures.ts';
 
@@ -573,6 +574,275 @@ test('the Apex log link is one Tooling query on the request identifier', () => {
     }
   );
   assert.deepEqual(plan.decode([]), { state: 'notFound' });
+});
+
+const ENTRY_ROW_SELECT_UNLOCKED =
+  'Id, CreatedDate, EpochTimestamp__c, Message__c, MessageTruncated__c, TransactionEntryNumber__c, LoggingLevel__c, LoggingLevelOrdinal__c, OriginLocation__c, ExceptionType__c, RecordId__c, OriginType__c, Log__c, Log__r.CreatedDate, Log__r.StartTime__c, Log__r.Name, Log__r.LoggedByUsername__c, Log__r.TransactionId__c, Log__r.RequestId__c, Log__r.TotalLogEntries__c, Log__r.TotalERRORLogEntries__c, Log__r.TotalWARNLogEntries__c, Log__r.MaxLogEntryLoggingLevelOrdinal__c, Log__r.SystemMode__c, Log__r.TransactionScenarioName__c, Log__r.Status__c';
+const ENTRY_ROW_SELECT_MANAGED_ENDUSER =
+  'Id, CreatedDate, Nebula__EpochTimestamp__c, Nebula__Message__c, Nebula__MessageTruncated__c, Nebula__TransactionEntryNumber__c, Nebula__LoggingLevel__c, Nebula__LoggingLevelOrdinal__c, Nebula__OriginLocation__c, Nebula__RecordId__c, Nebula__OriginType__c, Nebula__Log__c, Nebula__Log__r.CreatedDate, Nebula__Log__r.Nebula__StartTime__c, Nebula__Log__r.Name, Nebula__Log__r.Nebula__LoggedByUsername__c, Nebula__Log__r.Nebula__TransactionId__c, Nebula__Log__r.Nebula__RequestId__c, Nebula__Log__r.Nebula__TotalLogEntries__c, Nebula__Log__r.Nebula__TotalERRORLogEntries__c, Nebula__Log__r.Nebula__TotalWARNLogEntries__c, Nebula__Log__r.Nebula__MaxLogEntryLoggingLevelOrdinal__c, Nebula__Log__r.Nebula__SystemMode__c, Nebula__Log__r.Nebula__TransactionScenarioName__c, Nebula__Log__r.Nebula__Status__c';
+
+test('unlocked Nebula entries list each linked entry with its header read through Log__r, filtered on the entry', () => {
+  const plan = listPlan(
+    unlocked,
+    {
+      limit: 1,
+      filter: {
+        minLevel: 'ERROR',
+        user: "o'brien@acme.com",
+        since: '2026-10-29T00:00:00.000Z',
+        until: '2026-10-30T00:00:00.000Z'
+      },
+      after: {
+        v: 1,
+        o: 'x',
+        s: 'nebula',
+        m: 'x',
+        k: 'entryRows',
+        f: 'x',
+        t: '2026-10-29T23:29:49.000Z',
+        id: 'a01000000000001AAA'
+      }
+    },
+    listingOf(unlocked.shape, true)
+  );
+
+  assertSoql(
+    plan.soql,
+    `SELECT ${ENTRY_ROW_SELECT_UNLOCKED} FROM LogEntry__c WHERE Log__c != null AND LoggingLevelOrdinal__c >= 8 AND Log__r.LoggedByUsername__c = 'o\\'brien@acme.com' AND EpochTimestamp__c >= 1793232000000 AND EpochTimestamp__c < 1793318400000 AND (CreatedDate < 2026-10-29T23:29:49.000Z OR (CreatedDate = 2026-10-29T23:29:49.000Z AND Id < 'a01000000000001AAA')) ORDER BY CreatedDate DESC, Id DESC LIMIT 2`
+  );
+});
+
+test('managed Nebula entries read the header through Nebula__Log__r with namespaced fields', () => {
+  const plan = listPlan(managed, { limit: 50, filter: { minLevel: 'WARN' } }, listingOf(managed.shape, true));
+
+  assertSoql(
+    plan.soql,
+    `SELECT ${ENTRY_ROW_SELECT_MANAGED_ENDUSER}, Nebula__ExceptionType__c FROM Nebula__LogEntry__c WHERE Nebula__Log__c != null AND Nebula__LoggingLevelOrdinal__c >= 7 ORDER BY CreatedDate DESC, Id DESC LIMIT 51`
+  );
+});
+
+test('a LoggerEndUser entries list selects no field describe hides from them', () => {
+  const plan = listPlan(
+    managedEndUser,
+    { limit: 5, filter: { user: 'dev@acme.com', since: '2026-10-29T00:00:00.000Z' } },
+    listingOf(managedEndUser.shape, true)
+  );
+
+  assertSoql(
+    plan.soql,
+    `SELECT ${ENTRY_ROW_SELECT_MANAGED_ENDUSER} FROM Nebula__LogEntry__c WHERE Nebula__Log__c != null AND Nebula__Log__r.Nebula__LoggedByUsername__c = 'dev@acme.com' AND Nebula__EpochTimestamp__c >= 1793232000000 ORDER BY CreatedDate DESC, Id DESC LIMIT 6`
+  );
+});
+
+test('entry rows decode the entry, its origin and system flag, and the header into log without its payload', () => {
+  const header = {
+    attributes: { type: 'Log__c' },
+    CreatedDate: '2026-10-30T00:48:11.000+0000',
+    StartTime__c: '2026-10-30T00:48:10.000+0000',
+    Name: 'Log-000280',
+    LoggedByUsername__c: 'dev@acme.com',
+    TransactionId__c: 'tx-1',
+    RequestId__c: 'SLB:abc',
+    TotalLogEntries__c: 6,
+    TotalERRORLogEntries__c: 1,
+    TotalWARNLogEntries__c: 0,
+    MaxLogEntryLoggingLevelOrdinal__c: 8,
+    SystemMode__c: 'ANONYMOUS',
+    TransactionScenarioName__c: null,
+    Status__c: 'New'
+  };
+  const plan = listPlan(unlocked, { limit: 5, filter: {} }, listingOf(unlocked.shape, true));
+
+  const page = plan.decode([
+    {
+      Id: 'a01000000000002AAA',
+      CreatedDate: '2026-10-30T00:48:11.000+0000',
+      EpochTimestamp__c: 1793321290765,
+      Message__c: 'Nebula Logger - Saving 2 log entries via ANONYMOUS',
+      LoggingLevel__c: 'FINEST',
+      LoggingLevelOrdinal__c: 2,
+      OriginLocation__c: 'Logger.saveLog',
+      OriginType__c: 'Apex',
+      Log__c: 'a02000000000002AAA',
+      Log__r: header
+    },
+    {
+      Id: 'a01000000000001AAA',
+      CreatedDate: '2026-10-30T00:48:11.000+0000',
+      EpochTimestamp__c: 1793321290700,
+      Message__c: 'Order A-1 failed',
+      LoggingLevel__c: 'ERROR',
+      LoggingLevelOrdinal__c: 8,
+      OriginType__c: 'Apex',
+      Log__c: 'a02000000000003AAA',
+      Log__r: { ...header, StartTime__c: null, Name: 'Log-000281', LoggedByUsername__c: 'ops@acme.com' }
+    },
+    {
+      Id: 'a01000000000003AAA',
+      CreatedDate: '2026-10-30T00:48:09.000+0000',
+      Message__c: 'shared away',
+      Log__c: 'a02000000000004AAA',
+      Log__r: null
+    }
+  ]);
+
+  const log = {
+    id: 'a02000000000002AAA',
+    time: '2026-10-30T00:48:10.000Z',
+    title: 'Log-000280',
+    user: 'dev@acme.com',
+    level: 'ERROR' as const,
+    counts: { entries: 6, errors: 1, warnings: 0 },
+    transactionId: 'tx-1',
+    requestId: 'SLB:abc',
+    extra: { SystemMode__c: 'ANONYMOUS', TransactionScenarioName__c: null, Status__c: 'New' }
+  };
+  assert.deepEqual(page.items, [
+    {
+      id: 'a01000000000002AAA',
+      time: '2026-10-30T00:48:10.765Z',
+      title: 'Nebula Logger - Saving 2 log entries via ANONYMOUS',
+      system: true,
+      user: 'dev@acme.com',
+      level: 'FINEST',
+      origin: 'Logger.saveLog',
+      transactionId: 'tx-1',
+      requestId: 'SLB:abc',
+      extra: { OriginType__c: 'Apex' },
+      log
+    },
+    {
+      id: 'a01000000000001AAA',
+      time: '2026-10-30T00:48:10.700Z',
+      title: 'Order A-1 failed',
+      user: 'ops@acme.com',
+      level: 'ERROR',
+      transactionId: 'tx-1',
+      requestId: 'SLB:abc',
+      extra: { OriginType__c: 'Apex' },
+      log: {
+        ...log,
+        id: 'a02000000000003AAA',
+        time: '2026-10-30T00:48:11.000Z',
+        title: 'Log-000281',
+        user: 'ops@acme.com'
+      }
+    },
+    {
+      id: 'a01000000000003AAA',
+      time: '2026-10-30T00:48:09.000Z',
+      title: 'shared away',
+      extra: { OriginType__c: null }
+    }
+  ]);
+});
+
+test('an entry list reads the entry user when the entry maps one, never the header user, per row or in the filter', () => {
+  const raw = NEBULA_PRESET.raw as { entry: Record<string, any> };
+  const withEntryUser = (user: string) =>
+    ready(
+      resolveDefinition(
+        parseCustomLogsConfig({
+          sources: [
+            {
+              ...NEBULA_PRESET.raw,
+              id: 'nebula-entry-user',
+              entry: { ...raw.entry, fields: { ...raw.entry.fields, user, transactionId: 'LogTransactionId__c' } }
+            }
+          ]
+        }).sources[0]!,
+        'config',
+        '',
+        describeFixture('unlocked-admin')
+      )
+    );
+  const filterable = withEntryUser('LoggedByUsernameText__c');
+  const plan = listPlan(filterable, { limit: 5, filter: { user: 'dev@acme.com' } }, listingOf(filterable.shape, true));
+  const [row] = plan.decode([
+    {
+      Id: 'a01000000000001AAA',
+      CreatedDate: '2026-10-30T00:48:11.000+0000',
+      Message__c: 'm',
+      LoggedByUsernameText__c: null,
+      LogTransactionId__c: 'tx-entry',
+      Log__c: 'a02000000000001AAA',
+      Log__r: {
+        CreatedDate: '2026-10-30T00:48:11.000+0000',
+        LoggedByUsername__c: 'header@acme.com',
+        TransactionId__c: 'tx-1',
+        RequestId__c: 'SLB:abc'
+      }
+    }
+  ]).items;
+
+  assert.match(plan.soql, / WHERE Log__c != null AND LoggedByUsernameText__c = 'dev@acme.com' ORDER BY/);
+  assert.deepEqual(
+    [row?.user, row?.transactionId, row?.requestId, row?.log?.user],
+    [undefined, 'tx-entry', 'SLB:abc', 'header@acme.com']
+  );
+
+  const unfilterable = resolveDefinition(
+    parseCustomLogsConfig({
+      sources: [
+        {
+          ...NEBULA_PRESET.raw,
+          id: 'nebula-entry-user',
+          entry: { ...raw.entry, fields: { ...raw.entry.fields, user: 'ExceptionMessage__c' } }
+        }
+      ]
+    }).sources[0]!,
+    'config',
+    '',
+    describeFixture('unlocked-admin')
+  );
+  assert.deepEqual(toSourceInfo(unfilterable).entryCapabilities, { levelFilter: true, userFilter: false });
+  assert.throws(
+    () =>
+      listPlan(
+        ready(unfilterable),
+        { limit: 5, filter: { user: 'dev@acme.com' } },
+        listingOf(ready(unfilterable).shape, true)
+      ),
+    (error: unknown) => error instanceof AlvError && error.code === 'CUSTOM_LOG_UNSUPPORTED_FILTER'
+  );
+});
+
+test('an entry list without an entry level refuses a minimum level that the header list accepts', () => {
+  const raw = NEBULA_PRESET.raw as { entry: Record<string, any> };
+  const { level: _level, levelOrdinal: _levelOrdinal, ...fields } = raw.entry.fields;
+  const entry = resolveDefinition(
+    parseCustomLogsConfig({
+      sources: [{ ...NEBULA_PRESET.raw, id: 'nebula-no-entry-level', entry: { ...raw.entry, fields } }]
+    }).sources[0]!,
+    'config',
+    '',
+    describeFixture('unlocked-admin')
+  );
+  const source = ready(entry);
+
+  assert.deepEqual(toSourceInfo(entry).capabilities, { levelFilter: true, userFilter: true, apexLogLink: true });
+  assert.deepEqual(toSourceInfo(entry).entryCapabilities, { levelFilter: false, userFilter: true });
+  assert.match(
+    listPlan(source, { limit: 5, filter: { minLevel: 'ERROR' } }).soql,
+    /MaxLogEntryLoggingLevelOrdinal__c >= 8/
+  );
+  assert.throws(
+    () => listPlan(source, { limit: 5, filter: { minLevel: 'ERROR' } }, listingOf(source.shape, true)),
+    (error: unknown) => error instanceof AlvError && error.code === 'CUSTOM_LOG_UNSUPPORTED_FILTER'
+  );
+});
+
+test('an entries source lists the same rows with or without entries, under the same cursor kind', () => {
+  const plain = listingOf(appLog.shape, false);
+  const entries = listingOf(appLog.shape, true);
+
+  assert.equal(entries.cursorKind, 'list');
+  assert.equal(
+    listPlan(appLog, { limit: 5, filter: {} }, entries).soql,
+    listPlan(appLog, { limit: 5, filter: {} }, plain).soql
+  );
+  assert.equal(listingOf(unlocked.shape, false).cursorKind, 'list');
+  assert.equal(listingOf(unlocked.shape, true).cursorKind, 'entryRows');
 });
 
 // ---------------------------------------------------------------------------------------------

@@ -219,8 +219,9 @@ export type ListingFilters = {
 };
 
 /**
- * What one list row reads: the single switch over the source shape. The SELECT, the decoder, the
- * WHERE, the filter capabilities and the cursor kind all derive from it, so none can disagree.
+ * What one list row reads: the single switch over (source shape × `entries`). The SELECT, the
+ * decoder, the WHERE, the filter capabilities and the cursor kind all derive from it, so none can
+ * disagree.
  */
 export type ResolvedListing =
   | {
@@ -234,16 +235,54 @@ export type ResolvedListing =
       readonly cursorKind: 'list';
       readonly entry: ResolvedEntryObject;
       readonly filters: ListingFilters;
+    }
+  | {
+      /** Entries of a `transactions` source, each with its header read through `parent`. */
+      readonly rows: 'entriesWithLog';
+      readonly cursorKind: 'entryRows';
+      /** Its roles hold the effective `user`, `transactionId` and `requestId` (`withHeaderRoles`). */
+      readonly entry: ResolvedEntryObject;
+      readonly header: ResolvedTransactionObject;
+      readonly parent: ResolvedParent;
+      readonly filters: ListingFilters;
     };
 
 function entryFilters(entry: ResolvedEntryObject): ListingFilters {
   return { level: entry.levelPredicate, user: filterableField(entry.roles.user), time: entry.timeFilter };
 }
 
-export function listingOf(shape: ResolvedRecordShape): ResolvedListing {
+/** A header field read from an entry record: `api` gains the relationship, `key` stays as written. */
+export function throughParent<F extends ResolvedField>(parent: ResolvedParent, field: F): F {
+  return { ...field, api: `${parent.relationshipName}.${field.api}` };
+}
+
+const HEADER_ROLES_ON_ENTRIES = ['user', 'transactionId', 'requestId'] as const;
+
+/**
+ * The entry with the header's user, transaction id and request id wherever the entry maps none. Chosen
+ * per mapping, never per row, so every row and the `user` filter read the same field.
+ */
+function withHeaderRoles(
+  entry: ResolvedEntryObject,
+  header: ResolvedTransactionObject,
+  parent: ResolvedParent
+): ResolvedEntryObject {
+  const inherited = HEADER_ROLES_ON_ENTRIES.flatMap(role => {
+    const field = header.roles[role];
+    return entry.roles[role] === undefined && field ? [[role, throughParent(parent, field)] as const] : [];
+  });
+  return { ...entry, roles: { ...entry.roles, ...Object.fromEntries(inherited) } };
+}
+
+export function listingOf(shape: ResolvedRecordShape, entries: boolean): ResolvedListing {
   switch (shape.kind) {
     case 'transactions': {
       const header = shape.transaction;
+      if (entries) {
+        const { parent } = shape.entry;
+        const entry = withHeaderRoles(shape.entry, header, parent);
+        return { rows: 'entriesWithLog', cursorKind: 'entryRows', entry, header, parent, filters: entryFilters(entry) };
+      }
       return {
         rows: 'headers',
         cursorKind: 'list',

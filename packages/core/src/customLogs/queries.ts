@@ -50,6 +50,7 @@ import {
   headerObject,
   listedObject,
   listingOf,
+  throughParent,
   type EntryLevelPredicate,
   type FieldLevelPredicate,
   type HeaderLevelPredicate,
@@ -100,7 +101,8 @@ export type CursorPayload = {
   s: string;
   /** `ResolvedRecordSource.digest`. */
   m: string;
-  k: 'list' | 'entries';
+  /** `entryRows`: a list with `entries` on a `transactions` source, whose rows are not the default list's. */
+  k: 'list' | 'entryRows' | 'entries';
   /** Hash of the filter as given (list) or of the scope (entries). */
   f: string;
   /** The list window with durations resolved on the first page, so later pages reuse the same instants. */
@@ -155,7 +157,7 @@ export function decodeCursor(token: string, expected: CursorBinding): CursorPayl
     SOURCE_ID_PATTERN.test(cursor.s) &&
     typeof cursor.m === 'string' &&
     HEX_DIGEST.test(cursor.m) &&
-    (cursor.k === 'list' || cursor.k === 'entries') &&
+    (cursor.k === 'list' || cursor.k === 'entryRows' || cursor.k === 'entries') &&
     typeof cursor.f === 'string' &&
     HEX_DIGEST.test(cursor.f) &&
     (window === undefined ||
@@ -304,12 +306,17 @@ function recordIdentity(record: Record<string, unknown>): RowIdentity {
   return { id: String(record.Id), createdDate: createdDateOf(record) };
 }
 
-/** How a listing reads its rows: the object, the fields, and the decoder. */
+/** How a listing reads its rows: the object, the fields, the conditions every row meets, and the decoder. */
 type RowReader = {
   readonly object: string;
   readonly select: Select;
+  readonly conditions: readonly string[];
   readonly decode: (record: Record<string, unknown>) => CustomLogRow;
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
 
 function rowListing(source: ResolvedRecordSource, listing: ResolvedListing): RowReader {
   const { levels } = source;
@@ -319,6 +326,7 @@ function rowListing(source: ResolvedRecordSource, listing: ResolvedListing): Row
       return {
         object: header.object,
         select: new Select().add(...Object.values(header.roles), ...header.columns, payloadField(header.payload)),
+        conditions: [],
         decode: record => transactionRow(header, levels, recordSubject(header.payload, record, recordIdentity(record)))
       };
     }
@@ -327,7 +335,33 @@ function rowListing(source: ResolvedRecordSource, listing: ResolvedListing): Row
       return {
         object: entry.object,
         select: new Select().add(...Object.values(entry.roles), ...entry.columns, payloadField(entry.payload)),
+        conditions: [],
         decode: record => entryRow(entry, levels, recordSubject(entry.payload, record, recordIdentity(record)))
+      };
+    }
+    case 'entriesWithLog': {
+      const { entry, header, parent } = listing;
+      const headerFields = [...Object.values(header.roles), ...header.columns, CREATED_DATE].flatMap(field =>
+        field ? [throughParent(parent, field)] : []
+      );
+      return {
+        object: entry.object,
+        select: new Select().add(
+          ...Object.values(entry.roles),
+          ...entry.columns,
+          payloadField(entry.payload),
+          parent,
+          ...headerFields
+        ),
+        conditions: [`${parent.api} != null`],
+        decode: record => {
+          const row = entryRow(entry, levels, recordSubject(entry.payload, record, recordIdentity(record)));
+          const nested = read(record, parent.relationshipName);
+          const id = text(read(record, parent.api));
+          if (!isRecord(nested) || !id) return row;
+          const identity = { id, createdDate: createdDateOf(nested) };
+          return { ...row, log: transactionRow(header, levels, recordSubject(undefined, nested, identity)) };
+        }
       };
     }
     default:
@@ -351,26 +385,31 @@ function levelWhere(
 /**
  * Rows of the listing's object (`listingOf`; the source's own rows when omitted): headers of a
  * `transactions` source, entries of an `entries` source, whose `title` is the message preview.
+ * With `entries`, a `transactions` source lists its entries that have a header (`<parent> != null`)
+ * and SELECTs every readable header role and column through the parent relationship, decoded into
+ * `log` without the header payload.
  * Always `ORDER BY CreatedDate DESC, Id DESC`; `time` is the display time, or CreatedDate when null.
  * SELECT adds the payload field when readable; the decoder runs `decodePayload` per row,
  * `summarizePayloadFields` over the page, then `selectPayloadPaths` with `keep`.
  *
  * Filter → WHERE, by the listing's `filters`:
  * - minLevel → `levelPredicate` (ordinal ≥ n | IN raw spellings | `Id IN (SELECT parent …)`);
- *   `none` throws CUSTOM_LOG_UNSUPPORTED_FILTER.
- * - user → `<user> = '<escaped>'`; no filterable user role → UNSUPPORTED_FILTER.
+ *   `none` throws CUSTOM_LOG_UNSUPPORTED_FILTER. An entry list reads the entry's own level.
+ * - user → `<user> = '<escaped>'`, the field the rows show (`Log__r.LoggedByUsername__c` when only
+ *   the header maps a user); no filterable user role → UNSUPPORTED_FILTER.
  * - since/until → on `timeFilter` (the display time when filterable, else CreatedDate), literal per `encoding`.
  * - after → `(CreatedDate < :t OR (CreatedDate = :t AND Id < :id))`.
  */
 export function listPlan(
   source: ResolvedRecordSource,
   params: ListPlanParams,
-  listing: ResolvedListing = listingOf(source.shape)
+  listing: ResolvedListing = listingOf(source.shape, false)
 ): QueryPlan<Page<CustomLogRow>> {
   const row = rowListing(source, listing);
   const { filters } = listing;
   const { filter, after, limit } = params;
   const conditions = [
+    ...row.conditions,
     ...(filter.minLevel ? [levelWhere(source, filters.level, filter.minLevel)] : []),
     ...(filter.user
       ? [`${filters.user?.api ?? unsupported(source, 'filterable user mapping')} = ${quote(filter.user)}`]
@@ -400,7 +439,7 @@ export function rowPlan(
   source: ResolvedRecordSource,
   id: RecordId
 ): QueryPlan<{ row: CustomLogRow; logPayload?: CustomLogLongValue } | undefined> {
-  const row = rowListing(source, listingOf(source.shape));
+  const row = rowListing(source, listingOf(source.shape, false));
   const payload = headerObject(source.shape)?.payload;
   return {
     soql: soql(`SELECT ${row.select} FROM ${row.object} WHERE Id = ${quote(id)} LIMIT 1`),
