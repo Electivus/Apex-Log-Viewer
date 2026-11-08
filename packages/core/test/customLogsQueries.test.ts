@@ -634,6 +634,55 @@ test('a LoggerEndUser entries list selects no field describe hides from them', (
   );
 });
 
+test('a parent mapped through one relationship lists headers as before and reads an entry header through both hops', () => {
+  const raw = NEBULA_PRESET.raw as { entry: Record<string, any> };
+  const throughLog = ready(
+    resolveDefinition(
+      parseCustomLogsConfig({
+        sources: [{ ...NEBULA_PRESET.raw, id: 'nebula-root', entry: { ...raw.entry, parent: 'Log__r.ParentLog__c' } }]
+      }).sources[0]!,
+      'config',
+      '',
+      describeFixture('unlocked-admin')
+    )
+  );
+
+  assertSoql(
+    listPlan(throughLog, { limit: 1, filter: {} }).soql,
+    `SELECT ${ROW_SELECT_UNLOCKED} FROM Log__c ORDER BY CreatedDate DESC, Id DESC LIMIT 2`
+  );
+
+  const entries = listPlan(
+    throughLog,
+    { limit: 1, filter: { user: 'dev@acme.com' } },
+    listingOf(throughLog.shape, true)
+  );
+  assertSoql(
+    entries.soql,
+    "SELECT Id, CreatedDate, EpochTimestamp__c, Message__c, MessageTruncated__c, TransactionEntryNumber__c, LoggingLevel__c, LoggingLevelOrdinal__c, OriginLocation__c, ExceptionType__c, RecordId__c, OriginType__c, Log__r.ParentLog__c, Log__r.ParentLog__r.CreatedDate, Log__r.ParentLog__r.StartTime__c, Log__r.ParentLog__r.Name, Log__r.ParentLog__r.LoggedByUsername__c, Log__r.ParentLog__r.TransactionId__c, Log__r.ParentLog__r.RequestId__c, Log__r.ParentLog__r.TotalLogEntries__c, Log__r.ParentLog__r.TotalERRORLogEntries__c, Log__r.ParentLog__r.TotalWARNLogEntries__c, Log__r.ParentLog__r.MaxLogEntryLoggingLevelOrdinal__c, Log__r.ParentLog__r.SystemMode__c, Log__r.ParentLog__r.TransactionScenarioName__c, Log__r.ParentLog__r.Status__c FROM LogEntry__c WHERE Log__r.ParentLog__c != null AND Log__r.ParentLog__r.LoggedByUsername__c = 'dev@acme.com' ORDER BY CreatedDate DESC, Id DESC LIMIT 2"
+  );
+
+  const [row] = entries.decode([
+    {
+      Id: 'a01000000000001AAA',
+      CreatedDate: '2026-10-30T00:48:11.000+0000',
+      Message__c: 'Child transaction entry',
+      Log__r: {
+        ParentLog__c: 'a02000000000001AAA',
+        ParentLog__r: {
+          CreatedDate: '2026-10-30T00:47:31.000+0000',
+          Name: 'Log-000279',
+          LoggedByUsername__c: 'dev@acme.com'
+        }
+      }
+    }
+  ]).items;
+  assert.deepEqual(
+    [row?.log?.id, row?.log?.title, row?.log?.user, row?.user],
+    ['a02000000000001AAA', 'Log-000279', 'dev@acme.com', 'dev@acme.com']
+  );
+});
+
 test('entry rows decode the entry, its origin and system flag, and the header into log without its payload', () => {
   const header = {
     attributes: { type: 'Log__c' },

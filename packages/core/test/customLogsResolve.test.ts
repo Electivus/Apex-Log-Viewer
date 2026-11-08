@@ -129,10 +129,10 @@ test('managed Nebula qualifies every custom name with its namespace and keeps th
   assert.equal(source.shape.kind === 'transactions' && source.shape.transaction.object, 'Nebula__Log__c');
 });
 
-test('the entry parent carries the relationship name describe reports, namespaced on managed', () => {
+test('the entry parent carries the relationship path describe reports, namespaced on managed', () => {
   const parentOf = (source: ResolvedSource) =>
     source.shape.kind === 'transactions'
-      ? [source.shape.entry.parent.api, source.shape.entry.parent.relationshipName]
+      ? [source.shape.entry.parent.api, source.shape.entry.parent.relationshipPath]
       : [];
 
   assert.deepEqual(parentOf(ready(resolveDefinition(nebula, 'builtin', '', unlockedEndUser))), ['Log__c', 'Log__r']);
@@ -140,6 +140,28 @@ test('the entry parent carries the relationship name describe reports, namespace
     parentOf(ready(resolveDefinition(NEBULA_MANAGED_PRESET.definition, 'builtin', 'Nebula', managedEndUser))),
     ['Nebula__Log__c', 'Nebula__Log__r']
   );
+});
+
+test('a parent mapped through one relationship keeps the source ready and reads the header through both hops', () => {
+  const raw = NEBULA_PRESET.raw as { entry: Json };
+  const throughLog = define({
+    ...NEBULA_PRESET.raw,
+    id: 'nebula-root',
+    entry: { ...raw.entry, parent: 'Log__r.ParentLog__c' }
+  });
+  const parentOf = (entry: CatalogEntry) => {
+    const { shape } = ready(entry);
+    return shape.kind === 'transactions' ? [shape.entry.parent.api, shape.entry.parent.relationshipPath] : [];
+  };
+
+  assert.deepEqual(parentOf(resolveDefinition(throughLog, 'config', '', unlockedEndUser)), [
+    'Log__r.ParentLog__c',
+    'Log__r.ParentLog__r'
+  ]);
+  assert.deepEqual(parentOf(resolveDefinition(throughLog, 'builtin', 'Nebula', managedEndUser)), [
+    'Nebula__Log__r.Nebula__ParentLog__c',
+    'Nebula__Log__r.Nebula__ParentLog__r'
+  ]);
 });
 
 test('a parent without a relationship name in describe makes the source unavailable', () => {

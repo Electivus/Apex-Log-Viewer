@@ -125,36 +125,38 @@ class ObjectResolver {
     return this.describe.keyPrefix;
   }
 
-  /** The field at `path`, or undefined when describe omits it (absent, or hidden by FLS for this user). */
-  field(path: string, types?: readonly string[], what?: string): ResolvedField | undefined {
-    const qualified = qualifyPath(path, this.namespace);
+  /** The described field at `qualified` and the relationship it is read through, at most one hop away. */
+  private locate(qualified: string): { field: DescribedField; via: string | undefined } | undefined {
     const [first, second, ...rest] = qualified.split('.');
-    let found: { field: DescribedField; api: string } | undefined;
     if (second === undefined) {
       const field = findField(this.describe, first!);
-      found = field && { field, api: field.name };
-    } else if (rest.length === 0) {
-      const reference = referenceFor(this.describe, first!);
-      for (const target of reference?.referenceTo ?? []) {
-        const field = this.describes.has(target) ? findField(this.describes.get(target)!, second) : undefined;
-        if (field) {
-          found = { field, api: `${reference!.relationshipName}.${field.name}` };
-          break;
-        }
-      }
+      return field && { field, via: undefined };
     }
+    if (rest.length > 0) return undefined;
+    const reference = referenceFor(this.describe, first!);
+    for (const target of reference?.referenceTo ?? []) {
+      const field = this.describes.has(target) ? findField(this.describes.get(target)!, second) : undefined;
+      if (field) return { field, via: reference!.relationshipName };
+    }
+    return undefined;
+  }
+
+  /** The field at `path`, or undefined when describe omits it (absent, or hidden by FLS for this user). */
+  field(path: string, types?: readonly string[], what?: string): ResolvedField | undefined {
+    const found = this.locate(qualifyPath(path, this.namespace));
     if (!found) return undefined;
+    const api = found.via ? `${found.via}.${found.field.name}` : found.field.name;
     const accepted = types ? types.includes(found.field.type) : !COMPOUND_TYPES.has(found.field.type);
     if (!accepted) {
       throw new Fail({
         reason: 'fieldTypeMismatch',
-        message: `${what ?? path} ("${found.api}") is a ${found.field.type} field, which this mapping cannot use here.`
+        message: `${what ?? path} ("${api}") is a ${found.field.type} field, which this mapping cannot use here.`
       });
     }
     return {
       from: 'field',
       key: path,
-      api: found.api,
+      api,
       label: found.field.label,
       type: found.field.type as DescribeFieldType,
       sortable: !this.inMemory && found.field.sortable,
@@ -180,17 +182,21 @@ class ObjectResolver {
     return field;
   }
 
-  /** The entry's reference to its header, with the relationship name a header field is read through. */
+  /**
+   * The entry's reference to its header, with the relationship path a header field is read through:
+   * `Log__r` for `Log__c`, and `Log__r.ParentLog__r` for `Log__r.ParentLog__c`.
+   */
   parent(path: string): ResolvedParent {
     const field = this.required(path, ['reference'], 'entry.parent');
-    const relationshipName = findField(this.describe, field.api)?.relationshipName;
-    if (!relationshipName) {
+    const found = this.locate(qualifyPath(path, this.namespace));
+    const relationshipName = found?.field.relationshipName;
+    if (!found || !relationshipName) {
       throw new Fail({
         reason: 'fieldTypeMismatch',
         message: `entry.parent ("${field.api}") has no relationship name in describe, so an entry cannot read its header.`
       });
     }
-    return { ...field, relationshipName };
+    return { ...field, relationshipPath: found.via ? `${found.via}.${relationshipName}` : relationshipName };
   }
 
   /**
@@ -430,7 +436,8 @@ function headOf(definition: SourceDefinition, origin: CustomLogSourceOrigin, nam
  * - Optional role, column, detail flag hidden → dropped, listed in `hidden`.
  * - Detail or payload text hidden → kept as `{ state: 'hidden' }`, listed in `hidden`.
  * - Relationship path `Rel.Field`: the first hop must be a reference whose `relationshipName`
- *   is `Rel`; the second hop is checked on the referenced object's describe (`describes`).
+ *   is `Rel`; the second hop is checked on the referenced object's describe (`describes`). An
+ *   `entry.parent` path reads the header through both relationships.
  * - `timeFilter`, `sequence`: chosen by sortable/filterable flags as documented on the types.
  * - `levelPredicate`: ordinal field → 'ordinal'; else level field → 'values'; header without
  *   `maxLevelOrdinal` but entry predicate available → 'semiJoin'; else 'none'.

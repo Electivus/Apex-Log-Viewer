@@ -356,7 +356,7 @@ function rowListing(source: ResolvedRecordSource, listing: ResolvedListing): Row
         conditions: [`${parent.api} != null`],
         decode: record => {
           const row = entryRow(entry, levels, recordSubject(entry.payload, record, recordIdentity(record)));
-          const nested = read(record, parent.relationshipName);
+          const nested = read(record, parent.relationshipPath);
           const id = text(read(record, parent.api));
           if (!isRecord(nested) || !id) return row;
           const identity = { id, createdDate: createdDateOf(nested) };

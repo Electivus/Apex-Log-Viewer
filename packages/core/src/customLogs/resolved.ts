@@ -173,11 +173,11 @@ export type ResolvedEventObject = DecodableEntryObject & {
 };
 
 /**
- * The entry's reference to its header, with the relationship name describe reports (`Log__r`,
- * managed `Nebula__Log__r`). The only source of a relationship prefix, so no code builds `__r`
- * names from `__c` ones.
+ * The entry's reference to its header, with the relationship path describe reports: `Log__r`, managed
+ * `Nebula__Log__r`, or `Log__r.ParentLog__r` for a one-hop `Log__r.ParentLog__c`. The only source of a
+ * relationship prefix, so no code builds `__r` names from `__c` ones.
  */
-export type ResolvedParent = ResolvedField & { readonly relationshipName: string };
+export type ResolvedParent = ResolvedField & { readonly relationshipPath: string };
 
 export type ResolvedRecordShape =
   | { readonly kind: 'entries'; readonly entry: ResolvedEntryObject }
@@ -251,9 +251,9 @@ function entryFilters(entry: ResolvedEntryObject): ListingFilters {
   return { level: entry.levelPredicate, user: filterableField(entry.roles.user), time: entry.timeFilter };
 }
 
-/** A header field read from an entry record: `api` gains the relationship, `key` stays as written. */
+/** A header field read from an entry record: `api` gains the relationship path, `key` stays as written. */
 export function throughParent<F extends ResolvedField>(parent: ResolvedParent, field: F): F {
-  return { ...field, api: `${parent.relationshipName}.${field.api}` };
+  return { ...field, api: `${parent.relationshipPath}.${field.api}` };
 }
 
 const HEADER_ROLES_ON_ENTRIES = ['user', 'transactionId', 'requestId'] as const;
