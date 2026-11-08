@@ -124,8 +124,8 @@ type AssignsTo<Ui, Core extends Ui> = [Ui, Core];
 /**
  * Compile-time proof that the core DTOs assign to their protocol mirrors, which is what lets the
  * client return core results as UI types without mapping code. A field core drops or retypes
- * fails the build here instead of at a webview. Assignment alone accepts a mirror that lacks an
- * optional field core added, so the key proofs also require every key a mirror is meant to carry.
+ * fails the build here instead of at a webview. Assignment alone accepts a mirror that lacks a
+ * field core added, so the key proofs also require every key a mirror is meant to carry.
  */
 export type CustomLogDtoProof = [
   Holds<Same<typeof core.CUSTOM_LOG_LEVELS, typeof ui.CUSTOM_LOG_LEVELS>>,

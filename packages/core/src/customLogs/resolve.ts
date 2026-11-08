@@ -182,10 +182,6 @@ class ObjectResolver {
     return field;
   }
 
-  /**
-   * The entry's reference to its header, with the relationship path a header field is read through:
-   * `Log__r` for `Log__c`, and `Log__r.ParentLog__r` for `Log__r.ParentLog__c`.
-   */
   parent(path: string): ResolvedParent {
     const field = this.required(path, ['reference'], 'entry.parent');
     const found = this.locate(qualifyPath(path, this.namespace));

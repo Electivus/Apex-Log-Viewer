@@ -174,8 +174,8 @@ export type ResolvedEventObject = DecodableEntryObject & {
 
 /**
  * The entry's reference to its header, with the relationship path describe reports: `Log__r`, managed
- * `Nebula__Log__r`, or `Log__r.ParentLog__r` for a one-hop `Log__r.ParentLog__c`. The only source of a
- * relationship prefix, so no code builds `__r` names from `__c` ones.
+ * `Nebula__Log__r`, or `Log__r.ParentLog__r` for a one-hop `Log__r.ParentLog__c`. It comes from
+ * describe because a lookup's relationship name need not be its field name with `__r`.
  */
 export type ResolvedParent = ResolvedField & { readonly relationshipPath: string };
 

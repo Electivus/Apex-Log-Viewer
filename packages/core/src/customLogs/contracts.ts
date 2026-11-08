@@ -100,8 +100,7 @@ export type CustomLogSourceInfo = {
   capabilities: { levelFilter: boolean; userFilter: boolean; apexLogLink: boolean };
   /**
    * What `list` with `entries` can filter on: on a `transactions` source the entry's level and the
-   * user its rows show; on an `entries` or `events` source the same as `capabilities`. Every state
-   * carries it.
+   * user its rows show; on an `entries` or `events` source the same as `capabilities`.
    */
   entryCapabilities?: { levelFilter: boolean; userFilter: boolean };
   /** Payload mapping per level. Empty object when the source maps none. */
