@@ -15,7 +15,10 @@ export default class CustomLogGet extends AlvCommand<PrintsAsJson<CustomLogGetRe
       max: CUSTOM_LOG_LIMITS.entries.max,
       summary: `Maximum entries per page (default ${CUSTOM_LOG_LIMITS.entries.default}).`
     }),
-    'log-id': Flags.string({ exactlyOne: ['log-id', 'transaction-id'], summary: 'Record id from "custom-log list".' }),
+    'log-id': Flags.string({
+      exactlyOne: ['log-id', 'transaction-id'],
+      summary: 'Record id from "custom-log list": a row id, or log.id of a row listed with --entries.'
+    }),
     'min-level': minLevelFlag,
     'payload-fields': payloadFieldsFlag,
     source: sourceFlag,

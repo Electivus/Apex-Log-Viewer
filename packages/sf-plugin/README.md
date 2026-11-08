@@ -43,12 +43,13 @@ The old explicit `--codex-home <directory>` option still installs under `<direct
 ```bash
 sf electivus custom-log sources --target-org my-org --json
 sf electivus custom-log list --target-org my-org --min-level ERROR --since 24h --limit 20 --json
+sf electivus custom-log list --target-org my-org --entries --min-level ERROR --since 24h --json
 sf electivus custom-log get --transaction-id <id> --target-org my-org --json
 sf electivus custom-log entry --entry-id <id> --target-org my-org --json
 sf electivus custom-log list --source app-log --payload-fields orderId,http.status --json
 ```
 
-`list` and `get` take `--source` when more than one source is ready, and fail with `CUSTOM_LOG_SOURCE_REQUIRED` rather than guess. `nextCursor` is opaque; pass it back as `--cursor` with the same flags. A JSON payload field mapped on a source comes back as flat dot paths under `payload.values`; `--payload-fields` keeps only the paths you name (`[]` stands for every array index, as in `metrics[].name`), and `payloadFields` still lists every path on the page, with array indexes grouped as `[]`. `get` also returns the Apex debug log of the same request as `apexLog` (`linked`, `notFound`, `unavailable` with `reason: noAccess` when this user cannot read debug logs, or `noRequestId`); open it with `sf electivus log read --log-id <id>`.
+`list` and `get` take `--source` when more than one source is ready, and fail with `CUSTOM_LOG_SOURCE_REQUIRED` rather than guess. On Nebula Logger, `list` returns one row per transaction; `list --entries` returns one row per entry record (message, level, origin) instead, with its transaction in `log` and the transaction's columns named in `logColumns`, and `--min-level` then filters the entry's own level. Pass `log.id` to `get --log-id` to read that transaction. `nextCursor` is opaque; pass it back as `--cursor` with the same flags. A JSON payload field mapped on a source comes back as flat dot paths under `payload.values`; `--payload-fields` keeps only the paths you name (`[]` stands for every array index, as in `metrics[].name`), and `payloadFields` still lists every path on the page, with array indexes grouped as `[]`. `get` also returns the Apex debug log of the same request as `apexLog` (`linked`, `notFound`, `unavailable` with `reason: noAccess` when this user cannot read debug logs, or `noRequestId`); open it with `sf electivus log read --log-id <id>`.
 
 ### Event sources
 
