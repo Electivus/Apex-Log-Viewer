@@ -358,6 +358,71 @@ describe('Custom Logs app', () => {
       });
     });
 
+    it('still offers every user it has listed after one is picked and the list reloads with that user only', () => {
+      const { bus, posted } = mountApp({ rows: usersRows, hasMore: true });
+      send(bus, {
+        type: 'customLogsPage',
+        mode: 'append',
+        columns: [],
+        rows: [makeRow('a0B5g00000Zt1Q1EAJ', 'Older order', { user: 'bob@acme.com' })],
+        payloadFields: [],
+        hasMore: false
+      });
+
+      inFilters(() => fireEvent.change(filterSelect('Logged by'), { target: { value: 'ana@acme.com' } }));
+      send(bus, { type: 'customLogsFilter', value: { user: 'ana@acme.com' } });
+      send(bus, {
+        type: 'customLogsPage',
+        mode: 'replace',
+        columns: [],
+        rows: [makeRow(ids.retry, 'Retrying order sync', { user: 'ana@acme.com' })],
+        payloadFields: [],
+        hasMore: false
+      });
+      expect(listedTitles()).toEqual(['Retrying order sync']);
+
+      inFilters(() => {
+        expect(filterSelect('Logged by')).toHaveValue('ana@acme.com');
+        expect(filterOptions('Logged by')).toEqual(['Anyone', 'ana@acme.com', 'bob@acme.com', 'zoe@acme.com']);
+        fireEvent.change(filterSelect('Logged by'), { target: { value: 'zoe@acme.com' } });
+      });
+      expect(lastPost(posted, 'customLogsSetFilter')).toEqual({
+        type: 'customLogsSetFilter',
+        filter: { user: 'zoe@acme.com' }
+      });
+    });
+
+    it('offers only the users of the new source or org after a switch', () => {
+      const { bus } = mountApp({ sources: [appLog, nebula], selected: 'app-log', rows: usersRows });
+      const page = (user: string) =>
+        send(bus, {
+          type: 'customLogsPage',
+          mode: 'replace',
+          columns: [],
+          rows: [makeRow('a015g00000Q2xYzAAB', 'Log-000739', { user })],
+          payloadFields: [],
+          hasMore: false
+        });
+
+      withNativeSelects(() => {
+        fireEvent.change(screen.getByTestId('custom-logs-source'), { target: { value: 'nebula' } });
+      });
+      send(bus, { type: 'customLogsSources', data: [appLog, nebula], selected: 'nebula', issues: [] });
+      page('dev@acme.com');
+      inFilters(() => expect(filterOptions('Logged by')).toEqual(['Anyone', 'dev@acme.com']));
+
+      send(bus, {
+        type: 'customLogsOrgs',
+        data: [
+          { username: 'dev@acme.com', alias: 'acme-dev' },
+          { username: 'qa@acme.com', alias: 'acme-qa' }
+        ],
+        selected: 'qa@acme.com'
+      });
+      page('kim@acme.com');
+      inFilters(() => expect(filterOptions('Logged by')).toEqual(['Anyone', 'kim@acme.com']));
+    });
+
     it('posts the whole server filter on each change, and counts the set filters on the button', () => {
       const { bus, posted } = mountApp({ rows: usersRows });
 

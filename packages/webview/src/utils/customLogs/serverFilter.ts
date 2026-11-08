@@ -28,11 +28,18 @@ export type FilterMenuModel = {
 type FilterMenuInput = {
   filter: CustomLogsFilterView;
   capabilities: { levelFilter: boolean; userFilter: boolean };
-  rows: readonly CustomLogRow[];
+  /** Every user the list has shown since the org and source were selected, as `withUsersOf` builds it. */
+  users: readonly string[];
   /** The source reads a local event store, so a change re-reads it instead of querying Salesforce. */
   stored: boolean;
   t: CustomLogsMessages['filters'];
 };
+
+/** `seen` with the users of `rows`, sorted, or `seen` itself when `rows` adds none. */
+export function withUsersOf(seen: readonly string[], rows: readonly CustomLogRow[]): readonly string[] {
+  const added = rows.flatMap(row => (row.user && !seen.includes(row.user) ? [row.user] : []));
+  return added.length === 0 ? seen : [...new Set([...seen, ...added])].sort((a, b) => a.localeCompare(b));
+}
 
 /** The value set now leads its options, so a user or a time typed elsewhere is never shown as Any. */
 function withCurrent(current: string | undefined, options: FilterOption[]): FilterOption[] {
@@ -41,7 +48,7 @@ function withCurrent(current: string | undefined, options: FilterOption[]): Filt
     : options;
 }
 
-export function filterMenuModel({ filter, capabilities, rows, stored, t }: FilterMenuInput): FilterMenuModel {
+export function filterMenuModel({ filter, capabilities, users, stored, t }: FilterMenuInput): FilterMenuModel {
   const fields: FilterMenuField[] = [];
   if (capabilities.levelFilter) {
     fields.push({
@@ -56,7 +63,6 @@ export function filterMenuModel({ filter, capabilities, rows, stored, t }: Filte
     });
   }
   if (capabilities.userFilter) {
-    const users = [...new Set(rows.flatMap(row => (row.user ? [row.user] : [])))].sort((a, b) => a.localeCompare(b));
     fields.push({
       key: 'user',
       label: t.user,

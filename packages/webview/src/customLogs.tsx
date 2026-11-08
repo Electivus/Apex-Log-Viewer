@@ -24,7 +24,7 @@ import { buildTableColumns, columnSortValue } from './utils/customLogs/columns';
 import { fillTemplate, formatCount } from './utils/customLogs/format';
 import { countPayloadStates, type DiscoveredField, type PayloadColumn } from './utils/customLogs/payloadRows';
 import { rowSearchText, searchItems } from './utils/customLogs/search';
-import { filterMenuModel, withFilter, type FilterKey } from './utils/customLogs/serverFilter';
+import { filterMenuModel, withFilter, withUsersOf, type FilterKey } from './utils/customLogs/serverFilter';
 import { detailDock, readPayloadUiState, useElementHeight } from './utils/customLogs/uiState';
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
@@ -146,10 +146,11 @@ export function CustomLogsApp({
     vscode.setState(workbench.uiState);
   }, [vscode, workbench.uiState]);
 
-  // The org and source the search, sort and selection belong to: a different one starts with none.
+  // The org and source the search, sort, selection and Logged by users belong to: a different one starts with none.
   // The first org and source the host reports are not a change, so a restored webview keeps its saved search.
   const scopeKey = scopeKeyOf(selectedOrg, selectedSourceId);
   const workbenchScope = useRef<string | undefined>(undefined);
+  const [seenUsers, setSeenUsers] = useState<readonly string[]>([]);
   useEffect(() => {
     if (scopeKey === undefined) {
       return;
@@ -157,9 +158,17 @@ export function CustomLogsApp({
     if (workbenchScope.current !== undefined && workbenchScope.current !== scopeKey) {
       workbench.reset();
       setSelectedId(undefined);
+      setSeenUsers([]);
     }
     workbenchScope.current = scopeKey;
   }, [scopeKey, workbench.reset]);
+
+  // Logged by offers the users of every page since the scope began, so picking one keeps the others. This runs
+  // after the reset above, so a page that lands with a scope change keeps its users. Rows of the old scope still
+  // on screen add none, because only a new page runs it.
+  useEffect(() => {
+    setSeenUsers(seen => withUsersOf(seen, rows));
+  }, [rows]);
 
   // A switch the user makes moves the workbench to the new source at once, so a search typed while the host
   // confirms it is kept.
@@ -170,6 +179,7 @@ export function CustomLogsApp({
       workbenchScope.current = scopeKeyOf(selectedOrg, sourceId);
       workbench.reset();
       setSelectedId(undefined);
+      setSeenUsers([]);
     },
     [issues, post, selectedOrg, sources, workbench.reset]
   );
@@ -194,8 +204,15 @@ export function CustomLogsApp({
   );
 
   const filters = useMemo(
-    () => filterMenuModel({ filter: serverFilter, capabilities, rows, stored: capture !== undefined, t: t.filters }),
-    [capabilities, capture, rows, serverFilter, t.filters]
+    () =>
+      filterMenuModel({
+        filter: serverFilter,
+        capabilities,
+        users: seenUsers,
+        stored: capture !== undefined,
+        t: t.filters
+      }),
+    [capabilities, capture, seenUsers, serverFilter, t.filters]
   );
   const onFilterChange = useCallback(
     (key: FilterKey, value: string) => setServerFilterAndPost(withFilter(serverFilter, key, value)),
