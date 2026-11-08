@@ -228,7 +228,7 @@ When the `message` path reads nothing, the row `title` and `message` fall back t
 
 ### Payload
 
-`payload` names a `string` or `textarea` field that holds JSON. The `transaction` object and the `entry` object can each map one. Core decodes it and turns its keys into paths that the panel can show as columns and filters. See [JSON payloads](#json-payloads). A payload is either a field path or an object:
+`payload` names a `string` or `textarea` field that holds JSON. The `transaction` object and the `entry` object can each map one. Core decodes it and turns its keys into paths that the panel can show as columns and find with its search. See [JSON payloads](#json-payloads). A payload is either a field path or an object:
 
 ```json
 "payload": "Payload__c"
@@ -266,7 +266,7 @@ A raw value that no table maps has no `level`, and a level filter never matches 
 
 ### Configuration issues
 
-The parser reads each source on its own. A source with an error is skipped, and the other sources and the built-in sources still load. If a skipped source reused a built-in id, the built-in source is used again. `sources --json` returns every issue in `issues`, and the panel lists them as **Configuration issues**: above the filter bar while a source is ready, or with the state of each source when none is.
+The parser reads each source on its own. A source with an error is skipped, and the other sources and the built-in sources still load. If a skipped source reused a built-in id, the built-in source is used again. `sources --json` returns every issue in `issues`, and the panel lists them as **Configuration issues**: above the list while a source is ready, or with the state of each source when none is.
 
 | Code              | Severity | Meaning                                                                                             |
 | ----------------- | -------- | --------------------------------------------------------------------------------------------------- |
@@ -638,13 +638,15 @@ The replaced source has `origin: "config"`. A project source never gets the name
 The panel lists the rows of one source, newest first. Its toolbar has these controls:
 
 - The org picker. The **Source** list appears next to it when more than one source is ready. The panel opens an event source on its own only when no record source is ready, so that a project with one event source has something to show. Selecting an event source spends nothing by itself. A source with no stored position asks the first-use question and subscribes nothing until you answer. A source with a stored position resumes capture. See [Capture in the panel](#capture-in-the-panel).
+- **Search loaded rows** narrows the loaded rows as you type. `/` moves the focus to it. See [Search and sort run over loaded rows](#search-and-sort-run-over-loaded-rows).
+- **Filters** sets the **Level**, **Logged by**, and **Time** of the query. Each change reloads the list, from Salesforce for a record source and from the local event store for an event source. **Level** and **Logged by** appear only when the source's `capabilities` allow them. **Logged by** offers the users of the loaded rows. The button counts the filters that are set, and **Clear filters** removes them.
 - **Refresh** reloads the list.
 - **Open in editor** opens the same list in an editor tab.
 - **Configure** opens the Custom Logs mapping in `sfdx-project.json`.
 
-When no source is ready, the panel says why, with the state of each source and the configuration issues. The filter bar takes conditions in the form `field operator value`, joined by `and`. See [Filters and sorts run over loaded rows](#filters-and-sorts-run-over-loaded-rows). **+ Field** adds a payload path as a column. Selecting a row shows its payload as a tree. Each value in the tree has **+ Column**, which adds its path as a column, and **= value**, which adds a filter on that value. **Load more** reads the next page.
+When no source is ready, the panel says why, with the state of each source and the configuration issues. **+ Field** adds a payload path as a column. Selecting a row shows its payload as a tree. Each value in the tree has **+ Column**, which adds its path as a column. **Load more** reads the next page.
 
-Opening a row opens the transaction in an editor tab. The viewer shows the header, the entries in transaction order, a level filter, a long-field filter, and a search over the loaded entries. Logger system messages stay hidden until you turn on **Show logger system messages**. Selecting an entry lists its long fields with their states, and opening one shows it in a read-only editor document. **Open Apex log** opens the debug log of the same request when the link is `linked`.
+Opening a row opens the transaction in an editor tab. The viewer shows the header, the entries in transaction order, a level filter, a long-field filter, and a search over the loaded entries that works like the list's. Logger system messages stay hidden until you turn on **Show logger system messages**. Selecting an entry lists its long fields with their states, and opening one shows it in a read-only editor document. **Open Apex log** opens the debug log of the same request when the link is `linked`.
 
 An event source adds a capture strip above the table. See [Capture in the panel](#capture-in-the-panel).
 
@@ -738,7 +740,7 @@ Pick an event source in the **Source** list. The table shows the stored history 
 - **A source with no stored position asks once.** The strip says that no events from this org are stored, and nothing subscribes. **Load retained events** replays what Salesforce still keeps, at least 72 hours. **Only new events** starts with the events published from now on. The strip shows how many deliveries of the org's daily allocation remain and how many this run may use. After your choice, opening the source resumes by itself. A session that receives no event stores no position, so the strip asks again next time.
 - **A run has a delivery budget.** It may use about half of what remains of the org's daily allocation, or 5,000 deliveries when Salesforce does not report the allowance. The check runs between responses, and Salesforce hands over a whole response at a time, so a run can pass the budget by one response. A run that reaches it stores what it has and stops. **Start** resumes from the stored position.
 - **Stop and Start.** **Stop** ends capture for the selected org and source. It stays stopped until you press **Start** or pick another org or source. **Start** runs capture again.
-- **What keeps and what stops capture.** Refresh, a change of `since`, and hiding the panel keep capture running. A change of org or source, or of the level or user filter, restarts it. Closing the Custom Logs view or its editor tab stops the capture that surface started, and so does turning off `electivus.apexLogViewer.customLogs.enabled`. The view and the editor tab watch one capture run, and so do two sources over one event object. The run ends when its last watcher leaves.
+- **What keeps and what stops capture.** Refresh, a change of **Time**, the search, and hiding the panel keep capture running. A change of org or source, or of the level or user filter, restarts it. Closing the Custom Logs view or its editor tab stops the capture that surface started, and so does turning off `electivus.apexLogViewer.customLogs.enabled`. The view and the editor tab watch one capture run, and so do two sources over one event object. The run ends when its last watcher leaves.
 - **The status bar item.** While a capture started by this VS Code window runs, from the Custom Logs view or its editor tab, the status bar shows `Custom Logs: <source> · <state>`, with the state `Connecting`, `Catching up`, `Live`, `Reconnecting` or `Standby`, also while the panel or the tab is hidden. The view and the tab on one source show one capture. When they capture different sources, the item shows `Custom Logs: <n> captures` and its tooltip names each. Clicking it offers **Show Custom Logs**, which brings forward the surface that captures, and **Stop capture**. **Stop capture** does what **Stop** in the strip does, in every surface that captures, so a run the view and the tab share ends. The item disappears when the capture stops or ends, and when the setting is off. It shows only captures this window started, so a window that sees another process capture shows no item.
 
 The level and user filters change only which live rows the table shows. Capture stores every event. New rows appear in event-time order, and the table keeps the row you are looking at in place. Past 5,000 live rows, the panel reloads the newest page.
@@ -750,7 +752,7 @@ The strip shows one of these states:
 | Connecting                     | `Connecting to <source>…`                                                                                                                                           | **Stop**                                      |
 | Standby                        | `Another <VS Code window or sf command> (pid <pid> on <host>) is capturing; new events appear here.` and the lease note.                                            | **Stop**                                      |
 | Catching up from the position  | `Catching up: loading events Salesforce kept since <time>`                                                                                                          | **Stop**                                      |
-| Catching up on retained events | `Loading retained events (at least 72 hours)…`                                                                                                                         | **Stop**                                      |
+| Catching up on retained events | `Loading retained events (at least 72 hours)…`                                                                                                                      | **Stop**                                      |
 | Catching up on new events      | `Waiting for new events…`                                                                                                                                           | **Stop**                                      |
 | Live                           | `Live · stored since <time> · <size>`, with a tooltip that says the state is inferred.                                                                              | **Stop**                                      |
 | Reconnecting                   | `Reconnecting (attempt <n>) after the connection dropped`, `after Salesforce rejected the session`, or `after a burst of events…`                                   | **Stop**                                      |
@@ -851,7 +853,7 @@ Core decodes each mapped payload field once, so the panel, the transaction viewe
 | `empty`   | The field has no value.                                                |
 | `hidden`  | The describe omits the field, for example under field-level security.  |
 
-A row without a mapped payload has no `payload` key. JSON columns and payload filters skip rows that are not `parsed`, and the panel counts each state in its status bar.
+A row without a mapped payload has no `payload` key. JSON columns and the search skip payloads that are not `parsed`, and the panel counts each state in its status bar.
 
 ### Paths
 
@@ -874,18 +876,23 @@ To read the whole payload, use **Open full payload** in the panel, or the CLI. `
 
 ### Payload fields
 
-Each `list` and `get` page returns `payloadFields`, which lists every path seen in that page's payloads with the JSON `types` found at the path and the number of `rows` that have it. Core computes it before `--payload-fields` trims `values`, so it always describes whole payloads. Array indexes are grouped as `[]`, as in the panel: `metrics[0].name`, `metrics[1].name` and the rest of the array are one `metrics[].name`, and `rows` counts the rows that have at least one item. Row `values` keep the indexed paths. The panel merges `payloadFields` across the pages it has loaded, and offers those paths in its **+ Field** picker and its filter input.
+Each `list` and `get` page returns `payloadFields`, which lists every path seen in that page's payloads with the JSON `types` found at the path and the number of `rows` that have it. Core computes it before `--payload-fields` trims `values`, so it always describes whole payloads. Array indexes are grouped as `[]`, as in the panel: `metrics[0].name`, `metrics[1].name` and the rest of the array are one `metrics[].name`, and `rows` counts the rows that have at least one item. Row `values` keep the indexed paths. The panel merges `payloadFields` across the pages it has loaded, and offers those paths in its **+ Field** picker.
 
-### Filters and sorts run over loaded rows
+### Search and sort run over loaded rows
 
-SOQL cannot filter or sort long text fields, so core never filters on a payload path in Salesforce. In the panel, payload filters, payload sorts, and JSON columns work on the rows already loaded. Filter chips show where they run:
+SOQL cannot filter or sort long text fields, so core never filters on a payload path in Salesforce. In the panel, the search, payload sorts, and JSON columns work on the rows already loaded. Only the **Filters** menu changes the query.
 
-- Chips for `level`, `user`, `since`, and `source` show **Salesforce**. They change the query and reload the list. `level` takes `>=`, and the others take `=`.
-- Chips for payload paths narrow the loaded rows. Number paths take `=`, `!=`, `>`, `>=`, `<`, `<=`, and `exists`. String paths take `=`, `!=`, `contains`, and `exists`. Boolean paths take `=`, `!=`, and `exists`.
+The search splits what you type at spaces and keeps a row when every word occurs somewhere in it, in any case. A row's text is:
 
-The panel groups array indexes as `[]`, so `[].status >= 500` matches a row when any item has a status of at least 500, and `[0].status` reads the first item only. Quote a path that contains a space, a quote, or one of `<`, `>`, `=` and `!`, as in `"Account Name" = Acme`. A quoted field always names a payload path, so `"user" = alice` filters a payload key named `user`, and `user = alice` stays the Salesforce user filter. The suggestions of the filter input, the **Filter by this field** item of a column menu, and **= value** write the quotes for you.
+- its id, its time as stored and as the **Time** column shows it, its title, level, user, transaction id, request id, and entry counts
+- the keys and values of its record columns
+- the paths and values of its parsed payload, `null`, `false`, and `0` included
 
-Conditions combine with `and` only. The status bar reads "Filtering N loaded rows · M match". Use **Load more** to bring more rows into the filter.
+Quotes, `and`, `=`, and `>` are plain characters. `http.status 502` finds a row whose payload has `http.status` and `502`, and `http.status >= 500` finds only rows whose text contains `>=`. Paths read as core writes them, with array indexes: `[0].status`, `tags[1]`. The search never posts to the host and never changes a capture.
+
+The status bar reads "N of M loaded rows match". While the source has more rows and some loaded rows do not match, it adds "Load more to search older rows". The panel saves the search with its sort. A change of org or source clears it, and **Refresh** and **Load more** keep it.
+
+The transaction viewer searches the loaded entries the same way. An entry's text is its message as far as the preview goes, origin, user, exception type, level, raw level, record id, record columns, and payload paths and values.
 
 In the CLI, `--payload-fields` keeps only the paths you name in each row's `values`. `metrics[].name` keeps the name of every item, and `metrics[0].name` the first one only. Filter with `jq`:
 

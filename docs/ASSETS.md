@@ -8,7 +8,7 @@ This repository keeps README and Marketplace screenshots under `apps/vscode-exte
 - `log-viewer.png` — dedicated `Apex Log Viewer` with the failure banner, the failed entry selected, and the diagnostics sidebar. The `Get started with Apex Logs` walkthrough also shows it.
 - `debug-flags.png` — `Apex Debug Flags` editor with user search, TTL/apply/remove controls, and the Debug Level Manager. The walkthrough also shows it.
 - `tail.png` — `Apex Tail` panel with live log lines.
-- `custom-logs.png` — `Custom Logs` panel with JSON payload columns and a loaded-row filter.
+- `custom-logs.png` — `Custom Logs` panel with JSON payload columns and a search over the loaded rows.
 
 ## Regenerating Screenshots
 

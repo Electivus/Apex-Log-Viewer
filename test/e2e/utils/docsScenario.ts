@@ -14,7 +14,7 @@ export const DOCS_SEARCH_QUERY = 'policy renewal';
 export const DOCS_TAIL_SEARCH_QUERY = 'tail live renewal';
 export const DOCS_TAIL_ALERT_LINE = 'Tail live renewal alert published to the case review channel';
 
-export const DOCS_CUSTOM_LOGS_FILTER = 'http.status >= 500';
+export const DOCS_CUSTOM_LOGS_SEARCH = 'failed';
 
 const DOCS_CUSTOM_LOG_TAG = 'ALVDOCS';
 
