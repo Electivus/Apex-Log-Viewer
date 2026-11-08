@@ -14,7 +14,6 @@ type CustomLogsFiltersProps = {
   onClear: () => void;
 };
 
-/** The server filter: each change reloads the list from Salesforce or from the event store. */
 export function CustomLogsFilters({ t, model, onChange, onClear }: CustomLogsFiltersProps) {
   return (
     <Popover.Root>

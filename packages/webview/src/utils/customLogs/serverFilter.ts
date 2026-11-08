@@ -41,7 +41,6 @@ function withCurrent(current: string | undefined, options: FilterOption[]): Filt
     : options;
 }
 
-/** The Level, Logged by and Time selects a source supports, built from the server filter and the loaded rows. */
 export function filterMenuModel({ filter, capabilities, rows, stored, t }: FilterMenuInput): FilterMenuModel {
   const fields: FilterMenuField[] = [];
   if (capabilities.levelFilter) {

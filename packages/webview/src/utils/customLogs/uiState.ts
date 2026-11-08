@@ -15,7 +15,7 @@ export type PayloadUiState = {
   hiddenDefaults: string[];
 };
 
-/** Whatever `vscode.getState()` returned, narrowed to a usable state. Keys it does not know, such as an old `payloadFilters`, are dropped. */
+/** Whatever `vscode.getState()` returned, narrowed to a usable state. An old `payloadFilters` key is dropped. */
 export function readPayloadUiState(saved: unknown): PayloadUiState {
   const raw = (typeof saved === 'object' && saved !== null ? saved : {}) as Partial<PayloadUiState>;
   const sort = raw.sort;
