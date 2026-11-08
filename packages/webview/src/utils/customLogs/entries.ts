@@ -6,7 +6,7 @@ import {
 } from '@alv/protocol/customLogsTypes';
 import type { DiscoveredField, PayloadColumn } from './payloadRows';
 import { entrySearchText, searchItems, type SearchTerms } from './search';
-import { appendDataColumns, dataColumnSortValue, type DataColumn, type SortState } from './columns';
+import { dataColumnSortValue, extraDataColumns, payloadDataColumns, type DataColumn, type SortState } from './columns';
 
 export type EntryFilters = {
   /** Show only these levels. Empty shows every level. */
@@ -83,12 +83,7 @@ export function buildEntryColumns(input: {
       : []),
     { id: 'std:message', kind: 'std', field: 'message', label: input.labels.message, width: 360, flex: true }
   ];
-  return appendDataColumns(columns, {
-    extra: input.extra,
-    extraWidth: 140,
-    payload: input.payload,
-    discovered: input.discovered
-  });
+  return [...columns, ...extraDataColumns(input.extra, 140), ...payloadDataColumns(input.payload, input.discovered)];
 }
 
 export function entrySortValue(entry: CustomLogEntry, column: EntryColumn): CustomLogScalar | undefined {

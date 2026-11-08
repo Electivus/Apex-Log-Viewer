@@ -34,11 +34,10 @@ export type CustomLogsMessages = {
     time: string;
     level: string;
     title: string;
+    origin: string;
     user: string;
-    counts: string;
-    entries: string;
-    errors: string;
-    warnings: string;
+    log: string;
+    logField: string;
   };
   table: {
     aria: string;
@@ -92,6 +91,11 @@ export type CustomLogsMessages = {
     requestId: string;
     user: string;
     time: string;
+    origin: string;
+    log: string;
+    logStart: string;
+    logLevel: string;
+    logEntries: string;
   };
   status: {
     rowsLoaded: string;
@@ -257,12 +261,11 @@ export const customLogsEn: CustomLogsMessages = {
   columns: {
     time: 'Time',
     level: 'Level',
-    title: 'Title',
+    title: 'Message',
+    origin: 'Origin',
     user: 'User',
-    counts: 'Entries',
-    entries: 'entries',
-    errors: 'errors',
-    warnings: 'warnings'
+    log: 'Log',
+    logField: 'Log: {label}'
   },
   table: {
     aria: 'Custom logs',
@@ -317,7 +320,12 @@ export const customLogsEn: CustomLogsMessages = {
     transactionId: 'Transaction',
     requestId: 'Request',
     user: 'User',
-    time: 'Time'
+    time: 'Time',
+    origin: 'Origin',
+    log: 'Log',
+    logStart: 'Started',
+    logLevel: 'Worst level',
+    logEntries: 'Entries'
   },
   status: {
     rowsLoaded: '{count} rows loaded',
@@ -495,12 +503,11 @@ export const customLogsPtBR: CustomLogsMessages = {
   columns: {
     time: 'Hora',
     level: 'Nível',
-    title: 'Título',
+    title: 'Mensagem',
+    origin: 'Origem',
     user: 'Usuário',
-    counts: 'Entradas',
-    entries: 'entradas',
-    errors: 'erros',
-    warnings: 'avisos'
+    log: 'Log',
+    logField: 'Log: {label}'
   },
   table: {
     aria: 'Logs personalizados',
@@ -555,7 +562,12 @@ export const customLogsPtBR: CustomLogsMessages = {
     transactionId: 'Transação',
     requestId: 'Requisição',
     user: 'Usuário',
-    time: 'Hora'
+    time: 'Hora',
+    origin: 'Origem',
+    log: 'Log',
+    logStart: 'Início',
+    logLevel: 'Nível mais grave',
+    logEntries: 'Entradas'
   },
   status: {
     rowsLoaded: '{count} linhas carregadas',

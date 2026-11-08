@@ -7,7 +7,7 @@ import type {
   CustomLogSourceRef
 } from '@alv/protocol/customLogsTypes';
 import type { CustomLogsMessages } from '../../i18n';
-import { fillTemplate, formatLogTime } from '../../utils/customLogs/format';
+import { countLabel, formatLogTime } from '../../utils/customLogs/format';
 import { Button } from '../ui/button';
 import { LevelBadge } from './LevelBadge';
 
@@ -55,10 +55,6 @@ function Id({
       </button>
     </span>
   );
-}
-
-function countLabel(count: number, one: string, many: string): string {
-  return count === 1 ? one : fillTemplate(many, { count });
 }
 
 function apexLogHint(link: Exclude<CustomLogApexLogLink, { state: 'linked' }>, t: CustomLogsMessages): string {

@@ -7,6 +7,7 @@ import {
   appLog,
   columnHeader,
   createVsCodeMock,
+  entryIds,
   grid,
   headerLabels,
   ids,
@@ -14,6 +15,7 @@ import {
   listedTitles,
   makeRow,
   mountApp,
+  mountNebula,
   nebula,
   parsed,
   posts,
@@ -47,6 +49,7 @@ jest.mock('react-window', () => {
 });
 
 const sortButton = (columnName: string) => within(columnHeader(columnName)).getAllByRole('button')[0]!;
+const detail = () => screen.getByTestId('custom-log-row-detail');
 const cellText = (id: string, columnIndex: number) =>
   rowOf(id).querySelectorAll('[role="gridcell"]')[columnIndex]?.textContent?.trim();
 
@@ -58,7 +61,7 @@ describe('Custom Logs JSON columns', () => {
       expect(headerLabels()).toEqual([
         'Time',
         'Level',
-        'Title',
+        'Message',
         'User',
         'Category',
         'orderId',
@@ -88,7 +91,7 @@ describe('Custom Logs JSON columns', () => {
       expect(posts(posted, 'customLogsShowPayloadColumn')).toEqual([
         { type: 'customLogsShowPayloadColumn', path: 'http.status', shown: true }
       ]);
-      expect(headerLabels()).toEqual(['Time', 'Level', 'Title', 'User', 'Category', 'orderId', 'http.status']);
+      expect(headerLabels()).toEqual(['Time', 'Level', 'Message', 'User', 'Category', 'orderId', 'http.status']);
     });
 
     it('searches the discovered paths in the picker', () => {
@@ -327,7 +330,6 @@ describe('Custom Logs JSON columns', () => {
   });
 
   describe('row detail', () => {
-    const detail = () => screen.getByTestId('custom-log-row-detail');
     const leaf = (path: string) => within(detail()).getByTestId(`payload-leaf-${path}`);
 
     it('shows the selected row payload as a key/value tree', () => {
@@ -456,6 +458,67 @@ describe('Custom Logs JSON columns', () => {
       search('ORD-1043');
 
       expect(screen.queryByTestId('custom-log-row-detail')).toBeNull();
+    });
+  });
+
+  describe('entry rows of a transactions source', () => {
+    it("shows the message, origin, user and log of each entry, its mapped columns, then its log's columns", () => {
+      mountNebula();
+
+      expect(headerLabels()).toEqual([
+        'Time',
+        'Level',
+        'Message',
+        'Origin',
+        'User',
+        'Log',
+        'Origin Type',
+        'Log: System Mode',
+        'Log: Status'
+      ]);
+      expect(cellText(entryIds.warn, 2)).toBe('Order total looks wrong');
+      expect(cellText(entryIds.warn, 3)).toBe('OrderService.total');
+      expect(cellText(entryIds.warn, 5)).toBe('Log-000279');
+      expect(cellText(entryIds.warn, 6)).toBe('Apex');
+      expect(cellText(entryIds.synced, 7)).toBe('BATCH_APEX');
+      expect(cellText(entryIds.synced, 8)).toBe('Processed');
+      expect(screen.queryByRole('columnheader', { name: /Entries/ })).toBeNull();
+    });
+
+    it("sorts by the log's name and by a column of the log", () => {
+      mountNebula();
+
+      fireEvent.click(sortButton('Log: Status'));
+      expect(listedTitles().at(-1)).toBe('Order synced');
+      fireEvent.click(sortButton('Log: Status'));
+      expect(listedTitles()[0]).toBe('Order synced');
+
+      fireEvent.click(sortButton('Log'));
+      expect(columnHeader('Log')).toHaveAttribute('aria-sort', 'ascending');
+      expect(listedTitles().at(-1)).toBe('Order synced');
+    });
+
+    it('lists rows without a log, origin or user without those columns', () => {
+      mountApp({ rows: [makeRow(ids.ok, 'Order synced', { user: undefined })] });
+
+      expect(headerLabels()).toEqual(['Time', 'Level', 'Message', 'User', 'Category']);
+    });
+
+    it('shows the log of the selected entry and opens the entry from the detail', () => {
+      const { posted } = mountNebula();
+
+      fireEvent.click(rowOf(entryIds.warn));
+
+      const log = within(detail()).getByRole('region', { name: 'Log' });
+      expect(log).toHaveTextContent('Log-000279');
+      expect(log).toHaveTextContent('Worst level WARN');
+      expect(log).toHaveTextContent('Entries 3 entries · 1 warning');
+      expect(log).toHaveTextContent('System Mode ANONYMOUS');
+      expect(log).toHaveTextContent('Status New');
+      expect(within(detail()).getByText('OrderService.total')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Open log' }));
+      expect(lastPost(posted, 'customLogsOpenLog')).toEqual({ type: 'customLogsOpenLog', logId: entryIds.warn });
     });
   });
 

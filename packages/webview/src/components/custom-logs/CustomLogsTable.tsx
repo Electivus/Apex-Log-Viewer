@@ -4,7 +4,7 @@ import { TriangleAlert } from 'lucide-react';
 import type { CustomLogRow } from '@alv/protocol/customLogsTypes';
 import type { CustomLogsMessages } from '../../i18n';
 import { cn } from '../../lib/utils';
-import type { SortState, TableColumn } from '../../utils/customLogs/columns';
+import type { SortState, StandardColumnField, TableColumn } from '../../utils/customLogs/columns';
 import { formatLogTime } from '../../utils/customLogs/format';
 import type { DiscoveredField } from '../../utils/customLogs/payloadRows';
 import { CustomLogsColumnsHeader, columnGrid } from './CustomLogsColumnsHeader';
@@ -47,32 +47,68 @@ type RowProps = {
   onOpen: (row: CustomLogRow) => void;
 };
 
-function CountsCell({ t, row }: { t: CustomLogsMessages; row: CustomLogRow }) {
-  const counts = row.counts;
-  if (!counts || counts.entries === undefined) {
-    return <span className="text-muted-foreground">—</span>;
-  }
+function TitleCell({ t, row }: { t: CustomLogsMessages; row: CustomLogRow }) {
+  const payloadWarning =
+    row.payload && row.payload.state !== 'parsed' && row.payload.state !== 'empty' ? row.payload.state : undefined;
   return (
-    <span className="inline-flex items-center gap-1.5">
-      <span className="font-mono text-xs">{counts.entries}</span>
-      {counts.errors ? (
-        <span
-          className="rounded-full bg-[color-mix(in_srgb,var(--vscode-charts-red,#f14c4c)_20%,transparent)] px-1.5 text-[10px] leading-[15px] text-[color:var(--vscode-charts-red,#f14c4c)]"
-          title={`${counts.errors} ${t.columns.errors}`}
-        >
-          {counts.errors}
+    <span className="flex min-w-0 items-center gap-1" title={row.title}>
+      {payloadWarning ? (
+        <span title={t.payload[`${payloadWarning}Note`]}>
+          <TriangleAlert className="h-3 w-3 shrink-0 text-amber-400" aria-label={t.payload[payloadWarning]} />
         </span>
       ) : null}
-      {counts.warnings ? (
-        <span
-          className="rounded-full bg-[color-mix(in_srgb,var(--vscode-charts-yellow,#cca700)_20%,transparent)] px-1.5 text-[10px] leading-[15px] text-[color:var(--vscode-charts-yellow,#cca700)]"
-          title={`${counts.warnings} ${t.columns.warnings}`}
-        >
-          {counts.warnings}
-        </span>
-      ) : null}
+      <span className="truncate">{row.title ?? row.id}</span>
     </span>
   );
+}
+
+function TextCell({ value }: { value: string | undefined }) {
+  return (
+    <span className="block truncate" title={value}>
+      {value ?? ''}
+    </span>
+  );
+}
+
+function StandardCell({ t, row, field }: { t: CustomLogsMessages; row: CustomLogRow; field: StandardColumnField }) {
+  switch (field) {
+    case 'time':
+      return <span className="font-mono text-[11px] text-muted-foreground">{formatLogTime(row.time)}</span>;
+    case 'level':
+      return <LevelBadge level={row.level} />;
+    case 'title':
+      return <TitleCell t={t} row={row} />;
+    case 'origin':
+      return <TextCell value={row.origin} />;
+    case 'user':
+      return <TextCell value={row.user} />;
+    case 'log':
+      return <TextCell value={row.log?.title} />;
+  }
+}
+
+function RowCell({
+  t,
+  row,
+  column,
+  marker
+}: {
+  t: CustomLogsMessages;
+  row: CustomLogRow;
+  column: TableColumn;
+  /** The first JSON column says why a payload has no values. */
+  marker: boolean;
+}) {
+  switch (column.kind) {
+    case 'std':
+      return <StandardCell t={t} row={row} field={column.field} />;
+    case 'extra':
+      return <ExtraCell value={row.extra[column.key]} />;
+    case 'log':
+      return <ExtraCell value={row.log?.extra[column.key]} />;
+    case 'payload':
+      return <PayloadCell t={t} payload={row.payload} path={column.path} marker={marker} />;
+  }
 }
 
 function CustomLogRowView({
@@ -93,8 +129,6 @@ function CustomLogRowView({
     return null;
   }
   const selected = row.id === selectedId;
-  const payloadWarning =
-    row.payload && row.payload.state !== 'parsed' && row.payload.state !== 'empty' ? row.payload.state : undefined;
   return (
     <div
       role="row"
@@ -112,32 +146,7 @@ function CustomLogRowView({
     >
       {columns.map(column => (
         <div key={column.id} role="gridcell" className="min-w-0 truncate px-2">
-          {column.kind === 'std' ? (
-            column.field === 'time' ? (
-              <span className="font-mono text-[11px] text-muted-foreground">{formatLogTime(row.time)}</span>
-            ) : column.field === 'level' ? (
-              <LevelBadge level={row.level} />
-            ) : column.field === 'title' ? (
-              <span className="flex min-w-0 items-center gap-1" title={row.title}>
-                {payloadWarning ? (
-                  <span title={t.payload[`${payloadWarning}Note`]}>
-                    <TriangleAlert className="h-3 w-3 shrink-0 text-amber-400" aria-label={t.payload[payloadWarning]} />
-                  </span>
-                ) : null}
-                <span className="truncate">{row.title ?? row.id}</span>
-              </span>
-            ) : column.field === 'user' ? (
-              <span className="truncate" title={row.user}>
-                {row.user ?? ''}
-              </span>
-            ) : (
-              <CountsCell t={t} row={row} />
-            )
-          ) : column.kind === 'extra' ? (
-            <ExtraCell value={row.extra[column.key]} />
-          ) : (
-            <PayloadCell t={t} payload={row.payload} path={column.path} marker={column.id === firstPayloadColumnId} />
-          )}
+          <RowCell t={t} row={row} column={column} marker={column.id === firstPayloadColumnId} />
         </div>
       ))}
       <div />

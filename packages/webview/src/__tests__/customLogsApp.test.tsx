@@ -13,6 +13,7 @@ import {
   listedTitles,
   makeRow,
   mountApp,
+  mountNebula,
   nebula,
   parsed,
   posts,
@@ -79,7 +80,7 @@ describe('Custom Logs app', () => {
       mountApp();
 
       expect(listedTitles()).toEqual(rows.map(row => row.title));
-      expect(headerLabels()).toEqual(['Time', 'Level', 'Title', 'User', 'Category']);
+      expect(headerLabels()).toEqual(['Time', 'Level', 'Message', 'User', 'Category']);
     });
 
     it('shows a null record field as an empty cell, not the word null', () => {
@@ -171,6 +172,22 @@ describe('Custom Logs app', () => {
 
       search('orders warn');
       expect(listedTitles()).toEqual(['Retrying order sync']);
+    });
+
+    it('finds entries by the origin, the name and the columns of their log', () => {
+      mountNebula();
+
+      search('Log-000');
+      expect(screen.getByRole('status')).toHaveTextContent('4 of 4 loaded rows match');
+
+      search('log-000280');
+      expect(listedTitles()).toEqual(['Order synced']);
+
+      search('processed');
+      expect(listedTitles()).toEqual(['Order synced']);
+
+      search('orderservice');
+      expect(listedTitles()).toEqual(['Order total looks wrong', 'Saving order']);
     });
 
     it('reads operators and quotes as plain text, and says when nothing loaded matches', () => {

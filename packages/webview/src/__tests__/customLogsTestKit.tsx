@@ -3,6 +3,8 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import type { CustomLogsFromWebviewMessage, CustomLogsToWebviewMessage } from '@alv/protocol/customLogsMessages';
 import type {
+  CustomLogColumn,
+  CustomLogHeaderRow,
   CustomLogPayloadField,
   CustomLogPayloadView,
   CustomLogRow,
@@ -102,6 +104,64 @@ export const nebula: CustomLogSourceView = {
   state: 'ready'
 };
 
+export const nebulaColumns: CustomLogColumn[] = [{ key: 'OriginType__c', label: 'Origin Type' }];
+export const nebulaLogColumns: CustomLogColumn[] = [
+  { key: 'SystemMode__c', label: 'System Mode' },
+  { key: 'Status__c', label: 'Status' }
+];
+
+export function nebulaLog(id: string, title: string, overrides: Partial<CustomLogHeaderRow> = {}): CustomLogHeaderRow {
+  return {
+    id,
+    time: '2026-10-30T00:47:31.000Z',
+    title,
+    user: 'test-sius3fopjykz@example.com',
+    level: 'WARN',
+    counts: { entries: 3, errors: 0, warnings: 1 },
+    extra: { SystemMode__c: 'ANONYMOUS', Status__c: 'New' },
+    ...overrides
+  };
+}
+
+export const logIds = { saved: 'a02DF0000089n6aYAA', synced: 'a02DF0000089n6bYAA' };
+export const entryIds = {
+  bookkeeping: 'a01DF00000NvMjRYAV',
+  warn: 'a01DF00000NvMjQYAV',
+  info: 'a01DF00000NvMjPYAV',
+  synced: 'a01DF00000NvMjOYAV'
+};
+
+/** Nebula Logger entries as `list --entries` returns them, newest first: two logs, one bookkeeping entry. */
+export const nebulaRows: CustomLogRow[] = [
+  makeRow(entryIds.bookkeeping, 'Nebula Logger - Saving 2 log entries via ANONYMOUS', {
+    level: 'FINEST',
+    system: true,
+    origin: 'AnonymousBlock',
+    extra: { OriginType__c: 'Apex' },
+    log: nebulaLog(logIds.saved, 'Log-000279')
+  }),
+  makeRow(entryIds.warn, 'Order total looks wrong', {
+    level: 'WARN',
+    origin: 'OrderService.total',
+    extra: { OriginType__c: 'Apex' },
+    log: nebulaLog(logIds.saved, 'Log-000279')
+  }),
+  makeRow(entryIds.info, 'Saving order', {
+    origin: 'OrderService.save',
+    extra: { OriginType__c: 'Apex' },
+    log: nebulaLog(logIds.saved, 'Log-000279')
+  }),
+  makeRow(entryIds.synced, 'Order synced', {
+    origin: 'OrderSync.run',
+    extra: { OriginType__c: 'Flow' },
+    log: nebulaLog(logIds.synced, 'Log-000280', {
+      level: 'INFO',
+      counts: { entries: 1, errors: 0, warnings: 0 },
+      extra: { SystemMode__c: 'BATCH_APEX', Status__c: 'Processed' }
+    })
+  })
+];
+
 export function createVsCodeMock(initialState?: unknown) {
   const posted: CustomLogsFromWebviewMessage[] = [];
   let savedState = initialState;
@@ -128,12 +188,30 @@ export type BootstrapOptions = {
   selected?: string;
   issues?: Array<{ severity: 'error' | 'warning'; pointer: string; message: string }>;
   rows?: CustomLogRow[];
+  columns?: CustomLogColumn[];
+  logColumns?: CustomLogColumn[];
   fields?: CustomLogPayloadField[];
   defaults?: string[];
   added?: string[];
   hasMore?: boolean;
   surface?: 'view' | 'editor';
 };
+
+/** The panel on a Nebula Logger source, listing `nebulaRows`. */
+export function mountNebula(options: BootstrapOptions = {}, initialState?: unknown) {
+  return mountApp(
+    {
+      sources: [nebula],
+      selected: 'nebula',
+      rows: nebulaRows,
+      columns: nebulaColumns,
+      logColumns: nebulaLogColumns,
+      fields: [],
+      ...options
+    },
+    initialState
+  );
+}
 
 export function mountApp(options: BootstrapOptions = {}, initialState?: unknown) {
   const mock = createVsCodeMock(initialState);
@@ -159,7 +237,8 @@ export function mountApp(options: BootstrapOptions = {}, initialState?: unknown)
   send(bus, {
     type: 'customLogsPage',
     mode: 'replace',
-    columns: [{ key: 'Category__c', label: 'Category' }],
+    columns: options.columns ?? [{ key: 'Category__c', label: 'Category' }],
+    logColumns: options.logColumns ?? [],
     rows: options.rows ?? rows,
     payloadFields: options.fields ?? payloadFields,
     hasMore: options.hasMore ?? false

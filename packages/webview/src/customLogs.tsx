@@ -72,6 +72,7 @@ export function CustomLogsApp({
   const selectedSourceId = view.sources?.selected;
   const issues = view.sources?.issues ?? NO_ISSUES;
   const extraColumns = view.page?.columns ?? NO_COLUMNS;
+  const logColumns = view.page?.logColumns ?? NO_COLUMNS;
   const rows = view.page?.rows ?? NO_ROWS;
   const payloadFields = view.page?.payloadFields ?? NO_FIELDS;
   const hasMore = view.page?.hasMore ?? false;
@@ -123,20 +124,16 @@ export function CustomLogsApp({
   const buildColumns = useCallback(
     (payload: PayloadColumn[], discovered: DiscoveredField[]) =>
       buildTableColumns({
-        labels: {
-          time: t.columns.time,
-          level: t.columns.level,
-          title: t.columns.title,
-          user: t.columns.user,
-          counts: t.columns.counts
-        },
+        labels: t.columns,
         extra: extraColumns,
+        logColumns,
         payload,
         discovered,
+        hasOrigin: rows.some(row => row.origin !== undefined),
         hasUser: rows.some(row => row.user !== undefined) || capabilities.userFilter,
-        hasCounts: rows.some(row => row.counts !== undefined)
+        hasLog: rows.some(row => row.log !== undefined)
       }),
-    [capabilities.userFilter, extraColumns, rows, t.columns]
+    [capabilities.userFilter, extraColumns, logColumns, rows, t.columns]
   );
   const workbench = usePayloadWorkbench({
     initial: initialUiState,
@@ -338,6 +335,7 @@ export function CustomLogsApp({
               <CustomLogRowDetail
                 t={t}
                 row={selectedRow}
+                logColumns={logColumns}
                 dock={dock}
                 columns={activeColumns}
                 lockedColumns={lockedColumns}
