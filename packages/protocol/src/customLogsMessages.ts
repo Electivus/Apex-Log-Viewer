@@ -39,7 +39,7 @@ export type CustomLogsFromWebviewMessage =
   | { type: 'customLogsRefresh' }
   /** No cursor from the webview: the provider owns it. */
   | { type: 'customLogsLoadMore' }
-  /** Accepted only for an id present in the provider's current rows. */
+  /** A listed row's id, accepted only while it is in the provider's current rows. The host opens its transaction. */
   | { type: 'customLogsOpenLog'; logId: string }
   /**
    * Opens the full payload of a listed row as a read-only text document. Accepted only for an id
@@ -79,6 +79,8 @@ export type CustomLogsToWebviewMessage =
       type: 'customLogsPage';
       mode: 'replace' | 'append';
       columns: CustomLogColumn[];
+      /** The display columns of the rows' `log`, read from `row.log.extra`. Absent or empty when rows carry no `log`. */
+      logColumns?: CustomLogColumn[];
       rows: CustomLogRow[];
       /** This page's paths on `append`; every loaded page's, merged, on `replace`. */
       payloadFields: CustomLogPayloadField[];

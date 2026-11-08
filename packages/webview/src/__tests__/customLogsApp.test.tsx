@@ -53,7 +53,8 @@ const auditLog: CustomLogSourceView = {
   ...appLog,
   id: 'audit-log',
   label: 'Audit Log',
-  capabilities: { levelFilter: false, userFilter: false, apexLogLink: false }
+  capabilities: { levelFilter: false, userFilter: false, apexLogLink: false },
+  entryCapabilities: { levelFilter: false, userFilter: false }
 };
 
 describe('Custom Logs app', () => {
@@ -506,6 +507,18 @@ describe('Custom Logs app', () => {
         expect(screen.queryByLabelText('Level')).toBeNull();
         expect(screen.queryByLabelText('Logged by')).toBeNull();
         expect(filterOptions('Time')).toEqual(['Any time', 'Last hour', 'Last 24 hours', 'Last 7 days']);
+      });
+    });
+
+    it('offers what the listed entries can be filtered by, not what their transactions can', () => {
+      mountApp({
+        sources: [{ ...nebula, entryCapabilities: { levelFilter: false, userFilter: true } }],
+        selected: 'nebula'
+      });
+
+      inFilters(() => {
+        expect(screen.queryByLabelText('Level')).toBeNull();
+        expect(screen.getByLabelText('Logged by')).toBeInTheDocument();
       });
     });
 

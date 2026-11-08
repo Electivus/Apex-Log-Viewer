@@ -8,6 +8,7 @@ import { FakeClock, createWebviewSessionForTest, settle } from '../webviewSessio
 import {
   APP_LOG,
   CAPTURED,
+  ENTRY_IDS,
   EVENTS,
   FakeHost,
   LOG_IDS,
@@ -118,7 +119,7 @@ suite('Custom Logs view provider', () => {
       { targetOrg: 'dev@example.com', projectDir: '/project', refresh: false }
     ]);
     assert.deepEqual(fake.calls.customLogList, [
-      { targetOrg: 'dev@example.com', projectDir: '/project', source: 'nebula', filter: {}, limit: 50 }
+      { targetOrg: 'dev@example.com', projectDir: '/project', source: 'nebula', filter: {}, limit: 200, entries: true }
     ]);
     const page = host.last('customLogsPage') as never as {
       mode: string;
@@ -165,12 +166,14 @@ suite('Custom Logs view provider', () => {
       params.cursor
         ? {
             columns: [{ key: 'Status__c', label: 'Status' }],
+            logColumns: [{ key: 'SystemMode__c', label: 'System Mode' }],
             rows: [row(LOG_IDS.third)],
             payloadFields: [field('orderId', 1, ['number']), field('http.status')],
             nextCursor: null
           }
         : {
             columns: [{ key: 'Status__c', label: 'Status' }],
+            logColumns: [{ key: 'SystemMode__c', label: 'System Mode' }],
             rows: [row(LOG_IDS.first), row(LOG_IDS.second)],
             payloadFields: [field('orderId', 2)],
             nextCursor: 'cursor-1'
@@ -197,6 +200,7 @@ suite('Custom Logs view provider', () => {
     const page = second.last('customLogsPage') as never as {
       mode: string;
       columns: unknown[];
+      logColumns: unknown[];
       rows: Array<{ id: string }>;
       payloadFields: unknown[];
       hasMore: boolean;
@@ -207,6 +211,7 @@ suite('Custom Logs view provider', () => {
       [LOG_IDS.first, LOG_IDS.second, LOG_IDS.third]
     );
     assert.deepEqual(page.columns, [{ key: 'Status__c', label: 'Status' }]);
+    assert.deepEqual(page.logColumns, [{ key: 'SystemMode__c', label: 'System Mode' }]);
     assert.deepEqual(page.payloadFields, [
       { path: 'orderId', types: ['string', 'number'], rows: 3 },
       { path: 'http.status', types: ['string'], rows: 1 }
@@ -329,6 +334,20 @@ suite('Custom Logs view provider', () => {
       await host.emit({ type: 'customLogsSetFilter', filter: { minLevel: 'ERROR' } });
       assert.deepEqual(host.last('customLogsFilter')?.value, {});
       assert.deepEqual(fake.calls.customLogList.at(-1)?.filter, {});
+    });
+
+    test('keeps the filters the listed entries support, not those their transactions support', async () => {
+      const { fake, mount } = load();
+      fake.handlers.customLogSources = async () => ({
+        sources: [{ ...NEBULA, entryCapabilities: { levelFilter: false, userFilter: true } }],
+        issues: []
+      });
+      const host = new FakeHost();
+      await mount(host);
+
+      await host.emit({ type: 'customLogsSetFilter', filter: { minLevel: 'WARN', user: 'dev@example.com' } });
+
+      assert.deepEqual(fake.calls.customLogList.at(-1)?.filter, { user: 'dev@example.com' });
     });
 
     test('a source switch queries the new source once with the filter on screen, from a fresh cursor', async () => {
@@ -520,6 +539,28 @@ suite('Custom Logs view provider', () => {
       ]);
     });
 
+    test('opens an entry in its transaction, so the entries of one log share one viewer', async () => {
+      const { fake, viewerOpens, mount } = load();
+      const log = { id: LOG_IDS.first, time: '2026-10-30T00:48:10.000Z', title: 'Log-000739', extra: {} };
+      fake.handlers.customLogList = async () => ({
+        columns: [],
+        logColumns: [],
+        rows: [row(ENTRY_IDS.first, 'Saving order', { log }), row(ENTRY_IDS.second, 'Order saved', { log })],
+        payloadFields: [],
+        nextCursor: null
+      });
+      const host = new FakeHost();
+      await mount(host);
+
+      await host.emit({ type: 'customLogsOpenLog', logId: ENTRY_IDS.second });
+      await host.emit({ type: 'customLogsOpenLog', logId: ENTRY_IDS.first });
+
+      assert.deepEqual(
+        viewerOpens.map(open => open.logId),
+        [LOG_IDS.first, LOG_IDS.first]
+      );
+    });
+
     test("hands the viewer the entry JSON columns the source's mapping defaults", async () => {
       const { viewerOpens, mount } = load();
       const host = new FakeHost();
@@ -531,22 +572,21 @@ suite('Custom Logs view provider', () => {
       assert.deepEqual(viewerOpens.at(-1)?.payloadDefaults, ['orderId']);
     });
 
-    test('opens the header payload of a listed transaction as a document, through get', async () => {
+    test('opens the raw payload of a listed row through entry, on a transactions source too', async () => {
       const { fake, documents, mount } = load();
-      fake.handlers.customLogGet = async () => ({
-        logPayload: { state: 'value', value: '{"a":1}', format: 'json' }
-      });
+      fake.handlers.customLogEntry = async () => ({ rawPayload: { state: 'value', value: '{"a":1}', format: 'json' } });
       const host = new FakeHost();
       await mount(host);
 
       await host.emit({ type: 'customLogsOpenPayload', logId: 'a02000000000999AAA' });
-      assert.equal(fake.calls.customLogGet.length, 0, 'an unlisted id never reaches Salesforce');
+      assert.equal(fake.calls.customLogEntry.length, 0, 'an unlisted id never reaches Salesforce');
 
       await host.emit({ type: 'customLogsOpenPayload', logId: LOG_IDS.first });
 
-      assert.equal(fake.calls.customLogGet.length, 1);
-      assert.equal(fake.calls.customLogGet[0]?.logId, LOG_IDS.first);
-      assert.equal(fake.calls.customLogGet[0]?.limit, 1);
+      assert.deepEqual(fake.calls.customLogEntry, [
+        { targetOrg: 'dev@example.com', projectDir: '/project', source: 'nebula', entryId: LOG_IDS.first }
+      ]);
+      assert.deepEqual(fake.calls.customLogGet, []);
       assert.deepEqual(documents, [{ name: `Payload - ${LOG_IDS.first}`, text: '{"a":1}', format: 'json' }]);
     });
 
@@ -585,7 +625,7 @@ suite('Custom Logs view provider', () => {
         ['hidden', 'You do not have permission to read this payload.'],
         ['unmapped', 'This source does not map a payload.']
       ] as const) {
-        fake.handlers.customLogGet = async () => (state === 'unmapped' ? {} : { logPayload: { state } });
+        fake.handlers.customLogEntry = async () => ({ rawPayload: { state } });
         await host.emit({ type: 'customLogsOpenPayload', logId: LOG_IDS.first });
         assert.equal(vscodeStub.window.infoMessages.at(-1), text);
       }
@@ -594,7 +634,7 @@ suite('Custom Logs view provider', () => {
 
     test('a failed payload read shows in the banner', async () => {
       const { fake, mount } = load();
-      fake.handlers.customLogGet = async () => {
+      fake.handlers.customLogEntry = async () => {
         throw new Error('Request timed out');
       };
       const host = new FakeHost();
@@ -1089,6 +1129,24 @@ suite('Custom Logs view provider', () => {
       assert.equal(captures.length, 2);
       assert.equal(captures[1]?.params.source, EVENTS.id);
       assert.equal(captures[1]?.params.initial, 'none', 'the restart buys no replay');
+    });
+
+    test('a batch the old capture reports after a switch never joins the entries of a record source', async () => {
+      const ctx = loadEvents();
+      const host = await openEvents(ctx);
+      const capture = ctx.fake.calls.customLogCapture[0]!;
+      await host.emit({ type: 'customLogsSelectSource', sourceId: NEBULA.id });
+      const liveBatches = host.ofType('customLogsLiveRows').length;
+
+      capture.report({ rows: [row(eventId(9))] });
+      await settle();
+
+      assert.equal(host.ofType('customLogsLiveRows').length, liveBatches);
+      const page = host.last('customLogsPage') as never as { rows: Array<{ id: string }> };
+      assert.deepEqual(
+        page.rows.map(listed => listed.id),
+        [LOG_IDS.first]
+      );
     });
 
     test('a record source takes the strip down, and the next event source starts over', async () => {

@@ -30,9 +30,15 @@ export type CustomLogsViewState = {
     { data: CustomLogSourceView[]; selected: string | undefined; issues: CustomLogConfigIssueView[] } | undefined;
   filter: CustomLogsFilterView;
   payloadColumns: CustomLogPayloadColumnsView;
-  /** Every loaded row, its columns and the payload fields merged across pages. */
+  /** Every loaded row, its columns, its log's columns and the payload fields merged across pages. */
   page:
-    | { columns: CustomLogColumn[]; rows: CustomLogRow[]; payloadFields: CustomLogPayloadField[]; hasMore: boolean }
+    | {
+        columns: CustomLogColumn[];
+        logColumns: CustomLogColumn[];
+        rows: CustomLogRow[];
+        payloadFields: CustomLogPayloadField[];
+        hasMore: boolean;
+      }
     | undefined;
   /** The capture strip. Undefined while the selected source is not an event source. */
   capture: CustomLogCaptureView | undefined;
@@ -81,6 +87,7 @@ export function reduceCustomLogsView(
         ...state,
         page: {
           columns: message.columns ?? [],
+          logColumns: message.logColumns ?? [],
           rows: loaded ? [...loaded.rows, ...rows] : [...rows],
           payloadFields: mergePayloadFields(loaded?.payloadFields ?? [], payloadFields),
           hasMore: !!message.hasMore

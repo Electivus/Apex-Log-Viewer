@@ -23,6 +23,7 @@ const SOURCE: CustomLogSourceView = {
   shape: 'transactions',
   hiddenFields: [],
   capabilities: { levelFilter: true, userFilter: true, apexLogLink: true },
+  entryCapabilities: { levelFilter: true, userFilter: true },
   payload: {},
   state: 'ready'
 };
@@ -42,6 +43,7 @@ const MESSAGES: CustomLogsToWebviewMessage[] = [
     type: 'customLogsPage',
     mode: 'replace',
     columns: [{ key: 'Category__c', label: 'Category' }],
+    logColumns: [{ key: 'Status__c', label: 'Status' }],
     rows: [row('a015g00000Q2xYzAAB'), row('a015g00000Q2xYzAAC')],
     payloadFields: [{ path: 'orderId', types: ['string'], rows: 2 }],
     hasMore: true
@@ -50,6 +52,7 @@ const MESSAGES: CustomLogsToWebviewMessage[] = [
     type: 'customLogsPage',
     mode: 'append',
     columns: [{ key: 'Category__c', label: 'Category' }],
+    logColumns: [{ key: 'Status__c', label: 'Status' }],
     rows: [row('a015g00000Q2xYzAAD')],
     payloadFields: [
       { path: 'orderId', types: ['number'], rows: 1 },
@@ -99,7 +102,7 @@ test('a replace page swaps the rows and an append page adds to them, merging the
     payloadFields: [],
     hasMore: false
   });
-  assert.deepEqual(replaced.page, { columns: [], rows: [], payloadFields: [], hasMore: false });
+  assert.deepEqual(replaced.page, { columns: [], logColumns: [], rows: [], payloadFields: [], hasMore: false });
 });
 
 test('an append page with nothing loaded yet starts the page', () => {
@@ -121,12 +124,21 @@ test('an empty append page only changes hasMore, which is how paging stops witho
     type: 'customLogsPage',
     mode: 'append',
     columns: loaded.page!.columns,
+    logColumns: loaded.page!.logColumns,
     rows: [],
     payloadFields: [],
     hasMore: false
   });
 
   assert.deepEqual(stopped.page, { ...loaded.page, hasMore: false });
+});
+
+test("a remount replays the columns of the rows' log with the rows", () => {
+  const replayed = replayCustomLogsView(reduceAll(MESSAGES)).find(message => message.type === 'customLogsPage');
+
+  assert.deepEqual(replayed?.type === 'customLogsPage' ? replayed.logColumns : undefined, [
+    { key: 'Status__c', label: 'Status' }
+  ]);
 });
 
 test('replaying a state and reducing it from empty gives the same state', () => {

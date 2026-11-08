@@ -29,7 +29,7 @@ import { detailDock, readPayloadUiState, useElementHeight } from './utils/custom
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
 
-const NO_CAPABILITIES = { levelFilter: false, userFilter: false, apexLogLink: false };
+const NO_CAPABILITIES = { levelFilter: false, userFilter: false };
 const NO_ORGS: OrgItem[] = [];
 const NO_SOURCES: CustomLogSourceView[] = [];
 const NO_ISSUES: CustomLogConfigIssueView[] = [];
@@ -106,6 +106,8 @@ export function CustomLogsApp({
     [sources, selectedSourceId]
   );
   const sourceReady = selectedSource?.state === 'ready';
+  // Every source lists entries, so its entry capabilities decide the Filters and the User column.
+  const capabilities = selectedSource?.entryCapabilities ?? NO_CAPABILITIES;
 
   const onAddedColumns = useCallback(
     (added: string[]) => {
@@ -127,10 +129,10 @@ export function CustomLogsApp({
         extra: extraColumns,
         payload,
         discovered,
-        hasUser: rows.some(row => row.user !== undefined) || Boolean(selectedSource?.capabilities.userFilter),
+        hasUser: rows.some(row => row.user !== undefined) || capabilities.userFilter,
         hasCounts: rows.some(row => row.counts !== undefined)
       }),
-    [extraColumns, rows, selectedSource?.capabilities.userFilter, t.columns]
+    [capabilities.userFilter, extraColumns, rows, t.columns]
   );
   const workbench = usePayloadWorkbench({
     initial: initialUiState,
@@ -192,7 +194,6 @@ export function CustomLogsApp({
   const selectedRow = useMemo(() => visibleRows.find(row => row.id === selectedId), [selectedId, visibleRows]);
   const payloadStates = useMemo(() => countPayloadStates(rows), [rows]);
 
-  const capabilities = selectedSource?.capabilities ?? NO_CAPABILITIES;
   const dock = detailDock(rootHeight);
 
   const setServerFilterAndPost = useCallback(

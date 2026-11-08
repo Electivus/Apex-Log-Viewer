@@ -85,6 +85,7 @@ export const appLog: CustomLogSourceView = {
   shape: 'entries',
   hiddenFields: [],
   capabilities: { levelFilter: true, userFilter: true, apexLogLink: false },
+  entryCapabilities: { levelFilter: true, userFilter: true },
   payload: { entry: { field: 'Payload__c', columns: ['orderId'] } },
   state: 'ready'
 };
@@ -96,6 +97,7 @@ export const nebula: CustomLogSourceView = {
   shape: 'transactions',
   hiddenFields: [],
   capabilities: { levelFilter: true, userFilter: true, apexLogLink: true },
+  entryCapabilities: { levelFilter: true, userFilter: true },
   payload: {},
   state: 'ready'
 };

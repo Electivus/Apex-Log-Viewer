@@ -40,25 +40,19 @@ import {
 import { createWebviewPanelHost, createWebviewViewHost, type BoundWebviewHost } from './webviewHost';
 import { createWebviewSession, type WebviewSession, type WebviewSessionDetachReason } from './webviewSession';
 import { createWebviewSurface } from './webviewSurface';
-import {
-  createPayloadColumnsStore,
-  type CustomLogPayloadLevel,
-  type PayloadColumnsStore
-} from './customLogsPayloadColumns';
+import { createPayloadColumnsStore, type PayloadColumnsStore } from './customLogsPayloadColumns';
 
-const PAGE_SIZE = 50;
+/**
+ * Rows the panel asks for at a time. Every source lists entries, which the search only sees once loaded. Measured
+ * on a Nebula end user and on 250 Contact entries of a scratch org, a page of 200 cost the same one query round
+ * trip as a page of 50.
+ */
+const PAGE_SIZE = 200;
 
 export const CUSTOM_LOGS_COMMANDS = {
   configure: 'electivus.apexLogViewer.customLogs.configure',
   openEditor: 'electivus.apexLogViewer.customLogs.openEditor'
 } as const;
-
-/** The level whose payload columns the list shows; a new shape fails `satisfies` here. */
-const PAYLOAD_LEVEL = {
-  transactions: 'transaction',
-  entries: 'entry',
-  events: 'entry'
-} as const satisfies Record<CustomLogSourceView['shape'], CustomLogPayloadLevel>;
 
 /**
  * Whether the panel captures a shape while it is open. Capturing spends the org's delivery allocation, so a shape
@@ -108,10 +102,6 @@ function captureCodeOf(error: unknown): string {
   return typeof code === 'string' ? code : 'CUSTOM_LOG_CAPTURE_FAILED';
 }
 
-function levelOf(source: CustomLogSourceView): CustomLogPayloadLevel {
-  return PAYLOAD_LEVEL[source.shape];
-}
-
 /**
  * The user's choice while it is still ready, else the source on screen (so a mapping edit that adds one
  * does not move the list), else the only ready source core names, else the first ready record source, else
@@ -133,14 +123,18 @@ function pickSourceId(
   );
 }
 
-/** Core refuses a filter the source cannot apply, so the provider keeps only what the selected source supports. */
+/**
+ * Core refuses a filter the source cannot apply, so the provider keeps only what the selected source supports
+ * on the entries the panel lists. A source without `entryCapabilities` gets no level or user filter.
+ */
 function restrictFilter(filter: CustomLogsFilterView, source: CustomLogSourceView | undefined): CustomLogsFilterView {
   if (!source) {
     return filter;
   }
+  const capabilities = source.entryCapabilities;
   return {
-    ...(filter.minLevel && source.capabilities.levelFilter ? { minLevel: filter.minLevel } : {}),
-    ...(filter.user && source.capabilities.userFilter ? { user: filter.user } : {}),
+    ...(filter.minLevel && capabilities?.levelFilter ? { minLevel: filter.minLevel } : {}),
+    ...(filter.user && capabilities?.userFilter ? { user: filter.user } : {}),
     ...(filter.since ? { since: filter.since } : {})
   };
 }
@@ -413,15 +407,14 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
 
   private async setPayloadColumns(added: string[]): Promise<void> {
     const source = this.selectedSource();
-    const level = source ? levelOf(source) : undefined;
-    if (!source || !level || !source.payload[level]) {
-      logWarn('Custom Logs: ignored setPayloadColumns for a source that maps no payload');
+    if (!source?.payload.entry) {
+      logWarn('Custom Logs: ignored setPayloadColumns for a source that maps no entry payload');
       return;
     }
-    await this.payloadColumnsStore.write(source.id, level, added);
+    await this.payloadColumnsStore.write(source.id, added);
     const value = this.columnsFor(source);
     this.post({ type: 'customLogsPayloadColumns', value });
-    safeSendEvent('customLogs.payloadColumns', { outcome: 'ok', level }, { count: value.added.length });
+    safeSendEvent('customLogs.payloadColumns', { outcome: 'ok', level: 'entry' }, { count: value.added.length });
   }
 
   /**
@@ -625,23 +618,25 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     this.publishCaptureStatus();
   }
 
-  private async openLog(logId: string): Promise<void> {
+  /** Every entry of one transaction opens the same viewer, keyed by its header; an entry without one opens itself. */
+  private async openLog(rowId: string): Promise<void> {
     const source = this.selectedSource();
-    if (!source || !this.rows.some(row => row.id === logId)) {
+    const row = this.rows.find(candidate => candidate.id === rowId);
+    if (!source || !row) {
       logWarn('Custom Logs: ignored openLog for a record that is not listed');
       return;
     }
     await CustomLogViewerPanel.show({
       targetOrg: this.selectedOrg,
       sourceId: source.id,
-      logId,
+      logId: row.log?.id ?? row.id,
       payloadDefaults: source.payload.entry?.columns ?? []
     });
   }
 
-  private async openPayload(logId: string): Promise<void> {
+  private async openPayload(rowId: string): Promise<void> {
     const source = this.selectedSource();
-    const row = this.rows.find(candidate => candidate.id === logId);
+    const row = this.rows.find(candidate => candidate.id === rowId);
     if (!source || !row) {
       logWarn('Custom Logs: ignored openPayload for a record that is not listed');
       return;
@@ -649,13 +644,12 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     const startedAt = Date.now();
     try {
       const projectDir = await findCustomLogsProjectDir();
-      const scope = { targetOrg: this.selectedOrg, projectDir, source: source.id };
-      const value =
-        levelOf(source) === 'entry'
-          ? (await runtimeClient.customLogEntry({ ...scope, entryId: logId })).rawPayload
-          : ((await runtimeClient.customLogGet({ ...scope, logId, limit: 1 })).logPayload ?? {
-              state: 'unmapped' as const
-            });
+      const { rawPayload: value } = await runtimeClient.customLogEntry({
+        targetOrg: this.selectedOrg,
+        projectDir,
+        source: source.id,
+        entryId: rowId
+      });
       if (value.state !== 'value') {
         void vscode.window.showInformationMessage(this.payloadStateMessage(value.state));
         return;
@@ -692,13 +686,20 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     if (!source) {
       return { defaults: [], added: [] };
     }
-    const level = levelOf(source);
-    return this.payloadColumnsStore.read(source.id, level, source.payload[level]?.columns ?? []);
+    return this.payloadColumnsStore.read(source.id, source.payload.entry?.columns ?? []);
   }
 
   private clearPage(): void {
     this.cursor = null;
-    this.post({ type: 'customLogsPage', mode: 'replace', columns: [], rows: [], payloadFields: [], hasMore: false });
+    this.post({
+      type: 'customLogsPage',
+      mode: 'replace',
+      columns: [],
+      logColumns: [],
+      rows: [],
+      payloadFields: [],
+      hasMore: false
+    });
   }
 
   /** The one place a request starts: it supersedes the one in flight, owns the loading flag and turns failures into the banner. */
@@ -838,6 +839,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
         type: 'customLogsPage',
         mode: 'append',
         columns: this.state.page.columns,
+        logColumns: this.state.page.logColumns,
         rows: [],
         payloadFields: [],
         hasMore: false
@@ -868,6 +870,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
           source: source.id,
           filter: this.state.filter,
           limit: PAGE_SIZE,
+          entries: true,
           ...(mode === 'append' && this.cursor !== null ? { cursor: this.cursor } : {})
         },
         signal
@@ -880,6 +883,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
         type: 'customLogsPage',
         mode,
         columns: page.columns,
+        logColumns: page.logColumns ?? [],
         rows: page.rows,
         payloadFields: page.payloadFields,
         hasMore: page.nextCursor !== null

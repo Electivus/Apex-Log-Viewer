@@ -202,7 +202,7 @@ export class CustomLogViewerPanel {
         log: detail.log,
         ...(header ? { logPayload: header.view } : {}),
         entryColumns: detail.entryColumns,
-        payloadColumns: this.payloadColumns.read(this.options.sourceId, 'entry', this.options.payloadDefaults),
+        payloadColumns: this.payloadColumns.read(this.options.sourceId, this.options.payloadDefaults),
         apexLog: detail.apexLog
       });
       this.post({
@@ -363,8 +363,8 @@ export class CustomLogViewerPanel {
   }
 
   private async setPayloadColumns(added: string[]): Promise<void> {
-    await this.payloadColumns.write(this.options.sourceId, 'entry', added);
-    const value = this.payloadColumns.read(this.options.sourceId, 'entry', this.options.payloadDefaults);
+    await this.payloadColumns.write(this.options.sourceId, added);
+    const value = this.payloadColumns.read(this.options.sourceId, this.options.payloadDefaults);
     this.post({ type: 'customLogViewerPayloadColumns', value });
     safeSendEvent('customLogs.payloadColumns', { outcome: 'ok', level: 'entry' }, { count: value.added.length });
   }
