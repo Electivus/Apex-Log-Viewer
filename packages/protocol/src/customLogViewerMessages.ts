@@ -41,7 +41,7 @@ export type CustomLogViewerFromWebviewMessage =
   | { type: 'customLogViewerCopyField'; target: CustomLogViewerFieldTarget }
   /** No id: the panel opens the link it holds, so the webview cannot ask for an arbitrary ApexLog. */
   | { type: 'customLogViewerOpenApexLog' }
-  /** Shows or hides one JSON column the workspace added for the source, in the list the panel's list shares. */
+  /** Shows or hides one JSON column the workspace added for the source. The panel's list shares the stored list. */
   | { type: 'customLogViewerShowPayloadColumn'; path: string; shown: boolean }
   /** For short values the webview shows whole, such as the transaction and request ids. */
   | { type: 'customLogViewerCopyText'; text: string };

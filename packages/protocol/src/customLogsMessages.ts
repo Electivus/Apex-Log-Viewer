@@ -82,7 +82,7 @@ export type CustomLogsToWebviewMessage =
       type: 'customLogsPage';
       mode: 'replace' | 'append';
       columns: CustomLogColumn[];
-      /** The display columns of the rows' `log`, read from `row.log.extra`. Absent or empty when rows carry no `log`. */
+      /** Absent or empty when rows carry no `log`. */
       logColumns?: CustomLogColumn[];
       rows: CustomLogRow[];
       /** This page's paths on `append`; every loaded page's, merged, on `replace`. */

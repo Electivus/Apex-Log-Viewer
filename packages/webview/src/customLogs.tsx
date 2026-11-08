@@ -187,7 +187,8 @@ export function CustomLogsApp({
     [issues, post, selectedOrg, sources, workbench.reset]
   );
 
-  // Logger system messages cannot be told apart in SOQL, so they arrive with the page and stay hidden here.
+  // SOQL cannot filter a long text area such as Nebula's `Message__c`, so system messages arrive with the page
+  // and are hidden here.
   const systemCount = useMemo(() => rows.reduce((count, row) => count + (row.system ? 1 : 0), 0), [rows]);
   const shownRows = useMemo(
     () => (showSystem || systemCount === 0 ? rows : rows.filter(row => !row.system)),

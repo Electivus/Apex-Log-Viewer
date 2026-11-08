@@ -49,7 +49,7 @@ function readStored(memento: PayloadColumnsMemento): Map<string, string[]> {
   return stored;
 }
 
-/** UI-added JSON column paths in workspace state, keyed by source id. Internal state, not a setting. */
+/** UI-added JSON column paths in workspace state, keyed `entry:<source id>`. Internal state, not a setting. */
 export function createPayloadColumnsStore(memento: PayloadColumnsMemento): PayloadColumnsStore {
   return {
     read(sourceId, defaults) {

@@ -42,11 +42,7 @@ import { createWebviewSession, type WebviewSession, type WebviewSessionDetachRea
 import { createWebviewSurface } from './webviewSurface';
 import { createPayloadColumnsStore, type PayloadColumnsStore } from './customLogsPayloadColumns';
 
-/**
- * Rows the panel asks for at a time. Every source lists entries, which the search only sees once loaded. Measured
- * on a Nebula end user and on 250 Contact entries of a scratch org, a page of 200 cost the same one query round
- * trip as a page of 50.
- */
+/** Rows the panel asks for at a time. Every source lists entries, which the search only sees once loaded. */
 const PAGE_SIZE = 200;
 
 export const CUSTOM_LOGS_COMMANDS = {
