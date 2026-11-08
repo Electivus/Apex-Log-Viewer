@@ -63,12 +63,18 @@ function scalarText(value: CustomLogScalar | undefined): string[] {
   return value === undefined ? [] : [String(value)];
 }
 
-/** A null record field shows as an empty cell, so it has no text to find. */
+/**
+ * A record column shows its value under a describe label, and every row of a source has the same API
+ * names, so only the value is text. A null field shows as an empty cell, so it has none.
+ */
 function extraText(extra: Readonly<Record<string, CustomLogScalar>>): string[] {
-  return Object.entries(extra).flatMap(([key, value]) => (value === null ? [key] : [key, String(value)]));
+  return Object.values(extra).flatMap(value => (value === null ? [] : [String(value)]));
 }
 
-/** A payload that did not parse has no text: long text never reaches the webview. */
+/**
+ * A payload path is text, unlike a record column's API name: paths differ between rows, and a JSON
+ * column is labelled with its path. A payload that did not parse has no text: long text never reaches the webview.
+ */
 function payloadText(payload: CustomLogPayloadView | undefined): string[] {
   if (payload?.state !== 'parsed') {
     return [];

@@ -590,8 +590,11 @@ describe('Custom Log viewer app', () => {
       expect(screen.getByRole('status')).toHaveTextContent('1 of 4 entries shown');
       expect(screen.getByRole('status')).toHaveTextContent('1 invalid JSON · 1 plain text');
 
-      fireEvent.change(viewerSearch(), { target: { value: 'origintype__c flow' } });
+      fireEvent.change(viewerSearch(), { target: { value: 'flow' } });
       expect(shownIds()).toEqual([entryIds.debug]);
+
+      fireEvent.change(viewerSearch(), { target: { value: 'origintype__c' } });
+      expect(shownIds()).toEqual([]);
     });
 
     it('reads operators and quotes as plain text, and finds a root-array path as core wrote it', () => {

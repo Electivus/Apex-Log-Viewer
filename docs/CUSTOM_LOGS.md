@@ -885,14 +885,16 @@ SOQL cannot filter or sort long text fields, so core never filters on a payload 
 The search splits what you type at spaces and keeps a row when every word occurs somewhere in it, in any case. A row's text is:
 
 - its id, its time as stored and as the **Time** column shows it, its title, level, user, transaction id, request id, and entry counts
-- the keys and values of its record columns
+- the values of its record columns, not their API names
 - the paths and values of its parsed payload, `null`, `false`, and `0` included
+
+A record column is labelled from describe, and every row of a source has the same API names, so `status` does not find every Nebula Logger row through `Status__c`. A payload path is searched, because paths differ between rows and a JSON column is labelled with its path.
 
 Quotes, `and`, `=`, and `>` are plain characters. `http.status 502` finds a row whose payload has `http.status` and `502`, and `http.status >= 500` finds only rows whose text contains `>=`. Paths read as core writes them, with array indexes: `[0].status`, `tags[1]`. The search never posts to the host and never changes a capture.
 
 The status bar reads "N of M loaded rows match". While the source has more rows and some loaded rows do not match, it adds "Load more to search older rows". The panel saves the search with its sort. A change of org or source clears it, and **Refresh** and **Load more** keep it.
 
-The transaction viewer searches the loaded entries the same way. An entry's text is its message as far as the preview goes, origin, user, exception type, level, raw level, record id, record columns, and payload paths and values.
+The transaction viewer searches the loaded entries the same way. An entry's text is its message as far as the preview goes, origin, user, exception type, level, raw level, record id, the values of its record columns, and payload paths and values.
 
 In the CLI, `--payload-fields` keeps only the paths you name in each row's `values`. `metrics[].name` keeps the name of every item, and `metrics[0].name` the first one only. Filter with `jq`:
 

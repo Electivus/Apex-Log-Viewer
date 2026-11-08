@@ -168,7 +168,7 @@ describe('Custom Logs app', () => {
       search('tags[1] beta');
       expect(listedTitles()).toEqual(['Order sync failed']);
 
-      search('category__c orders warn');
+      search('orders warn');
       expect(listedTitles()).toEqual(['Retrying order sync']);
     });
 

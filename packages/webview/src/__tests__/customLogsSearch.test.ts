@@ -100,11 +100,27 @@ describe('searching loaded rows', () => {
     });
   });
 
-  it('finds the keys and values of the record columns, but no text for an empty one', () => {
-    expect(rowsMatching(rows, 'category__c orders')).toEqual([failed.id, synced.id]);
-    expect(rowsMatching(rows, 'retried__c false')).toEqual([failed.id]);
-    expect(rowsMatching(rows, 'region__c')).toEqual([failed.id]);
+  it('finds the values of the record columns, never their API names, and no text for an empty one', () => {
+    expect(rowsMatching(rows, 'orders')).toEqual([failed.id, synced.id]);
+    expect(rowsMatching(rows, 'orders false')).toEqual([failed.id]);
+    for (const query of ['category__c', 'retried__c', 'region__c', 'category']) {
+      expect(rowsMatching(rows, query)).toEqual([]);
+    }
     expect(rowsMatching([row('blank', { extra: { Region__c: null } })], 'null')).toEqual([]);
+  });
+
+  it('does not match a word that only a record column API name holds, while a payload path still matches', () => {
+    const header = row('a02DF0000089n6aYAA', {
+      title: 'Log-000279',
+      extra: { Status__c: 'New', SystemMode__c: 'ANONYMOUS', TransactionScenarioName__c: null }
+    });
+    const withPath = row('a02DF0000089n6bYAA', { title: 'Log-000280', payload: parsed({ status: 'ok' }) });
+
+    for (const query of ['status', 'system', 'mode', 'transaction', 'scenario', 'name']) {
+      expect(rowsMatching([header], query)).toEqual([]);
+    }
+    expect(rowsMatching([header], 'new anonymous')).toEqual([header.id]);
+    expect(rowsMatching([header, withPath], 'status')).toEqual([withPath.id]);
   });
 
   it('finds the paths and values of a parsed payload, null, false and zero included', () => {
@@ -170,13 +186,25 @@ describe('searching the entries of a transaction', () => {
       'mathexception',
       'error',
       '0015g00000ABCDEAA4',
-      'topic__c billing',
+      'billing',
       'invoice.total 0',
       'invoice.paid false'
     ]) {
       expect(entriesMatching(entries, query)).toEqual([boom.id]);
     }
     expect(entriesMatching(entries, 'notice')).toEqual([odd.id]);
+  });
+
+  it('does not match a word that only a record column API name holds', () => {
+    const saved = entry('a01DF00000NvMjPYAV', {
+      message: 'Saved order',
+      extra: { Status__c: 'Processed', OriginType__c: 'Apex' }
+    });
+
+    for (const query of ['status', 'origin', 'type', 'topic__c']) {
+      expect(entriesMatching([saved, boom], query)).toEqual([]);
+    }
+    expect(entriesMatching([saved, boom], 'processed apex')).toEqual([saved.id]);
   });
 
   it('requires every word, and keeps the loaded order', () => {
