@@ -8,11 +8,15 @@ export function detailDock(panelHeight: number): 'right' | 'bottom' {
   return panelHeight >= DETAIL_BOTTOM_MIN_HEIGHT_PX ? 'bottom' : 'right';
 }
 
-/** What both Custom Logs webviews keep across a reload: the search, the sort and the hidden default columns. */
+/**
+ * What both Custom Logs webviews keep across a reload: the search, the sort, the hidden default columns, and
+ * whether logger system messages show.
+ */
 export type PayloadUiState = {
   search: string;
   sort?: SortState;
   hiddenDefaults: string[];
+  showSystem: boolean;
 };
 
 /** Whatever `vscode.getState()` returned, narrowed to a usable state. An old `payloadFilters` key is dropped. */
@@ -25,7 +29,10 @@ export function readPayloadUiState(saved: unknown): PayloadUiState {
       sort && typeof sort.columnId === 'string' && (sort.dir === 'asc' || sort.dir === 'desc')
         ? { columnId: sort.columnId, dir: sort.dir }
         : undefined,
-    hiddenDefaults: Array.isArray(raw.hiddenDefaults) ? raw.hiddenDefaults.filter(path => typeof path === 'string') : []
+    hiddenDefaults: Array.isArray(raw.hiddenDefaults)
+      ? raw.hiddenDefaults.filter(path => typeof path === 'string')
+      : [],
+    showSystem: raw.showSystem === true
   };
 }
 

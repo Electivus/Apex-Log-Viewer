@@ -143,7 +143,7 @@ export function CustomLogsApp({
     onShowColumn,
     buildColumns
   });
-  const { discovered, activeColumns, lockedColumns, columns, terms } = workbench;
+  const { discovered, activeColumns, lockedColumns, columns, terms, showSystem } = workbench;
 
   useEffect(() => {
     vscode.setState(workbench.uiState);
@@ -187,9 +187,16 @@ export function CustomLogsApp({
     [issues, post, selectedOrg, sources, workbench.reset]
   );
 
+  // Logger system messages cannot be told apart in SOQL, so they arrive with the page and stay hidden here.
+  const systemCount = useMemo(() => rows.reduce((count, row) => count + (row.system ? 1 : 0), 0), [rows]);
+  const shownRows = useMemo(
+    () => (showSystem || systemCount === 0 ? rows : rows.filter(row => !row.system)),
+    [rows, showSystem, systemCount]
+  );
+  const hiddenSystem = rows.length - shownRows.length;
   const visibleRows = useMemo(
-    () => workbench.sortItems(searchItems(rows, terms, rowSearchText), columnSortValue),
-    [rows, terms, workbench.sortItems]
+    () => workbench.sortItems(searchItems(shownRows, terms, rowSearchText), columnSortValue),
+    [shownRows, terms, workbench.sortItems]
   );
 
   const selectedRow = useMemo(() => visibleRows.find(row => row.id === selectedId), [selectedId, visibleRows]);
@@ -234,6 +241,9 @@ export function CustomLogsApp({
       // A store that was never captured is explained by the capture strip, with the choice to fill it.
       return capture?.store.state === 'notCaptured' ? undefined : t.noRows;
     }
+    if (shownRows.length === 0) {
+      return [t.onlySystem, hasMore ? t.noMatchMore : ''].filter(Boolean).join(' ');
+    }
     if (visibleRows.length === 0) {
       return [fillTemplate(t.noMatch, { count: rows.length }), hasMore ? t.noMatchMore : ''].filter(Boolean).join(' ');
     }
@@ -261,6 +271,9 @@ export function CustomLogsApp({
         filters={filters}
         onFilterChange={onFilterChange}
         onClearFilters={() => setServerFilterAndPost({})}
+        systemCount={systemCount}
+        showSystem={showSystem}
+        onShowSystemChange={workbench.setShowSystem}
         loading={loading}
         showOpenInEditor={surface !== 'editor'}
         onRefresh={() => post({ type: 'customLogsRefresh' })}
@@ -348,21 +361,24 @@ export function CustomLogsApp({
           </div>
           <CustomLogsStatusBar
             t={t}
-            scope={
+            scope={[
               terms.length > 0
-                ? [
-                    fillTemplate(t.status.searching, {
-                      matches: formatCount(visibleRows.length, locale),
-                      loaded: formatCount(rows.length, locale)
-                    }),
-                    hasMore && visibleRows.length < rows.length ? t.status.searchMore : ''
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')
+                ? fillTemplate(t.status.searching, {
+                    matches: formatCount(visibleRows.length, locale),
+                    loaded: formatCount(rows.length, locale)
+                  })
                 : rows.length === 1
                   ? t.status.rowsLoadedOne
-                  : fillTemplate(t.status.rowsLoaded, { count: formatCount(rows.length, locale) })
-            }
+                  : fillTemplate(t.status.rowsLoaded, { count: formatCount(rows.length, locale) }),
+              hiddenSystem === 0
+                ? ''
+                : hiddenSystem === 1
+                  ? t.status.systemHiddenOne
+                  : fillTemplate(t.status.systemHidden, { count: formatCount(hiddenSystem, locale) }),
+              terms.length > 0 && hasMore && visibleRows.length < rows.length ? t.status.searchMore : ''
+            ]
+              .filter(Boolean)
+              .join(' · ')}
             payloadInUse={workbench.payloadInUse}
             hint={capture ? t.status.hintStored : t.status.hint}
             payloadStates={payloadStates}

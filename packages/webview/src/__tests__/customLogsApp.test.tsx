@@ -15,6 +15,7 @@ import {
   mountApp,
   mountNebula,
   nebula,
+  nebulaRows,
   parsed,
   posts,
   removeMountSequenceMeta,
@@ -178,7 +179,7 @@ describe('Custom Logs app', () => {
       mountNebula();
 
       search('Log-000');
-      expect(screen.getByRole('status')).toHaveTextContent('4 of 4 loaded rows match');
+      expect(screen.getByRole('status')).toHaveTextContent('3 of 4 loaded rows match · 1 logger system message hidden');
 
       search('log-000280');
       expect(listedTitles()).toEqual(['Order synced']);
@@ -346,6 +347,50 @@ describe('Custom Logs app', () => {
 
       fireEvent.click(screen.getByRole('button', { name: '+ Field' }));
       expect(screen.getByRole('menuitemcheckbox', { name: /region/ })).toBeInTheDocument();
+    });
+  });
+
+  describe('logger system messages', () => {
+    const systemSwitch = () => screen.getByRole('switch', { name: /Show logger system messages/ });
+
+    it('hides them by default and says how many loaded rows it hides', () => {
+      mountNebula();
+
+      expect(listedTitles()).toEqual(['Order total looks wrong', 'Saving order', 'Order synced']);
+      expect(screen.getByRole('status')).toHaveTextContent('4 rows loaded · 1 logger system message hidden');
+    });
+
+    it('shows them from the Filters menu, which counts them, and keeps that choice when restored', () => {
+      const first = mountNebula();
+
+      inFilters(() => {
+        expect(systemSwitch()).toHaveAccessibleName('Show logger system messages (1)');
+        fireEvent.click(systemSwitch());
+      });
+
+      expect(listedTitles()[0]).toBe('Nebula Logger - Saving 2 log entries via ANONYMOUS');
+      expect(screen.getByRole('status')).toHaveTextContent('4 rows loaded');
+      expect(screen.getByRole('status')).not.toHaveTextContent('hidden');
+      expect(filtersButton()).toHaveTextContent(/^Filters$/);
+      expect(posts(first.posted, 'customLogsSetFilter')).toEqual([]);
+      const saved = first.getSavedState();
+      first.view.unmount();
+
+      mountNebula({}, saved);
+      expect(listedTitles()).toHaveLength(4);
+    });
+
+    it('says so when a page holds only system messages, and still offers Load more', () => {
+      const { posted } = mountNebula({ rows: [nebulaRows[0]!], hasMore: true });
+
+      expect(listedTitles()).toEqual([]);
+      expect(
+        screen.getByText(
+          'Only logger system messages are loaded. Turn on Show logger system messages in Filters to list them. Use Load more to widen the search.'
+        )
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+      expect(posts(posted, 'customLogsLoadMore')).toHaveLength(1);
     });
   });
 

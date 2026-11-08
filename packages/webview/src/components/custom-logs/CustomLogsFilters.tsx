@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import { ListFilter } from 'lucide-react';
 import type { CustomLogsMessages } from '../../i18n';
@@ -6,15 +6,30 @@ import { cn } from '../../lib/utils';
 import type { FilterKey, FilterMenuModel } from '../../utils/customLogs/serverFilter';
 import { LabeledSelect } from '../LabeledSelect';
 import { Button } from '../ui/button';
+import { Label } from '../ui/label';
+import { Switch } from '../ui/switch';
 
 type CustomLogsFiltersProps = {
   t: CustomLogsMessages;
   model: FilterMenuModel;
   onChange: (key: FilterKey, value: string) => void;
   onClear: () => void;
+  /** Loaded rows that are the logger's own bookkeeping. */
+  systemCount: number;
+  showSystem: boolean;
+  onShowSystemChange: (value: boolean) => void;
 };
 
-export function CustomLogsFilters({ t, model, onChange, onClear }: CustomLogsFiltersProps) {
+export function CustomLogsFilters({
+  t,
+  model,
+  onChange,
+  onClear,
+  systemCount,
+  showSystem,
+  onShowSystemChange
+}: CustomLogsFiltersProps) {
+  const systemId = useId();
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
@@ -68,6 +83,18 @@ export function CustomLogsFilters({ t, model, onChange, onClear }: CustomLogsFil
           >
             {t.filters.clear}
           </Button>
+          <div className="flex items-center gap-2 border-t border-border pt-3">
+            <Switch
+              id={systemId}
+              checked={showSystem}
+              onCheckedChange={onShowSystemChange}
+              data-testid="custom-logs-show-system"
+            />
+            <Label htmlFor={systemId} className="cursor-pointer text-xs font-normal">
+              {t.filters.showSystem}
+              {systemCount > 0 ? ` (${systemCount})` : ''}
+            </Label>
+          </div>
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

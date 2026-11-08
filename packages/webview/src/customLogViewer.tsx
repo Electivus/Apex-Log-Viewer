@@ -35,13 +35,11 @@ import {
 } from './utils/customLogs/entries';
 import { fillTemplate, formatCount } from './utils/customLogs/format';
 import { countPayloadStates, type DiscoveredField, type PayloadColumn } from './utils/customLogs/payloadRows';
-import { detailDock, readPayloadUiState, useElementHeight, type PayloadUiState } from './utils/customLogs/uiState';
+import { detailDock, readPayloadUiState, useElementHeight } from './utils/customLogs/uiState';
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
 
 type ViewerError = 'log' | 'entries' | 'entry' | 'field' | 'apexLog';
-
-type CustomLogViewerUiState = PayloadUiState & { showSystem: boolean };
 
 const EMPTY_COLUMNS: CustomLogPayloadColumnsView = { defaults: [], added: [] };
 const NO_LEVELS: ReadonlySet<CustomLogLevel> = new Set();
@@ -65,10 +63,7 @@ export function CustomLogViewerApp({
   messageBus = getDefaultMessageBus(),
   virtualListComponent
 }: CustomLogViewerAppProps = {}) {
-  const [initialUiState] = useState<CustomLogViewerUiState>(() => {
-    const saved = vscode.getState<{ showSystem?: boolean }>();
-    return { ...readPayloadUiState(saved), showSystem: saved?.showSystem === true };
-  });
+  const [initialUiState] = useState(() => readPayloadUiState(vscode.getState()));
   const [locale, setLocale] = useState('en');
   const [source, setSource] = useState<CustomLogSourceRef | undefined>(undefined);
   const [log, setLog] = useState<CustomLogRow | undefined>(undefined);
@@ -88,7 +83,6 @@ export function CustomLogViewerApp({
   const [errors, setErrors] = useState<Partial<Record<ViewerError, string>>>({});
   const [levels, setLevels] = useState<ReadonlySet<CustomLogLevel>>(NO_LEVELS);
   const [details, setDetails] = useState<ReadonlySet<string>>(new Set());
-  const [showSystem, setShowSystem] = useState(initialUiState.showSystem);
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
   const selectedIdRef = useRef<string | undefined>(undefined);
   selectedIdRef.current = selectedId;
@@ -184,11 +178,11 @@ export function CustomLogViewerApp({
     onShowColumn,
     buildColumns
   });
-  const { discovered, activeColumns, lockedColumns, columns, terms } = workbench;
+  const { discovered, activeColumns, lockedColumns, columns, terms, showSystem } = workbench;
 
   useEffect(() => {
-    vscode.setState({ ...workbench.uiState, showSystem } satisfies CustomLogViewerUiState);
-  }, [showSystem, vscode, workbench.uiState]);
+    vscode.setState(workbench.uiState);
+  }, [vscode, workbench.uiState]);
 
   const visibleEntries = useMemo(
     () => workbench.sortItems(filterEntries(entries, { levels, details, showSystem, search: terms }), entrySortValue),
@@ -273,7 +267,7 @@ export function CustomLogViewerApp({
         onToggleDetail={key => setDetails(previous => toggled(previous, key))}
         systemCount={systemCount}
         showSystem={showSystem}
-        onShowSystemChange={setShowSystem}
+        onShowSystemChange={workbench.setShowSystem}
       />
       <div className={dock === 'right' ? 'flex min-h-0 flex-1 flex-row' : 'flex min-h-0 flex-1 flex-col'}>
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
