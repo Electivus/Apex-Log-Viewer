@@ -15,7 +15,6 @@ type PayloadTreeProps = {
   /** Raw paths whose string core cut at its character limit. */
   cutValues: readonly string[];
   onToggleColumn: (path: string) => void;
-  onFilterEqual: (path: string, value: CustomLogScalar) => void;
 };
 
 const VALUE_TONE: Record<ReturnType<typeof scalarKind>, string> = {
@@ -25,15 +24,7 @@ const VALUE_TONE: Record<ReturnType<typeof scalarKind>, string> = {
   null: 'italic text-muted-foreground'
 };
 
-export function PayloadTree({
-  t,
-  values,
-  columns,
-  lockedColumns,
-  cutValues,
-  onToggleColumn,
-  onFilterEqual
-}: PayloadTreeProps) {
+export function PayloadTree({ t, values, columns, lockedColumns, cutValues, onToggleColumn }: PayloadTreeProps) {
   const tree = useMemo(() => buildPayloadTree(values), [values]);
   const cut = useMemo(() => new Set(cutValues), [cutValues]);
 
@@ -64,29 +55,17 @@ export function PayloadTree({
             <em className="ml-1 text-[10px] not-italic text-amber-400">({t.valueCut})</em>
           ) : null}
         </span>
-        <span className="flex shrink-0 gap-1 opacity-60 group-hover:opacity-100 group-focus-within:opacity-100">
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="h-[18px] min-h-0 px-1.5 text-[11px]"
-            title={isLocked ? t.columnLocked : node.path}
-            disabled={isLocked}
-            onClick={() => onToggleColumn(node.path)}
-          >
-            {isColumn ? t.columnAdded : t.addColumn}
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="h-[18px] min-h-0 px-1.5 text-[11px]"
-            title={`${node.path} = ${formatScalar(node.value)}`}
-            onClick={() => onFilterEqual(node.path, node.value)}
-          >
-            {t.filterEqual}
-          </Button>
-        </span>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="h-[18px] min-h-0 shrink-0 px-1.5 text-[11px] opacity-60 group-hover:opacity-100 group-focus-within:opacity-100"
+          title={isLocked ? t.columnLocked : node.path}
+          disabled={isLocked}
+          onClick={() => onToggleColumn(node.path)}
+        >
+          {isColumn ? t.columnAdded : t.addColumn}
+        </Button>
       </div>
     );
   };

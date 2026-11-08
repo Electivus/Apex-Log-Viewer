@@ -6,7 +6,6 @@ import {
   type CustomLogPayloadView,
   type CustomLogScalar
 } from '@alv/protocol/customLogsTypes';
-import type { FilterClause } from './filterGrammar';
 
 /** Anything the list or the detail viewer shows per row: only the payload matters here. */
 export type PayloadRow = { payload?: CustomLogPayloadView };
@@ -39,7 +38,7 @@ function fieldType(types: readonly CustomLogPayloadType[]): PayloadFieldType {
 }
 
 /**
- * The paths a user can pick as columns or filters, from the page summaries the host merged.
+ * The paths a user can pick as columns, from the page summaries the host merged.
  * Most loaded rows first, then alphabetical.
  */
 export function discoverPayloadFields(
@@ -105,87 +104,6 @@ export function payloadValues(payload: CustomLogPayloadView | undefined, path: s
   return Object.hasOwn(payload.values, path) ? [payload.values[path]!] : [];
 }
 
-const NUMERIC_PATTERN = /^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/;
-
-function isNumeric(text: string): boolean {
-  return NUMERIC_PATTERN.test(text.trim());
-}
-
-function equalsValue(value: CustomLogScalar, text: string): boolean {
-  if (typeof value === 'number') {
-    return isNumeric(text) && value === Number(text);
-  }
-  if (value === null) {
-    return text.toLowerCase() === 'null';
-  }
-  if (typeof value === 'boolean') {
-    return String(value) === text.toLowerCase();
-  }
-  return value === text;
-}
-
-function orderedAgainst(value: CustomLogScalar, text: string, op: '>' | '>=' | '<' | '<='): boolean {
-  let left: number | string;
-  let right: number | string;
-  if (isNumeric(text)) {
-    if (typeof value === 'number') {
-      left = value;
-    } else if (typeof value === 'string' && isNumeric(value)) {
-      left = Number(value);
-    } else {
-      return false;
-    }
-    right = Number(text);
-  } else {
-    left = String(value);
-    right = text;
-  }
-  switch (op) {
-    case '>':
-      return left > right;
-    case '>=':
-      return left >= right;
-    case '<':
-      return left < right;
-    case '<=':
-      return left <= right;
-  }
-}
-
-/**
- * Whether a row's payload satisfies one condition. A row whose payload did not parse (invalid,
- * plain text, empty or hidden) never matches, so a JSON filter skips it instead of guessing.
- */
-export function payloadMatches(payload: CustomLogPayloadView | undefined, condition: FilterClause): boolean {
-  if (payload?.state !== 'parsed') {
-    return false;
-  }
-  const values = payloadValues(payload, condition.field);
-  const text = condition.value ?? '';
-  switch (condition.op) {
-    case 'exists':
-      return values.length > 0;
-    case '=':
-      return values.some(value => equalsValue(value, text));
-    case '!=':
-      return !values.some(value => equalsValue(value, text));
-    case 'contains':
-      return values.some(value => String(value).toLowerCase().includes(text.toLowerCase()));
-    case '>':
-    case '>=':
-    case '<':
-    case '<=':
-      return values.some(value => orderedAgainst(value, text, condition.op as '>' | '>=' | '<' | '<='));
-  }
-}
-
-export function filterLoadedRows<T extends PayloadRow>(rows: readonly T[], conditions: readonly FilterClause[]): T[] {
-  if (conditions.length === 0) {
-    return [...rows];
-  }
-  return rows.filter(row => conditions.every(condition => payloadMatches(row.payload, condition)));
-}
-
 function compareScalars(a: CustomLogScalar, b: CustomLogScalar): number {
   if (typeof a === 'number' && typeof b === 'number') {
     return a - b;
@@ -215,31 +133,6 @@ export function sortLoadedRows<T>(
       return compareScalars(a.value!, b.value!) * sign || a.index - b.index;
     })
     .map(entry => entry.row);
-}
-
-export type ValueCount = { value: string; count: number };
-
-/** The values a field takes among `rows`, most frequent first. Each row counts a value once. */
-export function topValues<T>(
-  rows: readonly T[],
-  valuesOf: (row: T) => readonly CustomLogScalar[],
-  limit: number
-): { values: ValueCount[]; distinct: number } {
-  const counts = new Map<string, number>();
-  for (const row of rows) {
-    const seen = new Set<string>();
-    for (const value of valuesOf(row)) {
-      const key = String(value);
-      if (!seen.has(key)) {
-        seen.add(key);
-        counts.set(key, (counts.get(key) ?? 0) + 1);
-      }
-    }
-  }
-  const sorted = [...counts.entries()]
-    .map(([value, count]) => ({ value, count }))
-    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
-  return { values: sorted.slice(0, limit), distinct: sorted.length };
 }
 
 export type PayloadStateCounts = { parsed: number; invalid: number; text: number; empty: number; hidden: number };

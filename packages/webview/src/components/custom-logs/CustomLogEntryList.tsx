@@ -156,7 +156,6 @@ type CustomLogEntryListProps = {
   onSelect: (entry: CustomLogEntry) => void;
   onToggleColumn: (path: string) => void;
   onRemoveColumn: (path: string) => void;
-  onFilterBy: (path: string) => void;
   virtualListComponent?: typeof List;
 };
 
@@ -174,7 +173,6 @@ export function CustomLogEntryList({
   onSelect,
   onToggleColumn,
   onRemoveColumn,
-  onFilterBy,
   virtualListComponent
 }: CustomLogEntryListProps) {
   const VirtualList = virtualListComponent ?? List;
@@ -232,7 +230,6 @@ export function CustomLogEntryList({
         onSort={onSort}
         onToggleColumn={onToggleColumn}
         onRemoveColumn={onRemoveColumn}
-        onFilterBy={onFilterBy}
       />
       <div className="relative min-h-0 flex-1">
         <VirtualList

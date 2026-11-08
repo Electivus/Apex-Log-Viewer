@@ -21,7 +21,6 @@ import { CustomLogEntryDetail } from './components/custom-logs/CustomLogEntryDet
 import { CustomLogEntryList } from './components/custom-logs/CustomLogEntryList';
 import { CustomLogViewerHeader } from './components/custom-logs/CustomLogViewerHeader';
 import { CustomLogViewerToolbar } from './components/custom-logs/CustomLogViewerToolbar';
-import { CustomLogsFilterBar } from './components/custom-logs/CustomLogsFilterBar';
 import { CustomLogsStatusBar } from './components/custom-logs/CustomLogsStatusBar';
 import { usePayloadWorkbench } from './components/custom-logs/usePayloadWorkbench';
 import { LoadingOverlay } from './components/LoadingOverlay';
@@ -33,15 +32,7 @@ import {
   entrySortValue,
   filterEntries
 } from './utils/customLogs/entries';
-import { describeParseError, type FilterSubmitResult } from './utils/customLogs/filterMessages';
-import { parseFilterExpression } from './utils/customLogs/filterGrammar';
 import { fillTemplate, formatCount } from './utils/customLogs/format';
-import {
-  guidedPayloadFields,
-  payloadValueSuggestions,
-  type GuidedField,
-  type GuidedItem
-} from './utils/customLogs/guidedFilter';
 import { countPayloadStates, type DiscoveredField, type PayloadColumn } from './utils/customLogs/payloadRows';
 import { detailDock, readPayloadUiState, useElementHeight, type PayloadUiState } from './utils/customLogs/uiState';
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
@@ -94,7 +85,6 @@ export function CustomLogViewerApp({
     entry: false
   });
   const [errors, setErrors] = useState<Partial<Record<ViewerError, string>>>({});
-  const [search, setSearch] = useState('');
   const [levels, setLevels] = useState<ReadonlySet<CustomLogLevel>>(NO_LEVELS);
   const [details, setDetails] = useState<ReadonlySet<string>>(new Set());
   const [showSystem, setShowSystem] = useState(initialUiState.showSystem);
@@ -167,7 +157,6 @@ export function CustomLogViewerApp({
 
   const post = useCallback((message: CustomLogViewerFromWebviewMessage) => vscode.postMessage(message), [vscode]);
 
-  const hasEntryPayload = useMemo(() => entries.some(entry => entry.payload !== undefined), [entries]);
   const onAddedColumns = useCallback(
     (added: string[]) => {
       setColumnsView(previous => ({ ...previous, added }));
@@ -194,19 +183,15 @@ export function CustomLogViewerApp({
     onAddedColumns,
     buildColumns
   });
-  const { discovered, activeColumns, lockedColumns, columns, payloadFilters, filtering } = workbench;
+  const { discovered, activeColumns, lockedColumns, columns, terms } = workbench;
 
   useEffect(() => {
     vscode.setState({ ...workbench.uiState, showSystem } satisfies CustomLogViewerUiState);
   }, [showSystem, vscode, workbench.uiState]);
 
   const visibleEntries = useMemo(
-    () =>
-      workbench.sortItems(
-        filterEntries(entries, { levels, details, text: search, showSystem, payload: payloadFilters }),
-        entrySortValue
-      ),
-    [details, entries, levels, payloadFilters, search, showSystem, workbench.sortItems]
+    () => workbench.sortItems(filterEntries(entries, { levels, details, showSystem, search: terms }), entrySortValue),
+    [details, entries, levels, showSystem, terms, workbench.sortItems]
   );
 
   const selectedEntry = useMemo(
@@ -218,33 +203,6 @@ export function CustomLogViewerApp({
   const systemCount = useMemo(() => countSystemEntries(entries), [entries]);
   const payloadStates = useMemo(() => countPayloadStates(entries), [entries]);
   const dock = detailDock(rootHeight);
-
-  const onSubmitFilter = useCallback(
-    (text: string): FilterSubmitResult => {
-      const parsed = parseFilterExpression(text);
-      if (!parsed.ok) {
-        return describeParseError(t.errors, parsed.error);
-      }
-      workbench.addPayloadFilters(
-        parsed.conditions.map(condition => ({
-          field: condition.field,
-          op: condition.op,
-          ...(condition.value === undefined ? {} : { value: condition.value })
-        }))
-      );
-      return { ok: true };
-    },
-    [t.errors, workbench.addPayloadFilters]
-  );
-
-  const guidedFields = useMemo<GuidedField[]>(
-    () => guidedPayloadFields(discovered, activeColumns),
-    [activeColumns, discovered]
-  );
-  const valuesFor = useCallback(
-    (field: string, prefix: string): GuidedItem[] => payloadValueSuggestions(visibleEntries, field, prefix),
-    [visibleEntries]
-  );
 
   const onSelectEntry = useCallback(
     (entry: CustomLogEntry) => {
@@ -304,8 +262,8 @@ export function CustomLogViewerApp({
       ))}
       <CustomLogViewerToolbar
         t={t}
-        search={search}
-        onSearchChange={setSearch}
+        search={workbench.search}
+        onSearchChange={workbench.setSearch}
         levels={levelCounts}
         selectedLevels={levels}
         onToggleLevel={level => setLevels(previous => toggled(previous, level))}
@@ -316,17 +274,6 @@ export function CustomLogViewerApp({
         showSystem={showSystem}
         onShowSystemChange={setShowSystem}
       />
-      {hasEntryPayload ? (
-        <CustomLogsFilterBar
-          t={t}
-          chips={workbench.loadedChips}
-          fields={guidedFields}
-          valuesFor={valuesFor}
-          onSubmit={onSubmitFilter}
-          onAddColumn={path => !activeColumns.has(path) && workbench.toggleColumn(path)}
-          prefill={workbench.prefill}
-        />
-      ) : null}
       <div className={dock === 'right' ? 'flex min-h-0 flex-1 flex-row' : 'flex min-h-0 flex-1 flex-col'}>
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           {emptyMessage ? (
@@ -347,7 +294,6 @@ export function CustomLogViewerApp({
             onSelect={onSelectEntry}
             onToggleColumn={workbench.toggleColumn}
             onRemoveColumn={workbench.removeColumn}
-            onFilterBy={workbench.prefillFilterField}
             virtualListComponent={virtualListComponent}
           />
           <LoadingOverlay show={loading.entries && entries.length === 0} label={t.viewer.loading} />
@@ -372,7 +318,6 @@ export function CustomLogViewerApp({
               post({ type: 'customLogViewerOpenField', target: { kind: 'entry', entryId: selectedEntry.id, key } })
             }
             onToggleColumn={workbench.toggleColumn}
-            onFilterEqual={workbench.filterEqual}
           />
         ) : null}
       </div>
@@ -388,7 +333,6 @@ export function CustomLogViewerApp({
               ? t.viewer.status.entriesLoadedOne
               : fillTemplate(t.viewer.status.entriesLoaded, { count: formatCount(entries.length, locale) })
         }
-        filtering={filtering}
         payloadInUse={workbench.payloadInUse}
         payloadStates={payloadStates}
         hasMore={hasMore}

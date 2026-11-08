@@ -4,8 +4,8 @@ import {
   type CustomLogLevel,
   type CustomLogScalar
 } from '@alv/protocol/customLogsTypes';
-import type { FilterClause } from './filterGrammar';
-import { filterLoadedRows, type DiscoveredField, type PayloadColumn } from './payloadRows';
+import type { DiscoveredField, PayloadColumn } from './payloadRows';
+import { entrySearchText, searchItems, type SearchTerms } from './search';
 import { appendDataColumns, dataColumnSortValue, type DataColumn, type SortState } from './columns';
 
 export type EntryFilters = {
@@ -13,15 +13,13 @@ export type EntryFilters = {
   levels: ReadonlySet<CustomLogLevel>;
   /** Show only entries that have at least one of these long fields. Empty shows all. */
   details: ReadonlySet<string>;
-  text: string;
   /** The logger's own bookkeeping entries stay hidden until asked for. */
   showSystem: boolean;
-  payload: readonly FilterClause[];
+  search: SearchTerms;
 };
 
-export function filterEntries(entries: readonly CustomLogEntry[], filters: EntryFilters): CustomLogEntry[] {
-  const needle = filters.text.trim().toLowerCase();
-  const matching = entries.filter(entry => {
+export function filterEntries(entries: readonly CustomLogEntry[], filters: EntryFilters): readonly CustomLogEntry[] {
+  const shown = entries.filter(entry => {
     if (entry.system && !filters.showSystem) {
       return false;
     }
@@ -31,15 +29,9 @@ export function filterEntries(entries: readonly CustomLogEntry[], filters: Entry
     if (filters.details.size > 0 && !entry.presentDetails.some(key => filters.details.has(key))) {
       return false;
     }
-    if (needle) {
-      const haystack = [entry.message, entry.origin, entry.user, entry.exceptionType, entry.rawLevel, entry.recordId];
-      if (!haystack.some(value => value?.toLowerCase().includes(needle))) {
-        return false;
-      }
-    }
     return true;
   });
-  return filterLoadedRows(matching, filters.payload);
+  return searchItems(shown, filters.search, entrySearchText);
 }
 
 /** Levels present in the entries, most severe first. */

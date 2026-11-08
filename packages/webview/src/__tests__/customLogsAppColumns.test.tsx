@@ -5,10 +5,8 @@ import { parseCustomLogsFromWebviewMessage } from '@alv/protocol/customLogsMessa
 import { CustomLogsApp } from '../customLogs';
 import {
   appLog,
-  chipSummary,
   columnHeader,
   createVsCodeMock,
-  filterInput,
   grid,
   headerLabels,
   ids,
@@ -21,6 +19,7 @@ import {
   posts,
   rowOf,
   rows,
+  search,
   send
 } from './customLogsTestKit';
 
@@ -97,7 +96,9 @@ describe('Custom Logs JSON columns', () => {
       mountApp();
 
       fireEvent.click(screen.getByRole('button', { name: '+ Field' }));
-      fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'http' } });
+      fireEvent.change(screen.getByRole('searchbox', { name: 'Search 5 discovered fields…' }), {
+        target: { value: 'http' }
+      });
 
       expect(screen.getAllByRole('menuitemcheckbox').map(item => item.querySelector('.truncate')?.textContent)).toEqual(
         ['http.status', 'http.body']
@@ -244,46 +245,15 @@ describe('Custom Logs JSON columns', () => {
       expect(listedTitles()).toEqual(['Billed', 'Ordered', 'Shipped']);
     });
 
-    it('moves the filter bar to the field when the menu asks to filter by it', () => {
+    it('offers sort and remove in the column menu, and no filter', () => {
       mountApp({ added: ['http.status'] });
 
       fireEvent.click(screen.getByRole('button', { name: 'Column menu for http.status' }));
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Filter by this field…' }));
 
-      expect(filterInput()).toHaveValue('http.status ');
-      expect(screen.getAllByRole('option').map(option => option.textContent)).toContain('>=');
-    });
-
-    it('quotes a field with spaces when the menu asks to filter by it', () => {
-      mountApp({
-        rows: [makeRow(ids.ok, 'Acme order', { payload: parsed({ 'Account Name': 'Acme' }) })],
-        fields: [{ path: 'Account Name', types: ['string'], rows: 1 }],
-        added: ['Account Name']
-      });
-
-      fireEvent.click(screen.getByRole('button', { name: 'Column menu for Account Name' }));
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Filter by this field…' }));
-
-      expect(filterInput()).toHaveValue('"Account Name" ');
-      expect(screen.getAllByRole('option').map(option => option.textContent)).toContain('contains');
-    });
-
-    it('quotes a payload key spelled like a server filter when the menu asks to filter by it', () => {
-      mountApp({
-        rows: [makeRow(ids.ok, 'Alice order', { payload: parsed({ user: 'alice' }) })],
-        fields: [{ path: 'user', types: ['string'], rows: 1 }],
-        added: ['user']
-      });
-
-      fireEvent.click(screen.getByRole('button', { name: 'Column menu for user' }));
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Filter by this field…' }));
-
-      expect(filterInput()).toHaveValue('"user" ');
-      expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual([
-        '=',
-        '!=',
-        'contains',
-        'exists'
+      expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual([
+        'Sort ascending',
+        'Sort descending',
+        'Remove column'
       ]);
     });
   });
@@ -317,11 +287,10 @@ describe('Custom Logs JSON columns', () => {
       expect(within(rowOf(ids.ok)).queryByLabelText('invalid JSON')).toBeNull();
     });
 
-    it('counts them in the status bar and says they are skipped only while a JSON filter is active', () => {
+    it('counts them in the status bar', () => {
       mountApp();
 
       expect(screen.getByRole('status')).toHaveTextContent('1 invalid JSON · 1 plain text · 1 empty · 1 hidden');
-      expect(screen.getByRole('status')).not.toHaveTextContent('skipped');
     });
 
     it('explains each state in the row detail', () => {
@@ -393,24 +362,15 @@ describe('Custom Logs JSON columns', () => {
       });
     });
 
-    it('filters on a leaf value with = value, narrowing only the loaded rows', () => {
+    it('offers only + Column on a leaf, with the bracketed path for array elements', () => {
       const { posted } = mountApp();
       fireEvent.click(rowOf(ids.failed));
 
-      fireEvent.click(within(leaf('orderId')).getByRole('button', { name: '= value' }));
-
-      expect(chipSummary()).toEqual([['loaded', 'orderId=ORD-1042']]);
-      expect(listedTitles()).toEqual(['Order sync failed', 'Retrying order sync']);
-      expect(posts(posted, 'customLogsSetFilter')).toEqual([]);
-    });
-
-    it('uses the bracketed path for array elements, so a filter matches any element', () => {
-      const { posted } = mountApp();
-      fireEvent.click(rowOf(ids.failed));
-
-      fireEvent.click(within(leaf('tags[1]')).getByRole('button', { name: '= value' }));
-      expect(chipSummary()).toEqual([['loaded', 'tags[]=beta']]);
-      expect(listedTitles()).toEqual(['Order sync failed', 'Retrying order sync']);
+      expect(
+        within(leaf('orderId'))
+          .getAllByRole('button')
+          .map(button => button.textContent)
+      ).toEqual(['+ Column']);
 
       fireEvent.click(within(leaf('lines[0].sku')).getByRole('button', { name: '+ Column' }));
       expect(lastPost(posted, 'customLogsSetPayloadColumns')).toEqual({
@@ -419,7 +379,7 @@ describe('Custom Logs JSON columns', () => {
       });
     });
 
-    it('adds a column and a filter from a root-array leaf, and the filter edits back into text that commits', () => {
+    it('adds a column from a root-array leaf on the bracketed path', () => {
       const batch = makeRow(ids.failed, 'Batch failed', { payload: parsed({ '[0].status': 200, '[1].status': 500 }) });
       const single = makeRow(ids.ok, 'Batch ok', { payload: parsed({ '[0].status': 200 }) });
       const { posted } = mountApp({
@@ -433,25 +393,6 @@ describe('Custom Logs JSON columns', () => {
       expect(columnsPost).toEqual({ type: 'customLogsSetPayloadColumns', added: ['[].status'] });
       expect(parseCustomLogsFromWebviewMessage(columnsPost)).toEqual(columnsPost);
       expect(cellText(ids.failed, 5)).toBe('200, 500');
-
-      fireEvent.click(within(leaf('[1].status')).getByRole('button', { name: '= value' }));
-      expect(chipSummary()).toEqual([['loaded', '[].status=500']]);
-      expect(listedTitles()).toEqual(['Batch failed']);
-
-      fireEvent.click(screen.getByRole('button', { name: 'Edit filter [].status = 500' }));
-      fireEvent.keyDown(filterInput(), { key: 'Enter' });
-      expect(screen.queryByRole('alert')).toBeNull();
-      expect(chipSummary()).toEqual([['loaded', '[].status=500']]);
-    });
-
-    it('quotes a filter value that needs it', () => {
-      mountApp();
-      fireEvent.click(rowOf(ids.failed));
-
-      fireEvent.click(within(leaf('http.body')).getByRole('button', { name: '= value' }));
-
-      expect(chipSummary()).toEqual([['loaded', 'http.body="Bad gateway"']]);
-      expect(listedTitles()).toEqual(['Order sync failed']);
     });
 
     it('does not offer to remove a column the project pins', () => {
@@ -505,12 +446,11 @@ describe('Custom Logs JSON columns', () => {
       expect(screen.queryByTestId('custom-log-row-detail')).toBeNull();
     });
 
-    it('closes the detail when the filters hide the selected row', () => {
+    it('closes the detail when the search hides the selected row', () => {
       mountApp();
       fireEvent.click(rowOf(ids.failed));
 
-      fireEvent.change(filterInput(), { target: { value: 'orderId = ORD-1043' } });
-      fireEvent.keyDown(filterInput(), { key: 'Enter' });
+      search('ORD-1043');
 
       expect(screen.queryByTestId('custom-log-row-detail')).toBeNull();
     });

@@ -1,13 +1,14 @@
-import { fireEvent, screen, within } from '@testing-library/react';
-import type { CustomLogPayloadField, CustomLogSourceView } from '@alv/protocol/customLogsTypes';
+import { fireEvent, screen } from '@testing-library/react';
+import type { CustomLogSourceView } from '@alv/protocol/customLogsTypes';
 
 import {
   appLog,
-  chipSummary,
-  chips,
-  filterInput,
+  filterOptions,
+  filterSelect,
+  filtersButton,
   headerLabels,
   ids,
+  inFilters,
   lastPost,
   listedTitles,
   makeRow,
@@ -16,10 +17,11 @@ import {
   parsed,
   posts,
   removeMountSequenceMeta,
-  rowOf,
   rows,
+  search,
+  searchInput,
   send,
-  submit
+  withNativeSelects
 } from './customLogsTestKit';
 
 jest.mock('react-window', () => {
@@ -115,7 +117,8 @@ describe('Custom Logs app', () => {
       send(bus, { type: 'customLogsInit', locale: 'pt-BR' });
 
       expect(screen.getByRole('button', { name: /Atualizar/ })).toBeInTheDocument();
-      expect(screen.getByRole('combobox', { name: 'Filtrar logs' })).toBeInTheDocument();
+      expect(screen.getByRole('searchbox', { name: 'Buscar nas linhas carregadas' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^Filtros/ })).toBeInTheDocument();
     });
 
     it('asks the host for the next page from the status bar', () => {
@@ -144,373 +147,121 @@ describe('Custom Logs app', () => {
     });
   });
 
-  describe('server-side filter chips', () => {
-    it('posts the minimum level, shows a Salesforce chip and lets the host reset paging', () => {
-      const { posted, bus } = mountApp();
-
-      submit('level >= warn');
-
-      expect(posts(posted, 'customLogsSetFilter')).toEqual([
-        { type: 'customLogsSetFilter', filter: { minLevel: 'WARN' } }
-      ]);
-      expect(chipSummary()).toEqual([['server', 'level>=WARN']]);
-      expect(listedTitles()).toHaveLength(rows.length);
-
-      send(bus, { type: 'customLogsFilter', value: { minLevel: 'WARN' } });
-      send(bus, {
-        type: 'customLogsPage',
-        mode: 'replace',
-        columns: [],
-        rows: [rows[0]!, rows[1]!],
-        payloadFields: [],
-        hasMore: false
-      });
-      expect(listedTitles()).toEqual(['Order sync failed', 'Retrying order sync']);
-    });
-
-    it('sends the whole server filter each time, user and since included', () => {
+  describe('search over loaded rows', () => {
+    it('narrows the loaded rows as the user types, asks Salesforce for nothing, and counts the matches', () => {
       const { posted } = mountApp();
-
-      submit('level >= ERROR');
-      submit('user = dev@acme.com');
-      submit('since = 24h');
-
-      expect(lastPost(posted, 'customLogsSetFilter')).toEqual({
-        type: 'customLogsSetFilter',
-        filter: { minLevel: 'ERROR', user: 'dev@acme.com', since: '24h' }
-      });
-      expect(chipSummary().map(([, text]) => text)).toEqual(['level>=ERROR', 'user=dev@acme.com', 'since=24h']);
-    });
-
-    it('applies several server conditions typed together as one query change', () => {
-      const { posted } = mountApp();
-
-      submit('level >= WARN and since = 7d');
-
-      expect(posts(posted, 'customLogsSetFilter')).toEqual([
-        { type: 'customLogsSetFilter', filter: { minLevel: 'WARN', since: '7d' } }
-      ]);
-    });
-
-    it('removes a server chip by posting the filter without it', () => {
-      const { posted, bus } = mountApp();
-      send(bus, { type: 'customLogsFilter', value: { minLevel: 'WARN', since: '24h' } });
-
-      fireEvent.click(screen.getByRole('button', { name: 'Remove filter level >= WARN' }));
-
-      expect(lastPost(posted, 'customLogsSetFilter')).toEqual({
-        type: 'customLogsSetFilter',
-        filter: { since: '24h' }
-      });
-    });
-
-    it('shows the filter the host replays after a remount', () => {
-      const { bus } = mountApp();
-
-      send(bus, { type: 'customLogsFilter', value: { minLevel: 'ERROR', user: 'dev@acme.com' } });
-
-      expect(chipSummary()).toEqual([
-        ['server', 'level>=ERROR'],
-        ['server', 'user=dev@acme.com']
-      ]);
-    });
-
-    it('names the problem and its position when a server filter is wrong, and posts nothing', () => {
-      const { posted } = mountApp();
-
-      submit('level >= LOUD');
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'Use one of FINEST, FINER, FINE, DEBUG, INFO, WARN or ERROR (col 10)'
-      );
-
-      submit('level = ERROR');
-      expect(screen.getByRole('alert')).toHaveTextContent('level only supports >= (col 7)');
-
-      submit('since = yesterday');
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'Use a duration such as 30m, 24h or 7d, or an ISO date with an offset such as 2026-10-29T12:00:00Z (col 9)'
-      );
-
-      submit('since = 2026-10-29T10:00');
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'Use a duration such as 30m, 24h or 7d, or an ISO date with an offset such as 2026-10-29T12:00:00Z (col 9)'
-      );
-
-      expect(posts(posted, 'customLogsSetFilter')).toEqual([]);
-      expect(chips()).toHaveLength(0);
-    });
-
-    it('does not offer level or user when the source cannot filter by them', () => {
-      mountApp({
-        sources: [{ ...appLog, capabilities: { levelFilter: false, userFilter: false, apexLogLink: false } }]
-      });
-
-      fireEvent.focus(filterInput());
-      const options = screen.getAllByRole('option').map(option => option.textContent ?? '');
-
-      expect(options.some(text => text.startsWith('level'))).toBe(false);
-      expect(options.some(text => text.startsWith('user'))).toBe(false);
-      expect(options.some(text => text.startsWith('since'))).toBe(true);
-
-      submit('level >= WARN');
-      expect(screen.getByRole('alert')).toHaveTextContent('This source cannot filter by level');
-    });
-
-    it('switches source from the filter row, and shows the source as a Salesforce chip when there is a choice', () => {
-      const { posted } = mountApp({ sources: [appLog, nebula], selected: 'app-log' });
-
-      expect(chipSummary()).toEqual([['server', 'source=app-log']]);
-      expect(screen.getByTestId('custom-logs-source')).toBeInTheDocument();
-
-      submit('source = nebula');
-      expect(lastPost(posted, 'customLogsSelectSource')).toEqual({
-        type: 'customLogsSelectSource',
-        sourceId: 'nebula',
-        filter: {}
-      });
-
-      submit('source = nope');
-      expect(screen.getByRole('alert')).toHaveTextContent('Unknown source');
-    });
-
-    it.each(['source = app-log and level >= ERROR', 'level >= ERROR and source = app-log'])(
-      'checks the server filters of "%s" against the source it switches to',
-      text => {
-        const { posted } = mountApp({ sources: [auditLog, appLog], selected: 'audit-log' });
-        const before = posted.length;
-
-        submit(text);
-
-        expect(screen.queryByRole('alert')).toBeNull();
-        expect(posted.slice(before)).toEqual([
-          { type: 'customLogsSelectSource', sourceId: 'app-log', filter: { minLevel: 'ERROR' } }
-        ]);
-        expect(chipSummary()).toEqual([
-          ['server', 'source=app-log'],
-          ['server', 'level>=ERROR']
-        ]);
-      }
-    );
-
-    it('reports a source that is unknown or not ready at its own clause, and posts nothing', () => {
-      const { posted } = mountApp({
-        sources: [auditLog, appLog, { ...nebula, state: 'notInstalled' }],
-        selected: 'audit-log'
-      });
       const before = posted.length;
 
-      submit('level >= ERROR and source = nope');
-      expect(screen.getByRole('alert')).toHaveTextContent('Unknown source. Pick one from the Source list (col 29)');
+      search('SYNC ord-1042');
 
-      submit('source = nebula and level >= ERROR');
-      expect(screen.getByRole('alert')).toHaveTextContent('Unknown source. Pick one from the Source list (col 10)');
-
+      expect(listedTitles()).toEqual(['Order sync failed', 'Retrying order sync']);
+      expect(screen.getByRole('status')).toHaveTextContent('2 of 8 loaded rows match');
       expect(posted.slice(before)).toEqual([]);
-      expect(chipSummary()).toEqual([['server', 'source=audit-log']]);
     });
 
-    it('queries the new source once with the level typed with it, then narrows the rows by the JSON filter', () => {
-      const { bus, posted } = mountApp({ sources: [auditLog, appLog], selected: 'audit-log' });
-      const before = posted.length;
-      const switched = [
-        ['server', 'source=app-log'],
-        ['server', 'level>=ERROR'],
-        ['loaded', 'http.status>=500']
-      ];
+    it('finds the JSON paths and values, the record columns and the level of a row', () => {
+      mountApp();
 
-      submit('source = app-log and level >= ERROR and http.status >= 500');
-      expect(chipSummary()).toEqual(switched);
-
-      send(bus, { type: 'customLogsLoading', value: true });
-      send(bus, { type: 'customLogsPage', mode: 'replace', columns: [], rows: [], payloadFields: [], hasMore: false });
-      send(bus, { type: 'customLogsSources', data: [auditLog, appLog], selected: 'app-log', issues: [] });
-      send(bus, { type: 'customLogsFilter', value: { minLevel: 'ERROR' } });
-      send(bus, { type: 'customLogsPayloadColumns', value: { defaults: ['orderId'], added: [] } });
-      send(bus, {
-        type: 'customLogsPage',
-        mode: 'replace',
-        columns: [],
-        rows: [
-          rows[0]!,
-          makeRow(ids.retry, 'Order rejected', { level: 'ERROR', payload: parsed({ 'http.status': 400 }) })
-        ],
-        payloadFields: [],
-        hasMore: false
-      });
-      send(bus, { type: 'customLogsLoading', value: false });
-
-      expect(posted.slice(before)).toEqual([
-        { type: 'customLogsSelectSource', sourceId: 'app-log', filter: { minLevel: 'ERROR' } }
-      ]);
-      expect(chipSummary()).toEqual(switched);
+      search('http.status 502');
       expect(listedTitles()).toEqual(['Order sync failed']);
-    });
 
-    it('hides the source picker when only one source is ready', () => {
-      mountApp();
-
-      expect(screen.queryByTestId('custom-logs-source')).toBeNull();
-      expect(chips()).toHaveLength(0);
-    });
-  });
-
-  describe('loaded-row filters over JSON payload paths', () => {
-    it('narrows the loaded rows without asking Salesforce, and says so in the status bar', () => {
-      const { posted } = mountApp();
-
-      submit('http.status >= 500');
-
-      expect(chipSummary()).toEqual([['loaded', 'http.status>=500']]);
-      expect(listedTitles()).toEqual(['Order sync failed', 'Legacy status as text']);
-      expect(posts(posted, 'customLogsSetFilter')).toEqual([]);
-      expect(screen.getByRole('status')).toHaveTextContent('Filtering 8 loaded rows · 2 match');
-      expect(screen.getByRole('status')).toHaveTextContent(
-        '1 invalid JSON · 1 plain text · 1 empty · 1 hidden: skipped by JSON filters'
-      );
-    });
-
-    it('combines conditions with and, and matches any element of an array', () => {
-      mountApp();
-
-      submit('tags[] = "beta" and orderId = ORD-1042');
-      expect(listedTitles()).toEqual(['Order sync failed', 'Retrying order sync']);
-
-      submit('tags[] = "vip"');
+      search('tags[1] beta');
       expect(listedTitles()).toEqual(['Order sync failed']);
-      expect(chipSummary().map(([, text]) => text)).toEqual(['tags[]=beta', 'orderId=ORD-1042', 'tags[]=vip']);
+
+      search('category__c orders warn');
+      expect(listedTitles()).toEqual(['Retrying order sync']);
     });
 
-    it('explains that or is not supported, with the position, and keeps the filters it had', () => {
-      mountApp();
-      submit('orderId = ORD-1042');
-
-      submit('http.status = 200 or http.status = 500');
-
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        '"or" is not supported yet: conditions combine with "and" only (col 19)'
-      );
-      expect(chips()).toHaveLength(1);
-    });
-
-    it('reports syntax errors at the character that breaks them', () => {
-      mountApp();
-
-      submit('nofield');
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'Expected an operator after "nofield": = != > >= < <= contains exists (col 8)'
-      );
-
-      submit('nofield = >= 5');
-      expect(screen.getByRole('alert')).toHaveTextContent('Expected a value after the operator (col 11)');
-
-      submit('message = "open');
-      expect(screen.getByRole('alert')).toHaveTextContent('This string is not closed (col 11)');
-
-      submit('a = 1 and');
-      expect(screen.getByRole('alert')).toHaveTextContent('Expected another condition after "and" (col 10)');
-    });
-
-    it('removes a chip and restores the rows', () => {
-      mountApp();
-      submit('orderId = ORD-1043');
-      expect(listedTitles()).toEqual(['Order synced']);
-
-      fireEvent.click(screen.getByRole('button', { name: 'Remove filter orderId = ORD-1043' }));
-
-      expect(listedTitles()).toHaveLength(rows.length);
-    });
-
-    it('turns a chip back into text to edit', () => {
-      mountApp();
-      submit('http.status >= 500');
-
-      fireEvent.click(screen.getByRole('button', { name: 'Edit filter http.status >= 500' }));
-
-      expect(chips()).toHaveLength(0);
-      expect(filterInput()).toHaveValue('http.status >= 500');
-      expect(listedTitles()).toHaveLength(rows.length);
-    });
-
-    it('tells the user when no loaded row matches, and that Load more may widen it', () => {
+    it('reads operators and quotes as plain text, and says when nothing loaded matches', () => {
       mountApp({ hasMore: true });
 
-      submit('orderId = nothing');
+      search('http.status >= 500');
 
+      expect(listedTitles()).toEqual([]);
       expect(
         screen.getByText('No loaded row matches. Only 8 rows are loaded. Use Load more to widen the search.')
       ).toBeInTheDocument();
     });
 
-    it('filters on a path of a root-array payload, as the field picker completes it', () => {
-      const batchFailed = makeRow(ids.failed, 'Batch failed', {
-        payload: parsed({ '[0].status': 200, '[1].status': 500 })
-      });
-      const batchOk = makeRow(ids.ok, 'Batch ok', { payload: parsed({ '[0].status': 200 }) });
-      mountApp({
-        rows: [batchFailed, batchOk],
-        fields: [
-          { path: '[0].status', types: ['number'], rows: 2 },
-          { path: '[1].status', types: ['number'], rows: 1 }
-        ]
-      });
+    it('offers Load more to search older rows while the host has more and some rows do not match', () => {
+      const { bus } = mountApp({ hasMore: true });
 
-      fireEvent.change(filterInput(), { target: { value: '[].st' } });
-      fireEvent.keyDown(filterInput(), { key: 'Enter' });
-      expect(filterInput()).toHaveValue('[].status ');
-      submit('[].status >= 500');
+      search('ORD-1043');
+      expect(screen.getByRole('status')).toHaveTextContent('1 of 8 loaded rows match · Load more to search older rows');
 
-      expect(screen.queryByRole('alert')).toBeNull();
-      expect(chipSummary()).toEqual([['loaded', '[].status>=500']]);
-      expect(listedTitles()).toEqual(['Batch failed']);
+      search('integration@acme.com');
+      expect(screen.getByRole('status')).toHaveTextContent('8 of 8 loaded rows match');
+      expect(screen.getByRole('status')).not.toHaveTextContent('Load more to search older rows');
 
-      submit('[0].status = 200');
-      expect(screen.queryByRole('alert')).toBeNull();
-      expect(listedTitles()).toEqual(['Batch failed']);
+      search('ORD-1043');
+      send(bus, { type: 'customLogsPage', mode: 'append', columns: [], rows: [], payloadFields: [], hasMore: false });
+      expect(screen.getByRole('status')).not.toHaveTextContent('Load more to search older rows');
     });
 
-    it('filters on a key with spaces, quoting the path it writes', () => {
-      const acme = makeRow(ids.failed, 'Acme order', {
-        payload: parsed({ 'Account Name': 'Acme', 'pedido.situação': 'ok' })
+    it('searches the rows Load more appends with the same search', () => {
+      const { bus } = mountApp({ hasMore: true });
+      search('ORD-1043');
+
+      send(bus, {
+        type: 'customLogsPage',
+        mode: 'append',
+        columns: [],
+        rows: [makeRow('a0B5g00000Zt1Q1EAJ', 'Older order', { payload: parsed({ orderId: 'ORD-1043' }) })],
+        payloadFields: [],
+        hasMore: false
       });
-      const globex = makeRow(ids.ok, 'Globex order', { payload: parsed({ 'Account Name': 'Globex' }) });
-      mountApp({
-        rows: [acme, globex],
-        fields: [
-          { path: 'Account Name', types: ['string'], rows: 2 },
-          { path: 'pedido.situação', types: ['string'], rows: 1 }
-        ]
-      });
 
-      fireEvent.change(filterInput(), { target: { value: 'Account' } });
-      fireEvent.keyDown(filterInput(), { key: 'Enter' });
-      expect(filterInput()).toHaveValue('"Account Name" ');
-      submit('"Account Name" = Acme and pedido.situação exists');
-
-      expect(screen.queryByRole('alert')).toBeNull();
-      expect(listedTitles()).toEqual(['Acme order']);
-
-      fireEvent.click(screen.getByRole('button', { name: 'Edit filter "Account Name" = Acme' }));
-      expect(filterInput()).toHaveValue('"Account Name" = Acme');
-      fireEvent.keyDown(filterInput(), { key: 'Enter' });
-      expect(screen.queryByRole('alert')).toBeNull();
-      expect(listedTitles()).toEqual(['Acme order']);
+      expect(searchInput()).toHaveValue('ORD-1043');
+      expect(listedTitles()).toEqual(['Order synced', 'Older order']);
     });
 
-    it('keeps the filters when the app is restored from its saved state', () => {
+    it('clears the search with its button', () => {
+      mountApp();
+      search('ORD-1043');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+
+      expect(searchInput()).toHaveValue('');
+      expect(listedTitles()).toHaveLength(rows.length);
+      expect(screen.getByRole('status')).toHaveTextContent('8 rows loaded');
+    });
+
+    it('focuses the search on /, unless the user is typing in another field', () => {
+      mountApp();
+      const other = document.body.appendChild(document.createElement('input'));
+
+      fireEvent.keyDown(other, { key: '/' });
+      expect(searchInput()).not.toHaveFocus();
+
+      fireEvent.keyDown(document.body, { key: '/' });
+      expect(searchInput()).toHaveFocus();
+      other.remove();
+    });
+
+    it('keeps the search when the app is restored, and drops JSON filters an older version saved', () => {
       const first = mountApp();
-      submit('orderId = ORD-1043');
+      search('ORD-1043');
       const saved = first.getSavedState();
       first.view.unmount();
 
       mountApp({}, saved);
-
-      expect(chipSummary()).toEqual([['loaded', 'orderId=ORD-1043']]);
+      expect(searchInput()).toHaveValue('ORD-1043');
       expect(listedTitles()).toEqual(['Order synced']);
     });
 
-    it('drops the filters when the source changes', () => {
+    it('lists every row for a saved state that only has the JSON filters of an older version', () => {
+      mountApp({}, { payloadFilters: [{ field: 'orderId', op: '=', value: 'ORD-1043' }], hiddenDefaults: [] });
+
+      expect(searchInput()).toHaveValue('');
+      expect(listedTitles()).toHaveLength(rows.length);
+    });
+
+    it('clears the search when the host switches source, and keeps it across a refresh', () => {
       const { bus } = mountApp({ sources: [appLog, nebula], selected: 'app-log' });
-      submit('orderId = ORD-1043');
+      search('ORD-1043');
+
+      send(bus, { type: 'customLogsPage', mode: 'replace', columns: [], rows, payloadFields: [], hasMore: false });
+      expect(searchInput()).toHaveValue('ORD-1043');
       expect(listedTitles()).toEqual(['Order synced']);
 
       send(bus, { type: 'customLogsSources', data: [appLog, nebula], selected: 'nebula', issues: [] });
@@ -523,223 +274,45 @@ describe('Custom Logs app', () => {
         hasMore: false
       });
 
-      expect(chipSummary()).toEqual([['server', 'source=nebula']]);
+      expect(searchInput()).toHaveValue('');
       expect(listedTitles()).toEqual(['Log-000739']);
     });
 
-    it('keeps the JSON filters typed together with a source change, and drops the ones the previous source had', () => {
-      const { bus, posted } = mountApp({
-        sources: [appLog, nebula],
-        selected: 'nebula',
-        rows: [makeRow('a015g00000Q2xYzAAB', 'Log-000739', { payload: parsed({ orderId: 'ORD-1043' }) })]
-      });
-      submit('orderId = ORD-1043');
+    it('switches source from the picker with no filter in the message, and keeps a search typed meanwhile', () => {
+      const { bus, posted } = mountApp({ sources: [appLog, nebula], selected: 'app-log' });
 
-      submit('source = app-log and http.status >= 500');
+      withNativeSelects(() => {
+        search('ORD-1043');
+        fireEvent.change(screen.getByTestId('custom-logs-source'), { target: { value: 'nebula' } });
+      });
       expect(lastPost(posted, 'customLogsSelectSource')).toEqual({
         type: 'customLogsSelectSource',
-        sourceId: 'app-log',
-        filter: {}
+        sourceId: 'nebula'
       });
-      send(bus, { type: 'customLogsLoading', value: true });
-      send(bus, { type: 'customLogsPage', mode: 'replace', columns: [], rows: [], payloadFields: [], hasMore: false });
-      send(bus, { type: 'customLogsSources', data: [appLog, nebula], selected: 'app-log', issues: [] });
-      send(bus, { type: 'customLogsFilter', value: {} });
-      send(bus, { type: 'customLogsPayloadColumns', value: { defaults: [], added: [] } });
-      send(bus, { type: 'customLogsPage', mode: 'replace', columns: [], rows, payloadFields: [], hasMore: false });
-      send(bus, { type: 'customLogsLoading', value: false });
+      expect(searchInput()).toHaveValue('');
 
-      expect(chipSummary()).toEqual([
-        ['server', 'source=app-log'],
-        ['loaded', 'http.status>=500']
-      ]);
-      expect(listedTitles()).toEqual(['Order sync failed', 'Legacy status as text']);
-    });
-  });
-
-  describe('payload keys spelled like a server filter', () => {
-    const alice = makeRow(ids.failed, 'Alice order', { payload: parsed({ user: 'alice', level: 'x' }) });
-    const bob = makeRow(ids.ok, 'Bob order', { payload: parsed({ user: 'bob', level: 'y' }) });
-    const colliding = {
-      rows: [alice, bob],
-      fields: [
-        { path: 'user', types: ['string'], rows: 2 },
-        { path: 'level', types: ['string'], rows: 2 }
-      ] satisfies CustomLogPayloadField[]
-    };
-    const options = () => screen.getAllByRole('option').map(option => option.textContent);
-
-    it('filters the loaded rows on a quoted payload key and asks Salesforce for nothing', () => {
-      const { posted } = mountApp(colliding);
-
-      submit('"user" = alice and "level" = x');
-
-      expect(screen.queryByRole('alert')).toBeNull();
-      expect(posts(posted, 'customLogsSetFilter')).toEqual([]);
-      expect(chipSummary()).toEqual([
-        ['loaded', '"user"=alice'],
-        ['loaded', '"level"=x']
-      ]);
-      expect(listedTitles()).toEqual(['Alice order']);
-    });
-
-    it('still reads an unquoted user as the Salesforce user filter', () => {
-      const { posted } = mountApp(colliding);
-
-      submit('user = alice');
-
-      expect(posts(posted, 'customLogsSetFilter')).toEqual([
-        { type: 'customLogsSetFilter', filter: { user: 'alice' } }
-      ]);
-      expect(chipSummary()).toEqual([['server', 'user=alice']]);
-      expect(listedTitles()).toEqual(['Alice order', 'Bob order']);
-    });
-
-    it('completes the payload key in quotes, with its own operators and values', () => {
-      const { posted } = mountApp(colliding);
-
-      fireEvent.change(filterInput(), { target: { value: 'use' } });
-      expect(options()).toEqual(['userSalesforce', 'userstr100%']);
-      fireEvent.keyDown(filterInput(), { key: 'ArrowDown' });
-      fireEvent.keyDown(filterInput(), { key: 'Enter' });
-      expect(filterInput()).toHaveValue('"user" ');
-      expect(screen.getByText('Operator for "user"')).toBeInTheDocument();
-      expect(options()).toEqual(['=', '!=', 'contains', 'exists']);
-
-      fireEvent.keyDown(filterInput(), { key: 'Enter' });
-      expect(filterInput()).toHaveValue('"user" = ');
-      expect(options()).toEqual(['alice1 row', 'bob1 row']);
-      fireEvent.keyDown(filterInput(), { key: 'ArrowDown' });
-      fireEvent.keyDown(filterInput(), { key: 'Enter' });
-
-      expect(screen.queryByRole('alert')).toBeNull();
-      expect(posts(posted, 'customLogsSetFilter')).toEqual([]);
-      expect(chipSummary()).toEqual([['loaded', '"user"=alice']]);
-      expect(listedTitles()).toEqual(['Alice order']);
-    });
-
-    it('keeps a = value filter on the payload key when its chip is edited and committed again', () => {
-      const { posted } = mountApp(colliding);
-      fireEvent.click(rowOf(ids.failed));
-
-      const leaf = within(screen.getByTestId('custom-log-row-detail')).getByTestId('payload-leaf-user');
-      fireEvent.click(within(leaf).getByRole('button', { name: '= value' }));
-      expect(chipSummary()).toEqual([['loaded', '"user"=alice']]);
-
-      fireEvent.click(screen.getByRole('button', { name: 'Edit filter "user" = alice' }));
-      expect(filterInput()).toHaveValue('"user" = alice');
-      fireEvent.keyDown(filterInput(), { key: 'Enter' });
-
-      expect(screen.queryByRole('alert')).toBeNull();
-      expect(posts(posted, 'customLogsSetFilter')).toEqual([]);
-      expect(chipSummary()).toEqual([['loaded', '"user"=alice']]);
-      expect(listedTitles()).toEqual(['Alice order']);
-    });
-
-    it('keeps a Salesforce user chip on the server when it is edited and committed again', () => {
-      const { posted, bus } = mountApp(colliding);
-      send(bus, { type: 'customLogsFilter', value: { user: 'alice' } });
-
-      fireEvent.click(screen.getByRole('button', { name: 'Edit filter user = alice' }));
-      expect(filterInput()).toHaveValue('user = alice');
-      fireEvent.keyDown(filterInput(), { key: 'Enter' });
-
-      expect(lastPost(posted, 'customLogsSetFilter')).toEqual({
-        type: 'customLogsSetFilter',
-        filter: { user: 'alice' }
+      search('Log-000739');
+      send(bus, { type: 'customLogsSources', data: [appLog, nebula], selected: 'nebula', issues: [] });
+      send(bus, {
+        type: 'customLogsPage',
+        mode: 'replace',
+        columns: [],
+        rows: [makeRow('a015g00000Q2xYzAAB', 'Log-000739'), makeRow('a015g00000Q2xZ0AAB', 'Log-000740')],
+        payloadFields: [],
+        hasMore: false
       });
-      expect(chipSummary()).toEqual([['server', 'user=alice']]);
-    });
-  });
 
-  describe('autocomplete', () => {
-    it('lists server fields first, then payload paths with their type and share of loaded rows', () => {
+      expect(searchInput()).toHaveValue('Log-000739');
+      expect(listedTitles()).toEqual(['Log-000739']);
+    });
+
+    it('hides the source picker when only one source is ready', () => {
       mountApp();
 
-      fireEvent.focus(filterInput());
-      const options = screen.getAllByRole('option').map(option => option.textContent);
-
-      expect(options).toEqual([
-        'levelSalesforce',
-        'userSalesforce',
-        'sinceSalesforce',
-        'http.statusmixed50%',
-        'orderIdstr50%',
-        'tags[]str25%',
-        'http.bodystr13%',
-        'lines[].skustr13%'
-      ]);
+      expect(screen.queryByTestId('custom-logs-source')).toBeNull();
     });
 
-    it('walks field, operator and value', () => {
-      mountApp();
-
-      fireEvent.change(filterInput(), { target: { value: 'http.st' } });
-      fireEvent.keyDown(filterInput(), { key: 'Enter' });
-      expect(filterInput()).toHaveValue('http.status ');
-      expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual([
-        '=',
-        '!=',
-        '>',
-        '>=',
-        '<',
-        '<=',
-        'contains',
-        'exists'
-      ]);
-
-      fireEvent.keyDown(filterInput(), { key: 'ArrowDown' });
-      fireEvent.keyDown(filterInput(), { key: 'ArrowDown' });
-      fireEvent.keyDown(filterInput(), { key: 'ArrowDown' });
-      fireEvent.keyDown(filterInput(), { key: 'Enter' });
-      expect(filterInput()).toHaveValue('http.status >= ');
-    });
-
-    it('offers the top values among loaded rows with their counts', () => {
-      mountApp();
-
-      fireEvent.change(filterInput(), { target: { value: 'orderId = ' } });
-
-      expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual([
-        'ORD-10422 rows',
-        'ORD-10431 row',
-        'ORD-10441 row'
-      ]);
-    });
-
-    it('commits the highlighted value on Enter', () => {
-      mountApp();
-      fireEvent.change(filterInput(), { target: { value: 'orderId = ' } });
-
-      fireEvent.keyDown(filterInput(), { key: 'ArrowDown' });
-      fireEvent.keyDown(filterInput(), { key: 'Enter' });
-
-      expect(chipSummary()).toEqual([['loaded', 'orderId=ORD-1042']]);
-      expect(listedTitles()).toEqual(['Order sync failed', 'Retrying order sync']);
-    });
-
-    it('offers the since quick values', () => {
-      mountApp();
-
-      fireEvent.change(filterInput(), { target: { value: 'since = ' } });
-
-      expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual(['1h', '24h', '7d']);
-    });
-
-    it('adds the field as a column with Shift+Enter', () => {
-      const { posted } = mountApp();
-
-      fireEvent.change(filterInput(), { target: { value: 'http.bo' } });
-      fireEvent.keyDown(filterInput(), { key: 'Enter', shiftKey: true });
-
-      expect(lastPost(posted, 'customLogsSetPayloadColumns')).toEqual({
-        type: 'customLogsSetPayloadColumns',
-        added: ['http.body']
-      });
-      expect(headerLabels()).toContain('http.body');
-    });
-
-    it('lists a path that only the second page carries', () => {
+    it('lists a path that only the second page carries in + Field, and finds its value', () => {
       const { bus } = mountApp();
       send(bus, {
         type: 'customLogsPage',
@@ -750,11 +323,140 @@ describe('Custom Logs app', () => {
         hasMore: false
       });
 
-      fireEvent.change(filterInput(), { target: { value: 'regi' } });
+      search('us-east');
+      expect(listedTitles()).toEqual(['Second page row']);
 
-      expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual(['regionstr11%']);
       fireEvent.click(screen.getByRole('button', { name: '+ Field' }));
       expect(screen.getByRole('menuitemcheckbox', { name: /region/ })).toBeInTheDocument();
+    });
+  });
+
+  describe('Filters menu', () => {
+    const usersRows = [
+      makeRow(ids.failed, 'Order sync failed', { user: 'zoe@acme.com' }),
+      makeRow(ids.retry, 'Retrying order sync', { user: 'ana@acme.com' }),
+      makeRow(ids.ok, 'Order synced', { user: 'zoe@acme.com' })
+    ];
+
+    it('offers Level, Logged by and Time, with the users of the loaded rows', () => {
+      mountApp({ rows: usersRows });
+
+      inFilters(() => {
+        expect(filterOptions('Level')).toEqual([
+          'Any level',
+          'ERROR and above',
+          'WARN and above',
+          'INFO and above',
+          'DEBUG and above',
+          'FINE and above',
+          'FINER and above',
+          'FINEST and above'
+        ]);
+        expect(filterOptions('Logged by')).toEqual(['Anyone', 'ana@acme.com', 'zoe@acme.com']);
+        expect(filterOptions('Time')).toEqual(['Any time', 'Last hour', 'Last 24 hours', 'Last 7 days']);
+        expect(screen.getByText('Runs in Salesforce: changes the query and reloads the list.')).toBeInTheDocument();
+      });
+    });
+
+    it('posts the whole server filter on each change, and counts the set filters on the button', () => {
+      const { bus, posted } = mountApp({ rows: usersRows });
+
+      inFilters(() => {
+        fireEvent.change(filterSelect('Level'), { target: { value: 'WARN' } });
+      });
+      expect(lastPost(posted, 'customLogsSetFilter')).toEqual({
+        type: 'customLogsSetFilter',
+        filter: { minLevel: 'WARN' }
+      });
+      send(bus, { type: 'customLogsFilter', value: { minLevel: 'WARN' } });
+
+      inFilters(() => {
+        fireEvent.change(filterSelect('Time'), { target: { value: '24h' } });
+        fireEvent.change(filterSelect('Logged by'), { target: { value: 'ana@acme.com' } });
+      });
+
+      expect(posts(posted, 'customLogsSetFilter').map(message => message.filter)).toEqual([
+        { minLevel: 'WARN' },
+        { minLevel: 'WARN', since: '24h' },
+        { minLevel: 'WARN', since: '24h', user: 'ana@acme.com' }
+      ]);
+      expect(filtersButton()).toHaveTextContent('Filters3');
+    });
+
+    it('clears one filter by picking Any, and every filter with Clear', () => {
+      const { bus, posted } = mountApp();
+      send(bus, { type: 'customLogsFilter', value: { minLevel: 'ERROR', since: '7d' } });
+      expect(screen.getByTestId('custom-logs-filters-count')).toHaveTextContent('2');
+
+      inFilters(() => {
+        fireEvent.change(filterSelect('Time'), { target: { value: '' } });
+        expect(lastPost(posted, 'customLogsSetFilter')).toEqual({
+          type: 'customLogsSetFilter',
+          filter: { minLevel: 'ERROR' }
+        });
+
+        fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+      });
+
+      expect(lastPost(posted, 'customLogsSetFilter')).toEqual({ type: 'customLogsSetFilter', filter: {} });
+      expect(screen.queryByTestId('custom-logs-filters-count')).toBeNull();
+    });
+
+    it('cannot clear when no filter is set', () => {
+      mountApp();
+
+      inFilters(() => {
+        expect(screen.getByRole('button', { name: 'Clear filters' })).toBeDisabled();
+      });
+    });
+
+    it('shows the filter the host replays, a time or user set elsewhere included', () => {
+      const { bus } = mountApp({ rows: usersRows });
+
+      send(bus, {
+        type: 'customLogsFilter',
+        value: { minLevel: 'ERROR', user: 'dev@acme.com', since: '2026-10-29T12:00:00Z' }
+      });
+
+      inFilters(() => {
+        expect(filterSelect('Level')).toHaveValue('ERROR');
+        expect(filterSelect('Logged by')).toHaveValue('dev@acme.com');
+        expect(filterOptions('Logged by')).toEqual(['Anyone', 'dev@acme.com', 'ana@acme.com', 'zoe@acme.com']);
+        expect(filterSelect('Time')).toHaveValue('2026-10-29T12:00:00Z');
+        expect(filterOptions('Time')).toEqual([
+          'Any time',
+          '2026-10-29T12:00:00Z',
+          'Last hour',
+          'Last 24 hours',
+          'Last 7 days'
+        ]);
+      });
+      expect(filtersButton()).toHaveTextContent('Filters3');
+    });
+
+    it('offers only Time when the source cannot filter by level or user', () => {
+      mountApp({ sources: [auditLog] });
+
+      inFilters(() => {
+        expect(screen.queryByLabelText('Level')).toBeNull();
+        expect(screen.queryByLabelText('Logged by')).toBeNull();
+        expect(filterOptions('Time')).toEqual(['Any time', 'Last hour', 'Last 24 hours', 'Last 7 days']);
+      });
+    });
+
+    it('leaves the search alone', () => {
+      const { posted } = mountApp();
+      search('ORD-1043');
+
+      inFilters(() => {
+        fireEvent.change(filterSelect('Level'), { target: { value: 'ERROR' } });
+      });
+
+      expect(lastPost(posted, 'customLogsSetFilter')).toEqual({
+        type: 'customLogsSetFilter',
+        filter: { minLevel: 'ERROR' }
+      });
+      expect(searchInput()).toHaveValue('ORD-1043');
     });
   });
 });

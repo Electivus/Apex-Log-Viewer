@@ -11,40 +11,24 @@ export type CustomLogsMessages = {
   noRows: string;
   noMatch: string;
   noMatchMore: string;
-  filter: {
+  search: {
+    label: string;
     placeholder: string;
-    aria: string;
-    serverChip: string;
-    loadedChip: string;
-    sourceChip: string;
-    removeChip: string;
-    editChip: string;
-    stageField: string;
-    stageOperator: string;
-    stageValue: string;
-    stageCommit: string;
-    noSuggestions: string;
-    serverBadge: string;
-    storedChip: string;
-    storedBadge: string;
-    inColumns: string;
-    rowsCount: string;
-    rowCountOne: string;
+    clear: string;
   };
-  errors: {
-    at: string;
-    expectedField: string;
-    expectedOperator: string;
-    expectedValue: string;
-    unterminatedString: string;
-    unsupportedOr: string;
-    expectedAnd: string;
-    expectedConditionAfterAnd: string;
-    serverOperator: string;
-    serverLevel: string;
-    serverSince: string;
-    serverSource: string;
-    serverUnsupported: string;
+  filters: {
+    button: string;
+    level: string;
+    levelAny: string;
+    levelAtLeast: string;
+    user: string;
+    userAny: string;
+    time: string;
+    timeAny: string;
+    timeQuick: Record<'1h' | '24h' | '7d', string>;
+    note: string;
+    noteStored: string;
+    clear: string;
   };
   columns: {
     time: string;
@@ -69,7 +53,6 @@ export type CustomLogsMessages = {
   menu: {
     sortAscending: string;
     sortDescending: string;
-    filterBy: string;
     remove: string;
     hide: string;
   };
@@ -97,7 +80,6 @@ export type CustomLogsMessages = {
     addColumn: string;
     columnAdded: string;
     columnLocked: string;
-    filterEqual: string;
     droppedPaths: string;
     cutValues: string;
     valueCut: string;
@@ -114,10 +96,10 @@ export type CustomLogsMessages = {
   status: {
     rowsLoaded: string;
     rowsLoadedOne: string;
-    filtering: string;
+    searching: string;
+    searchMore: string;
     hint: string;
     hintStored: string;
-    skipped: string;
     invalidCount: string;
     textCount: string;
     emptyCount: string;
@@ -253,40 +235,24 @@ export const customLogsEn: CustomLogsMessages = {
   noRows: 'No logs found for this source and these filters.',
   noMatch: 'No loaded row matches. Only {count} rows are loaded.',
   noMatchMore: 'Use Load more to widen the search.',
-  filter: {
-    placeholder: 'Filter: field → operator → value   ( / to focus )',
-    aria: 'Filter logs',
-    serverChip: 'Runs in Salesforce: changes the query and reloads the list',
-    loadedChip: 'Narrows the rows already loaded',
-    sourceChip: 'The source this list reads from, set in Salesforce',
-    removeChip: 'Remove filter {filter}',
-    editChip: 'Edit filter {filter}',
-    stageField: 'Field · Enter to filter on it · Shift+Enter to add it as a column',
-    stageOperator: 'Operator for {field}',
-    stageValue: 'Value · pick one or type it, then Enter · {field} {op} …',
-    stageCommit: 'Enter to add the filter',
-    noSuggestions: 'No suggestion: type a value and press Enter',
-    serverBadge: 'Salesforce',
-    storedChip: 'Runs over the stored events: changes the list without asking Salesforce',
-    storedBadge: 'Stored',
-    inColumns: '✓ column',
-    rowsCount: '{count} rows',
-    rowCountOne: '1 row'
+  search: {
+    label: 'Search loaded rows',
+    placeholder: 'Search loaded rows   ( / to focus )',
+    clear: 'Clear search'
   },
-  errors: {
-    at: '(col {position})',
-    expectedField: 'Expected a field name, for example http.status',
-    expectedOperator: 'Expected an operator after "{token}": = != > >= < <= contains exists',
-    expectedValue: 'Expected a value after the operator',
-    unterminatedString: 'This string is not closed',
-    unsupportedOr: '"or" is not supported yet: conditions combine with "and" only',
-    expectedAnd: 'Unexpected "{token}": join conditions with "and", and quote values that contain spaces',
-    expectedConditionAfterAnd: 'Expected another condition after "and"',
-    serverOperator: '{field} only supports {allowed}',
-    serverLevel: 'Use one of FINEST, FINER, FINE, DEBUG, INFO, WARN or ERROR',
-    serverSince: 'Use a duration such as 30m, 24h or 7d, or an ISO date with an offset such as 2026-10-29T12:00:00Z',
-    serverSource: 'Unknown source. Pick one from the Source list',
-    serverUnsupported: 'This source cannot filter by {field}'
+  filters: {
+    button: 'Filters',
+    level: 'Level',
+    levelAny: 'Any level',
+    levelAtLeast: '{level} and above',
+    user: 'Logged by',
+    userAny: 'Anyone',
+    time: 'Time',
+    timeAny: 'Any time',
+    timeQuick: { '1h': 'Last hour', '24h': 'Last 24 hours', '7d': 'Last 7 days' },
+    note: 'Runs in Salesforce: changes the query and reloads the list.',
+    noteStored: 'Runs over the stored events: changes the list without asking Salesforce.',
+    clear: 'Clear filters'
   },
   columns: {
     time: 'Time',
@@ -311,7 +277,6 @@ export const customLogsEn: CustomLogsMessages = {
   menu: {
     sortAscending: 'Sort ascending',
     sortDescending: 'Sort descending',
-    filterBy: 'Filter by this field…',
     remove: 'Remove column',
     hide: 'Hide column'
   },
@@ -332,16 +297,15 @@ export const customLogsEn: CustomLogsMessages = {
     empty: 'empty',
     hidden: 'hidden',
     invalidNote:
-      'The payload is not valid JSON. JSON columns and filters skip this row. Open the full payload to read it.',
+      'The payload is not valid JSON. JSON columns and the search skip it. Open the full payload to read it.',
     textNote:
-      'The payload is plain text, not JSON. JSON columns and filters skip this row. Open the full payload to read it.',
+      'The payload is plain text, not JSON. JSON columns and the search skip it. Open the full payload to read it.',
     emptyNote: 'The payload is empty for this record.',
     hiddenNote: 'Your permissions hide the payload field for this record.',
     openFull: 'Open full payload',
     addColumn: '+ Column',
     columnAdded: '✓ Column',
     columnLocked: 'From project',
-    filterEqual: '= value',
     droppedPaths: '{count} more paths are not shown. Open the full payload to read them.',
     cutValues: 'Cut at the character limit: {paths}',
     valueCut: 'cut'
@@ -358,10 +322,10 @@ export const customLogsEn: CustomLogsMessages = {
   status: {
     rowsLoaded: '{count} rows loaded',
     rowsLoadedOne: '1 row loaded',
-    filtering: 'Filtering {loaded} loaded rows · {matches} match',
-    hint: 'JSON columns, filters and sorts only see rows already loaded (SOQL cannot filter long text).',
-    hintStored: 'JSON columns, filters and sorts only see rows already loaded.',
-    skipped: 'skipped by JSON filters',
+    searching: '{matches} of {loaded} loaded rows match',
+    searchMore: 'Load more to search older rows',
+    hint: 'Search, JSON columns and sorts only see rows already loaded (SOQL cannot search long text).',
+    hintStored: 'Search, JSON columns and sorts only see rows already loaded.',
     invalidCount: '{count} invalid JSON',
     textCount: '{count} plain text',
     emptyCount: '{count} empty',
@@ -397,7 +361,8 @@ export const customLogsEn: CustomLogsMessages = {
       loadRetained: 'Load retained events',
       onlyNew: 'Only new events',
       note: "Salesforce keeps at least 72 hours; each event counts against the org's daily delivery allocation{left}; this run stops after about {budget} deliveries and resumes on the next Start.",
-      noteNoBudget: "Salesforce keeps at least 72 hours; each event counts against the org's daily delivery allocation.",
+      noteNoBudget:
+        "Salesforce keeps at least 72 hours; each event counts against the org's daily delivery allocation.",
       left: ' (about {remaining} of {max} left)',
       leftOnly: ' (about {remaining} left)'
     },
@@ -508,41 +473,24 @@ export const customLogsPtBR: CustomLogsMessages = {
   noRows: 'Nenhum log encontrado para esta fonte e estes filtros.',
   noMatch: 'Nenhuma linha carregada corresponde. Só {count} linhas estão carregadas.',
   noMatchMore: 'Use Carregar mais para ampliar a busca.',
-  filter: {
-    placeholder: 'Filtrar: campo → operador → valor   ( / para focar )',
-    aria: 'Filtrar logs',
-    serverChip: 'Roda no Salesforce: muda a consulta e recarrega a lista',
-    loadedChip: 'Restringe só as linhas já carregadas',
-    sourceChip: 'A fonte que esta lista lê, definida no Salesforce',
-    removeChip: 'Remover o filtro {filter}',
-    editChip: 'Editar o filtro {filter}',
-    stageField: 'Campo · Enter para filtrar por ele · Shift+Enter para adicioná-lo como coluna',
-    stageOperator: 'Operador para {field}',
-    stageValue: 'Valor · escolha um ou digite, depois Enter · {field} {op} …',
-    stageCommit: 'Enter para adicionar o filtro',
-    noSuggestions: 'Sem sugestões: digite um valor e pressione Enter',
-    serverBadge: 'Salesforce',
-    storedChip: 'Roda sobre os eventos armazenados: muda a lista sem consultar o Salesforce',
-    storedBadge: 'Armazenado',
-    inColumns: '✓ coluna',
-    rowsCount: '{count} linhas',
-    rowCountOne: '1 linha'
+  search: {
+    label: 'Buscar nas linhas carregadas',
+    placeholder: 'Buscar nas linhas carregadas   ( / para focar )',
+    clear: 'Limpar a busca'
   },
-  errors: {
-    at: '(col. {position})',
-    expectedField: 'Esperava o nome de um campo, por exemplo http.status',
-    expectedOperator: 'Esperava um operador depois de "{token}": = != > >= < <= contains exists',
-    expectedValue: 'Esperava um valor depois do operador',
-    unterminatedString: 'Este texto entre aspas não foi fechado',
-    unsupportedOr: '"or" ainda não é suportado: as condições se combinam só com "and"',
-    expectedAnd:
-      'Trecho inesperado "{token}": junte as condições com "and" e coloque entre aspas os valores com espaços',
-    expectedConditionAfterAnd: 'Esperava outra condição depois de "and"',
-    serverOperator: '{field} só aceita {allowed}',
-    serverLevel: 'Use FINEST, FINER, FINE, DEBUG, INFO, WARN ou ERROR',
-    serverSince: 'Use uma duração como 30m, 24h ou 7d, ou uma data ISO com offset, como 2026-10-29T12:00:00Z',
-    serverSource: 'Fonte desconhecida. Escolha uma na lista Fonte',
-    serverUnsupported: 'Esta fonte não filtra por {field}'
+  filters: {
+    button: 'Filtros',
+    level: 'Nível',
+    levelAny: 'Qualquer nível',
+    levelAtLeast: '{level} ou mais grave',
+    user: 'Registrado por',
+    userAny: 'Qualquer pessoa',
+    time: 'Período',
+    timeAny: 'Qualquer período',
+    timeQuick: { '1h': 'Última hora', '24h': 'Últimas 24 horas', '7d': 'Últimos 7 dias' },
+    note: 'Roda no Salesforce: muda a consulta e recarrega a lista.',
+    noteStored: 'Roda sobre os eventos armazenados: muda a lista sem consultar o Salesforce.',
+    clear: 'Limpar filtros'
   },
   columns: {
     time: 'Hora',
@@ -567,7 +515,6 @@ export const customLogsPtBR: CustomLogsMessages = {
   menu: {
     sortAscending: 'Ordem crescente',
     sortDescending: 'Ordem decrescente',
-    filterBy: 'Filtrar por este campo…',
     remove: 'Remover coluna',
     hide: 'Ocultar coluna'
   },
@@ -588,16 +535,15 @@ export const customLogsPtBR: CustomLogsMessages = {
     empty: 'vazio',
     hidden: 'oculto',
     invalidNote:
-      'O payload não é um JSON válido. As colunas e os filtros JSON ignoram esta linha. Abra o payload completo para lê-lo.',
+      'O payload não é um JSON válido. As colunas JSON e a busca o ignoram. Abra o payload completo para lê-lo.',
     textNote:
-      'O payload é texto simples, não JSON. As colunas e os filtros JSON ignoram esta linha. Abra o payload completo para lê-lo.',
+      'O payload é texto simples, não JSON. As colunas JSON e a busca o ignoram. Abra o payload completo para lê-lo.',
     emptyNote: 'O payload está vazio neste registro.',
     hiddenNote: 'Suas permissões ocultam o campo de payload neste registro.',
     openFull: 'Abrir payload completo',
     addColumn: '+ Coluna',
     columnAdded: '✓ Coluna',
     columnLocked: 'Do projeto',
-    filterEqual: '= valor',
     droppedPaths: 'Mais {count} caminhos não são exibidos. Abra o payload completo para lê-los.',
     cutValues: 'Cortados no limite de caracteres: {paths}',
     valueCut: 'cortado'
@@ -614,10 +560,10 @@ export const customLogsPtBR: CustomLogsMessages = {
   status: {
     rowsLoaded: '{count} linhas carregadas',
     rowsLoadedOne: '1 linha carregada',
-    filtering: 'Filtrando {loaded} linhas carregadas · {matches} correspondem',
-    hint: 'Colunas, filtros e ordenações JSON só enxergam as linhas já carregadas (o SOQL não filtra texto longo).',
-    hintStored: 'Colunas, filtros e ordenações JSON só enxergam as linhas já carregadas.',
-    skipped: 'ignoradas pelos filtros JSON',
+    searching: '{matches} de {loaded} linhas carregadas correspondem',
+    searchMore: 'Carregue mais para buscar linhas mais antigas',
+    hint: 'A busca, as colunas JSON e as ordenações só enxergam as linhas já carregadas (o SOQL não busca texto longo).',
+    hintStored: 'A busca, as colunas JSON e as ordenações só enxergam as linhas já carregadas.',
     invalidCount: '{count} JSON inválido',
     textCount: '{count} texto simples',
     emptyCount: '{count} vazio',

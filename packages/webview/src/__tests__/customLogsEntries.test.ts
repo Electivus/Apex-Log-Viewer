@@ -1,5 +1,4 @@
 import type { CustomLogEntry, CustomLogLevel } from '@alv/protocol/customLogsTypes';
-import { parseFilterExpression } from '../utils/customLogs/filterGrammar';
 import {
   buildEntryColumns,
   countLevels,
@@ -9,6 +8,7 @@ import {
   filterEntries,
   type EntryFilters
 } from '../utils/customLogs/entries';
+import { parseSearch } from '../utils/customLogs/search';
 
 function entry(id: string, overrides: Partial<CustomLogEntry> = {}): CustomLogEntry {
   return {
@@ -25,8 +25,8 @@ function entry(id: string, overrides: Partial<CustomLogEntry> = {}): CustomLogEn
   };
 }
 
-const everything: EntryFilters = { levels: new Set(), details: new Set(), text: '', showSystem: true, payload: [] };
-const ids = (entries: CustomLogEntry[]) => entries.map(item => item.id);
+const everything: EntryFilters = { levels: new Set(), details: new Set(), showSystem: true, search: parseSearch('') };
+const ids = (entries: readonly CustomLogEntry[]) => entries.map(item => item.id);
 
 const entries = [
   entry('start', { sequence: 1, origin: 'OrderSync.run', presentDetails: ['StackTrace__c'] }),
@@ -62,24 +62,39 @@ describe('filtering loaded entries', () => {
   });
 
   it('searches message, origin, user, exception type and raw level without regard to case', () => {
-    expect(ids(filterEntries(entries, { ...everything, text: 'HTTPCLIENT' }))).toEqual(['slow']);
-    expect(ids(filterEntries(entries, { ...everything, text: 'mathexception' }))).toEqual(['boom']);
-    expect(ids(filterEntries(entries, { ...everything, text: 'dev@acme' }))).toEqual(['slow']);
-    expect(ids(filterEntries(entries, { ...everything, text: 'notice' }))).toEqual(['odd']);
-    expect(ids(filterEntries(entries, { ...everything, text: '   ' }))).toHaveLength(5);
+    const searched = (query: string) => ids(filterEntries(entries, { ...everything, search: parseSearch(query) }));
+
+    expect(searched('HTTPCLIENT')).toEqual(['slow']);
+    expect(searched('mathexception')).toEqual(['boom']);
+    expect(searched('dev@acme')).toEqual(['slow']);
+    expect(searched('notice')).toEqual(['odd']);
+    expect(searched('   ')).toHaveLength(5);
   });
 
-  it('applies the payload filters after the others', () => {
+  it('searches the payload paths and values too, and only among the entries the other filters keep', () => {
     const withPayload = [
       entry('a', { payload: { state: 'parsed', values: { 'http.status': 502 }, droppedPaths: 0, cutValues: [] } }),
       entry('b', { payload: { state: 'parsed', values: { 'http.status': 200 }, droppedPaths: 0, cutValues: [] } }),
-      entry('c', { payload: { state: 'invalid' } })
+      entry('c', {
+        level: 'ERROR',
+        payload: { state: 'parsed', values: { 'http.status': 502 }, droppedPaths: 0, cutValues: [] }
+      }),
+      entry('d', { payload: { state: 'invalid' } })
     ];
-    const parsed = parseFilterExpression('http.status >= 500');
-    if (!parsed.ok) {
-      throw new Error('filter did not parse');
-    }
-    expect(ids(filterEntries(withPayload, { ...everything, payload: parsed.conditions }))).toEqual(['a']);
+
+    expect(ids(filterEntries(withPayload, { ...everything, search: parseSearch('http.status 502') }))).toEqual([
+      'a',
+      'c'
+    ]);
+    expect(
+      ids(
+        filterEntries(withPayload, {
+          ...everything,
+          levels: new Set<CustomLogLevel>(['ERROR']),
+          search: parseSearch('502')
+        })
+      )
+    ).toEqual(['c']);
   });
 });
 
