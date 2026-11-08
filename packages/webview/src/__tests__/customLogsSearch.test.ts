@@ -151,6 +151,26 @@ describe('searching loaded rows', () => {
     }
   });
 
+  it('finds the origin of an entry row and the fields of its log', () => {
+    const entryRow = row('a01Da0000083uAdIAI', {
+      title: 'Retrying order sync',
+      origin: 'OrderService.sync',
+      log: {
+        id: 'a02Da000006uklTIAQ',
+        time: '2026-10-29T23:41:00.000Z',
+        title: 'Log-000276',
+        user: 'integration@acme.com',
+        extra: { Status__c: 'Processed' }
+      }
+    });
+
+    for (const query of ['orderservice.sync', 'log-000276', 'a02Da000006uklTIAQ', 'integration@', 'processed']) {
+      expect(rowsMatching([entryRow], query)).toEqual([entryRow.id]);
+    }
+    expect(rowsMatching([entryRow], 'status')).toEqual([]);
+    expect(rowsMatching([row('system', { system: true })], 'true')).toEqual([]);
+  });
+
   it('searches a row delivered again with new content by that content', () => {
     expect(rowsMatching([synced], 'retried')).toEqual([]);
 
