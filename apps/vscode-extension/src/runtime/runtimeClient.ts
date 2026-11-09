@@ -124,14 +124,22 @@ type AssignsTo<Ui, Core extends Ui> = [Ui, Core];
 /**
  * Compile-time proof that the core DTOs assign to their protocol mirrors, which is what lets the
  * client return core results as UI types without mapping code. A field core drops or retypes
- * fails the build here instead of at a webview.
+ * fails the build here instead of at a webview. Assignment alone accepts a mirror that lacks a
+ * field core added, so the key proofs also require every key a mirror is meant to carry.
  */
 export type CustomLogDtoProof = [
   Holds<Same<typeof core.CUSTOM_LOG_LEVELS, typeof ui.CUSTOM_LOG_LEVELS>>,
   AssignsTo<ui.CustomLogSourceView, core.CustomLogSourceInfo>,
+  // The panel never reads `objects` or `unmappedLevels`; every other key of a source is mirrored.
+  Holds<Same<Exclude<keyof core.CustomLogSourceInfo, 'objects' | 'unmappedLevels'>, keyof ui.CustomLogSourceView>>,
   AssignsTo<ui.CustomLogConfigIssueView, core.CustomLogConfigIssue>,
   AssignsTo<ui.CustomLogColumn, core.CustomLogColumn>,
   AssignsTo<ui.CustomLogRow, core.CustomLogRow>,
+  Holds<Same<keyof core.CustomLogRow, keyof ui.CustomLogRow>>,
+  AssignsTo<ui.CustomLogHeaderRow, core.CustomLogHeaderRow>,
+  Holds<Same<keyof core.CustomLogHeaderRow, keyof ui.CustomLogHeaderRow>>,
+  AssignsTo<CustomLogListView, core.CustomLogListResult>,
+  Holds<Same<keyof core.CustomLogListResult, keyof CustomLogListView>>,
   AssignsTo<ui.CustomLogEntry, core.CustomLogEntry>,
   AssignsTo<ui.CustomLogPayloadField, core.CustomLogPayloadField>,
   AssignsTo<ui.CustomLogSourceRef, core.CustomLogSourceRef>,
@@ -186,6 +194,7 @@ export type CustomLogSourcesView = {
 export type CustomLogListView = {
   source: ui.CustomLogSourceRef;
   columns: ui.CustomLogColumn[];
+  logColumns?: ui.CustomLogColumn[];
   rows: ui.CustomLogRow[];
   payloadFields: ui.CustomLogPayloadField[];
   nextCursor: string | null;

@@ -101,6 +101,19 @@ test('list needs no flag at all, so one command works on every org', async () =>
   });
 });
 
+test('list --entries asks core for entry rows, and list without it never sends the key', async () => {
+  const capture = stub('list', { rows: [] });
+
+  await new CustomLogList(['--source', 'nebula', '--entries', '--min-level', 'ERROR', '--json'], config).run();
+
+  assert.equal(capture.params?.entries, true);
+  assert.deepEqual(capture.params?.filter, { minLevel: 'ERROR', user: undefined, since: undefined, until: undefined });
+
+  await new CustomLogList(['--source', 'nebula', '--json'], config).run();
+
+  assert.equal(Object.hasOwn(capture.params ?? {}, 'entries'), false);
+});
+
 test('get takes a log id or a transaction id, never both and never neither', async () => {
   const capture = stub('get', { entries: [] });
 

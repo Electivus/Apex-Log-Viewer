@@ -46,6 +46,7 @@ import {
 } from './contracts.js';
 import {
   defaultSourceId,
+  listColumns,
   requireRecordSource,
   requireSource,
   requireSourceForRecord,
@@ -95,6 +96,7 @@ import {
   headerObject,
   isEventSource,
   listedObject,
+  listingOf,
   type CatalogHead,
   type ResolvedEventSource,
   type ResolvedRecordSource,
@@ -555,6 +557,7 @@ export function createCustomLogApi(
         until: nonBlank(params.filter?.until)
       };
       const window = resolveWindow(params.filter, new Date());
+      const entries = params.entries === true;
       const config = await loadCustomLogsConfig(params.projectDir);
       const sourceId = nonBlank(params.source);
       const events = namedEventCandidate(config, presets, sourceId);
@@ -574,22 +577,27 @@ export function createCustomLogApi(
             config,
             catalog => requireRecordSource(catalog, sourceId),
             async source => {
-              const cursor = pageCursor(ctx, source, 'list', given);
+              const listing = listingOf(source.shape, entries);
+              const cursor = pageCursor(ctx, source, listing.cursorKind, given);
               const after = cursor.after(params.cursor);
               const resolved = after ? (after.w ?? {}) : window;
               const page = await run(
                 ctx,
-                listPlan(source, {
-                  limit,
-                  filter: { minLevel: given.minLevel, user: given.user, ...resolved },
-                  after,
-                  keep: keepOf(params.payloadFields)
-                }),
+                listPlan(
+                  source,
+                  {
+                    limit,
+                    filter: { minLevel: given.minLevel, user: given.user, ...resolved },
+                    after,
+                    keep: keepOf(params.payloadFields)
+                  },
+                  listing
+                ),
                 signal
               );
               return {
                 source: sourceRef(source),
-                columns: toColumns(listedObject(source.shape).columns),
+                ...listColumns(listing),
                 rows: page.items,
                 payloadFields: page.payloadFields,
                 nextCursor: cursor.next(page.next, resolved)
@@ -632,7 +640,7 @@ export function createCustomLogApi(
               if (header && owner.level === 'entry') {
                 wrongRecordLevel(
                   `${logId} is a ${owner.source.shape.entry.object} id. ` +
-                    `Pass the ${header.object} id from the entry's logId field.`
+                    `Pass the ${header.object} id: log.id of a list --entries row, or the entry's logId field.`
                 );
               }
               return owner.source;

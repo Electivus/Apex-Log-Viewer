@@ -129,6 +129,59 @@ test('managed Nebula qualifies every custom name with its namespace and keeps th
   assert.equal(source.shape.kind === 'transactions' && source.shape.transaction.object, 'Nebula__Log__c');
 });
 
+test('the entry parent carries the relationship path describe reports, namespaced on managed', () => {
+  const parentOf = (source: ResolvedSource) =>
+    source.shape.kind === 'transactions'
+      ? [source.shape.entry.parent.api, source.shape.entry.parent.relationshipPath]
+      : [];
+
+  assert.deepEqual(parentOf(ready(resolveDefinition(nebula, 'builtin', '', unlockedEndUser))), ['Log__c', 'Log__r']);
+  assert.deepEqual(
+    parentOf(ready(resolveDefinition(NEBULA_MANAGED_PRESET.definition, 'builtin', 'Nebula', managedEndUser))),
+    ['Nebula__Log__c', 'Nebula__Log__r']
+  );
+});
+
+test('a parent mapped through one relationship keeps the source ready and reads the header through both hops', () => {
+  const raw = NEBULA_PRESET.raw as { entry: Json };
+  const throughLog = define({
+    ...NEBULA_PRESET.raw,
+    id: 'nebula-root',
+    entry: { ...raw.entry, parent: 'Log__r.ParentLog__c' }
+  });
+  const parentOf = (entry: CatalogEntry) => {
+    const { shape } = ready(entry);
+    return shape.kind === 'transactions' ? [shape.entry.parent.api, shape.entry.parent.relationshipPath] : [];
+  };
+
+  assert.deepEqual(parentOf(resolveDefinition(throughLog, 'config', '', unlockedEndUser)), [
+    'Log__r.ParentLog__c',
+    'Log__r.ParentLog__r'
+  ]);
+  assert.deepEqual(parentOf(resolveDefinition(throughLog, 'builtin', 'Nebula', managedEndUser)), [
+    'Nebula__Log__r.Nebula__ParentLog__c',
+    'Nebula__Log__r.Nebula__ParentLog__r'
+  ]);
+});
+
+test('a parent without a relationship name in describe makes the source unavailable', () => {
+  const describes = new Map(unlockedAdmin);
+  const entry = describes.get('LogEntry__c')!;
+  describes.set('LogEntry__c', {
+    ...entry,
+    fields: entry.fields.map(field => {
+      if (field.name !== 'Log__c') return field;
+      const { relationshipName: _relationshipName, ...rest } = field;
+      return rest;
+    })
+  });
+
+  const result = resolveDefinition(nebula, 'builtin', '', describes);
+
+  assert.equal(result.state === 'unavailable' && result.reason, 'fieldTypeMismatch');
+  assert.match(result.state === 'unavailable' ? result.message : '', /entry\.parent \("Log__c"\)/);
+});
+
 test('a LoggerEndUser describe drops the fields it omits and keeps the Has flags', () => {
   const source = ready(resolveDefinition(NEBULA_MANAGED_PRESET.definition, 'builtin', 'Nebula', managedEndUser));
   assert.equal(source.shape.kind, 'transactions');
@@ -335,6 +388,7 @@ test('detection finds unlocked Nebula and leaves the managed distribution not in
     hiddenFields: [],
     unmappedLevels: [],
     capabilities: { levelFilter: false, userFilter: false, apexLogLink: false },
+    entryCapabilities: { levelFilter: false, userFilter: false },
     payload: {},
     state: 'notInstalled'
   });
@@ -595,6 +649,7 @@ test('sources reports a ready source the way the CLI contract shows it', () => {
       hiddenFields: undefined,
       unmappedLevels: [],
       capabilities: { levelFilter: true, userFilter: true, apexLogLink: true },
+      entryCapabilities: { levelFilter: true, userFilter: true },
       payload: {},
       state: 'ready'
     }
@@ -889,10 +944,12 @@ test('sources reports an event source with its event object, in-memory filters a
     hiddenFields: [],
     unmappedLevels: [],
     capabilities: { levelFilter: true, userFilter: true, apexLogLink: true },
+    entryCapabilities: { levelFilter: true, userFilter: true },
     payload: { entry: { field: 'RecordJson__c', columns: [] } },
     state: 'ready'
   });
   assert.deepEqual(bare.capabilities, { levelFilter: false, userFilter: false, apexLogLink: false });
+  assert.deepEqual(bare.entryCapabilities, { levelFilter: false, userFilter: false });
   assert.deepEqual(bare.payload, {});
 });
 

@@ -30,7 +30,10 @@ const ROW_SEARCH_FIELDS = {
   transactionId: 'search',
   requestId: 'search',
   extra: 'search',
-  payload: 'search'
+  payload: 'search',
+  origin: 'search',
+  system: 'skip',
+  log: 'search'
 } as const satisfies Record<keyof CustomLogRow, SearchField>;
 
 const ENTRY_SEARCH_FIELDS = {
@@ -90,7 +93,12 @@ function rowFieldText(row: CustomLogRow, key: SearchedKey<typeof ROW_SEARCH_FIEL
     case 'level':
     case 'transactionId':
     case 'requestId':
+    case 'origin':
       return scalarText(row[key]);
+    case 'log': {
+      const log = row.log;
+      return log ? ROW_SEARCHED.flatMap(field => rowFieldText(log, field)) : [];
+    }
     case 'time':
       return [row.time, formatLogTime(row.time)];
     case 'counts':

@@ -98,6 +98,11 @@ export type CustomLogSourceInfo = {
   /** Raw level values found in picklist metadata that no level table maps. They never match a level filter. */
   unmappedLevels: string[];
   capabilities: { levelFilter: boolean; userFilter: boolean; apexLogLink: boolean };
+  /**
+   * What `list` with `entries` can filter on: on a `transactions` source the entry's level and the
+   * user its rows show; on an `entries` or `events` source the same as `capabilities`.
+   */
+  entryCapabilities?: { levelFilter: boolean; userFilter: boolean };
   /** Payload mapping per level. Empty object when the source maps none. */
   payload: { transaction?: CustomLogPayloadInfo; entry?: CustomLogPayloadInfo };
   /** Present for an `events` source whose store root is known, whatever its state. */
@@ -289,6 +294,13 @@ export type CustomLogListParams = CustomLogScope & {
    * as in `metrics[].name`. `payloadFields` still lists every path.
    */
   payloadFields?: string[];
+  /**
+   * List entry records (CLI `--entries`). On a `transactions` source each row is one entry that has a
+   * header, with that header in `log`: `minLevel` reads the entry's level, `since` and `until` its time,
+   * `user` the user the rows show. On an `entries` or `events` source it changes nothing, because their
+   * rows are entries already. A cursor continues only the kind of list that produced it.
+   */
+  entries?: boolean;
 };
 
 export type CustomLogSourceRef = { id: string; label: string; shape: CustomLogSourceShape };
@@ -304,10 +316,10 @@ export type CustomLogColumn = { key: string; label: string };
 export const CUSTOM_LOG_CELL_CHARS = 255;
 
 /**
- * One row of the list. For a `transactions` source it is a header record; for an `entries`
- * source it is one entry record, and opening it shows every entry with the same transaction id.
- * Rows are ordered by `CreatedDate DESC, Id DESC`, which is never null. Strings are cut at
- * `CUSTOM_LOG_CELL_CHARS`.
+ * One row of the list. For a `transactions` source it is a header record, or with `entries` one
+ * entry record with its header in `log`; for an `entries` source it is one entry record, and opening
+ * it shows every entry with the same transaction id. Rows are ordered by `CreatedDate DESC, Id DESC`,
+ * which is never null. Strings are cut at `CUSTOM_LOG_CELL_CHARS`.
  */
 export type CustomLogRow = {
   id: string;
@@ -315,6 +327,10 @@ export type CustomLogRow = {
   time: string;
   /** Header `name` (for example `Log-000739`), or the start of the entry message. */
   title?: string;
+  /**
+   * On an entry row of a `transactions` source, the entry's mapped user when the entry maps one, else
+   * its header's; the `user` filter reads the same field. `transactionId` and `requestId` follow the same rule.
+   */
   user?: string;
   /** Worst level of the transaction, or the entry's level. */
   level?: CustomLogLevel;
@@ -324,11 +340,25 @@ export type CustomLogRow = {
   extra: Record<string, CustomLogScalar>;
   /** Absent when this level of the source maps no payload. */
   payload?: CustomLogPayloadView;
+  /** Entry rows: the mapped `origin`, such as Nebula's `OriginLocation__c`. */
+  origin?: string;
+  /** Entry rows: the message starts with the source's `systemMessagePrefix`, the logger's own bookkeeping. Absent otherwise. */
+  system?: true;
+  /** Entry rows of a `transactions` source listed with `entries`: the header the entry belongs to. Pass its `id` to `get --log-id`. */
+  log?: CustomLogHeaderRow;
 };
+
+/**
+ * The header of an entry row: the row `list` returns for that header, without its payload. `extra` is
+ * keyed by the header's columns, which the list result names in `logColumns`.
+ */
+export type CustomLogHeaderRow = Omit<CustomLogRow, 'payload' | 'log' | 'system' | 'origin'>;
 
 export type CustomLogListResult = {
   source: CustomLogSourceRef;
   columns: CustomLogColumn[];
+  /** Present when rows carry `log`: the header's display columns, read from `row.log.extra`. */
+  logColumns?: CustomLogColumn[];
   rows: CustomLogRow[];
   /** Paths seen in this page's payloads. Empty when the source maps none at this level. */
   payloadFields: CustomLogPayloadField[];
@@ -350,7 +380,7 @@ export type CustomLogGetParams = CustomLogScope & {
   payloadFields?: string[];
 } & (
     | {
-        /** Header record id (`transactions`) or any entry id of the transaction (`entries`). */
+        /** Header record id (`transactions`; an entry row of `list --entries` names it in `log.id`) or any entry id of the transaction (`entries`). */
         logId: string;
         transactionId?: never;
       }

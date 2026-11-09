@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { AlvError, createApexLogViewerCore } from '../src/index.ts';
+import { NEBULA_PRESET } from '../src/customLogs/presets.ts';
 import { page, startNebulaOrg, type NebulaOrg } from './support/nebulaDouble.ts';
 import { appLogSource, projectWith, type Json } from './support/customLogsFixtures.ts';
 import { isolateSalesforceHome, saveOrgAuth, salesforceError } from './support/salesforceDouble.ts';
@@ -363,6 +364,208 @@ test('list rejects a bad limit, level or duration before any request', async t =
   assert.equal(org.requests.length, 0);
 });
 
+const nebulaRaw = NEBULA_PRESET.raw as { entry: { fields: Record<string, string> } & Json };
+
+test('list with entries pages Nebula entries with their log, and a header cursor never continues an entry list', async t => {
+  const entries = [1, 2, 3].map(sequence => ({
+    ...entryRecord(sequence, { OriginLocation__c: 'OrderSync.run', OriginType__c: 'Apex' }),
+    Log__c: logRecord(1).Id,
+    Log__r: { ...logRecord(1), SystemMode__c: 'ANONYMOUS', Status__c: 'New' }
+  }));
+  const org = await startNebulaOrg(t, {
+    describes: 'unlocked-admin',
+    objects: UNLOCKED,
+    answer: soql => {
+      if (soql.includes('FROM LogEntry__c')) return page(soql.includes('CreatedDate <') ? entries.slice(2) : entries);
+      if (soql.includes('FROM Log__c')) return page([logRecord(1), logRecord(2), logRecord(3)]);
+      return undefined;
+    }
+  });
+  const { core, username } = await coreFor(t, org, 'list-entries@example.com');
+  const scope = { targetOrg: username, projectDir: undefined, limit: 2, filter: { user: 'dev@acme.com' } };
+
+  const first = await core.customLog.list({ ...scope, entries: true });
+  const second = await core.customLog.list({ ...scope, entries: true, cursor: first.nextCursor! });
+  const headers = await core.customLog.list(scope);
+
+  assert.deepEqual(first.columns, [{ key: 'OriginType__c', label: 'Origin Type' }]);
+  assert.deepEqual(first.logColumns, [
+    { key: 'SystemMode__c', label: 'System Mode' },
+    { key: 'TransactionScenarioName__c', label: 'Transaction Scenario Name' },
+    { key: 'Status__c', label: 'Status' }
+  ]);
+  assert.deepEqual(
+    first.rows.map(row => [row.id, row.title, row.origin, row.user, row.transactionId, row.log?.id, row.log?.title]),
+    [
+      ['a01000000000001AAA', 'entry 1', 'OrderSync.run', 'dev@acme.com', 'tx-1', 'a02000000000001AAA', 'Log-00001'],
+      ['a01000000000002AAA', 'entry 2', 'OrderSync.run', 'dev@acme.com', 'tx-1', 'a02000000000001AAA', 'Log-00001']
+    ]
+  );
+  assert.deepEqual(first.rows[0]?.log?.extra, {
+    SystemMode__c: 'ANONYMOUS',
+    TransactionScenarioName__c: null,
+    Status__c: 'New'
+  });
+  assert.deepEqual(
+    second.rows.map(row => row.id),
+    ['a01000000000003AAA']
+  );
+  assert.equal(second.nextCursor, null);
+  assert.equal(headers.logColumns, undefined);
+  assert.deepEqual(
+    headers.rows.map(row => row.log),
+    [undefined, undefined]
+  );
+  const [firstSoql, secondSoql] = org.soql('data');
+  assert.match(
+    firstSoql!,
+    /FROM LogEntry__c WHERE Log__c != null AND Log__r\.LoggedByUsername__c = 'dev@acme\.com' ORDER BY CreatedDate DESC, Id DESC LIMIT 3$/
+  );
+  assert.match(
+    secondSoql!,
+    /\(CreatedDate < 2026-10-30T00:00:01\.000Z OR \(CreatedDate = 2026-10-30T00:00:01\.000Z AND Id < 'a01000000000002AAA'\)\)/
+  );
+
+  const anotherKind = (error: unknown) =>
+    error instanceof AlvError &&
+    error.code === 'CUSTOM_LOG_INVALID_CURSOR' &&
+    /another kind of page/.test(error.message);
+  await assert.rejects(core.customLog.list({ ...scope, cursor: first.nextCursor! }), anotherKind);
+  await assert.rejects(core.customLog.list({ ...scope, entries: true, cursor: headers.nextCursor! }), anotherKind);
+});
+
+test('list with entries on managed Nebula reads the namespaced header and keys its columns as written', async t => {
+  const org = await startNebulaOrg(t, {
+    describes: 'managed-admin',
+    objects: MANAGED,
+    answer: soql =>
+      soql.includes('FROM Nebula__LogEntry__c')
+        ? page([
+            {
+              Id: 'a01000000000001AAA',
+              CreatedDate: '2026-10-30T00:00:01.000+0000',
+              Nebula__Message__c: 'Nebula Logger - Saving 1 log entry via ANONYMOUS',
+              Nebula__LoggingLevelOrdinal__c: 2,
+              Nebula__OriginType__c: 'Apex',
+              Nebula__Log__c: 'a02000000000001AAA',
+              Nebula__Log__r: {
+                CreatedDate: '2026-10-30T00:00:00.000+0000',
+                Name: 'Log-00001',
+                Nebula__LoggedByUsername__c: 'dev@acme.com',
+                Nebula__TransactionId__c: 'tx-1',
+                Nebula__SystemMode__c: 'ANONYMOUS',
+                Nebula__Status__c: 'New'
+              }
+            }
+          ])
+        : undefined
+  });
+  const { core, username } = await coreFor(t, org, 'list-entries-managed@example.com');
+
+  const result = await core.customLog.list({
+    targetOrg: username,
+    projectDir: undefined,
+    source: 'nebula-managed',
+    entries: true,
+    filter: { minLevel: 'FINEST' }
+  });
+
+  assert.deepEqual(
+    result.logColumns?.map(column => column.key),
+    ['SystemMode__c', 'TransactionScenarioName__c', 'Status__c']
+  );
+  assert.deepEqual(result.columns, [{ key: 'OriginType__c', label: 'Origin Type' }]);
+  const [row] = result.rows;
+  assert.deepEqual(row?.log, {
+    id: 'a02000000000001AAA',
+    time: '2026-10-30T00:00:00.000Z',
+    title: 'Log-00001',
+    user: 'dev@acme.com',
+    transactionId: 'tx-1',
+    extra: { SystemMode__c: 'ANONYMOUS', TransactionScenarioName__c: null, Status__c: 'New' }
+  });
+  assert.deepEqual(
+    [row?.system, row?.level, row?.user, row?.extra],
+    [true, 'FINEST', 'dev@acme.com', { OriginType__c: 'Apex' }]
+  );
+  assert.match(
+    org.soql('data')[0]!,
+    /FROM Nebula__LogEntry__c WHERE Nebula__Log__c != null AND Nebula__LoggingLevelOrdinal__c >= 2 ORDER BY/
+  );
+});
+
+test('entries changes nothing on an entries source: the same rows, and either cursor continues the other', async t => {
+  const org = await startNebulaOrg(t, {
+    describes: 'unlocked-admin',
+    objects: [...UNLOCKED, 'App_Log__c'],
+    answer: soql =>
+      soql.includes('FROM App_Log__c')
+        ? page([
+            {
+              Id: 'a06000000000001AAA',
+              CreatedDate: '2026-10-30T00:29:16.000+0000',
+              Message__c: 'a',
+              Level__c: 'ERROR'
+            },
+            { Id: 'a06000000000002AAA', CreatedDate: '2026-10-30T00:29:15.000+0000', Message__c: 'b', Level__c: 'INFO' }
+          ])
+        : undefined
+  });
+  const { core, username } = await coreFor(t, org, 'list-entries-noop@example.com');
+  const dir = await projectDir(
+    t,
+    projectWith({
+      id: 'app-log',
+      entry: { object: 'App_Log__c', fields: { time: 'CreatedDate', message: 'Message__c', level: 'Level__c' } }
+    })
+  );
+  const scope = { targetOrg: username, projectDir: dir, source: 'app-log', limit: 1 };
+
+  const plain = await core.customLog.list(scope);
+  const entries = await core.customLog.list({ ...scope, entries: true });
+  const continued = await core.customLog.list({ ...scope, entries: true, cursor: plain.nextCursor! });
+  const back = await core.customLog.list({ ...scope, cursor: entries.nextCursor! });
+
+  assert.deepEqual(entries, plain);
+  assert.deepEqual([continued.rows.length, back.rows.length], [1, 1]);
+  const [plainSoql, entriesSoql] = org.soql('data');
+  assert.equal(entriesSoql, plainSoql);
+});
+
+test('sources says what a list with entries can filter, and list refuses a filter it cannot apply before querying', async t => {
+  const { level: _level, levelOrdinal: _levelOrdinal, ...fields } = nebulaRaw.entry.fields;
+  const org = await startNebulaOrg(t, { describes: 'unlocked-admin', objects: UNLOCKED });
+  const { core, username } = await coreFor(t, org, 'sources-entry-capabilities@example.com');
+  const dir = await projectDir(
+    t,
+    projectWith({ ...NEBULA_PRESET.raw, id: 'nebula-no-entry-level', entry: { ...nebulaRaw.entry, fields } })
+  );
+
+  const result = await core.customLog.sources({ targetOrg: username, projectDir: dir });
+
+  assert.deepEqual(
+    result.sources.map(source => [source.id, source.capabilities.levelFilter, source.entryCapabilities]),
+    [
+      ['nebula-no-entry-level', true, { levelFilter: false, userFilter: true }],
+      ['nebula', true, { levelFilter: true, userFilter: true }],
+      ['nebula-managed', false, { levelFilter: false, userFilter: false }],
+      ['nebula-events', false, { levelFilter: false, userFilter: false }],
+      ['nebula-events-managed', false, { levelFilter: false, userFilter: false }]
+    ]
+  );
+  await assert.rejects(
+    core.customLog.list({
+      targetOrg: username,
+      projectDir: dir,
+      source: 'nebula-no-entry-level',
+      entries: true,
+      filter: { minLevel: 'ERROR' }
+    }),
+    (error: unknown) => error instanceof AlvError && error.code === 'CUSTOM_LOG_UNSUPPORTED_FILTER'
+  );
+  assert.deepEqual(org.soql('data'), []);
+});
+
 test('get returns the header, its entries, the page cursor and the linked Apex log in one call', async t => {
   const org = await startNebulaOrg(t, {
     describes: 'unlocked-admin',
@@ -541,7 +744,8 @@ test('get explains an entry id passed where a log id belongs', async t => {
     (error: unknown) =>
       error instanceof AlvError &&
       error.code === 'CUSTOM_LOG_RECORD_NOT_FOUND' &&
-      error.message === "a01000000000001AAA is a LogEntry__c id. Pass the Log__c id from the entry's logId field."
+      error.message ===
+        "a01000000000001AAA is a LogEntry__c id. Pass the Log__c id: log.id of a list --entries row, or the entry's logId field."
   );
   await assert.rejects(
     core.customLog.get({ targetOrg: username, projectDir: undefined, logId: 'not-an-id' }),

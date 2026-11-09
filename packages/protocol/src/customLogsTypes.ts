@@ -25,6 +25,7 @@ export type CustomLogSourceView = {
   namespace?: string;
   hiddenFields: string[];
   capabilities: { levelFilter: boolean; userFilter: boolean; apexLogLink: boolean };
+  entryCapabilities?: { levelFilter: boolean; userFilter: boolean };
   payload: { transaction?: CustomLogPayloadInfo; entry?: CustomLogPayloadInfo };
   store?: CustomLogStoreView;
 } & (
@@ -131,7 +132,12 @@ export type CustomLogRow = {
   requestId?: string;
   extra: Record<string, CustomLogScalar>;
   payload?: CustomLogPayloadView;
+  origin?: string;
+  system?: true;
+  log?: CustomLogHeaderRow;
 };
+
+export type CustomLogHeaderRow = Omit<CustomLogRow, 'payload' | 'log' | 'system' | 'origin'>;
 
 export type CustomLogEntry = {
   id: string;

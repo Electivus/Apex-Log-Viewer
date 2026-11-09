@@ -2,6 +2,7 @@
 
 import type {
   CustomLogColumn,
+  CustomLogListResult,
   CustomLogPayloadInfo,
   CustomLogSourceInfo,
   CustomLogSourceObjects
@@ -9,16 +10,17 @@ import type {
 import { customLogError } from './errors.js';
 import {
   assertNever,
-  filterableField,
   headerObject,
   isEventSource,
   listedObject,
+  listingOf,
   expandedPayloadFields,
   readablePayloadFields,
   type CatalogEntry,
   type ResolvedEventObject,
   type ResolvedEventPayload,
   type ResolvedField,
+  type ResolvedListing,
   type ResolvedPayload,
   type ResolvedRecordSource,
   type ResolvedShape,
@@ -192,13 +194,21 @@ export function eventCapabilities(event: ResolvedEventObject): CustomLogSourceIn
   };
 }
 
-type ReadyFacts = Pick<CustomLogSourceInfo, 'capabilities' | 'payload'> & { objects: CustomLogSourceObjects };
+/** What a list of `listing` can filter on. `sources` reports it, so a flag and the query cannot disagree. */
+export function capabilitiesOf(
+  listing: ResolvedListing
+): Pick<CustomLogSourceInfo['capabilities'], 'levelFilter' | 'userFilter'> {
+  return { levelFilter: listing.filters.level.kind !== 'none', userFilter: listing.filters.user !== undefined };
+}
+
+type ReadyFacts = Pick<CustomLogSourceInfo, 'capabilities' | 'entryCapabilities' | 'payload'> & {
+  objects: CustomLogSourceObjects;
+};
 
 function readyFacts(shape: ResolvedShape): ReadyFacts {
   switch (shape.kind) {
     case 'transactions':
     case 'entries': {
-      const listed = listedObject(shape);
       const header = headerObject(shape);
       const transactionPayload = payloadInfo(header?.payload);
       const entryPayload = payloadInfo(shape.entry.payload);
@@ -208,10 +218,10 @@ function readyFacts(shape: ResolvedShape): ReadyFacts {
           entry: shape.entry.object
         },
         capabilities: {
-          levelFilter: listed.levelPredicate.kind !== 'none',
-          userFilter: filterableField(listed.roles.user) !== undefined,
-          apexLogLink: listed.roles.requestId !== undefined
+          ...capabilitiesOf(listingOf(shape, false)),
+          apexLogLink: listedObject(shape).roles.requestId !== undefined
         },
+        entryCapabilities: capabilitiesOf(listingOf(shape, true)),
         payload: {
           ...(transactionPayload ? { transaction: transactionPayload } : {}),
           ...(entryPayload ? { entry: entryPayload } : {})
@@ -221,9 +231,11 @@ function readyFacts(shape: ResolvedShape): ReadyFacts {
     case 'events': {
       const { event } = shape;
       const payload = eventPayloadInfo(event.payload);
+      const capabilities = eventCapabilities(event);
       return {
         objects: { event: event.object },
-        capabilities: eventCapabilities(event),
+        capabilities,
+        entryCapabilities: { levelFilter: capabilities.levelFilter, userFilter: capabilities.userFilter },
         payload: payload ? { entry: payload } : {}
       };
     }
@@ -250,6 +262,7 @@ export function toSourceInfo(entry: CatalogEntry): CustomLogSourceInfo {
       hiddenFields: [],
       unmappedLevels: [],
       capabilities: { levelFilter: false, userFilter: false, apexLogLink: false },
+      entryCapabilities: { levelFilter: false, userFilter: false },
       payload: {},
       ...state
     };
@@ -266,4 +279,18 @@ export function toSourceInfo(entry: CatalogEntry): CustomLogSourceInfo {
 
 export function toColumns(fields: readonly ResolvedField[]): CustomLogColumn[] {
   return fields.map(field => ({ key: field.key, label: field.label }));
+}
+
+/** The display columns of a list: the listed object's, and the header's when rows carry `log`. */
+export function listColumns(listing: ResolvedListing): Pick<CustomLogListResult, 'columns' | 'logColumns'> {
+  switch (listing.rows) {
+    case 'headers':
+      return { columns: toColumns(listing.header.columns) };
+    case 'entries':
+      return { columns: toColumns(listing.entry.columns) };
+    case 'entriesWithLog':
+      return { columns: toColumns(listing.entry.columns), logColumns: toColumns(listing.header.columns) };
+    default:
+      return assertNever(listing, 'listing');
+  }
 }

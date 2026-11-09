@@ -10,9 +10,9 @@
 - `notInstalled`: the objects of a built-in Nebula source are absent. With `hint: "collision"`, the org's `Log__c` is not Nebula Logger and needs a project source.
 - `unavailable`: `reason` is `objectNotFound`, `objectNotReadable`, `requiredFieldMissing`, `fieldTypeMismatch`, `metadataQueryRefused`, `notQueryable`, or `notAnEvent`, and `message` explains it. `notQueryable` means that a record mapping names a platform event, and `notAnEvent` means that an `event` mapping names a record object. Report the cause. Do not work around permissions. A user without Read access to a platform event gets `objectNotReadable`, and `capture` fails with `CUSTOM_LOG_SOURCE_UNAVAILABLE` before it subscribes.
 
-A source whose `payload` mapping names a field and columns reports them in `payload.transaction` and `payload.entry`. A plain-string mapping reports no columns, and a source that is not ready reports an empty `payload`. Pass the columns to `list` as `--payload-fields` to keep each row small, because without the flag a row keeps up to 200 payload paths. `list` reads `payload.transaction` on a source with a transaction header and `payload.entry` on any other, and `get` reads `payload.entry`. A column from the other level matches nothing and gives no error.
+A source whose `payload` mapping names a field and columns reports them in `payload.transaction` and `payload.entry`. A plain-string mapping reports no columns, and a source that is not ready reports an empty `payload`. Pass the columns to `list` as `--payload-fields` to keep each row small, because without the flag a row keeps up to 200 payload paths. `list` reads `payload.transaction` on a source with a transaction header and `payload.entry` on any other or with `--entries`, and `get` reads `payload.entry`. A column from the other level matches nothing and gives no error.
 
-`hiddenFields` lists mapped fields that this user cannot read. For an event source, a field is hidden only when the stored describe does not list it, because platform event fields have no field-level security. An empty value in one of them proves nothing. `capabilities.levelFilter` and `capabilities.userFilter` say whether `--min-level` and `--user` work, and `capabilities.apexLogLink` whether `get` can find the Apex debug log. A source with `shape: "events"` also has a `store` that says what the local history covers. `defaultSourceId` never names an event source. An issue with `severity: "error"` skips its source. Report its `pointer` and `message`.
+`hiddenFields` lists mapped fields that this user cannot read. For an event source, a field is hidden only when the stored describe does not list it, because platform event fields have no field-level security. An empty value in one of them proves nothing. `capabilities.levelFilter` and `capabilities.userFilter` say whether `--min-level` and `--user` work, and `capabilities.apexLogLink` whether `get` can find the Apex debug log. `entryCapabilities` says the same for `list --entries`. A source with `shape: "events"` also has a `store` that says what the local history covers. `defaultSourceId` never names an event source. An issue with `severity: "error"` skips its source. Report its `pointer` and `message`.
 
 ## List and page
 
@@ -22,6 +22,15 @@ sf electivus custom-log list --target-org my-org --source nebula --min-level WAR
 ```
 
 Rows are newest first by `CreatedDate`. A row of a `transactions` source, such as Nebula Logger, is one transaction header. A row of an `entries` source is one entry. `--since` and `--until` take `30m`, `24h`, `7d`, or an ISO-8601 instant with an offset. `--user` takes an exact username.
+
+To list the entries of a `transactions` source, add `--entries`. Each row is then one entry record, newest first: `title` is the start of the message, `level` and `origin` are the entry's, and `system: true` marks the logger's own bookkeeping. The row's `log` is the transaction it belongs to, and `logColumns` names the header columns in `log.extra`. `--min-level` then keeps entries at or above that level, not transactions. Pass `log.id`, not the row `id`, to `get --log-id`:
+
+```bash
+sf electivus custom-log list --target-org my-org --source nebula --entries --min-level ERROR --since 24h --limit 200 --json \
+	| jq -r '.result.rows[] | select(.system != true) | [.time, .level, .origin, .log.id, .log.title, .title] | @tsv'
+```
+
+A cursor from `list --entries` continues only a list with `--entries`. On an `entries` or `events` source, `--entries` changes nothing.
 
 When `result.nextCursor` is not `null`, run the same command with `--cursor` to read the next page. Keep every filter flag. Only `--limit` and `--payload-fields` can change between pages. Read every page before you conclude that a row is absent:
 
@@ -45,7 +54,7 @@ sf electivus custom-log get --log-id a0A000000000001AAA --target-org my-org --mi
 	| jq '{title: .result.log.title, apexLog: .result.apexLog, entries: [.result.entries[] | {id, sequence, level, origin, message, presentDetails}]}'
 ```
 
-`--log-id` takes a list row `id`. `--transaction-id` takes the framework's own transaction id, such as Nebula's `TransactionId__c`. If several headers have that id, the command fails with `CUSTOM_LOG_AMBIGUOUS_TRANSACTION` and lists them, so pass one with `--log-id`. Entries come in transaction order and page with `--cursor` the same way, up to `--limit 2000`.
+`--log-id` takes a list row `id`, or `log.id` of a row from `list --entries`. `--transaction-id` takes the framework's own transaction id, such as Nebula's `TransactionId__c`. If several headers have that id, the command fails with `CUSTOM_LOG_AMBIGUOUS_TRANSACTION` and lists them, so pass one with `--log-id`. Entries come in transaction order and page with `--cursor` the same way, up to `--limit 2000`.
 
 `get` returns at most 2,000 characters of each message and sets `previewClipped` when it cut more. `entry --entry-id` returns the full message in `entry`, each mapped detail in `details`, and `rawPayload`. Each detail has a `key` and a `state` of `value`, `empty`, or `hidden`. A `value` has `truncated: true` when the framework cut it before saving it. `presentDetails` can list a detail that `entry` returns as `hidden`. The content exists, and this user cannot read it. Entries with `system: true` are the logger's own bookkeeping.
 

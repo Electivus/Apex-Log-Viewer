@@ -55,6 +55,7 @@
 - Agent Skill: publish the vendor-neutral source from `skills/apex-log-viewer-cli`, add runtime capability checks and standard update guidance, pin `skills@1.5.21`, and validate project installation for Claude Code, Codex, GitHub Copilot, and Devin.
 - Diagnostics: measure how long Logs, Tail, Log Viewer, and Debug Flags actions wait in the VS Code extension host before they start; slow waits (250 ms or more) appear in the Output channel, and a five-minute `host.responsiveness` telemetry summary adds extension host event-loop lag.
 - Debug Flags: add a `Maximum Trace` debug level preset that sets each category to the highest level Salesforce logs for it (Validation `INFO`; System and NBA `FINE`; Workflow, Callout, Visualforce and Data Access `FINER`; the rest `FINEST`), and preselect it in the Debug Level Manager. The manager now shows the selected preset's description, including its large-log warning.
+- Custom Logs/CLI: `sf electivus custom-log list --entries` lists the entry records of a source with a transaction header, such as Nebula Logger's `LogEntry__c`, newest first. Each row carries its transaction in `log`, and `logColumns` names the transaction's columns. `--min-level` then filters each entry's own level, and `--user` the user the rows show. Pass `log.id` to `get --log-id`. The default `list` still returns one row per transaction. List rows of entries and events now carry `origin`, and `system: true` for the logger's own bookkeeping, and `sources --json` reports `entryCapabilities`.
 
 ### Fixes
 
