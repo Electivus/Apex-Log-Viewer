@@ -3,8 +3,8 @@
  * `LogViewerPanel`, with `retainContextWhenHidden`. Its state is fully determined by its key,
  * so a ready message simply triggers a fetch; no session replay is needed.
  *
- * Entries arrive inline as DTOs (there is no file to `fetch`), paged by the host. Level, text and
- * JSON-column filters run in the webview over loaded entries; system messages are hidden by
+ * Entries arrive inline as DTOs (there is no file to `fetch`), paged by the host. Literal search, level and
+ * long-field filters run in the webview over loaded entries; system messages are hidden by
  * default and revealed with a toggle. The panel has no pane for long text: a selected entry shows
  * the list of its long fields, and opening one asks the host to show it as a read-only text
  * document (`json` or `plaintext`), where search, folding and formatting come from the editor.
@@ -68,6 +68,12 @@ export type CustomLogViewerToWebviewMessage =
   /** `message` first, then each detail in definition order, then `payload`. */
   | { type: 'customLogViewerEntryFields'; entryId: string; fields: CustomLogLongFieldView[] }
   | { type: 'customLogViewerPayloadColumns'; value: CustomLogPayloadColumnsView }
+  /**
+   * The entry the list opened: `found` once the panel delivered it, `notLoaded` when it lies past the entries
+   * the panel brings in on its own (a Load more can still answer `found`), `notFound` when every entry was
+   * delivered without it.
+   */
+  | { type: 'customLogViewerFocus'; entryId: string; state: 'found' | 'notLoaded' | 'notFound' }
   | { type: 'customLogViewerLoading'; scope: 'log' | 'entries' | 'entry'; value: boolean }
   | { type: 'customLogViewerError'; scope: 'log' | 'entries' | 'entry' | 'field' | 'apexLog'; message: string };
 

@@ -6,6 +6,7 @@ import {
   countSystemEntries,
   entrySortValue,
   filterEntries,
+  revealEntry,
   type EntryFilters
 } from '../utils/customLogs/entries';
 import { parseSearch } from '../utils/customLogs/search';
@@ -171,5 +172,66 @@ describe('entry columns', () => {
     expect(entrySortValue(entry('odd', { level: undefined }), level)).toBeUndefined();
     expect(entrySortValue(tagged, tags)).toBe('vip');
     expect(entrySortValue(entry('none'), tags)).toBeUndefined();
+  });
+});
+
+describe('revealing an opened entry', () => {
+  const narrowed: EntryFilters = {
+    levels: new Set<CustomLogLevel>(['ERROR']),
+    details: new Set(['ExceptionStackTrace__c']),
+    showSystem: false,
+    search: parseSearch('divide')
+  };
+  const shows = (filters: EntryFilters, target: CustomLogEntry) =>
+    ids(filterEntries(entries, filters)).includes(target.id);
+
+  it('turns on system messages for a system entry and leaves the other filters that already show it', () => {
+    const system = entries[1]!;
+    const filters: EntryFilters = { ...everything, showSystem: false, levels: new Set<CustomLogLevel>(['FINEST']) };
+
+    const revealed = revealEntry(filters, system);
+
+    expect(revealed).toEqual({ ...filters, showSystem: true });
+    expect(revealed.levels).toBe(filters.levels);
+    expect(shows(revealed, system)).toBe(true);
+  });
+
+  it('drops only the level, long-field and search filters that hide the entry', () => {
+    const slow = entries[3]!;
+
+    const revealed = revealEntry(narrowed, slow);
+
+    expect(revealed.levels.size).toBe(0);
+    expect(revealed.details.size).toBe(0);
+    expect(revealed.search).toEqual([]);
+    expect(revealed.showSystem).toBe(false);
+    expect(shows(revealed, slow)).toBe(true);
+  });
+
+  it('keeps a search the entry matches and a long-field filter it carries', () => {
+    const boom = entries[2]!;
+    const filters: EntryFilters = {
+      ...narrowed,
+      levels: new Set<CustomLogLevel>(['WARN']),
+      search: parseSearch('math')
+    };
+
+    const revealed = revealEntry(filters, boom);
+
+    expect(revealed.search).toBe(filters.search);
+    expect(revealed.details).toBe(filters.details);
+    expect(revealed.levels.size).toBe(0);
+  });
+
+  it('drops a level filter for an entry without a canonical level', () => {
+    expect(revealEntry({ ...everything, levels: new Set<CustomLogLevel>(['ERROR']) }, entries[4]!).levels.size).toBe(0);
+  });
+
+  it('returns the same filters when the entry already shows, so revealing twice changes nothing', () => {
+    for (const target of entries) {
+      const once = revealEntry(narrowed, target);
+      expect(revealEntry(once, target)).toBe(once);
+    }
+    expect(revealEntry(everything, entries[0]!)).toBe(everything);
   });
 });

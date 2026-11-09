@@ -2,16 +2,21 @@ import React, { useCallback, useEffect, useRef } from 'react';
 
 import { syncHeaderScroll, useVirtualListElement } from '../table/useVirtualListElement';
 
+/** Scroll `id` into view once it is among the items. A new `generation` asks again for the same id. */
+export type RevealRequest = { id: string; generation: number };
+
 /**
  * What the two virtual grids share: the header scrolls with the body, and Arrow keys move the selection
- * through the visible items. `onOpen` adds Enter for a grid whose rows open something. Pass `setListRef`
- * as the List's `listRef`; `listRef` is for imperative calls such as `scrollToRow`.
+ * through the visible items. `onOpen` adds Enter for a grid whose rows open something, and `reveal` scrolls
+ * an item into view on request. Pass `setListRef` as the List's `listRef`; `listRef` is for imperative calls
+ * such as `scrollToRow`.
  */
 export function useGridList<T extends { id: string }>(
   items: readonly T[],
   selectedId: string | undefined,
   onSelect: (item: T) => void,
-  onOpen?: (item: T) => void
+  onOpen?: (item: T) => void,
+  reveal?: RevealRequest
 ) {
   const { listRef, setListRef, element } = useVirtualListElement();
   const headerRef = useRef<HTMLDivElement | null>(null);
@@ -31,6 +36,24 @@ export function useGridList<T extends { id: string }>(
       header.removeEventListener('scroll', syncBody);
     };
   }, [element]);
+
+  // The item can arrive a render after the request, once the filters that hid it are relaxed, and the list's
+  // handle after its first render; `element` changes with the handle, so either one runs this again.
+  // `scrollToRow` tracks dynamic row heights until the row settles or its one-second deadline expires.
+  // A wheel, touch, pointer or scroll key on the list also stops that tracking.
+  const revealedRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    const list = listRef.current;
+    if (!reveal || revealedRef.current === reveal.generation || !list) {
+      return;
+    }
+    const index = items.findIndex(item => item.id === reveal.id);
+    if (index < 0) {
+      return;
+    }
+    revealedRef.current = reveal.generation;
+    list.scrollToRow({ index, align: 'center', behavior: 'auto' });
+  }, [element, items, listRef, reveal]);
 
   const selectedIndex = items.findIndex(item => item.id === selectedId);
 

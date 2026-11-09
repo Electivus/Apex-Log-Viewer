@@ -23,7 +23,9 @@ import { CustomLogEntryList } from './components/custom-logs/CustomLogEntryList'
 import { CustomLogViewerHeader } from './components/custom-logs/CustomLogViewerHeader';
 import { CustomLogViewerToolbar } from './components/custom-logs/CustomLogViewerToolbar';
 import { CustomLogsStatusBar } from './components/custom-logs/CustomLogsStatusBar';
+import { DetailCloseButton } from './components/custom-logs/DetailPane';
 import { usePayloadWorkbench } from './components/custom-logs/usePayloadWorkbench';
+import type { RevealRequest } from './components/custom-logs/useGridList';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import {
   buildEntryColumns,
@@ -31,15 +33,23 @@ import {
   countPresentDetails,
   countSystemEntries,
   entrySortValue,
-  filterEntries
+  filterEntries,
+  revealEntry
 } from './utils/customLogs/entries';
 import { fillTemplate, formatCount } from './utils/customLogs/format';
 import { countPayloadStates, type DiscoveredField, type PayloadColumn } from './utils/customLogs/payloadRows';
+import { parseSearch } from './utils/customLogs/search';
 import { detailDock, readPayloadUiState, useElementHeight } from './utils/customLogs/uiState';
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
 
 type ViewerError = 'log' | 'entries' | 'entry' | 'field' | 'apexLog';
+type FocusMessage = Extract<CustomLogViewerToWebviewMessage, { type: 'customLogViewerFocus' }>;
+/**
+ * The host's latest answer about the entry the list opened. `generation` numbers the answers this viewer has
+ * received, so each one is applied once, also when a dismissed notice cleared the one before it.
+ */
+type FocusRequest = Pick<FocusMessage, 'entryId' | 'state'> & { generation: number };
 
 const EMPTY_COLUMNS: CustomLogPayloadColumnsView = { defaults: [], added: [] };
 const NO_LEVELS: ReadonlySet<CustomLogLevel> = new Set();
@@ -84,6 +94,8 @@ export function CustomLogViewerApp({
   const [levels, setLevels] = useState<ReadonlySet<CustomLogLevel>>(NO_LEVELS);
   const [details, setDetails] = useState<ReadonlySet<string>>(new Set());
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
+  const [focusRequest, setFocusRequest] = useState<FocusRequest | undefined>(undefined);
+  const focusAnswersRef = useRef(0);
   const selectedIdRef = useRef<string | undefined>(undefined);
   selectedIdRef.current = selectedId;
   const [rootRef, rootHeight] = useElementHeight<HTMLDivElement>();
@@ -136,6 +148,10 @@ export function CustomLogViewerApp({
           break;
         case 'customLogViewerPayloadColumns':
           setColumnsView(msg.value ?? EMPTY_COLUMNS);
+          break;
+        case 'customLogViewerFocus':
+          focusAnswersRef.current += 1;
+          setFocusRequest({ entryId: msg.entryId, state: msg.state, generation: focusAnswersRef.current });
           break;
         case 'customLogViewerLoading':
           setLoading(previous => ({ ...previous, [msg.scope]: !!msg.value }));
@@ -209,6 +225,50 @@ export function CustomLogViewerApp({
     [entryFields, post]
   );
 
+  // The host answers `found` after it posted the entry, so the entry is in `entries` by the time this runs. Only
+  // the filters that hide it change, and only once per answer: later filter changes are the user's.
+  const appliedFocusRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (focusRequest?.state !== 'found' || appliedFocusRef.current === focusRequest.generation) {
+      return;
+    }
+    const entry = entries.find(item => item.id === focusRequest.entryId);
+    if (!entry) {
+      return;
+    }
+    appliedFocusRef.current = focusRequest.generation;
+    const current = { levels, details, showSystem, search: parseSearch(workbench.search) };
+    const revealed = revealEntry(current, entry);
+    setLevels(revealed.levels);
+    setDetails(revealed.details);
+    workbench.setShowSystem(revealed.showSystem);
+    if (revealed.search !== current.search) {
+      workbench.setSearch('');
+    }
+    onSelectEntry(entry);
+  }, [
+    details,
+    entries,
+    focusRequest,
+    levels,
+    onSelectEntry,
+    showSystem,
+    workbench.search,
+    workbench.setSearch,
+    workbench.setShowSystem
+  ]);
+  const reveal = useMemo<RevealRequest | undefined>(
+    () =>
+      focusRequest?.state === 'found' ? { id: focusRequest.entryId, generation: focusRequest.generation } : undefined,
+    [focusRequest]
+  );
+  const focusNotice =
+    focusRequest?.state === 'notLoaded'
+      ? fillTemplate(t.viewer.focus.notLoaded, { count: formatCount(entries.length, locale) })
+      : focusRequest?.state === 'notFound'
+        ? t.viewer.focus.notFound
+        : undefined;
+
   const errorMessages = (Object.entries(errors) as Array<[ViewerError, string | undefined]>).filter(
     (entry): entry is [ViewerError, string] => Boolean(entry[1])
   );
@@ -269,6 +329,16 @@ export function CustomLogViewerApp({
         showSystem={showSystem}
         onShowSystemChange={workbench.setShowSystem}
       />
+      {focusNotice ? (
+        <div
+          role="status"
+          data-testid="custom-log-focus-notice"
+          className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/40 px-4 py-1 text-xs"
+        >
+          <span className="flex-1">{focusNotice}</span>
+          <DetailCloseButton label={t.viewer.focus.dismiss} onClick={() => setFocusRequest(undefined)} />
+        </div>
+      ) : null}
       <div className={dock === 'right' ? 'flex min-h-0 flex-1 flex-row' : 'flex min-h-0 flex-1 flex-col'}>
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           {emptyMessage ? (
@@ -289,6 +359,7 @@ export function CustomLogViewerApp({
             onSelect={onSelectEntry}
             onToggleColumn={workbench.toggleColumn}
             onRemoveColumn={workbench.removeColumn}
+            reveal={reveal}
             virtualListComponent={virtualListComponent}
           />
           <LoadingOverlay show={loading.entries && entries.length === 0} label={t.viewer.loading} />

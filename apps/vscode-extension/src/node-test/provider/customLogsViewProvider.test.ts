@@ -535,11 +535,17 @@ suite('Custom Logs view provider', () => {
 
       await host.emit({ type: 'customLogsOpenLog', logId: LOG_IDS.second });
       assert.deepEqual(viewerOpens, [
-        { targetOrg: 'dev@example.com', sourceId: 'nebula', logId: LOG_IDS.second, payloadDefaults: [] }
+        {
+          targetOrg: 'dev@example.com',
+          sourceId: 'nebula',
+          logId: LOG_IDS.second,
+          payloadDefaults: [],
+          focusEntryId: LOG_IDS.second
+        }
       ]);
     });
 
-    test('opens an entry in its transaction, so the entries of one log share one viewer', async () => {
+    test('opens an entry in its transaction and asks the viewer to land on it, so one log shares one viewer', async () => {
       const { fake, viewerOpens, mount } = load();
       const log = { id: LOG_IDS.first, time: '2026-10-30T00:48:10.000Z', title: 'Log-000739', extra: {} };
       fake.handlers.customLogList = async () => ({
@@ -556,8 +562,11 @@ suite('Custom Logs view provider', () => {
       await host.emit({ type: 'customLogsOpenLog', logId: ENTRY_IDS.first });
 
       assert.deepEqual(
-        viewerOpens.map(open => open.logId),
-        [LOG_IDS.first, LOG_IDS.first]
+        viewerOpens.map(open => [open.logId, open.focusEntryId]),
+        [
+          [LOG_IDS.first, ENTRY_IDS.second],
+          [LOG_IDS.first, ENTRY_IDS.first]
+        ]
       );
     });
 

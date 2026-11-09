@@ -200,6 +200,11 @@ export type CustomLogsMessages = {
     noEntries: string;
     noMatch: string;
     noMatchMore: string;
+    focus: {
+      notLoaded: string;
+      notFound: string;
+      dismiss: string;
+    };
     entry: {
       title: string;
       close: string;
@@ -446,6 +451,11 @@ export const customLogsEn: CustomLogsMessages = {
     noEntries: 'This log has no entries.',
     noMatch: 'No loaded entry matches the current filters.',
     noMatchMore: 'Use Load more entries to widen the search.',
+    focus: {
+      notLoaded: 'The entry you opened comes after the {count} loaded entries. Use Load more entries to reach it.',
+      notFound: 'The entry you opened is no longer in this log.',
+      dismiss: 'Dismiss'
+    },
     entry: {
       title: 'Entry detail',
       close: 'Close entry',
@@ -694,6 +704,12 @@ export const customLogsPtBR: CustomLogsMessages = {
     noEntries: 'Este log não tem entradas.',
     noMatch: 'Nenhuma entrada carregada corresponde aos filtros atuais.',
     noMatchMore: 'Use Carregar mais entradas para ampliar a busca.',
+    focus: {
+      notLoaded:
+        'A entrada que você abriu vem depois das {count} entradas carregadas. Use Carregar mais entradas para chegar até ela.',
+      notFound: 'A entrada que você abriu não está mais neste log.',
+      dismiss: 'Dispensar'
+    },
     entry: {
       title: 'Detalhe da entrada',
       close: 'Fechar entrada',
