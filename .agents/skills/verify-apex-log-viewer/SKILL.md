@@ -36,6 +36,16 @@ node $V start --idle-minutes 60
 node $V start --locale pt-br    # VS Code and the extension in Brazilian Portuguese
 ```
 
+On a Mac with the private operator configuration from `docs/DEVHUB_LOCAL.md`, use its JWT launcher instead of a cached Dev Hub alias:
+
+```bash
+bash scripts/run-macos-e2e.sh verify
+bash scripts/run-macos-e2e.sh run -- node "$V" start
+node "$V" doctor
+```
+
+The wrapper selects the configured pool and verifies the dedicated JWT identity. It does not repair the administrator's expired alias login or change the default Dev Hub. Later `run`, `sf`, `doctor` and `stop` calls use the session normally.
+
 The session is ready when `start` prints a JSON block containing `"ready": true`, along with the org (`alias`, `username`, `instanceUrl`, `strategy` of `pool`, `single` or `existing`), the workspace path, the seeded `marker`/`logId` and `evidenceDir`. The same state is in `output/verify/session/session.json` (`"phase": "ready"`), which also holds the VS Code profile's `userDataDir`. A warm start takes about 25 s to 1 minute. Creating the single scratch, or the first run in a fresh container, which downloads VS Code into `.vscode-test/`, adds more. `start` waits up to 15 minutes. If the host dies first, `start` prints the tail of `host.out` and exits 1. A host that has not reached ready after 15 minutes stops itself and releases its lease.
 
 Org selection comes from the environment, the same as for `test:e2e`:
@@ -70,11 +80,8 @@ export default async function ({ page, h, expect, session, args }) {
   await h.runCommandWhenAvailable('Electivus Apex Logs: Refresh Logs');
   const logs = await h.logsFrame();
   const search = logs.locator('input[type="search"]').first();
-  // The box is disabled while a refresh loads, and a fill that lands as it flips is dropped without an error.
-  await expect(async () => {
-    await search.fill(session.seeded.marker);
-    await expect(search).toHaveValue(session.seeded.marker, { timeout: 2_000 });
-  }).toPass({ timeout: 60_000 });
+  await search.fill(session.seeded.marker);
+  await expect(search).toHaveValue(session.seeded.marker);
   await expect(logs.locator(`[data-log-id="${session.seeded.logId}"]`)).toBeVisible({ timeout: 180_000 });
   return { shot: await h.shot('logs-match', logs) }; // returned JSON is printed and recorded
 }
@@ -118,7 +125,7 @@ Canned steps in `steps/` (each one asserts the end state and returns its proof p
 
 - `logs-open-viewer`: search the seeded log body, then open it in the Log Viewer; asserts the cached `.log` file in `apexlogs/`. `'{"query":"<text>","logId":"<07L…>"}'` opens another log.
 - `tail-live`: require Tail to show the session org, turn Debug Only off, pick `ALV_E2E` (or `'{"debugLevel":"<name>"}'`, which fails if that level does not exist), clear and Start, write a log as soon as `Stop` appears, find it in the list, then Stop and, on every exit, put the user's `DEVELOPER_LOG` flags and Debug Only back the way it found them.
-- `debug-flags-apply-remove`: from the Logs panel, apply a trace flag of the default `DEVELOPER_LOG` type, at the level the panel preselects and a 45-minute TTL (`'{"ttlMinutes":N}'`), to the E2E user, read it back through Tooling, remove it, and read it back again. `'{"currentUser":true}'` targets the authenticated user instead, and that user's prior flag is restored afterwards.
+- `debug-flags-apply-remove`: from the Logs panel, apply a trace flag of the default `DEVELOPER_LOG` type, at the level the panel preselects and a 45-minute TTL (`'{"ttlMinutes":N}'`), to the E2E user, read it back through Tooling, remove it, and read it back again. The target must have no `DEVELOPER_LOG` flags, including expired flags. The step refuses existing flags before opening the editor, including the seeded current user selected by `'{"currentUser":true}'` or the no-license fallback. Once Apply is attempted, cleanup runs on success and failure and checks that no flag remains.
 - `custom-logs-setting`: write the experimental Custom Logs setting into the workspace settings (`'{"enabled":true}'`, `false`, or `null` to remove the key and get the default) and read back the view's Focus command in the Command Palette, the panel tab that command reveals and activates, the Custom Logs palette entries and any open Custom Logs editor tab.
 - `events-capture`, `events-gap`: the Custom Logs panel on a platform event source of the dedicated `alv-events` scratch org (start the session with `--target-org alv-events`; on any other org they fail at once). `events-capture` writes the source into the workspace, takes the first-use choice (`'{"initial":"retained"}'` replays what the event retains), publishes `count` events (default 5) through `scripts/events-org.mjs` and asserts the rows, the `Live` strip and its tooltip. First use shows only in a workspace that never stored a position for the object, so run it once per `start`; a second run fails at once. `events-gap` starts a stopped capture, closes a gap an earlier run left open by publishing one event, then stops the capture, moves the stored position past the bus and starts it again. It requires a new `cursorRejected` gap in `gaps.*.ndjson` and one more line on the strip, and screenshots it. Both default to `'{"object":"ALV_Test_Replay__e"}'`, whose retained backlog is small; see [features/custom-logs.md](features/custom-logs.md#platform-event-sources).
 - `custom-logs-open-viewer`: turn the Custom Logs setting on, open the Custom Logs list, then one record (`'{"title":"<name>"}'` or `"logId"`, after an optional `"source"` switch) in the transaction viewer, and with `'{"openApexLog":true}'` its linked Apex log. It needs a ready source: a standard-object mapping on the harness scratch, or Nebula Logger with `--target-org` (see [features/custom-logs.md](features/custom-logs.md)).
@@ -126,6 +133,7 @@ Canned steps in `steps/` (each one asserts the end state and returns its proof p
 Controls in `steps/` check the harness itself. Rerun them after changing `session.ts` or `steps/lib/`:
 
 - `debug-flags-from-tail-control`: intercepts every click on Tail's Debug Flags button and requires `h.openDebugFlagsFromTail()` to fail instead of returning the editor that was already open, then opens it normally. Takes about 100 s, because the helper exhausts its retries.
+- `debug-flags-preserve-control`: requires `debug-flags-apply-remove` to refuse the seeded current user without changing any flag. On a separate test user with no flags, it injects a failure after a real Apply and checks that cleanup removed the new flag. Run `node $V run debug-flags-preserve-control` after changing that step. Its imported step stays cached until the host restarts. The local regression tests run with `node --test .agents/skills/verify-apex-log-viewer/scripts/debugFlagsStep.test.mjs`.
 - `tail-flag-cleanup-control`: does to the session user's `DEVELOPER_LOG` flags what Tail's Start does (moves the seed to another level, adds a flag the user did not have), runs `tail-live`'s restore from `steps/lib/traceFlags.mjs`, and requires the flags to equal the snapshot, with the added flag deleted. A live Start creates a flag only for a user with none, which a harness scratch never has, because the seed flag cannot be retyped or moved to another user.
 - `frames-shown-control`: with the Logs panel hidden and a Logs copy in the editor area, requires that exactly one of the two frames can be clicked and that `h.logsFrame()` returns it. VS Code keeps a hidden panel's webview alive, and Playwright calls its controls visible.
 - `events-entries`: on an `alv-events` session, maps `ALV_Test_Log__e` with payload paths (`msg`, `level`, `traceId`) over `Payload__c` and `Stack_Trace__c`, publishes `count` events with `payloadEntries` JSON-array items each (`scripts/events-org.mjs publish --payload-entries`), and asserts one row per array item, the row id shape and suffixes, the titles, the metric item's JSON title and the `INFO` badge of the `Stack_Trace__c` item; run it once per `start`.
