@@ -2,8 +2,13 @@
 
 ## Unreleased
 
+## [0.56.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.54.0...v0.56.0) (2026-11-09)
+
+Stable extension release with all changes since 0.54.0, including those shipped in the 0.55.x pre-releases. Custom Logs remains experimental and off by default until `electivus.apexLogViewer.customLogs.enabled` is turned on. The Salesforce CLI plugin has its own stable release, 0.5.0, below.
+
 ### Maintenance
 
+- Logs and Tail: share a rebindable Webview Session for mount/readiness, visibility, snapshot replay, retries, generation safety and disposal, instead of duplicating those mechanics in each provider.
 - E2E: a scratch org owned by another identity no longer fails real-org tests. A Pool Lease skips a slot whose scratch org it cannot delete and takes the next one, and only CI creates a slot's scratch org: a local session reuses healthy slots and refuses to recreate one.
 - E2E: Slot Recovery no longer stops at a slot whose scratch org it cannot delete. It warms the other slots, then fails with an error that names each denied slot. `scratch-pool:prewarm` now refuses to run outside CI, because a local identity would own the scratch orgs it creates.
 - CI: a new `Codex review` commit status reports whether Codex reviewed a pull request's current head and found nothing, so a ruleset can make auto-merge wait for it. Dependabot pull requests are exempt because Codex does not review them. `docs/CI.md` explains the states and the override.
@@ -32,6 +37,7 @@
 
 ### Breaking Changes
 
+- Debug Flags and Tail default to `DEVELOPER_LOG` trace flags instead of `USER_DEBUG`. Create `USER_DEBUG` flags explicitly in Apex Debug Flags or with the CLI's `--log-type USER_DEBUG`. An active `DEVELOPER_LOG` flag takes precedence when both types exist.
 - Dev Hub: require JWT for CI real-org validation, the proxy lab and pool commands; load durable private operator inputs with `devhub-local.js` and recover lost material through an audited plan for the same identity.
 
 ### Features
@@ -59,6 +65,7 @@
 
 ### Fixes
 
+- Custom Logs: time filters on epoch-millisecond fields use decimal SOQL literals, avoiding out-of-range integer errors.
 - Custom Logs: adding or removing a JSON column updates the open lists and transaction viewers for the same source without Refresh.
 - Logs and Custom Logs: keep rows aligned with their headers when keyboard focus scrolls an offscreen header button into view, including `+ Field` in the Custom Logs list and transaction viewer.
 - Log Viewer: one click on `Go to error`, on a diagnostic or on `Previous match` now brings the entry into view in a long log. Before, the rows above it grew after the jump and pushed it out, so a second click was needed. `Next match` and `Previous match` now jump at once instead of animating.
@@ -124,6 +131,40 @@
 
 - Scratch Org Pool: authenticate maintenance and consumers through the shared Dev Hub JWT policy, preserve PlatformCLI scratch authorization, renew lease calls after expired sessions, and validate an isolated pool with an independent runner.
 - Core: preserve the versioned behavioral contract corpus with real temporary workspaces and strict process/HTTP doubles for the TypeScript core shared by VS Code and the Salesforce CLI.
+
+## [SF Plugin 0.5.0](https://github.com/Electivus/Apex-Log-Viewer/compare/sf-plugin-v0.4.0...sf-plugin-v0.5.0) (2026-11-09)
+
+Stable release of `@electivus/plugin-electivus` on the npm `latest` dist-tag. It includes all changes since 0.4.0, including the 0.5.0-next.0, 0.5.0-next.1 and 0.5.0-next.2 pre-releases. Install or update with `sf plugins install @electivus/plugin-electivus@latest`. The previous pre-releases remain available, and `next` stays on 0.5.0-next.2.
+
+### Behavior Changes
+
+- Trace flags default to `DEVELOPER_LOG` instead of `USER_DEBUG`, because Apex checkpoints need them. `trace-flag status`, `apply` and `remove` take `--log-type DEVELOPER_LOG|USER_DEBUG` and report `logType`. Pass `--log-type USER_DEBUG` to keep the previous default. Status also reports `otherLogType` and whether an active `DEVELOPER_LOG` flag overrides the `USER_DEBUG` level. Removal deletes every flag of the chosen type, expired ones included.
+- `trace-flag apply` and `remove` previews return `status: "success"` with `dryRun: true`, instead of `status: "dry-run"`. `apply --ttl-minutes` rejects values above 1440 instead of silently limiting them.
+- `log sync` returns `checkpointAdvanced: true` only when the checkpoint moves to a newer log. A repeat sync without newer logs no longer reports an advance.
+- `debug-level update` changes only the fields passed. Without `--yes`, `debug-level create` and `update` validate picklist values against the org, so a preview needs a reachable org. `create` requires `--developer-name` and defaults the language to `en_US`; `update` no longer requires `--developer-name` or `--language`.
+
+### Features
+
+- Add `sf electivus custom-log sources`, `list`, `get` and `entry` for application logs in Salesforce records, with JSON output, cursor paging, level, user and time filters, and selected payload fields. Nebula Logger, unlocked or managed, needs no configuration. Other sources map under `plugins.electivus.customLogs` in `sfdx-project.json`.
+- `custom-log list --entries` lists the child entries of a transaction source, newest first. Each row includes its parent in `log`, and `logColumns` describes the parent's columns. Pass `log.id` to `get --log-id`. Without `--entries`, `list` still returns transactions. Entry and event rows include `origin` and mark logger bookkeeping with `system: true`; `sources --json` reports `entryCapabilities`.
+- Add `custom-log capture` for platform-event sources, including `nebula-events` and `nebula-events-managed`. Events go to the shared local store under `apexlogs/orgs/<safe-org>/events/<object>/`, with one capture lease per event object, offline history, 30-day default retention and gap records. An event source must be chosen explicitly because each captured event counts against the org's daily delivery allocation.
+- Capture resumes from the stored position and drains until the stream goes quiet, the delivery budget is reached or `--max-time` passes. The budget is about half the remaining daily allocation, or 5,000 deliveries when the allowance is unavailable, and can be exceeded by one response. `--follow` prints stored rows until Ctrl-C. Results include `allowance`, `holder` when another process captures, and next steps in `actions` on failure. Stored lists and entries work offline; a linked Apex log lookup still needs the org.
+- `payload.entries` reads each item of a JSON array event payload as its own entry, with field roles mapped by `path`. Level and user filters, transaction grouping and Apex log links work per entry. The first entry keeps the event id; later entries append a four-digit base36 ordinal. `--payload-fields` accepts `[]` for every array index, and `payloadFields` groups array paths while row values retain their indexes.
+- Ship the Custom Logs mapping reference and JSON Schema in the npm package. The bundled `apex-log-viewer-cli` and `apex-debug-investigate` skills cover record logs, event capture, entry listing, parent context and local corpus searches.
+
+### Fixes
+
+- `log status` without `--target-org` uses the same default org as `log sync`, preferring the project's `target-org` over the global one. An unsynced default reports `hasState: false`. Without a default and with several stored orgs, the command asks for a target instead of selecting one.
+- `doctor` no longer creates `apexlogs/`, accepts `--workspace-root`, and checks the actual org list and cache layout. `log delete` documents that local copies remain; its unused `--workspace-root` flag is deprecated and hidden.
+- Prevent two processes from taking the same capture lease after a dead holder and reclaimer. All processes sharing the workspace must run the fix. Events stored just before a lease transfer remain visible, and standby captures show gaps even when the holder stores no new event.
+- Keep the stored `lastEvent` at the newest event after duplicate replays, and show gaps recorded before a capture takeover. Stopping a disconnected capture cancels pending Faye retries.
+- On Windows, retry atomic file replacement under `apexlogs/` for up to about 1.6 seconds when another reader temporarily holds the destination, including capture checkpoints and sync state.
+- Time filters on epoch-millisecond fields use decimal SOQL literals instead of out-of-range integer literals.
+- Reuse one Salesforce connection per org within a command, and rebuild a rejected session from the saved login with one retry. Locate saved logs by canonical day directory first and index the local store at most once per request.
+
+### Maintenance
+
+- Refresh Salesforce, JSforce and Faye runtime dependencies. The standalone plugin continues to require Node.js 22.19 or later.
 
 ## [SF Plugin 0.5.0-next.2](https://github.com/Electivus/Apex-Log-Viewer/compare/sf-plugin-v0.5.0-next.1...sf-plugin-v0.5.0-next.2) (2026-11-09)
 
