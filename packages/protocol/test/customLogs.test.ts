@@ -270,18 +270,32 @@ test('list parser rejects malformed ids, sources and orgs', () => {
   assert.deepEqual(rejected, Array(rejected.length).fill(undefined));
 });
 
-test('payload columns are bounded, deduplicated and free of control characters', () => {
-  assert.deepEqual(
-    parseCustomLogsFromWebviewMessage({
-      type: 'customLogsSetPayloadColumns',
-      added: ['http.status', 'tags[]', 'http.status']
-    }),
-    { type: 'customLogsSetPayloadColumns', added: ['http.status', 'tags[]'] }
-  );
-  assert.deepEqual(parseCustomLogsFromWebviewMessage({ type: 'customLogsSetPayloadColumns', added: [] }), {
-    type: 'customLogsSetPayloadColumns',
-    added: []
-  });
+test('a payload column change names one bounded path and whether it is shown', () => {
+  for (const type of ['customLogsShowPayloadColumn', 'customLogViewerShowPayloadColumn'] as const) {
+    const parse =
+      type === 'customLogsShowPayloadColumn'
+        ? parseCustomLogsFromWebviewMessage
+        : parseCustomLogViewerFromWebviewMessage;
+    assert.deepEqual(parse({ type, path: 'tags[]', shown: true }), { type, path: 'tags[]', shown: true });
+    assert.deepEqual(parse({ type, path: 'http.status', shown: false }), { type, path: 'http.status', shown: false });
+    for (const rejected of [
+      { type, path: 'http.status' },
+      { type, path: 'http.status', shown: 'true' },
+      { type, path: '', shown: true },
+      { type, path: ' padded', shown: true },
+      { type, path: 'a\nb', shown: true },
+      { type, path: 'x'.repeat(256), shown: true },
+      { type, path: ['http.status'], shown: true },
+      { type, added: ['http.status'] }
+    ]) {
+      assert.equal(parse(rejected), undefined, JSON.stringify(rejected));
+    }
+  }
+});
+
+test('stored payload columns are bounded, deduplicated and free of control characters', () => {
+  assert.deepEqual(parseCustomLogPayloadColumns(['http.status', 'tags[]', 'http.status']), ['http.status', 'tags[]']);
+  assert.deepEqual(parseCustomLogPayloadColumns([]), []);
 
   const fifty = Array.from({ length: 50 }, (_, index) => `path${index}`);
   assert.equal(parseCustomLogPayloadColumns(fifty)?.length, 50);
@@ -309,11 +323,8 @@ test('viewer parser accepts each webview message', () => {
     entryId: ENTRY_ID
   });
   assert.deepEqual(
-    parseCustomLogViewerFromWebviewMessage({ type: 'customLogViewerSetPayloadColumns', added: ['a.b'] }),
-    {
-      type: 'customLogViewerSetPayloadColumns',
-      added: ['a.b']
-    }
+    parseCustomLogViewerFromWebviewMessage({ type: 'customLogViewerShowPayloadColumn', path: 'a.b', shown: true }),
+    { type: 'customLogViewerShowPayloadColumn', path: 'a.b', shown: true }
   );
   assert.deepEqual(parseCustomLogViewerFromWebviewMessage({ type: 'customLogViewerCopyText', text: 'Log-000739' }), {
     type: 'customLogViewerCopyText',
@@ -366,7 +377,7 @@ test('viewer parser rejects malformed targets, ids and copy text', () => {
     { type: 'customLogViewerOpenApexLogs' },
     { type: 'customLogViewerCopyText', text: '' },
     { type: 'customLogViewerCopyText', text: 'x'.repeat(1_000_001) },
-    { type: 'customLogViewerSetPayloadColumns', added: 'a' },
+    { type: 'customLogViewerShowPayloadColumn', path: 'a' },
     { type: 'customLogsReady' },
     { type: 'logViewerReady' },
     null,

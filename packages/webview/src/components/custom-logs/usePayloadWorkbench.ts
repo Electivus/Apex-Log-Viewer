@@ -21,27 +21,29 @@ export type PayloadWorkbenchOptions<Column extends { id: string }> = {
   payloadFields: readonly CustomLogPayloadField[];
   itemCount: number;
   columnsView: CustomLogPayloadColumnsView;
-  /** The user added or removed a JSON column: the app echoes it into its state and posts it to the host. */
-  onAddedColumns: (added: string[]) => void;
+  /** The user added or removed a JSON column: the app echoes it into its state and posts the change to the host. */
+  onShowColumn: (path: string, shown: boolean) => void;
   /** Must keep its identity while the app's own inputs are the same. */
   buildColumns: (payload: PayloadColumn[], discovered: DiscoveredField[]) => Column[];
 };
 
 /**
- * What the list and the entry viewer share over their loaded items: the search, the JSON paths and the
- * columns built from them, and the sort. Each app keeps its own items, standard columns and server-side concerns.
+ * What the list and the entry viewer share over their loaded items: the search, whether system messages show,
+ * the JSON paths and the columns built from them, and the sort. Each app keeps its own items, standard columns
+ * and server-side concerns.
  */
 export function usePayloadWorkbench<Column extends { id: string }>({
   initial,
   payloadFields,
   itemCount,
   columnsView,
-  onAddedColumns,
+  onShowColumn,
   buildColumns
 }: PayloadWorkbenchOptions<Column>) {
   const [search, setSearch] = useState(initial.search);
   const [sort, setSort] = useState<SortState | undefined>(initial.sort);
   const [hiddenDefaults, setHiddenDefaults] = useState<string[]>(initial.hiddenDefaults);
+  const [showSystem, setShowSystem] = useState(initial.showSystem);
   // Typing stays responsive over thousands of rows: React matches the last query while the input moves on.
   const deferredSearch = useDeferredValue(search);
   const terms = useMemo(() => parseSearch(deferredSearch), [deferredSearch]);
@@ -62,7 +64,10 @@ export function usePayloadWorkbench<Column extends { id: string }>({
   const sortColumn = sort ? columns.find(column => column.id === sort.columnId) : undefined;
   const appliedSort = sortColumn ? sort : undefined;
 
-  const uiState = useMemo<PayloadUiState>(() => ({ search, sort, hiddenDefaults }), [hiddenDefaults, search, sort]);
+  const uiState = useMemo<PayloadUiState>(
+    () => ({ search, sort, hiddenDefaults, showSystem }),
+    [hiddenDefaults, search, showSystem, sort]
+  );
 
   const toggleColumn = useCallback(
     (path: string) => {
@@ -72,13 +77,9 @@ export function usePayloadWorkbench<Column extends { id: string }>({
         );
         return;
       }
-      onAddedColumns(
-        columnsView.added.includes(path)
-          ? columnsView.added.filter(column => column !== path)
-          : [...columnsView.added, path]
-      );
+      onShowColumn(path, !columnsView.added.includes(path));
     },
-    [columnsView, onAddedColumns]
+    [columnsView, onShowColumn]
   );
 
   const removeColumn = useCallback(
@@ -108,7 +109,10 @@ export function usePayloadWorkbench<Column extends { id: string }>({
     [sort, sortColumn]
   );
 
-  /** A different org or source: its rows have nothing to do with this search, sort or hidden columns. */
+  /**
+   * A different org or source: its rows have nothing to do with this search, sort or hidden columns. Whether
+   * system messages show is the user's preference, so it stays.
+   */
   const reset = useCallback(() => {
     setSearch('');
     setSort(undefined);
@@ -124,6 +128,8 @@ export function usePayloadWorkbench<Column extends { id: string }>({
     search,
     setSearch,
     terms,
+    showSystem,
+    setShowSystem,
     payloadInUse: terms.length > 0 || payloadColumns.length > 0 || appliedSort !== undefined,
     sort: appliedSort,
     onSort,

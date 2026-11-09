@@ -130,6 +130,7 @@ export const NEBULA: CustomLogSourceView = {
   shape: 'transactions',
   hiddenFields: [],
   capabilities: { levelFilter: true, userFilter: true, apexLogLink: true },
+  entryCapabilities: { levelFilter: true, userFilter: true },
   payload: {},
   state: 'ready'
 };
@@ -141,6 +142,7 @@ export const APP_LOG: CustomLogSourceView = {
   shape: 'entries',
   hiddenFields: [],
   capabilities: { levelFilter: false, userFilter: false, apexLogLink: false },
+  entryCapabilities: { levelFilter: false, userFilter: false },
   payload: { entry: { field: 'Payload__c', columns: ['orderId'] } },
   state: 'ready'
 };
@@ -152,6 +154,7 @@ export const EVENTS: CustomLogSourceView = {
   shape: 'events',
   hiddenFields: [],
   capabilities: { levelFilter: true, userFilter: true, apexLogLink: false },
+  entryCapabilities: { levelFilter: true, userFilter: true },
   payload: {},
   state: 'ready'
 };
@@ -164,6 +167,7 @@ export const NOT_INSTALLED: CustomLogSourceView = {
   namespace: 'Nebula',
   hiddenFields: [],
   capabilities: { levelFilter: false, userFilter: false, apexLogLink: false },
+  entryCapabilities: { levelFilter: false, userFilter: false },
   payload: {},
   state: 'notInstalled'
 };
@@ -172,6 +176,11 @@ export const LOG_IDS = {
   first: 'a02000000000001AAA',
   second: 'a02000000000002AAA',
   third: 'a02000000000003AAA'
+} as const;
+
+export const ENTRY_IDS = {
+  first: 'a01000000000001AAA',
+  second: 'a01000000000002AAA'
 } as const;
 
 /** An event row id as core builds it: fixed width, so plain string order is list order. */

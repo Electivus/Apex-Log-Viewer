@@ -155,7 +155,7 @@ The extension activates automatically when the workspace contains `sfdx-project.
 ### Read Custom Logs
 
 - Custom Logs is experimental and off by default. Set `electivus.apexLogViewer.customLogs.enabled` to `true` to show it; no reload is needed. The `sf electivus custom-log` commands work without the setting.
-- Open **Custom Logs** in the VS Code panel area to read the log records that a logging framework stores in Salesforce, such as Nebula Logger's `Log__c` and `LogEntry__c`.
+- Open **Custom Logs** in the VS Code panel area to read the log records that a logging framework stores in Salesforce. For Nebula Logger, the list shows one row per `LogEntry__c`, with fields of its `Log__c` as columns.
 - Pick an event source, such as `nebula-events`, to read logs that exist only as platform events. The panel captures the events into a local store while the source is open, shows what it stored, and marks any interval that may be missing as a gap.
 - Nebula Logger needs no configuration. Map other objects under `plugins.electivus.customLogs` in `sfdx-project.json`. **Configure** opens that block, and the editor validates it.
 - Search the loaded rows, their record columns and their JSON paths and values from one box, filter by level, user, and time in Salesforce from **Filters**, and add JSON payload keys as columns.

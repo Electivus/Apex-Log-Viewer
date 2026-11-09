@@ -2,7 +2,10 @@ import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { LogsTable } from '../components/LogsTable';
+import { CustomLogEntryList } from '../components/custom-logs/CustomLogEntryList';
 import { SCROLLBAR_GUTTER } from '../components/table/useVirtualListElement';
+import { getMessages } from '../i18n';
+import { buildEntryColumns } from '../utils/customLogs/entries';
 import { grid, mountApp } from './customLogsTestKit';
 
 /**
@@ -26,7 +29,14 @@ jest.mock('react-window', () => {
             rowComponent({
               ...rowProps,
               index,
-              style: { height: typeof rowHeight === 'function' ? rowHeight(index) : rowHeight }
+              style: {
+                height:
+                  typeof rowHeight === 'number'
+                    ? rowHeight
+                    : typeof rowHeight === 'function'
+                      ? rowHeight(index)
+                      : (rowHeight.getRowHeight(index) ?? rowHeight.getAverageRowHeight())
+              }
             })
           )
         )
@@ -35,66 +45,160 @@ jest.mock('react-window', () => {
   };
 });
 
-function scrollBody(body: HTMLElement, left: number) {
+function scrollHorizontally(element: HTMLElement, left: number) {
   act(() => {
-    body.scrollLeft = left;
-    fireEvent.scroll(body);
+    element.scrollLeft = left;
+    fireEvent.scroll(element);
   });
 }
 
-describe('table headers', () => {
-  it('Logs: the header follows the rows when they scroll horizontally', () => {
-    render(
-      <LogsTable
-        rows={[{ Id: '07L000000000001AAA', StartTime: '2026-11-05T10:00:00.000Z', LogLength: 10 } as any]}
-        logHead={{}}
-        matchSnippets={{}}
-        t={{ columns: {}, open: 'Open', replay: 'Replay' } as any}
-        onOpen={() => {}}
-        onReplay={() => {}}
-        locale="en-US"
-        sortBy="time"
-        sortDir="asc"
-        onSort={() => {}}
-        columnsConfig={
-          {
-            order: ['user', 'application', 'operation', 'time', 'duration', 'status', 'size', 'match'],
-            visibility: {
-              user: true,
-              application: true,
-              operation: true,
-              time: true,
-              duration: true,
-              status: true,
-              size: true,
-              match: false
-            },
-            widths: {}
-          } as any
-        }
-        onColumnsConfigChange={() => {}}
-        fullLogSearchEnabled={false}
-        hasSearchText={false}
-      />
-    );
-    const body = screen.getByTestId('virtual-list');
-    const header = screen.getAllByRole('row')[0]!.parentElement as HTMLElement;
+function mountLogs() {
+  const view = render(
+    <LogsTable
+      rows={[{ Id: '07L000000000001AAA', StartTime: '2026-11-05T10:00:00.000Z', LogLength: 10 } as any]}
+      logHead={{}}
+      matchSnippets={{}}
+      t={{ columns: {}, open: 'Open', replay: 'Replay' } as any}
+      onOpen={() => {}}
+      onReplay={() => {}}
+      locale="en-US"
+      sortBy="time"
+      sortDir="asc"
+      onSort={() => {}}
+      columnsConfig={
+        {
+          order: ['user', 'application', 'operation', 'time', 'duration', 'status', 'size', 'match'],
+          visibility: {
+            user: true,
+            application: true,
+            operation: true,
+            time: true,
+            duration: true,
+            status: true,
+            size: true,
+            match: false
+          },
+          widths: {}
+        } as any
+      }
+      onColumnsConfigChange={() => {}}
+      fullLogSearchEnabled={false}
+      hasSearchText={false}
+    />
+  );
+  return {
+    ...view,
+    body: screen.getByTestId('virtual-list'),
+    header: screen.getAllByRole('row')[0]!.parentElement as HTMLElement
+  };
+}
 
-    scrollBody(body, 400);
+function mountCustomLogs() {
+  const { view } = mountApp();
+  return {
+    ...view,
+    body: screen.getByTestId('virtual-list'),
+    header: grid().querySelector('[role="row"]') as HTMLElement
+  };
+}
+
+function mountEntries() {
+  const t = getMessages('en').customLogs;
+  const view = render(
+    <CustomLogEntryList
+      t={t}
+      entries={[
+        {
+          id: 'a025g00000Hk1AbAAJ',
+          sequence: 1,
+          time: '2026-10-29T23:29:49.000Z',
+          level: 'INFO',
+          rawLevel: 'INFO',
+          message: 'Order synced',
+          previewClipped: false,
+          system: false,
+          presentDetails: [],
+          extra: {}
+        }
+      ]}
+      columns={buildEntryColumns({
+        labels: t.viewer.columns,
+        extra: [],
+        payload: [],
+        discovered: [],
+        hasOrigin: false
+      })}
+      sort={undefined}
+      selectedId={undefined}
+      discovered={[]}
+      activeColumns={new Set()}
+      lockedColumns={new Set()}
+      onSort={() => {}}
+      onSelect={() => {}}
+      onToggleColumn={() => {}}
+      onRemoveColumn={() => {}}
+    />
+  );
+  return {
+    ...view,
+    body: screen.getByTestId('virtual-list'),
+    header: screen.getByRole('grid').querySelector('[role="row"]') as HTMLElement
+  };
+}
+
+describe.each([
+  { name: 'Logs', mount: mountLogs },
+  { name: 'Custom Logs', mount: mountCustomLogs },
+  { name: 'Custom Log entries', mount: mountEntries }
+])('$name table headers', ({ mount }) => {
+  it('the header follows the rows when they scroll horizontally', () => {
+    const { body, header } = mount();
+
+    scrollHorizontally(body, 400);
 
     expect(header.scrollLeft).toBe(400);
   });
 
-  it('Custom Logs: the header follows the rows when they scroll horizontally', () => {
-    mountApp();
-    const body = screen.getByTestId('virtual-list');
-    const header = grid().querySelector('[role="row"]') as HTMLElement;
+  it('the rows follow a header scroll after the body has scrolled', () => {
+    const { body, header } = mount();
 
-    scrollBody(body, 190);
+    scrollHorizontally(body, 504);
+    expect(header.scrollLeft).toBe(504);
 
-    expect(header.scrollLeft).toBe(190);
+    // Focus on an offscreen header button scrolls the header in the browser. jsdom needs that event supplied.
+    scrollHorizontally(header, 904);
+    expect(body.scrollLeft).toBe(904);
+
+    fireEvent.scroll(body);
+    expect(header.scrollLeft).toBe(904);
+
+    scrollHorizontally(header, 120);
+    expect(body.scrollLeft).toBe(120);
+    fireEvent.scroll(body);
+    expect(header.scrollLeft).toBe(120);
+
+    scrollHorizontally(body, 240);
+    expect(header.scrollLeft).toBe(240);
+    fireEvent.scroll(header);
+    expect(body.scrollLeft).toBe(240);
   });
 
+  it('stops synchronizing both scroll containers after unmount', () => {
+    const { body, header, unmount } = mount();
+
+    scrollHorizontally(header, 190);
+    expect(body.scrollLeft).toBe(190);
+
+    unmount();
+    scrollHorizontally(header, 340);
+    expect(body.scrollLeft).toBe(190);
+
+    scrollHorizontally(body, 520);
+    expect(header.scrollLeft).toBe(340);
+  });
+});
+
+describe('table headers', () => {
   it('reserves the scrollbar gutter on the body and on the header of both tables, so the columns line up', () => {
     mountApp();
     expect(screen.getByTestId('virtual-list').className).toContain(SCROLLBAR_GUTTER);

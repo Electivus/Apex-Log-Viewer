@@ -47,3 +47,8 @@ export function formatCount(value: number, locale: string): string {
 export function fillTemplate(template: string, values: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (match, key: string) => (key in values ? String(values[key]) : match));
 }
+
+/** `one` for a count of 1, else `many` with `{count}` filled. */
+export function countLabel(count: number, one: string, many: string): string {
+  return count === 1 ? one : fillTemplate(many, { count });
+}

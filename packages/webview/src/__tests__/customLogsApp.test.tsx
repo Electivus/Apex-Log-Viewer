@@ -13,7 +13,9 @@ import {
   listedTitles,
   makeRow,
   mountApp,
+  mountNebula,
   nebula,
+  nebulaRows,
   parsed,
   posts,
   removeMountSequenceMeta,
@@ -53,7 +55,8 @@ const auditLog: CustomLogSourceView = {
   ...appLog,
   id: 'audit-log',
   label: 'Audit Log',
-  capabilities: { levelFilter: false, userFilter: false, apexLogLink: false }
+  capabilities: { levelFilter: false, userFilter: false, apexLogLink: false },
+  entryCapabilities: { levelFilter: false, userFilter: false }
 };
 
 describe('Custom Logs app', () => {
@@ -78,7 +81,7 @@ describe('Custom Logs app', () => {
       mountApp();
 
       expect(listedTitles()).toEqual(rows.map(row => row.title));
-      expect(headerLabels()).toEqual(['Time', 'Level', 'Title', 'User', 'Category']);
+      expect(headerLabels()).toEqual(['Time', 'Level', 'Message', 'User', 'Category']);
     });
 
     it('shows a null record field as an empty cell, not the word null', () => {
@@ -170,6 +173,22 @@ describe('Custom Logs app', () => {
 
       search('orders warn');
       expect(listedTitles()).toEqual(['Retrying order sync']);
+    });
+
+    it('finds entries by the origin, the name and the columns of their log', () => {
+      mountNebula();
+
+      search('Log-000');
+      expect(screen.getByRole('status')).toHaveTextContent('3 of 4 loaded rows match · 1 logger system message hidden');
+
+      search('log-000280');
+      expect(listedTitles()).toEqual(['Order synced']);
+
+      search('processed');
+      expect(listedTitles()).toEqual(['Order synced']);
+
+      search('orderservice');
+      expect(listedTitles()).toEqual(['Order total looks wrong', 'Saving order']);
     });
 
     it('reads operators and quotes as plain text, and says when nothing loaded matches', () => {
@@ -328,6 +347,50 @@ describe('Custom Logs app', () => {
 
       fireEvent.click(screen.getByRole('button', { name: '+ Field' }));
       expect(screen.getByRole('menuitemcheckbox', { name: /region/ })).toBeInTheDocument();
+    });
+  });
+
+  describe('logger system messages', () => {
+    const systemSwitch = () => screen.getByRole('switch', { name: /Show logger system messages/ });
+
+    it('hides them by default and says how many loaded rows it hides', () => {
+      mountNebula();
+
+      expect(listedTitles()).toEqual(['Order total looks wrong', 'Saving order', 'Order synced']);
+      expect(screen.getByRole('status')).toHaveTextContent('4 rows loaded · 1 logger system message hidden');
+    });
+
+    it('shows them from the Filters menu, which counts them, and keeps that choice when restored', () => {
+      const first = mountNebula();
+
+      inFilters(() => {
+        expect(systemSwitch()).toHaveAccessibleName('Show logger system messages (1)');
+        fireEvent.click(systemSwitch());
+      });
+
+      expect(listedTitles()[0]).toBe('Nebula Logger - Saving 2 log entries via ANONYMOUS');
+      expect(screen.getByRole('status')).toHaveTextContent('4 rows loaded');
+      expect(screen.getByRole('status')).not.toHaveTextContent('hidden');
+      expect(filtersButton()).toHaveTextContent(/^Filters$/);
+      expect(posts(first.posted, 'customLogsSetFilter')).toEqual([]);
+      const saved = first.getSavedState();
+      first.view.unmount();
+
+      mountNebula({}, saved);
+      expect(listedTitles()).toHaveLength(4);
+    });
+
+    it('says so when a page holds only system messages, and still offers Load more', () => {
+      const { posted } = mountNebula({ rows: [nebulaRows[0]!], hasMore: true });
+
+      expect(listedTitles()).toEqual([]);
+      expect(
+        screen.getByText(
+          'Only logger system messages are loaded. Turn on Show logger system messages in Filters to list them. Use Load more to widen the search.'
+        )
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+      expect(posts(posted, 'customLogsLoadMore')).toHaveLength(1);
     });
   });
 
@@ -506,6 +569,18 @@ describe('Custom Logs app', () => {
         expect(screen.queryByLabelText('Level')).toBeNull();
         expect(screen.queryByLabelText('Logged by')).toBeNull();
         expect(filterOptions('Time')).toEqual(['Any time', 'Last hour', 'Last 24 hours', 'Last 7 days']);
+      });
+    });
+
+    it('offers what the listed entries can be filtered by, not what their transactions can', () => {
+      mountApp({
+        sources: [{ ...nebula, entryCapabilities: { levelFilter: false, userFilter: true } }],
+        selected: 'nebula'
+      });
+
+      inFilters(() => {
+        expect(screen.queryByLabelText('Level')).toBeNull();
+        expect(screen.getByLabelText('Logged by')).toBeInTheDocument();
       });
     });
 

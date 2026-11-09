@@ -15,7 +15,7 @@ import type { OrgItem } from './types.js';
 import { parseCustomLogLevel, parseSinceValue } from './customLogsRules.js';
 import {
   CUSTOM_LOG_CAPTURE_CHOICES,
-  parseCustomLogPayloadColumns,
+  parseCustomLogPayloadPath,
   parseCustomLogRowId,
   type CustomLogCaptureChoice,
   type CustomLogCaptureView,
@@ -39,15 +39,18 @@ export type CustomLogsFromWebviewMessage =
   | { type: 'customLogsRefresh' }
   /** No cursor from the webview: the provider owns it. */
   | { type: 'customLogsLoadMore' }
-  /** Accepted only for an id present in the provider's current rows. */
+  /** A listed row's id, accepted only while it is in the provider's current rows. The host opens its transaction. */
   | { type: 'customLogsOpenLog'; logId: string }
   /**
    * Opens the full payload of a listed row as a read-only text document. Accepted only for an id
    * present in the provider's current rows; the text stays in the host.
    */
   | { type: 'customLogsOpenPayload'; logId: string }
-  /** The JSON columns this workspace adds for the selected source; the host stores them in workspace state. */
-  | { type: 'customLogsSetPayloadColumns'; added: string[] }
+  /**
+   * Shows or hides one JSON column this workspace added for the selected source. The host applies it to the list
+   * it keeps in workspace state for that source, which the transaction viewer shares.
+   */
+  | { type: 'customLogsShowPayloadColumn'; path: string; shown: boolean }
   /** Opens `sfdx-project.json` at `plugins.electivus.customLogs` (same as the configure command). */
   | { type: 'customLogsOpenConfig' }
   /** Opens the same view in an editor tab. */
@@ -79,6 +82,8 @@ export type CustomLogsToWebviewMessage =
       type: 'customLogsPage';
       mode: 'replace' | 'append';
       columns: CustomLogColumn[];
+      /** Absent or empty when rows carry no `log`. */
+      logColumns?: CustomLogColumn[];
       rows: CustomLogRow[];
       /** This page's paths on `append`; every loaded page's, merged, on `replace`. */
       payloadFields: CustomLogPayloadField[];
@@ -138,7 +143,7 @@ function parseCustomLogsFilter(value: unknown): CustomLogsFilterView | undefined
 /**
  * Hand-written validator in the style of `parseDebugFlagsFromWebviewMessage`: length caps,
  * record-id and source-id patterns, `minLevel` in CUSTOM_LOG_LEVELS, `since` must be a duration or
- * an ISO instant with an offset (what core accepts), at most 50 payload columns of at most 255 characters,
+ * an ISO instant with an offset (what core accepts), a payload column path of at most 255 characters,
  * a capture `stop` with nothing else or a `start` with an optional `initial` of `retained` or `new`. Returns
  * undefined for anything else.
  */
@@ -175,9 +180,11 @@ export function parseCustomLogsFromWebviewMessage(raw: unknown): CustomLogsFromW
       const logId = parseCustomLogRowId(message.logId);
       return logId ? { type: message.type, logId } : undefined;
     }
-    case 'customLogsSetPayloadColumns': {
-      const added = parseCustomLogPayloadColumns(message.added);
-      return added ? { type: 'customLogsSetPayloadColumns', added } : undefined;
+    case 'customLogsShowPayloadColumn': {
+      const path = parseCustomLogPayloadPath(message.path);
+      return path && typeof message.shown === 'boolean'
+        ? { type: 'customLogsShowPayloadColumn', path, shown: message.shown }
+        : undefined;
     }
     case 'customLogsCapture': {
       if (message.action === 'stop') {

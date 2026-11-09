@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
+  withPayloadColumn,
   type CustomLogColumn,
   type CustomLogConfigIssueView,
   type CustomLogPayloadField,
@@ -29,7 +30,7 @@ import { detailDock, readPayloadUiState, useElementHeight } from './utils/custom
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
 
-const NO_CAPABILITIES = { levelFilter: false, userFilter: false, apexLogLink: false };
+const NO_CAPABILITIES = { levelFilter: false, userFilter: false };
 const NO_ORGS: OrgItem[] = [];
 const NO_SOURCES: CustomLogSourceView[] = [];
 const NO_ISSUES: CustomLogConfigIssueView[] = [];
@@ -71,6 +72,7 @@ export function CustomLogsApp({
   const selectedSourceId = view.sources?.selected;
   const issues = view.sources?.issues ?? NO_ISSUES;
   const extraColumns = view.page?.columns ?? NO_COLUMNS;
+  const logColumns = view.page?.logColumns ?? NO_COLUMNS;
   const rows = view.page?.rows ?? NO_ROWS;
   const payloadFields = view.page?.payloadFields ?? NO_FIELDS;
   const hasMore = view.page?.hasMore ?? false;
@@ -106,41 +108,42 @@ export function CustomLogsApp({
     [sources, selectedSourceId]
   );
   const sourceReady = selectedSource?.state === 'ready';
+  // Every source lists entries, so its entry capabilities decide the Filters and the User column.
+  const capabilities = selectedSource?.entryCapabilities ?? NO_CAPABILITIES;
 
-  const onAddedColumns = useCallback(
-    (added: string[]) => {
-      dispatch({ type: 'customLogsPayloadColumns', value: { ...columnsView, added } });
-      post({ type: 'customLogsSetPayloadColumns', added });
+  const onShowColumn = useCallback(
+    (path: string, shown: boolean) => {
+      dispatch({
+        type: 'customLogsPayloadColumns',
+        value: { ...columnsView, added: withPayloadColumn(columnsView.added, path, shown) }
+      });
+      post({ type: 'customLogsShowPayloadColumn', path, shown });
     },
     [columnsView, post]
   );
   const buildColumns = useCallback(
     (payload: PayloadColumn[], discovered: DiscoveredField[]) =>
       buildTableColumns({
-        labels: {
-          time: t.columns.time,
-          level: t.columns.level,
-          title: t.columns.title,
-          user: t.columns.user,
-          counts: t.columns.counts
-        },
+        labels: t.columns,
         extra: extraColumns,
+        logColumns,
         payload,
         discovered,
-        hasUser: rows.some(row => row.user !== undefined) || Boolean(selectedSource?.capabilities.userFilter),
-        hasCounts: rows.some(row => row.counts !== undefined)
+        hasOrigin: rows.some(row => row.origin !== undefined),
+        hasUser: rows.some(row => row.user !== undefined) || capabilities.userFilter,
+        hasLog: rows.some(row => row.log !== undefined)
       }),
-    [extraColumns, rows, selectedSource?.capabilities.userFilter, t.columns]
+    [capabilities.userFilter, extraColumns, logColumns, rows, t.columns]
   );
   const workbench = usePayloadWorkbench({
     initial: initialUiState,
     payloadFields,
     itemCount: rows.length,
     columnsView,
-    onAddedColumns,
+    onShowColumn,
     buildColumns
   });
-  const { discovered, activeColumns, lockedColumns, columns, terms } = workbench;
+  const { discovered, activeColumns, lockedColumns, columns, terms, showSystem } = workbench;
 
   useEffect(() => {
     vscode.setState(workbench.uiState);
@@ -184,15 +187,22 @@ export function CustomLogsApp({
     [issues, post, selectedOrg, sources, workbench.reset]
   );
 
+  // SOQL cannot filter a long text area such as Nebula's `Message__c`, so system messages arrive with the page
+  // and are hidden here.
+  const systemCount = useMemo(() => rows.reduce((count, row) => count + (row.system ? 1 : 0), 0), [rows]);
+  const shownRows = useMemo(
+    () => (showSystem || systemCount === 0 ? rows : rows.filter(row => !row.system)),
+    [rows, showSystem, systemCount]
+  );
+  const hiddenSystem = rows.length - shownRows.length;
   const visibleRows = useMemo(
-    () => workbench.sortItems(searchItems(rows, terms, rowSearchText), columnSortValue),
-    [rows, terms, workbench.sortItems]
+    () => workbench.sortItems(searchItems(shownRows, terms, rowSearchText), columnSortValue),
+    [shownRows, terms, workbench.sortItems]
   );
 
   const selectedRow = useMemo(() => visibleRows.find(row => row.id === selectedId), [selectedId, visibleRows]);
   const payloadStates = useMemo(() => countPayloadStates(rows), [rows]);
 
-  const capabilities = selectedSource?.capabilities ?? NO_CAPABILITIES;
   const dock = detailDock(rootHeight);
 
   const setServerFilterAndPost = useCallback(
@@ -232,6 +242,9 @@ export function CustomLogsApp({
       // A store that was never captured is explained by the capture strip, with the choice to fill it.
       return capture?.store.state === 'notCaptured' ? undefined : t.noRows;
     }
+    if (shownRows.length === 0) {
+      return [t.onlySystem, hasMore ? t.noMatchMore : ''].filter(Boolean).join(' ');
+    }
     if (visibleRows.length === 0) {
       return [fillTemplate(t.noMatch, { count: rows.length }), hasMore ? t.noMatchMore : ''].filter(Boolean).join(' ');
     }
@@ -259,6 +272,9 @@ export function CustomLogsApp({
         filters={filters}
         onFilterChange={onFilterChange}
         onClearFilters={() => setServerFilterAndPost({})}
+        systemCount={systemCount}
+        showSystem={showSystem}
+        onShowSystemChange={workbench.setShowSystem}
         loading={loading}
         showOpenInEditor={surface !== 'editor'}
         onRefresh={() => post({ type: 'customLogsRefresh' })}
@@ -333,6 +349,7 @@ export function CustomLogsApp({
               <CustomLogRowDetail
                 t={t}
                 row={selectedRow}
+                logColumns={logColumns}
                 dock={dock}
                 columns={activeColumns}
                 lockedColumns={lockedColumns}
@@ -345,21 +362,24 @@ export function CustomLogsApp({
           </div>
           <CustomLogsStatusBar
             t={t}
-            scope={
+            scope={[
               terms.length > 0
-                ? [
-                    fillTemplate(t.status.searching, {
-                      matches: formatCount(visibleRows.length, locale),
-                      loaded: formatCount(rows.length, locale)
-                    }),
-                    hasMore && visibleRows.length < rows.length ? t.status.searchMore : ''
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')
+                ? fillTemplate(t.status.searching, {
+                    matches: formatCount(visibleRows.length, locale),
+                    loaded: formatCount(rows.length, locale)
+                  })
                 : rows.length === 1
                   ? t.status.rowsLoadedOne
-                  : fillTemplate(t.status.rowsLoaded, { count: formatCount(rows.length, locale) })
-            }
+                  : fillTemplate(t.status.rowsLoaded, { count: formatCount(rows.length, locale) }),
+              hiddenSystem === 0
+                ? ''
+                : hiddenSystem === 1
+                  ? t.status.systemHiddenOne
+                  : fillTemplate(t.status.systemHidden, { count: formatCount(hiddenSystem, locale) }),
+              terms.length > 0 && hasMore && visibleRows.length < rows.length ? t.status.searchMore : ''
+            ]
+              .filter(Boolean)
+              .join(' · ')}
             payloadInUse={workbench.payloadInUse}
             hint={capture ? t.status.hintStored : t.status.hint}
             payloadStates={payloadStates}

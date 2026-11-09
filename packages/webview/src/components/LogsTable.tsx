@@ -106,16 +106,17 @@ export function LogsTable({
     [rows, logHead, matchSnippets, columns, locale, t, onOpen, onReplay, gridTemplate, minWidthPx]
   );
 
-  // Header follows the horizontal scroll; overscan adapts to scroll velocity
   useEffect(() => {
     const el = listElement;
-    if (!el) return;
-    syncHeaderScroll(el, headerRef.current);
+    const header = headerRef.current;
+    if (!el || !header) return;
+    syncHeaderScroll(el, header);
+    const onHeaderScroll = () => syncHeaderScroll(header, el);
     const onScroll = () => {
       const now = performance.now();
       const dt = now - (overscanLastTsRef.current || now);
       const dy = Math.abs(el.scrollTop - (overscanLastTopRef.current || 0));
-      syncHeaderScroll(el, headerRef.current);
+      syncHeaderScroll(el, header);
       if (dt > 16) {
         const v = dy / dt; // px per ms
         let next = overscanBaseRef.current;
@@ -139,7 +140,11 @@ export function LogsTable({
       overscanLastTopRef.current = el.scrollTop;
     };
     el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
+    header.addEventListener('scroll', onHeaderScroll, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      header.removeEventListener('scroll', onHeaderScroll);
+    };
   }, [listElement]);
 
   return (

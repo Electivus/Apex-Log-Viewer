@@ -11,7 +11,7 @@
  */
 
 import {
-  parseCustomLogPayloadColumns,
+  parseCustomLogPayloadPath,
   parseCustomLogRowId,
   type CustomLogApexLogLink,
   type CustomLogColumn,
@@ -41,7 +41,8 @@ export type CustomLogViewerFromWebviewMessage =
   | { type: 'customLogViewerCopyField'; target: CustomLogViewerFieldTarget }
   /** No id: the panel opens the link it holds, so the webview cannot ask for an arbitrary ApexLog. */
   | { type: 'customLogViewerOpenApexLog' }
-  | { type: 'customLogViewerSetPayloadColumns'; added: string[] }
+  /** Shows or hides one JSON column the workspace added for the source. The panel's list shares the stored list. */
+  | { type: 'customLogViewerShowPayloadColumn'; path: string; shown: boolean }
   /** For short values the webview shows whole, such as the transaction and request ids. */
   | { type: 'customLogViewerCopyText'; text: string };
 
@@ -118,9 +119,11 @@ export function parseCustomLogViewerFromWebviewMessage(raw: unknown): CustomLogV
       const target = parseFieldTarget(message.target);
       return target ? { type: message.type, target } : undefined;
     }
-    case 'customLogViewerSetPayloadColumns': {
-      const added = parseCustomLogPayloadColumns(message.added);
-      return added ? { type: 'customLogViewerSetPayloadColumns', added } : undefined;
+    case 'customLogViewerShowPayloadColumn': {
+      const path = parseCustomLogPayloadPath(message.path);
+      return path && typeof message.shown === 'boolean'
+        ? { type: 'customLogViewerShowPayloadColumn', path, shown: message.shown }
+        : undefined;
     }
     case 'customLogViewerCopyText': {
       const text = parseString(message.text, MAX_CLIPBOARD_COPY_TEXT_LENGTH);

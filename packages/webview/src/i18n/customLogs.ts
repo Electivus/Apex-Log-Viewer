@@ -11,6 +11,7 @@ export type CustomLogsMessages = {
   noRows: string;
   noMatch: string;
   noMatchMore: string;
+  onlySystem: string;
   search: {
     label: string;
     placeholder: string;
@@ -29,16 +30,16 @@ export type CustomLogsMessages = {
     note: string;
     noteStored: string;
     clear: string;
+    showSystem: string;
   };
   columns: {
     time: string;
     level: string;
     title: string;
+    origin: string;
     user: string;
-    counts: string;
-    entries: string;
-    errors: string;
-    warnings: string;
+    log: string;
+    logField: string;
   };
   table: {
     aria: string;
@@ -92,12 +93,19 @@ export type CustomLogsMessages = {
     requestId: string;
     user: string;
     time: string;
+    origin: string;
+    log: string;
+    logStart: string;
+    logLevel: string;
+    logEntries: string;
   };
   status: {
     rowsLoaded: string;
     rowsLoadedOne: string;
     searching: string;
     searchMore: string;
+    systemHidden: string;
+    systemHiddenOne: string;
     hint: string;
     hintStored: string;
     invalidCount: string;
@@ -235,6 +243,7 @@ export const customLogsEn: CustomLogsMessages = {
   noRows: 'No logs found for this source and these filters.',
   noMatch: 'No loaded row matches. Only {count} rows are loaded.',
   noMatchMore: 'Use Load more to widen the search.',
+  onlySystem: 'Only logger system messages are loaded. Turn on Show logger system messages in Filters to list them.',
   search: {
     label: 'Search loaded rows',
     placeholder: 'Search loaded rows   ( / to focus )',
@@ -252,17 +261,17 @@ export const customLogsEn: CustomLogsMessages = {
     timeQuick: { '1h': 'Last hour', '24h': 'Last 24 hours', '7d': 'Last 7 days' },
     note: 'Runs in Salesforce: changes the query and reloads the list.',
     noteStored: 'Runs over the stored events: changes the list without asking Salesforce.',
-    clear: 'Clear filters'
+    clear: 'Clear filters',
+    showSystem: 'Show logger system messages'
   },
   columns: {
     time: 'Time',
     level: 'Level',
-    title: 'Title',
+    title: 'Message',
+    origin: 'Origin',
     user: 'User',
-    counts: 'Entries',
-    entries: 'entries',
-    errors: 'errors',
-    warnings: 'warnings'
+    log: 'Log',
+    logField: 'Log: {label}'
   },
   table: {
     aria: 'Custom logs',
@@ -317,13 +326,20 @@ export const customLogsEn: CustomLogsMessages = {
     transactionId: 'Transaction',
     requestId: 'Request',
     user: 'User',
-    time: 'Time'
+    time: 'Time',
+    origin: 'Origin',
+    log: 'Log',
+    logStart: 'Started',
+    logLevel: 'Worst level',
+    logEntries: 'Entries'
   },
   status: {
     rowsLoaded: '{count} rows loaded',
     rowsLoadedOne: '1 row loaded',
     searching: '{matches} of {loaded} loaded rows match',
     searchMore: 'Load more to search older rows',
+    systemHidden: '{count} logger system messages hidden',
+    systemHiddenOne: '1 logger system message hidden',
     hint: 'Search, JSON columns and sorts only see rows already loaded (SOQL cannot search long text).',
     hintStored: 'Search, JSON columns and sorts only see rows already loaded.',
     invalidCount: '{count} invalid JSON',
@@ -473,6 +489,8 @@ export const customLogsPtBR: CustomLogsMessages = {
   noRows: 'Nenhum log encontrado para esta fonte e estes filtros.',
   noMatch: 'Nenhuma linha carregada corresponde. Só {count} linhas estão carregadas.',
   noMatchMore: 'Use Carregar mais para ampliar a busca.',
+  onlySystem:
+    'Só há mensagens de sistema do logger carregadas. Ative Mostrar mensagens de sistema do logger em Filtros para listá-las.',
   search: {
     label: 'Buscar nas linhas carregadas',
     placeholder: 'Buscar nas linhas carregadas   ( / para focar )',
@@ -490,17 +508,17 @@ export const customLogsPtBR: CustomLogsMessages = {
     timeQuick: { '1h': 'Última hora', '24h': 'Últimas 24 horas', '7d': 'Últimos 7 dias' },
     note: 'Roda no Salesforce: muda a consulta e recarrega a lista.',
     noteStored: 'Roda sobre os eventos armazenados: muda a lista sem consultar o Salesforce.',
-    clear: 'Limpar filtros'
+    clear: 'Limpar filtros',
+    showSystem: 'Mostrar mensagens de sistema do logger'
   },
   columns: {
     time: 'Hora',
     level: 'Nível',
-    title: 'Título',
+    title: 'Mensagem',
+    origin: 'Origem',
     user: 'Usuário',
-    counts: 'Entradas',
-    entries: 'entradas',
-    errors: 'erros',
-    warnings: 'avisos'
+    log: 'Log',
+    logField: 'Log: {label}'
   },
   table: {
     aria: 'Logs personalizados',
@@ -555,13 +573,20 @@ export const customLogsPtBR: CustomLogsMessages = {
     transactionId: 'Transação',
     requestId: 'Requisição',
     user: 'Usuário',
-    time: 'Hora'
+    time: 'Hora',
+    origin: 'Origem',
+    log: 'Log',
+    logStart: 'Início',
+    logLevel: 'Nível mais grave',
+    logEntries: 'Entradas'
   },
   status: {
     rowsLoaded: '{count} linhas carregadas',
     rowsLoadedOne: '1 linha carregada',
     searching: '{matches} de {loaded} linhas carregadas correspondem',
     searchMore: 'Carregue mais para buscar linhas mais antigas',
+    systemHidden: '{count} mensagens de sistema do logger ocultas',
+    systemHiddenOne: '1 mensagem de sistema do logger oculta',
     hint: 'A busca, as colunas JSON e as ordenações só enxergam as linhas já carregadas (o SOQL não busca texto longo).',
     hintStored: 'A busca, as colunas JSON e as ordenações só enxergam as linhas já carregadas.',
     invalidCount: '{count} JSON inválido',

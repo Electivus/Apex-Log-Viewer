@@ -28,6 +28,9 @@ type CustomLogsToolbarProps = {
   filters: FilterMenuModel;
   onFilterChange: (key: FilterKey, value: string) => void;
   onClearFilters: () => void;
+  systemCount: number;
+  showSystem: boolean;
+  onShowSystemChange: (value: boolean) => void;
   loading: boolean;
   showOpenInEditor: boolean;
   onRefresh: () => void;
@@ -50,6 +53,9 @@ export function CustomLogsToolbar({
   filters,
   onFilterChange,
   onClearFilters,
+  systemCount,
+  showSystem,
+  onShowSystemChange,
   loading,
   showOpenInEditor,
   onRefresh,
@@ -86,7 +92,15 @@ export function CustomLogsToolbar({
         clearLabel={t.search.clear}
         className="min-w-[180px] max-w-[360px] flex-1"
       />
-      <CustomLogsFilters t={t} model={filters} onChange={onFilterChange} onClear={onClearFilters} />
+      <CustomLogsFilters
+        t={t}
+        model={filters}
+        onChange={onFilterChange}
+        onClear={onClearFilters}
+        systemCount={systemCount}
+        showSystem={showSystem}
+        onShowSystemChange={onShowSystemChange}
+      />
       <span className="flex-1" />
       <Button
         type="button"

@@ -68,6 +68,7 @@ export class CustomLogViewerPanel {
   }
 
   private readonly panel: vscode.WebviewPanel;
+  private readonly columnsSubscription: vscode.Disposable;
   private readonly logService = new LogService();
   private ready = false;
   private disposed = false;
@@ -104,6 +105,14 @@ export class CustomLogViewerPanel {
     );
     this.panel.onDidDispose(() => this.dispose());
     this.panel.webview.onDidReceiveMessage(message => this.onMessage(message));
+    this.columnsSubscription = payloadColumns.onDidChange(sourceId => {
+      if (sourceId === this.options.sourceId) {
+        this.post({
+          type: 'customLogViewerPayloadColumns',
+          value: this.payloadColumns.read(sourceId, this.options.payloadDefaults)
+        });
+      }
+    });
     context.subscriptions.push(this.panel);
     logInfo('CustomLogViewerPanel: created panel for', options.logId);
   }
@@ -137,8 +146,8 @@ export class CustomLogViewerPanel {
       case 'customLogViewerOpenApexLog':
         await this.openApexLog();
         break;
-      case 'customLogViewerSetPayloadColumns':
-        await this.setPayloadColumns(message.added);
+      case 'customLogViewerShowPayloadColumn':
+        await this.showPayloadColumn(message.path, message.shown);
         break;
       case 'customLogViewerCopyText':
         await this.copyText(message.text);
@@ -202,7 +211,7 @@ export class CustomLogViewerPanel {
         log: detail.log,
         ...(header ? { logPayload: header.view } : {}),
         entryColumns: detail.entryColumns,
-        payloadColumns: this.payloadColumns.read(this.options.sourceId, 'entry', this.options.payloadDefaults),
+        payloadColumns: this.payloadColumns.read(this.options.sourceId, this.options.payloadDefaults),
         apexLog: detail.apexLog
       });
       this.post({
@@ -362,9 +371,9 @@ export class CustomLogViewerPanel {
     }
   }
 
-  private async setPayloadColumns(added: string[]): Promise<void> {
-    await this.payloadColumns.write(this.options.sourceId, 'entry', added);
-    const value = this.payloadColumns.read(this.options.sourceId, 'entry', this.options.payloadDefaults);
+  private async showPayloadColumn(path: string, shown: boolean): Promise<void> {
+    await this.payloadColumns.show(this.options.sourceId, path, shown);
+    const value = this.payloadColumns.read(this.options.sourceId, this.options.payloadDefaults);
     this.post({ type: 'customLogViewerPayloadColumns', value });
     safeSendEvent('customLogs.payloadColumns', { outcome: 'ok', level: 'entry' }, { count: value.added.length });
   }
@@ -411,6 +420,7 @@ export class CustomLogViewerPanel {
       return;
     }
     this.disposed = true;
+    this.columnsSubscription.dispose();
     this.loadController?.abort();
     this.forget();
   }
