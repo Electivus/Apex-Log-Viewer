@@ -68,6 +68,7 @@ export class CustomLogViewerPanel {
   }
 
   private readonly panel: vscode.WebviewPanel;
+  private readonly columnsSubscription: vscode.Disposable;
   private readonly logService = new LogService();
   private ready = false;
   private disposed = false;
@@ -104,6 +105,14 @@ export class CustomLogViewerPanel {
     );
     this.panel.onDidDispose(() => this.dispose());
     this.panel.webview.onDidReceiveMessage(message => this.onMessage(message));
+    this.columnsSubscription = payloadColumns.onDidChange(sourceId => {
+      if (sourceId === this.options.sourceId) {
+        this.post({
+          type: 'customLogViewerPayloadColumns',
+          value: this.payloadColumns.read(sourceId, this.options.payloadDefaults)
+        });
+      }
+    });
     context.subscriptions.push(this.panel);
     logInfo('CustomLogViewerPanel: created panel for', options.logId);
   }
@@ -411,6 +420,7 @@ export class CustomLogViewerPanel {
       return;
     }
     this.disposed = true;
+    this.columnsSubscription.dispose();
     this.loadController?.abort();
     this.forget();
   }

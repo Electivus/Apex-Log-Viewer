@@ -647,6 +647,111 @@ suite('Custom Logs view provider', () => {
   });
 
   suite('JSON columns', () => {
+    test('replays column changes received while hidden or awaiting webview readiness without reloading', async () => {
+      const { provider, create, clock, fake, mount } = load();
+      const first = new FakeHost();
+      const second = new FakeHost();
+      await mount(first);
+      await mount(second, 1, create());
+      await first.emit({ type: 'customLogsSelectSource', sourceId: 'app-log' });
+      await second.emit({ type: 'customLogsSelectSource', sourceId: 'app-log' });
+      const reads = fake.calls.customLogList.length;
+      first.visible = false;
+      first.webview.postMessage = async () => false;
+      first.clear();
+
+      await second.emit({ type: 'customLogsShowPayloadColumn', path: 'http.status', shown: true });
+      assert.deepEqual(first.posted, []);
+      const returned = new FakeHost();
+      await mount(returned, 2);
+      assert.deepEqual(returned.last('customLogsPayloadColumns')?.value, {
+        defaults: ['orderId'],
+        added: ['http.status']
+      });
+
+      const unready = new FakeHost();
+      provider.resolveWebviewView(unready as never);
+      await clock.advanceBy(WEBVIEW_SESSION_MOUNT_DELAY_MS);
+      await second.emit({ type: 'customLogsShowPayloadColumn', path: 'http.status', shown: false });
+      assert.deepEqual(unready.posted, []);
+      await unready.emit({ type: 'customLogsReady', mountSequence: 3 });
+      assert.deepEqual(unready.last('customLogsPayloadColumns')?.value, { defaults: ['orderId'], added: [] });
+      assert.equal(fake.calls.customLogList.length, reads);
+    });
+
+    test('acknowledges with current mapping defaults after persistence finishes', async () => {
+      const { provider, fake, memento, mount } = load();
+      const host = new FakeHost();
+      await mount(host);
+      await host.emit({ type: 'customLogsSelectSource', sourceId: 'app-log' });
+      let release!: () => void;
+      const persisted = new Promise<void>(resolve => (release = resolve));
+      memento.update = (key, value) => {
+        memento.values.set(key, value);
+        return persisted;
+      };
+
+      const changed = host.emit({ type: 'customLogsShowPayloadColumn', path: 'http.status', shown: true });
+      await settle();
+      fake.handlers.customLogSources = async () => ({
+        sources: [{ ...APP_LOG, payload: { entry: { field: 'Payload__c', columns: ['http.status'] } } }],
+        issues: []
+      });
+      await provider.onProjectConfigChanged();
+      host.clear();
+      release();
+      await changed;
+
+      const columns = host.ofType('customLogsPayloadColumns');
+      assert.ok(columns.length > 0);
+      for (const message of columns) {
+        assert.deepEqual(message.value, { defaults: ['http.status'], added: [] });
+      }
+    });
+
+    test('does not acknowledge columns for a source left while persistence was pending', async () => {
+      const { memento, mount } = load();
+      const host = new FakeHost();
+      await mount(host);
+      await host.emit({ type: 'customLogsSelectSource', sourceId: 'app-log' });
+      let release!: () => void;
+      const persisted = new Promise<void>(resolve => (release = resolve));
+      memento.update = (key, value) => {
+        memento.values.set(key, value);
+        return persisted;
+      };
+
+      const changed = host.emit({ type: 'customLogsShowPayloadColumn', path: 'http.status', shown: true });
+      await settle();
+      await host.emit({ type: 'customLogsSelectSource', sourceId: 'nebula' });
+      host.clear();
+      release();
+      await changed;
+
+      assert.deepEqual(host.ofType('customLogsPayloadColumns'), []);
+    });
+
+    test('updates an already-open list when another list changes its JSON columns', async () => {
+      const { create, mount } = load();
+      const first = new FakeHost();
+      const second = new FakeHost();
+      await mount(first);
+      await mount(second, 1, create());
+      await first.emit({ type: 'customLogsSelectSource', sourceId: 'app-log' });
+      await second.emit({ type: 'customLogsSelectSource', sourceId: 'app-log' });
+      second.clear();
+
+      await first.emit({ type: 'customLogsShowPayloadColumn', path: 'http.status', shown: true });
+
+      assert.deepEqual(second.last('customLogsPayloadColumns')?.value, {
+        defaults: ['orderId'],
+        added: ['http.status']
+      });
+      first.clear();
+      await second.emit({ type: 'customLogsShowPayloadColumn', path: 'http.status', shown: false });
+      assert.deepEqual(first.last('customLogsPayloadColumns')?.value, { defaults: ['orderId'], added: [] });
+    });
+
     test('stores what the user adds per source, never in the project, and sends the effective columns back', async () => {
       const { memento, mount } = load();
       const host = new FakeHost();

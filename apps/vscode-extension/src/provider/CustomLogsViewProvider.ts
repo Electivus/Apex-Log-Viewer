@@ -195,6 +195,14 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       onReady: () => this.bootstrapWebview(),
       onDiagnostic: diagnostic => this.webviewSurface.handleSessionDiagnostic(diagnostic)
     });
+    this.disposables.push(
+      this.payloadColumnsStore.onDidChange(sourceId => {
+        const source = this.selectedSource();
+        if (!this.disposed && source?.id === sourceId) {
+          this.post({ type: 'customLogsPayloadColumns', value: this.columnsFor(source) });
+        }
+      })
+    );
     this.disposables.push(onSfdxProjectFileChanged(() => void this.onProjectConfigChanged()));
     if (options.trackCapture) {
       this.disposables.push(options.trackCapture(this));
@@ -408,7 +416,11 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       return;
     }
     await this.payloadColumnsStore.show(source.id, path, shown);
-    const value = this.columnsFor(source);
+    const current = this.selectedSource();
+    if (this.disposed || current?.id !== source.id) {
+      return;
+    }
+    const value = this.columnsFor(current);
     this.post({ type: 'customLogsPayloadColumns', value });
     safeSendEvent('customLogs.payloadColumns', { outcome: 'ok', level: 'entry' }, { count: value.added.length });
   }

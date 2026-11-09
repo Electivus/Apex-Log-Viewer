@@ -17,13 +17,19 @@ export function useGridList<T extends { id: string }>(
   const headerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!element) {
+    const header = headerRef.current;
+    if (!element || !header) {
       return;
     }
-    const syncHeader = () => syncHeaderScroll(element, headerRef.current);
+    const syncHeader = () => syncHeaderScroll(element, header);
+    const syncBody = () => syncHeaderScroll(header, element);
     syncHeader();
     element.addEventListener('scroll', syncHeader, { passive: true });
-    return () => element.removeEventListener('scroll', syncHeader);
+    header.addEventListener('scroll', syncBody, { passive: true });
+    return () => {
+      element.removeEventListener('scroll', syncHeader);
+      header.removeEventListener('scroll', syncBody);
+    };
   }, [element]);
 
   const selectedIndex = items.findIndex(item => item.id === selectedId);

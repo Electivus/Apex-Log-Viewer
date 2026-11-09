@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import proxyquire from 'proxyquire';
+import * as payloadColumnsModule from '../../provider/customLogsPayloadColumns';
+import { WEBVIEW_SESSION_MOUNT_DELAY_MS } from '../../provider/webviewSession';
 
 import {
   APP_LOG,
@@ -11,9 +13,10 @@ import {
   entry,
   formatLocalized,
   row,
+  vscodeStub as sharedVscodeStub,
   type RecordedEvent
 } from '../customLogsTestSupport';
-import { settle } from '../webviewSessionTestSupport';
+import { FakeClock, createWebviewSessionForTest, settle } from '../webviewSessionTestSupport';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 
@@ -90,8 +93,9 @@ function load() {
     }
   };
 
-  const { CustomLogViewerPanel } = proxyquireStrict('../../panel/CustomLogViewerPanel', {
+  const stubs = {
     vscode: vscodeStub,
+    '../provider/customLogsPayloadColumns': payloadColumnsModule,
     '../host/utils/localize': {
       localize: (_key: string, message: string, ...args: Array<string | number>) => formatLocalized(message, ...args)
     },
@@ -116,7 +120,11 @@ function load() {
         events.push({ name, properties, measurements });
       }
     }
-  }) as typeof import('../../panel/CustomLogViewerPanel');
+  };
+  const { CustomLogViewerPanel } = proxyquireStrict(
+    '../../panel/CustomLogViewerPanel',
+    stubs
+  ) as typeof import('../../panel/CustomLogViewerPanel');
 
   CustomLogViewerPanel.initialize({ extensionUri: {}, subscriptions: [], workspaceState: memento } as never);
 
@@ -151,7 +159,39 @@ function load() {
     return host;
   }
 
-  return { CustomLogViewerPanel, fake, memento, events, documents, apexLogOpens, clipboard, panels, open };
+  async function openList() {
+    const clock = new FakeClock();
+    const { CustomLogsViewProvider } = proxyquireStrict('../../provider/CustomLogsViewProvider', {
+      ...stubs,
+      vscode: { ...vscodeStub, Disposable: sharedVscodeStub.Disposable },
+      './customLogsPayloadColumns': payloadColumnsModule,
+      '../panel/CustomLogViewerPanel': { CustomLogViewerPanel },
+      '../host/utils/orgManager': {
+        OrgManager: class {
+          async ensureProjectDefaultSelected() {}
+          getSelectedOrg() {
+            return undefined;
+          }
+        }
+      },
+      '../host/utils/workspace': {
+        findCustomLogsProjectDir: async () => '/project',
+        onSfdxProjectFileChanged: () => ({ dispose: () => undefined })
+      },
+      './webviewHost': { createWebviewViewHost: (view: unknown) => view },
+      './webviewSession': {
+        createWebviewSession: (options: never) => createWebviewSessionForTest(options, clock)
+      }
+    }) as typeof import('../../provider/CustomLogsViewProvider');
+    const provider = new CustomLogsViewProvider({ extensionUri: {}, workspaceState: memento } as never);
+    const host = new FakeHost();
+    provider.resolveWebviewView(host as never);
+    await clock.advanceBy(WEBVIEW_SESSION_MOUNT_DELAY_MS);
+    await host.emit({ type: 'customLogsReady', mountSequence: 1 });
+    return { host, provider };
+  }
+
+  return { CustomLogViewerPanel, fake, memento, events, documents, apexLogOpens, clipboard, panels, open, openList };
 }
 
 const textOf = (host: FakeHost) => JSON.stringify(host.posted);
@@ -444,6 +484,136 @@ suite('Custom Logs viewer panel', () => {
   });
 
   suite('JSON columns and clipboard', () => {
+    test('acknowledges unchanged and over-limit requests to reconcile either originating webview', async () => {
+      const { open, openList, memento } = load();
+      const added = Array.from({ length: 50 }, (_, index) => `path${index}`);
+      memento.values.set(STATE_KEY, { 'entry:nebula': added });
+      const list = await openList();
+      const viewer = await open();
+
+      for (const [host, request, response] of [
+        [list.host, 'customLogsShowPayloadColumn', 'customLogsPayloadColumns'],
+        [viewer, 'customLogViewerShowPayloadColumn', 'customLogViewerPayloadColumns']
+      ] as const) {
+        for (const path of ['path0', 'overflow']) {
+          list.host.clear();
+          viewer.clear();
+          await host.emit({ type: request, path, shown: true });
+          assert.deepEqual(host.ofType(response), [{ type: response, value: { defaults: ['orderId'], added } }]);
+          assert.deepEqual((host === viewer ? list.host : viewer).posted, []);
+        }
+      }
+      list.provider.dispose();
+    });
+
+    test('disposing a list or viewer leaves the remaining viewers subscribed', async () => {
+      const { open, openList, memento } = load();
+      const list = await openList();
+      const closed = await open();
+      const remaining = await open({ logId: 'a02000000000002AAA' });
+      let release!: () => void;
+      const persisted = new Promise<void>(resolve => (release = resolve));
+      memento.update = (key, value) => {
+        memento.values.set(key, value);
+        return persisted;
+      };
+
+      const changed = list.host.emit({ type: 'customLogsShowPayloadColumn', path: 'traceId', shown: true });
+      await settle();
+      list.provider.dispose();
+      closed.dispose();
+      list.host.clear();
+      closed.clear();
+      remaining.clear();
+      release();
+      await changed;
+
+      assert.deepEqual(list.host.posted, []);
+      assert.deepEqual(closed.posted, []);
+      assert.deepEqual(remaining.last('customLogViewerPayloadColumns')?.value, {
+        defaults: ['orderId'],
+        added: ['traceId']
+      });
+      const reopened = await open();
+      await remaining.emit({ type: 'customLogViewerShowPayloadColumn', path: 'traceId', shown: false });
+      assert.deepEqual(reopened.last('customLogViewerPayloadColumns')?.value, { defaults: ['orderId'], added: [] });
+    });
+
+    test('initializes with current columns after changes before readiness and during the load', async () => {
+      const { CustomLogViewerPanel, panels, fake, memento } = load();
+      const store = payloadColumnsModule.createPayloadColumnsStore(memento);
+      await CustomLogViewerPanel.show({ sourceId: 'nebula', logId: LOG_ID, payloadDefaults: ['orderId'] });
+      const host = panels[0]!.host;
+      await store.show('nebula', 'http.status', true);
+      assert.deepEqual(host.posted, []);
+      const get = fake.handlers.customLogGet;
+      let release!: () => void;
+      const held = new Promise<void>(resolve => (release = resolve));
+      fake.handlers.customLogGet = async params => {
+        await held;
+        return get(params);
+      };
+
+      const ready = host.emit({ type: 'customLogViewerReady' });
+      await settle();
+      await store.show('nebula', 'http.status', false);
+      await store.show('nebula', 'traceId', true);
+      release();
+      await ready;
+
+      assert.deepEqual(host.last('customLogViewerInit')?.payloadColumns, {
+        defaults: ['orderId'],
+        added: ['traceId']
+      });
+    });
+
+    test('shares column changes between the real list provider and transaction viewer in both directions', async () => {
+      const { open, openList, fake } = load();
+      const list = await openList();
+      const viewer = await open();
+      list.host.clear();
+      viewer.clear();
+      const reads = [fake.calls.customLogList.length, fake.calls.customLogGet.length];
+
+      await list.host.emit({ type: 'customLogsShowPayloadColumn', path: 'http.status', shown: true });
+      assert.deepEqual(viewer.last('customLogViewerPayloadColumns')?.value, {
+        defaults: ['orderId'],
+        added: ['http.status']
+      });
+      list.host.clear();
+      await viewer.emit({ type: 'customLogViewerShowPayloadColumn', path: 'http.status', shown: false });
+      assert.deepEqual(list.host.last('customLogsPayloadColumns')?.value, { defaults: ['orderId'], added: [] });
+      assert.deepEqual([fake.calls.customLogList.length, fake.calls.customLogGet.length], reads);
+      list.provider.dispose();
+    });
+
+    test('updates the other open viewers of the same source without a refresh', async () => {
+      const { open, fake } = load();
+      const first = await open();
+      const second = await open({ logId: 'a02000000000002AAA', payloadDefaults: ['http.status'] });
+      const otherSource = await open({ sourceId: 'app-log' });
+      second.visible = false;
+      second.clear();
+      otherSource.clear();
+      const reads = fake.calls.customLogGet.length;
+
+      await first.emit({ type: 'customLogViewerShowPayloadColumn', path: 'http.status', shown: true });
+      await first.emit({ type: 'customLogViewerShowPayloadColumn', path: 'traceId', shown: true });
+
+      assert.deepEqual(second.last('customLogViewerPayloadColumns')?.value, {
+        defaults: ['http.status'],
+        added: ['traceId']
+      });
+      assert.deepEqual(otherSource.posted, []);
+      first.clear();
+      await second.emit({ type: 'customLogViewerShowPayloadColumn', path: 'traceId', shown: false });
+      assert.deepEqual(first.last('customLogViewerPayloadColumns')?.value, {
+        defaults: ['orderId'],
+        added: ['http.status']
+      });
+      assert.equal(fake.calls.customLogGet.length, reads);
+    });
+
     test("stores the columns the user adds for the source's entries and answers with the effective list", async () => {
       const { memento, open } = load();
       const host = await open();
