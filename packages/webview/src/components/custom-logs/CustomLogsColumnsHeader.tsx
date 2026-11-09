@@ -41,7 +41,6 @@ type CustomLogsColumnsHeaderProps = {
   onSort: (columnId: string, dir?: 'asc' | 'desc') => void;
   onToggleColumn: (path: string) => void;
   onRemoveColumn: (path: string) => void;
-  onFilterBy: (path: string) => void;
   headerRef?: React.Ref<HTMLDivElement>;
 };
 
@@ -59,7 +58,6 @@ export function CustomLogsColumnsHeader({
   onSort,
   onToggleColumn,
   onRemoveColumn,
-  onFilterBy,
   headerRef
 }: CustomLogsColumnsHeaderProps) {
   return (
@@ -124,7 +122,6 @@ export function CustomLogsColumnsHeader({
                   column={column.path}
                   locked={column.locked}
                   onSort={dir => onSort(column.id, dir)}
-                  onFilter={() => onFilterBy(column.path)}
                   onRemove={() => onRemoveColumn(column.path)}
                 />
               ) : null}

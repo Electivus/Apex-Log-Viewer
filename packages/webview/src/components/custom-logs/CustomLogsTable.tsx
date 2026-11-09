@@ -32,7 +32,6 @@ type CustomLogsTableProps = {
   onOpen: (row: CustomLogRow) => void;
   onToggleColumn: (path: string) => void;
   onRemoveColumn: (path: string) => void;
-  onFilterBy: (path: string) => void;
   virtualListComponent?: typeof List;
 };
 
@@ -160,7 +159,6 @@ export function CustomLogsTable({
   onOpen,
   onToggleColumn,
   onRemoveColumn,
-  onFilterBy,
   virtualListComponent
 }: CustomLogsTableProps) {
   const VirtualList = virtualListComponent ?? List;
@@ -198,7 +196,6 @@ export function CustomLogsTable({
         onSort={onSort}
         onToggleColumn={onToggleColumn}
         onRemoveColumn={onRemoveColumn}
-        onFilterBy={onFilterBy}
       />
       <div className="relative min-h-0 flex-1">
         <VirtualList

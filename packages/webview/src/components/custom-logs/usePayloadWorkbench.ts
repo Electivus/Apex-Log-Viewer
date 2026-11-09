@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useMemo, useState } from 'react';
 import type {
   CustomLogPayloadColumnsView,
   CustomLogPayloadField,
@@ -6,21 +6,14 @@ import type {
 } from '@alv/protocol/customLogsTypes';
 import type { SortState } from '../../utils/customLogs/columns';
 import {
-  filterConditionsEqual,
-  formatFilterCondition,
-  formatFilterField,
-  formatFilterValue,
-  type FilterClause
-} from '../../utils/customLogs/filterGrammar';
-import {
   discoverPayloadFields,
   resolvePayloadColumns,
   sortLoadedRows,
   type DiscoveredField,
   type PayloadColumn
 } from '../../utils/customLogs/payloadRows';
+import { parseSearch } from '../../utils/customLogs/search';
 import type { PayloadUiState } from '../../utils/customLogs/uiState';
-import type { FilterBarPrefill, FilterChip } from './CustomLogsFilterBar';
 
 export type PayloadWorkbenchOptions<Column extends { id: string }> = {
   initial: PayloadUiState;
@@ -35,9 +28,8 @@ export type PayloadWorkbenchOptions<Column extends { id: string }> = {
 };
 
 /**
- * What the list and the entry viewer share around a JSON payload: the discovered paths, the columns built
- * from them, the loaded-rows filters, the sort, and the prefill the filter bar takes from a column menu.
- * Each app keeps its own items, standard columns and server-side concerns.
+ * What the list and the entry viewer share over their loaded items: the search, the JSON paths and the
+ * columns built from them, and the sort. Each app keeps its own items, standard columns and server-side concerns.
  */
 export function usePayloadWorkbench<Column extends { id: string }>({
   initial,
@@ -47,11 +39,12 @@ export function usePayloadWorkbench<Column extends { id: string }>({
   onAddedColumns,
   buildColumns
 }: PayloadWorkbenchOptions<Column>) {
-  const [payloadFilters, setPayloadFilters] = useState<FilterClause[]>(initial.payloadFilters);
+  const [search, setSearch] = useState(initial.search);
   const [sort, setSort] = useState<SortState | undefined>(initial.sort);
   const [hiddenDefaults, setHiddenDefaults] = useState<string[]>(initial.hiddenDefaults);
-  const [prefill, setPrefill] = useState<FilterBarPrefill | undefined>(undefined);
-  const prefillNonce = useRef(0);
+  // Typing stays responsive over thousands of rows: React matches the last query while the input moves on.
+  const deferredSearch = useDeferredValue(search);
+  const terms = useMemo(() => parseSearch(deferredSearch), [deferredSearch]);
 
   const discovered = useMemo(() => discoverPayloadFields(payloadFields, itemCount), [payloadFields, itemCount]);
   const payloadColumns = useMemo(
@@ -69,49 +62,7 @@ export function usePayloadWorkbench<Column extends { id: string }>({
   const sortColumn = sort ? columns.find(column => column.id === sort.columnId) : undefined;
   const appliedSort = sortColumn ? sort : undefined;
 
-  const uiState = useMemo<PayloadUiState>(
-    () => ({ payloadFilters, sort, hiddenDefaults }),
-    [hiddenDefaults, payloadFilters, sort]
-  );
-
-  const addPayloadFilters = useCallback((clauses: readonly FilterClause[]) => {
-    setPayloadFilters(previous => {
-      const next = [...previous];
-      for (const clause of clauses) {
-        if (!next.some(existing => filterConditionsEqual(existing, clause))) {
-          next.push(clause);
-        }
-      }
-      return next.length === previous.length ? previous : next;
-    });
-  }, []);
-
-  const filterEqual = useCallback(
-    (path: string, value: CustomLogScalar) =>
-      addPayloadFilters([{ field: path, op: '=', value: value === null ? 'null' : String(value) }]),
-    [addPayloadFilters]
-  );
-
-  const loadedChips = useMemo<FilterChip[]>(
-    () =>
-      payloadFilters.map((clause, index) => {
-        const remove = () => setPayloadFilters(previous => previous.filter((_, position) => position !== index));
-        return {
-          key: `loaded-${index}-${formatFilterCondition(clause, 'payload')}`,
-          scope: 'loaded' as const,
-          text: formatFilterCondition(clause, 'payload'),
-          field: formatFilterField(clause.field, 'payload'),
-          op: clause.op,
-          ...(clause.value === undefined ? {} : { value: formatFilterValue(clause.value) }),
-          onRemove: remove,
-          onEdit: () => {
-            remove();
-            return formatFilterCondition(clause, 'payload');
-          }
-        };
-      }),
-    [payloadFilters]
-  );
+  const uiState = useMemo<PayloadUiState>(() => ({ search, sort, hiddenDefaults }), [hiddenDefaults, search, sort]);
 
   const toggleColumn = useCallback(
     (path: string) => {
@@ -152,20 +103,14 @@ export function usePayloadWorkbench<Column extends { id: string }>({
   }, []);
 
   const sortItems = useCallback(
-    <T>(items: T[], valueOf: (item: T, column: Column) => CustomLogScalar | undefined): T[] =>
+    <T>(items: readonly T[], valueOf: (item: T, column: Column) => CustomLogScalar | undefined): readonly T[] =>
       sort && sortColumn ? sortLoadedRows(items, item => valueOf(item, sortColumn), sort.dir) : items,
     [sort, sortColumn]
   );
 
-  /** Moves the filter bar to `path`, written as the grammar reads it back, ready for an operator. */
-  const prefillFilterField = useCallback((path: string) => {
-    prefillNonce.current += 1;
-    setPrefill({ text: `${formatFilterField(path, 'payload')} `, nonce: prefillNonce.current });
-  }, []);
-
-  /** A different org or source: its rows have nothing to do with these filters, sort or hidden columns. */
+  /** A different org or source: its rows have nothing to do with this search, sort or hidden columns. */
   const reset = useCallback(() => {
-    setPayloadFilters([]);
+    setSearch('');
     setSort(undefined);
     setHiddenDefaults([]);
   }, []);
@@ -176,19 +121,15 @@ export function usePayloadWorkbench<Column extends { id: string }>({
     activeColumns,
     lockedColumns,
     columns,
-    payloadFilters,
-    filtering: payloadFilters.length > 0,
-    payloadInUse: payloadFilters.length > 0 || payloadColumns.length > 0 || appliedSort !== undefined,
-    loadedChips,
-    addPayloadFilters,
-    filterEqual,
+    search,
+    setSearch,
+    terms,
+    payloadInUse: terms.length > 0 || payloadColumns.length > 0 || appliedSort !== undefined,
     sort: appliedSort,
     onSort,
     sortItems,
     toggleColumn,
     removeColumn,
-    prefill,
-    prefillFilterField,
     uiState,
     reset
   };

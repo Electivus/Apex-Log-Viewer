@@ -4,7 +4,7 @@ import { expect, test, type Frame, type Page } from '@playwright/test';
 import { runCommand, runCommandWhenAvailable } from '../utils/commandPalette';
 import {
   DOCS_CUSTOM_LOG_SOURCE,
-  DOCS_CUSTOM_LOGS_FILTER,
+  DOCS_CUSTOM_LOGS_SEARCH,
   DOCS_TAIL_ALERT_LINE,
   clearDocsCustomLogs,
   emitDocsTailLog,
@@ -391,11 +391,8 @@ test('captures README screenshots from a realistic scratch-org scenario', async 
     await expect
       .poll(async () => await customLogsFrame.locator('[data-row-id]').count(), { timeout: 180_000 })
       .toBeGreaterThan(1);
-    const customLogsFilter = customLogsFrame.getByRole('combobox', { name: 'Filter logs' });
-    await customLogsFilter.fill(DOCS_CUSTOM_LOGS_FILTER);
-    await customLogsFilter.press('Enter');
-    await customLogsFilter.press('Escape');
-    await expect(customLogsFrame.locator('[data-testid="filter-chip"]', { hasText: 'http.status' })).toBeVisible({
+    await customLogsFrame.getByRole('searchbox', { name: 'Search loaded rows' }).fill(DOCS_CUSTOM_LOGS_SEARCH);
+    await expect(customLogsFrame.getByRole('status')).toContainText(/\d+ of \d+ loaded rows match/, {
       timeout: 60_000
     });
     await captureShot(vscodePage, customLogsFrame, docsShots.customLogs);

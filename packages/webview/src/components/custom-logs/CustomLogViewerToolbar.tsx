@@ -1,12 +1,11 @@
 import React, { useId } from 'react';
-import { Search } from 'lucide-react';
 import type { CustomLogLevel } from '@alv/protocol/customLogsTypes';
 import type { CustomLogsMessages } from '../../i18n';
 import { cn } from '../../lib/utils';
-import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
 import { LEVEL_COLOR } from './LevelBadge';
+import { SearchInput } from './SearchInput';
 
 type CustomLogViewerToolbarProps = {
   t: CustomLogsMessages;
@@ -79,20 +78,14 @@ export function CustomLogViewerToolbar({
   const systemId = useId();
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border px-4 py-1.5">
-      <div className="relative">
-        <Search
-          className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-          aria-hidden="true"
-        />
-        <Input
-          type="search"
-          value={search}
-          aria-label={t.viewer.search}
-          placeholder={t.viewer.search}
-          className="w-52 pl-7 text-xs"
-          onChange={event => onSearchChange(event.target.value)}
-        />
-      </div>
+      <SearchInput
+        value={search}
+        onChange={onSearchChange}
+        label={t.viewer.search}
+        placeholder={t.viewer.search}
+        clearLabel={t.search.clear}
+        className="w-64"
+      />
       {levels.length > 0 ? (
         <div role="group" aria-label={t.viewer.levelFilter} className="flex flex-wrap items-center gap-1">
           {levels.map(({ level, count }) => (

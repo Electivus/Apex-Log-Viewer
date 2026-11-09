@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  CUSTOM_LOG_LEVELS,
   type CustomLogColumn,
   type CustomLogConfigIssueView,
   type CustomLogPayloadField,
@@ -16,44 +15,16 @@ import { getMessages } from './i18n';
 import { CustomLogRowDetail } from './components/custom-logs/CustomLogRowDetail';
 import { CustomLogsCaptureStrip } from './components/custom-logs/CustomLogsCaptureStrip';
 import { CustomLogsConfigIssues, CustomLogsEmptyState } from './components/custom-logs/CustomLogsEmptyState';
-import { CustomLogsFilterBar, type FilterChip } from './components/custom-logs/CustomLogsFilterBar';
 import { CustomLogsStatusBar } from './components/custom-logs/CustomLogsStatusBar';
 import { CustomLogsTable } from './components/custom-logs/CustomLogsTable';
 import { CustomLogsToolbar } from './components/custom-logs/CustomLogsToolbar';
 import { usePayloadWorkbench } from './components/custom-logs/usePayloadWorkbench';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { buildTableColumns, columnSortValue } from './utils/customLogs/columns';
-import { describeParseError, describeServerError, type FilterSubmitResult } from './utils/customLogs/filterMessages';
-import {
-  formatFilterCondition,
-  formatFilterValue,
-  isServerFilterField,
-  parseFilterExpression,
-  serverFieldOf,
-  type FilterClause,
-  type FilterFieldKind,
-  type ServerFilterField
-} from './utils/customLogs/filterGrammar';
 import { fillTemplate, formatCount } from './utils/customLogs/format';
-import {
-  SINCE_QUICK_VALUES,
-  applyServerCondition,
-  clearServerFilter,
-  guidedPayloadFields,
-  matchesPrefix,
-  payloadValueSuggestions,
-  serverChips,
-  valueCountsToItems,
-  type GuidedField,
-  type GuidedItem
-} from './utils/customLogs/guidedFilter';
-import {
-  countPayloadStates,
-  filterLoadedRows,
-  topValues,
-  type DiscoveredField,
-  type PayloadColumn
-} from './utils/customLogs/payloadRows';
+import { countPayloadStates, type DiscoveredField, type PayloadColumn } from './utils/customLogs/payloadRows';
+import { rowSearchText, searchItems } from './utils/customLogs/search';
+import { filterMenuModel, withFilter, withUsersOf, type FilterKey } from './utils/customLogs/serverFilter';
 import { detailDock, readPayloadUiState, useElementHeight } from './utils/customLogs/uiState';
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
@@ -68,10 +39,6 @@ const NO_FIELDS: CustomLogPayloadField[] = [];
 
 function scopeKeyOf(org: string | undefined, sourceId: string | undefined): string | undefined {
   return org && sourceId ? `${org}|${sourceId}` : undefined;
-}
-
-function sameFilter(a: CustomLogsFilterView, b: CustomLogsFilterView): boolean {
-  return a.minLevel === b.minLevel && a.user === b.user && a.since === b.since;
 }
 
 function buildReadyMessage(): CustomLogsFromWebviewMessage {
@@ -173,16 +140,17 @@ export function CustomLogsApp({
     onAddedColumns,
     buildColumns
   });
-  const { discovered, activeColumns, lockedColumns, columns, payloadFilters, filtering } = workbench;
+  const { discovered, activeColumns, lockedColumns, columns, terms } = workbench;
 
   useEffect(() => {
     vscode.setState(workbench.uiState);
   }, [vscode, workbench.uiState]);
 
-  // The org and source the JSON filters, sort and selection belong to: a different one starts with none.
-  // The first org and source the host reports are not a change, so a restored webview keeps its saved filters.
+  // The org and source the search, sort, selection and Logged by users belong to: a different one starts with none.
+  // The first org and source the host reports are not a change, so a restored webview keeps its saved search.
   const scopeKey = scopeKeyOf(selectedOrg, selectedSourceId);
   const workbenchScope = useRef<string | undefined>(undefined);
+  const [seenUsers, setSeenUsers] = useState<readonly string[]>([]);
   useEffect(() => {
     if (scopeKey === undefined) {
       return;
@@ -190,30 +158,35 @@ export function CustomLogsApp({
     if (workbenchScope.current !== undefined && workbenchScope.current !== scopeKey) {
       workbench.reset();
       setSelectedId(undefined);
+      setSeenUsers([]);
     }
     workbenchScope.current = scopeKey;
   }, [scopeKey, workbench.reset]);
 
-  // A switch the user makes moves the workbench to the new source at once, so the JSON filters typed with it
-  // are added after the reset and survive the host's confirmation. The server filter typed with it travels in
-  // the same message, so the host queries the new source once, with that filter.
+  // Logged by offers the users of every page since the scope began, so picking one keeps the others. This runs
+  // after the reset above, so a page that lands with a scope change keeps its users. Rows of the old scope still
+  // on screen add none, because only a new page runs it.
+  useEffect(() => {
+    setSeenUsers(seen => withUsersOf(seen, rows));
+  }, [rows]);
+
+  // A switch the user makes moves the workbench to the new source at once, so a search typed while the host
+  // confirms it is kept.
   const selectSource = useCallback(
-    (sourceId: string, filter?: CustomLogsFilterView) => {
+    (sourceId: string) => {
       dispatch({ type: 'customLogsSources', data: sources, selected: sourceId, issues });
-      if (filter) {
-        dispatch({ type: 'customLogsFilter', value: filter });
-      }
-      post({ type: 'customLogsSelectSource', sourceId, ...(filter ? { filter } : {}) });
+      post({ type: 'customLogsSelectSource', sourceId });
       workbenchScope.current = scopeKeyOf(selectedOrg, sourceId);
       workbench.reset();
       setSelectedId(undefined);
+      setSeenUsers([]);
     },
     [issues, post, selectedOrg, sources, workbench.reset]
   );
 
   const visibleRows = useMemo(
-    () => workbench.sortItems(filterLoadedRows(rows, payloadFilters), columnSortValue),
-    [payloadFilters, rows, workbench.sortItems]
+    () => workbench.sortItems(searchItems(rows, terms, rowSearchText), columnSortValue),
+    [rows, terms, workbench.sortItems]
   );
 
   const selectedRow = useMemo(() => visibleRows.find(row => row.id === selectedId), [selectedId, visibleRows]);
@@ -230,124 +203,20 @@ export function CustomLogsApp({
     [post]
   );
 
-  const onSubmitFilter = useCallback(
-    (text: string): FilterSubmitResult => {
-      const parsed = parseFilterExpression(text);
-      if (!parsed.ok) {
-        return describeParseError(t.errors, parsed.error);
-      }
-      // A `source` clause decides which source the other clauses are checked against, so it goes first.
-      const conditions = [...parsed.conditions].sort(
-        (a, b) => Number(serverFieldOf(b) === 'source') - Number(serverFieldOf(a) === 'source')
-      );
-      let destination = selectedSource;
-      let workingFilter = serverFilter;
-      const clauses: FilterClause[] = [];
-      for (const condition of conditions) {
-        if (!serverFieldOf(condition)) {
-          clauses.push({
-            field: condition.field,
-            op: condition.op,
-            ...(condition.value === undefined ? {} : { value: condition.value })
-          });
-          continue;
-        }
-        const applied = applyServerCondition(condition, {
-          filter: workingFilter,
-          capabilities: destination?.capabilities ?? NO_CAPABILITIES,
-          sourceIds: readySources.map(source => source.id)
-        });
-        if (!applied.ok) {
-          return describeServerError(t.errors, applied.error);
-        }
-        if (applied.apply.kind === 'filter') {
-          workingFilter = applied.apply.filter;
-        } else {
-          const sourceId = applied.apply.sourceId;
-          destination = readySources.find(source => source.id === sourceId);
-        }
-      }
-      if (destination && destination.id !== selectedSourceId) {
-        selectSource(destination.id, workingFilter);
-      } else if (!sameFilter(workingFilter, serverFilter)) {
-        setServerFilterAndPost(workingFilter);
-      }
-      workbench.addPayloadFilters(clauses);
-      return { ok: true };
-    },
-    [
-      workbench.addPayloadFilters,
-      readySources,
-      selectSource,
-      selectedSource,
-      selectedSourceId,
-      serverFilter,
-      setServerFilterAndPost,
-      t.errors
-    ]
+  const filters = useMemo(
+    () =>
+      filterMenuModel({
+        filter: serverFilter,
+        capabilities,
+        users: seenUsers,
+        stored: capture !== undefined,
+        t: t.filters
+      }),
+    [capabilities, capture, seenUsers, serverFilter, t.filters]
   );
-
-  const chips = useMemo<FilterChip[]>(() => {
-    const result: FilterChip[] = [];
-    if (readySources.length > 1 && selectedSource) {
-      result.push({
-        key: 'source',
-        scope: 'server',
-        text: `source = ${selectedSource.id}`,
-        field: 'source',
-        op: '=',
-        value: selectedSource.id
-      });
-    }
-    for (const chip of serverChips(serverFilter)) {
-      const clause = { field: chip.field, op: chip.op, value: chip.value };
-      result.push({
-        key: `server-${chip.field}`,
-        scope: 'server',
-        text: formatFilterCondition(clause, 'server'),
-        field: clause.field,
-        op: clause.op,
-        value: formatFilterValue(clause.value),
-        onRemove: () => setServerFilterAndPost(clearServerFilter(serverFilter, chip.field)),
-        onEdit: () => {
-          setServerFilterAndPost(clearServerFilter(serverFilter, chip.field));
-          return formatFilterCondition(clause, 'server');
-        }
-      });
-    }
-    result.push(...workbench.loadedChips);
-    return result;
-  }, [readySources.length, selectedSource, serverFilter, setServerFilterAndPost, workbench.loadedChips]);
-
-  const guidedFields = useMemo<GuidedField[]>(() => {
-    const server: GuidedField[] = [];
-    if (capabilities.levelFilter) {
-      server.push({ path: 'level', kind: 'server' });
-    }
-    if (capabilities.userFilter) {
-      server.push({ path: 'user', kind: 'server' });
-    }
-    server.push({ path: 'since', kind: 'server' });
-    if (readySources.length > 1) {
-      server.push({ path: 'source', kind: 'server' });
-    }
-    return [...server, ...guidedPayloadFields(discovered, activeColumns)];
-  }, [activeColumns, capabilities.levelFilter, capabilities.userFilter, discovered, readySources.length]);
-
-  const valuesFor = useCallback(
-    (field: string, prefix: string, kind: FilterFieldKind): GuidedItem[] => {
-      if (kind === 'server' && isServerFilterField(field)) {
-        const byField: Record<ServerFilterField, () => GuidedItem[]> = {
-          level: () => [...CUSTOM_LOG_LEVELS].reverse().map(level => ({ value: level })),
-          user: () => valueCountsToItems(topValues(rows, row => (row.user ? [row.user] : []), 30).values),
-          since: () => SINCE_QUICK_VALUES.map(value => ({ value })),
-          source: () => readySources.map(source => ({ value: source.id }))
-        };
-        return byField[field]().filter(item => matchesPrefix(item.value, prefix));
-      }
-      return payloadValueSuggestions(visibleRows, field, prefix);
-    },
-    [readySources, rows, visibleRows]
+  const onFilterChange = useCallback(
+    (key: FilterKey, value: string) => setServerFilterAndPost(withFilter(serverFilter, key, value)),
+    [serverFilter, setServerFilterAndPost]
   );
 
   const onSelectOrg = (value: string) => {
@@ -385,6 +254,11 @@ export function CustomLogsApp({
         sources={readySources}
         selectedSource={selectedSourceId}
         onSelectSource={selectSource}
+        search={workbench.search}
+        onSearchChange={workbench.setSearch}
+        filters={filters}
+        onFilterChange={onFilterChange}
+        onClearFilters={() => setServerFilterAndPost({})}
         loading={loading}
         showOpenInEditor={surface !== 'editor'}
         onRefresh={() => post({ type: 'customLogsRefresh' })}
@@ -413,16 +287,6 @@ export function CustomLogsApp({
             t={t}
             issues={issues}
             className="max-h-24 shrink-0 overflow-auto border-b border-border px-3 py-1.5"
-          />
-          <CustomLogsFilterBar
-            t={t}
-            chips={chips}
-            fields={guidedFields}
-            valuesFor={valuesFor}
-            onSubmit={onSubmitFilter}
-            onAddColumn={path => !activeColumns.has(path) && workbench.toggleColumn(path)}
-            prefill={workbench.prefill}
-            stored={capture !== undefined}
           />
           {capture ? (
             <CustomLogsCaptureStrip
@@ -461,7 +325,6 @@ export function CustomLogsApp({
                 onOpen={row => post({ type: 'customLogsOpenLog', logId: row.id })}
                 onToggleColumn={workbench.toggleColumn}
                 onRemoveColumn={workbench.removeColumn}
-                onFilterBy={workbench.prefillFilterField}
                 virtualListComponent={virtualListComponent}
               />
               <LoadingOverlay show={loading && rows.length === 0} label={t.loading} />
@@ -477,23 +340,26 @@ export function CustomLogsApp({
                 onOpenLog={row => post({ type: 'customLogsOpenLog', logId: row.id })}
                 onOpenPayload={row => post({ type: 'customLogsOpenPayload', logId: row.id })}
                 onToggleColumn={workbench.toggleColumn}
-                onFilterEqual={workbench.filterEqual}
               />
             ) : null}
           </div>
           <CustomLogsStatusBar
             t={t}
             scope={
-              filtering
-                ? fillTemplate(t.status.filtering, {
-                    loaded: formatCount(rows.length, locale),
-                    matches: formatCount(visibleRows.length, locale)
-                  })
+              terms.length > 0
+                ? [
+                    fillTemplate(t.status.searching, {
+                      matches: formatCount(visibleRows.length, locale),
+                      loaded: formatCount(rows.length, locale)
+                    }),
+                    hasMore && visibleRows.length < rows.length ? t.status.searchMore : ''
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')
                 : rows.length === 1
                   ? t.status.rowsLoadedOne
                   : fillTemplate(t.status.rowsLoaded, { count: formatCount(rows.length, locale) })
             }
-            filtering={filtering}
             payloadInUse={workbench.payloadInUse}
             hint={capture ? t.status.hintStored : t.status.hint}
             payloadStates={payloadStates}

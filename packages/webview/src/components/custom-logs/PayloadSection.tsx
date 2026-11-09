@@ -1,6 +1,6 @@
 import React from 'react';
 import { FileJson, TriangleAlert } from 'lucide-react';
-import type { CustomLogPayloadView, CustomLogScalar } from '@alv/protocol/customLogsTypes';
+import type { CustomLogPayloadView } from '@alv/protocol/customLogsTypes';
 import type { CustomLogsMessages } from '../../i18n';
 import { fillTemplate } from '../../utils/customLogs/format';
 import { Button } from '../ui/button';
@@ -15,7 +15,6 @@ type PayloadSectionProps = {
   canOpenFull: boolean;
   onOpenFull: () => void;
   onToggleColumn: (path: string) => void;
-  onFilterEqual: (path: string, value: CustomLogScalar) => void;
 };
 
 const NOTE_KEY = {
@@ -33,8 +32,7 @@ export function PayloadSection({
   lockedColumns,
   canOpenFull,
   onOpenFull,
-  onToggleColumn,
-  onFilterEqual
+  onToggleColumn
 }: PayloadSectionProps) {
   const openable = canOpenFull && payload.state !== 'empty' && payload.state !== 'hidden';
   return (
@@ -73,7 +71,6 @@ export function PayloadSection({
             lockedColumns={lockedColumns}
             cutValues={payload.cutValues}
             onToggleColumn={onToggleColumn}
-            onFilterEqual={onFilterEqual}
           />
         </>
       ) : (

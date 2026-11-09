@@ -13,13 +13,7 @@ import {
   type CustomLogPayloadView
 } from '@alv/protocol/customLogsTypes';
 
-import {
-  SERVER_FILTER_FIELDS,
-  formatFilterCondition,
-  parseFilterExpression,
-  serverFieldOf
-} from '../../../../../packages/webview/src/utils/customLogs/filterGrammar';
-import { normalizePayloadPath, payloadMatches } from '../../../../../packages/webview/src/utils/customLogs/payloadRows';
+import { matchesSearch, parseSearch, rowSearchText } from '../../../../../packages/webview/src/utils/customLogs/search';
 import {
   coreConfig,
   coreContracts,
@@ -218,51 +212,33 @@ suite('Custom Logs rules agree between core and protocol', () => {
     });
   });
 
-  suite('payload paths and the filter grammar', () => {
+  suite('payload paths and the search', () => {
     const payloads = [
       '[{"status":500},{"status":200}]',
       '[[{"x":1}],[2,3]]',
       '{"items":[{"id":"a"},{"id":"b"}],"tags":["vip"]}',
       '{"200":{"ok":true},"descrição":"x","@type":"t","a:b":1,"http://x/y":2,"$ref":"#"}',
       '{"Account Name":"Acme","a=b":1,"x>=y":2,"!flag":true,"say \\"hi\\"":1,"it\'s":2,"tab\\tkey":3}',
-      '{"and":1,"or":2,"exists":3,"contains":4,"a":{"":5}," padded ":6}',
-      JSON.stringify(
-        Object.fromEntries(
-          SERVER_FILTER_FIELDS.flatMap(field => [
-            [field, 1],
-            [field.toUpperCase(), 2]
-          ])
-        )
-      )
+      '{"and":1,"or":2,"exists":3,"contains":4,"a":{"":5},"  padded ":6,"nothing":null,"off":false,"zero":0}',
+      '{"level":"WARN","user":"x","since":"1h","source":"s","LEVEL":2}'
     ];
 
     for (const payload of payloads) {
-      test(`writes every path core finds in ${payload} as a payload filter that reads back to it, indexed and grouped`, () => {
+      test(`finds every path and value core decodes in ${payload}`, () => {
         const view = corePayload.decodePayload(payload);
         assert.equal(view.state, 'parsed');
-        const paths = Object.keys(view.state === 'parsed' ? view.values : {});
-        for (const path of new Set(paths.flatMap(raw => [raw, normalizePayloadPath(raw)]))) {
-          const written = formatFilterCondition({ field: path, op: '>=', value: '500' }, 'payload');
-          const parsed = parseFilterExpression(written);
-          assert.deepEqual(
-            parsed.ok
-              ? parsed.conditions.map(condition => [condition.field, serverFieldOf(condition) ?? 'payload'])
-              : parsed.error,
-            [[path, 'payload']],
-            written
-          );
+        const values = view.state === 'parsed' ? view.values : {};
+        const text = rowSearchText({
+          id: 'a0B5g00000Zt1QwEAJ',
+          time: '2026-10-30T12:00:00Z',
+          extra: {},
+          payload: view
+        });
+        for (const [path, value] of Object.entries(values)) {
+          assert.ok(matchesSearch(text, parseSearch(path)), `path ${path}`);
+          assert.ok(matchesSearch(text, parseSearch(String(value))), `value ${String(value)} at ${path}`);
         }
       });
     }
-
-    test('matches a root-array payload decoded by core with the filters its paths write', () => {
-      const view = corePayload.decodePayload('[{"status":500},{"status":200}]');
-      const verdicts = ['[].status >= 500', '[0].status >= 500', '[1].status >= 500', '[].status < 100'].map(source => {
-        const parsed = parseFilterExpression(source);
-        assert.ok(parsed.ok, source);
-        return parsed.conditions.every(condition => payloadMatches(view, condition));
-      });
-      assert.deepEqual(verdicts, [true, true, false, false]);
-    });
   });
 });

@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { FilterClause } from './filterGrammar';
 import type { SortState } from './columns';
 
 /** Below this panel height the detail docks to the right; at or above it, under the table. */
@@ -9,28 +8,19 @@ export function detailDock(panelHeight: number): 'right' | 'bottom' {
   return panelHeight >= DETAIL_BOTTOM_MIN_HEIGHT_PX ? 'bottom' : 'right';
 }
 
-/** What both Custom Logs webviews keep across a reload: the JSON filters, the sort and the hidden default columns. */
+/** What both Custom Logs webviews keep across a reload: the search, the sort and the hidden default columns. */
 export type PayloadUiState = {
-  payloadFilters: FilterClause[];
+  search: string;
   sort?: SortState;
   hiddenDefaults: string[];
 };
 
-function isClause(value: unknown): value is FilterClause {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as FilterClause).field === 'string' &&
-    typeof (value as FilterClause).op === 'string'
-  );
-}
-
-/** Whatever `vscode.getState()` returned, narrowed to a usable state. */
+/** Whatever `vscode.getState()` returned, narrowed to a usable state. An old `payloadFilters` key is dropped. */
 export function readPayloadUiState(saved: unknown): PayloadUiState {
   const raw = (typeof saved === 'object' && saved !== null ? saved : {}) as Partial<PayloadUiState>;
   const sort = raw.sort;
   return {
-    payloadFilters: Array.isArray(raw.payloadFilters) ? raw.payloadFilters.filter(isClause) : [],
+    search: typeof raw.search === 'string' ? raw.search : '',
     sort:
       sort && typeof sort.columnId === 'string' && (sort.dir === 'asc' || sort.dir === 'desc')
         ? { columnId: sort.columnId, dir: sort.dir }

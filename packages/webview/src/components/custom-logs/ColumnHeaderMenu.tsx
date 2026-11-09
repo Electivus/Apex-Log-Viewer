@@ -10,15 +10,14 @@ type ColumnHeaderMenuProps = {
   /** Pinned by the project mapping: hidden for this user instead of removed. */
   locked: boolean;
   onSort: (dir: 'asc' | 'desc') => void;
-  onFilter: () => void;
   onRemove: () => void;
 };
 
 const ITEM_CLASS =
   'block w-full px-3.5 py-1 text-left text-xs hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none';
 
-/** The `...` menu of a JSON column header: sort, filter by the field, remove. */
-export function ColumnHeaderMenu({ t, column, locked, onSort, onFilter, onRemove }: ColumnHeaderMenuProps) {
+/** The `...` menu of a JSON column header: sort or remove. */
+export function ColumnHeaderMenu({ t, column, locked, onSort, onRemove }: ColumnHeaderMenuProps) {
   const choose = (action: () => void) => () => action();
   return (
     <Popover.Root>
@@ -47,11 +46,6 @@ export function ColumnHeaderMenu({ t, column, locked, onSort, onFilter, onRemove
           <Popover.Close asChild>
             <button type="button" role="menuitem" className={ITEM_CLASS} onClick={choose(() => onSort('desc'))}>
               {t.menu.sortDescending}
-            </button>
-          </Popover.Close>
-          <Popover.Close asChild>
-            <button type="button" role="menuitem" className={ITEM_CLASS} onClick={choose(onFilter)}>
-              {t.menu.filterBy}
             </button>
           </Popover.Close>
           <Popover.Close asChild>

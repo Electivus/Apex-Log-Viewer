@@ -9,11 +9,9 @@ type CustomLogsStatusBarProps = {
   t: CustomLogsMessages;
   /** The count sentence, already worded for rows or entries. */
   scope: string;
-  /** Payload (loaded-row) filters are active. */
-  filtering: boolean;
-  /** Payload columns, filters or sorts are in use, so the loaded-rows caveat applies. */
+  /** A search, payload columns or a sort is in use, so the loaded-rows caveat applies. */
   payloadInUse: boolean;
-  /** The caveat shown while payload columns, filters or sorts are in use. */
+  /** The caveat shown while a search, payload columns or a sort is in use. */
   hint?: string;
   payloadStates: PayloadStateCounts;
   hasMore: boolean;
@@ -24,7 +22,6 @@ type CustomLogsStatusBarProps = {
 export function CustomLogsStatusBar({
   t,
   scope,
-  filtering,
   payloadInUse,
   hint,
   payloadStates,
@@ -67,7 +64,6 @@ export function CustomLogsStatusBar({
         <span className="flex items-center gap-1 text-amber-400">
           <TriangleAlert className="h-3 w-3 shrink-0" aria-hidden="true" />
           {problems.join(' · ')}
-          {filtering ? `: ${t.status.skipped}` : ''}
         </span>
       ) : null}
     </footer>

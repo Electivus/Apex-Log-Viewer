@@ -187,6 +187,7 @@ const rowOf = (id: string) => grid().querySelector(`[data-entry-id="${id}"]`) as
 const messageOf = (id: string) => rowOf(id).querySelector('.line-clamp-4')?.textContent?.replace(/\s…$/, '');
 const shownIds = () =>
   Array.from(grid().querySelectorAll('[data-entry-id]')).map(row => row.getAttribute('data-entry-id'));
+const viewerSearch = () => screen.getByRole('searchbox', { name: 'Search entries…' });
 const levelGroup = () => screen.getByRole('group', { name: 'Filter by level' });
 const detailGroup = () => screen.getByRole('group', { name: 'Filter by long field' });
 const posts = <T extends CustomLogViewerFromWebviewMessage['type']>(
@@ -562,12 +563,6 @@ describe('Custom Log viewer app', () => {
   });
 
   describe('JSON columns on entry payloads', () => {
-    it('does not show the JSON filter row for a source without payloads', () => {
-      mountViewer();
-
-      expect(screen.queryByRole('combobox', { name: 'Filter logs' })).toBeNull();
-    });
-
     it('shows the project columns first, then the added ones, and keeps invalid and plain text payloads on the list', () => {
       mountViewer({ entries: payloadEntries, fields: payloadFields, defaults: ['orderId'], added: ['http.status'] });
 
@@ -586,58 +581,54 @@ describe('Custom Log viewer app', () => {
       expect(screen.getByRole('status')).toHaveTextContent('1 invalid JSON · 1 plain text');
     });
 
-    it('filters the loaded entries by payload path, with a chip', () => {
-      mountViewer({ entries: payloadEntries, fields: payloadFields });
+    it('searches the payload paths and values and the record columns of the loaded entries', () => {
+      const tagged = makeEntry(entryIds.debug, 4, 'Tagged', { extra: { OriginType__c: 'Flow' } });
+      mountViewer({ entries: [...payloadEntries, tagged], fields: payloadFields });
 
-      const input = screen.getByRole('combobox', { name: 'Filter logs' });
-      fireEvent.change(input, { target: { value: 'http.status >= 500' } });
-      fireEvent.keyDown(input, { key: 'Enter' });
-
+      fireEvent.change(viewerSearch(), { target: { value: 'http.status 502' } });
       expect(shownIds()).toEqual([entryIds.payload]);
-      expect(
-        screen.getAllByTestId('filter-chip').map(chip => [chip.getAttribute('data-scope'), chip.textContent])
-      ).toEqual([['loaded', 'http.status>=500']]);
-      expect(screen.getByRole('status')).toHaveTextContent('1 of 3 entries shown');
-      expect(screen.getByRole('status')).toHaveTextContent('1 invalid JSON · 1 plain text: skipped by JSON filters');
+      expect(screen.getByRole('status')).toHaveTextContent('1 of 4 entries shown');
+      expect(screen.getByRole('status')).toHaveTextContent('1 invalid JSON · 1 plain text');
+
+      fireEvent.change(viewerSearch(), { target: { value: 'flow' } });
+      expect(shownIds()).toEqual([entryIds.debug]);
+
+      fireEvent.change(viewerSearch(), { target: { value: 'origintype__c' } });
+      expect(shownIds()).toEqual([]);
     });
 
-    it('filters the loaded entries on a path of a root-array payload', () => {
+    it('reads operators and quotes as plain text, and finds a root-array path as core wrote it', () => {
       const failed = makeEntry(entryIds.payload, 1, 'Batch failed', { payload: parsed({ '[0].status': 500 }) });
       const ok = makeEntry(entryIds.debug, 2, 'Batch ok', { payload: parsed({ '[0].status': 200 }) });
       mountViewer({ entries: [failed, ok], fields: [{ path: '[0].status', types: ['number'], rows: 2 }] });
 
-      const input = screen.getByRole('combobox', { name: 'Filter logs' });
-      fireEvent.change(input, { target: { value: '[].status >= 500' } });
-      fireEvent.keyDown(input, { key: 'Enter' });
+      fireEvent.change(viewerSearch(), { target: { value: '[].status >= 500' } });
+      expect(shownIds()).toEqual([]);
 
-      expect(screen.queryByRole('alert')).toBeNull();
+      fireEvent.change(viewerSearch(), { target: { value: '[0].status 500' } });
       expect(shownIds()).toEqual([entryIds.payload]);
     });
 
-    it('writes a payload key spelled like a server filter in quotes, and its edited chip filters the same entries', () => {
-      const alice = makeEntry(entryIds.payload, 1, 'Alice order', { payload: parsed({ user: 'alice' }) });
-      const bob = makeEntry(entryIds.debug, 2, 'Bob order', { payload: parsed({ user: 'bob' }) });
-      mountViewer({ entries: [alice, bob], fields: [{ path: 'user', types: ['string'], rows: 2 }] });
-      const input = screen.getByRole('combobox', { name: 'Filter logs' });
-      const chipTexts = () => screen.getAllByTestId('filter-chip').map(chip => chip.textContent);
-      fireEvent.click(rowOf(entryIds.payload));
+    it('keeps the search when the webview is restored, and clears it with its button', () => {
+      const first = mountViewer({ entries: payloadEntries, fields: payloadFields });
+      fireEvent.change(viewerSearch(), { target: { value: 'ORD-1042' } });
+      const saved = first.getSavedState();
+      first.view.unmount();
 
-      const leaf = within(screen.getByTestId('custom-log-entry-detail')).getByTestId('payload-leaf-user');
-      fireEvent.click(within(leaf).getByRole('button', { name: '= value' }));
-      expect(chipTexts()).toEqual(['"user"=alice']);
+      mountViewer({ entries: payloadEntries, fields: payloadFields }, saved);
+      expect(viewerSearch()).toHaveValue('ORD-1042');
       expect(shownIds()).toEqual([entryIds.payload]);
 
-      fireEvent.click(screen.getByRole('button', { name: 'Edit filter "user" = alice' }));
-      expect(input).toHaveValue('"user" = alice');
-      fireEvent.keyDown(input, { key: 'Enter' });
-      expect(screen.queryByRole('alert')).toBeNull();
-      expect(chipTexts()).toEqual(['"user"=alice']);
-      expect(shownIds()).toEqual([entryIds.payload]);
+      fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+      expect(shownIds()).toHaveLength(3);
+    });
 
-      fireEvent.click(screen.getByRole('button', { name: 'Remove filter "user" = alice' }));
-      fireEvent.change(input, { target: { value: 'user = bob' } });
-      fireEvent.keyDown(input, { key: 'Enter' });
-      expect(shownIds()).toEqual([entryIds.debug]);
+    it('focuses the search on /', () => {
+      mountViewer();
+
+      fireEvent.keyDown(document.body, { key: '/' });
+
+      expect(viewerSearch()).toHaveFocus();
     });
 
     it('adds a payload leaf as a column and posts the added paths', () => {
@@ -645,18 +636,17 @@ describe('Custom Log viewer app', () => {
       fireEvent.click(rowOf(entryIds.payload));
 
       const leaf = within(screen.getByTestId('custom-log-entry-detail')).getByTestId('payload-leaf-http.status');
+      expect(
+        within(leaf)
+          .getAllByRole('button')
+          .map(button => button.textContent)
+      ).toEqual(['+ Column']);
       fireEvent.click(within(leaf).getByRole('button', { name: '+ Column' }));
-      fireEvent.click(
-        within(within(screen.getByTestId('custom-log-entry-detail')).getByTestId('payload-leaf-tags[0]')).getByRole(
-          'button',
-          { name: '= value' }
-        )
-      );
 
       expect(posts(posted, 'customLogViewerSetPayloadColumns')).toEqual([
         { type: 'customLogViewerSetPayloadColumns', added: ['http.status'] }
       ]);
-      expect(shownIds()).toEqual([entryIds.payload]);
+      expect(shownIds()).toHaveLength(3);
     });
 
     it('opens the full payload by key once the host lists it', () => {

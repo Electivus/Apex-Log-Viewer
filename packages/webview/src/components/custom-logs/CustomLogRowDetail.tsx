@@ -1,5 +1,5 @@
 import React from 'react';
-import type { CustomLogRow, CustomLogScalar } from '@alv/protocol/customLogsTypes';
+import type { CustomLogRow } from '@alv/protocol/customLogsTypes';
 import type { CustomLogsMessages } from '../../i18n';
 import { formatLogTime } from '../../utils/customLogs/format';
 import { Button } from '../ui/button';
@@ -17,10 +17,9 @@ type CustomLogRowDetailProps = {
   onOpenLog: (row: CustomLogRow) => void;
   onOpenPayload: (row: CustomLogRow) => void;
   onToggleColumn: (path: string) => void;
-  onFilterEqual: (path: string, value: CustomLogScalar) => void;
 };
 
-/** The selected row: who and when, then its payload as a key/value tree with column and filter actions. */
+/** The selected row: who and when, then its payload as a key/value tree with column actions. */
 export function CustomLogRowDetail({
   t,
   row,
@@ -30,8 +29,7 @@ export function CustomLogRowDetail({
   onClose,
   onOpenLog,
   onOpenPayload,
-  onToggleColumn,
-  onFilterEqual
+  onToggleColumn
 }: CustomLogRowDetailProps) {
   return (
     <DetailPane
@@ -68,7 +66,6 @@ export function CustomLogRowDetail({
           canOpenFull
           onOpenFull={() => onOpenPayload(row)}
           onToggleColumn={onToggleColumn}
-          onFilterEqual={onFilterEqual}
         />
       ) : null}
     </DetailPane>

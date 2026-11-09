@@ -42,7 +42,7 @@ Search in the **Apex Logs** panel is optimized for locally saved log bodies, so 
 
 ![Real-time Apex log tail](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/apps/vscode-extension/media/docs/tail.png)
 
-![Custom Logs with JSON payload columns and a loaded-row filter](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/apps/vscode-extension/media/docs/custom-logs.png)
+![Custom Logs with JSON payload columns and a search over the loaded rows](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/apps/vscode-extension/media/docs/custom-logs.png)
 
 ## Requirements
 
@@ -158,7 +158,7 @@ The extension activates automatically when the workspace contains `sfdx-project.
 - Open **Custom Logs** in the VS Code panel area to read the log records that a logging framework stores in Salesforce, such as Nebula Logger's `Log__c` and `LogEntry__c`.
 - Pick an event source, such as `nebula-events`, to read logs that exist only as platform events. The panel captures the events into a local store while the source is open, shows what it stored, and marks any interval that may be missing as a gap.
 - Nebula Logger needs no configuration. Map other objects under `plugins.electivus.customLogs` in `sfdx-project.json`. **Configure** opens that block, and the editor validates it.
-- Filter by level, user, and time in Salesforce, and add JSON payload keys as columns or filters over the loaded rows.
+- Search the loaded rows, their record columns and their JSON paths and values from one box, filter by level, user, and time in Salesforce from **Filters**, and add JSON payload keys as columns.
 - Open a row to read the whole transaction, its long fields, and the matching Apex debug log.
 - See [docs/CUSTOM_LOGS.md](docs/CUSTOM_LOGS.md) for the mapping format, permissions, and the `sf electivus custom-log` commands.
 

@@ -334,7 +334,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
         await this.selectOrg(message.target);
         return;
       case 'customLogsSelectSource':
-        await this.selectSource(message.sourceId, message.filter);
+        await this.selectSource(message.sourceId);
         return;
       case 'customLogsSetFilter':
         await this.setFilter(message.filter);
@@ -382,7 +382,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     await this.reload({ clearPage: true, refreshSources: false });
   }
 
-  private async selectSource(sourceId: string, filter: CustomLogsFilterView | undefined): Promise<void> {
+  private async selectSource(sourceId: string): Promise<void> {
     const source = this.sources.find(candidate => candidate.id === sourceId && candidate.state === 'ready');
     if (!source) {
       logWarn('Custom Logs: ignored selectSource for a source that is not ready');
@@ -390,14 +390,11 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     }
     this.preferredSourceId = source.id;
     if (source.id === this.state.sources?.selected) {
-      if (filter) {
-        await this.setFilter(filter);
-      }
       return;
     }
     await this.run(async (signal, current) => {
       this.clearPage();
-      this.applySources(this.sources, this.state.sources?.issues ?? [], source.id, filter);
+      this.applySources(this.sources, this.state.sources?.issues ?? [], source.id);
       await this.fetchPage('replace', signal, current);
     });
   }
@@ -825,12 +822,11 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
   private applySources(
     sources: CustomLogSourceView[],
     issues: CustomLogConfigIssueView[],
-    selected: string | undefined,
-    filter: CustomLogsFilterView = this.state.filter
+    selected: string | undefined
   ): void {
     this.post({ type: 'customLogsSources', data: sources, selected, issues });
     const source = this.selectedSource();
-    this.post({ type: 'customLogsFilter', value: restrictFilter(filter, source) });
+    this.post({ type: 'customLogsFilter', value: restrictFilter(this.state.filter, source) });
     this.post({ type: 'customLogsPayloadColumns', value: this.columnsFor(source) });
   }
 

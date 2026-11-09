@@ -165,14 +165,12 @@ export function mountApp(options: BootstrapOptions = {}, initialState?: unknown)
   return { ...mock, bus, view };
 }
 
-export const filterInput = () => screen.getByRole('combobox', { name: 'Filter logs' });
+export const searchInput = () => screen.getByRole('searchbox', { name: 'Search loaded rows' });
 export const grid = () => screen.getByRole('grid', { name: 'Custom logs' });
 export const listedTitles = () =>
   Array.from(grid().querySelectorAll('[data-row-id]')).map(row =>
     row.querySelector('[role="gridcell"]:nth-child(3)')?.textContent?.trim()
   );
-export const chips = () => screen.queryAllByTestId('filter-chip');
-export const chipSummary = () => chips().map(chip => [chip.getAttribute('data-scope'), chip.textContent]);
 export const columnHeader = (name: string) =>
   screen
     .getAllByRole('columnheader')
@@ -184,10 +182,38 @@ export const headerLabels = () =>
     .filter(Boolean);
 export const rowOf = (id: string) => grid().querySelector(`[data-row-id="${id}"]`) as HTMLElement;
 
-export function submit(text: string) {
-  fireEvent.change(filterInput(), { target: { value: text } });
-  fireEvent.keyDown(filterInput(), { key: 'Enter' });
+export function search(text: string) {
+  fireEvent.change(searchInput(), { target: { value: text } });
 }
+
+/** `LabeledSelect` renders a native select without `DocumentFragment`, which jsdom can drive. */
+export function withNativeSelects<T>(run: () => T): T {
+  const docRef = globalThis as unknown as { DocumentFragment: typeof DocumentFragment | undefined };
+  const original = docRef.DocumentFragment;
+  docRef.DocumentFragment = undefined;
+  try {
+    return run();
+  } finally {
+    docRef.DocumentFragment = original;
+  }
+}
+
+export const filtersButton = () => screen.getByRole('button', { name: /^Filters/ });
+
+/** Opens the Filters menu with native selects, runs `run` inside it, then closes it. */
+export function inFilters<T>(run: () => T): T {
+  return withNativeSelects(() => {
+    fireEvent.click(filtersButton());
+    try {
+      return run();
+    } finally {
+      fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    }
+  });
+}
+
+export const filterSelect = (label: string) => screen.getByLabelText(label) as HTMLSelectElement;
+export const filterOptions = (label: string) => Array.from(filterSelect(label).options).map(option => option.text);
 
 export function posts<T extends CustomLogsFromWebviewMessage['type']>(posted: CustomLogsFromWebviewMessage[], type: T) {
   return posted.filter(

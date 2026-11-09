@@ -331,27 +331,24 @@ suite('Custom Logs view provider', () => {
       assert.deepEqual(fake.calls.customLogList.at(-1)?.filter, {});
     });
 
-    test('a filter typed with a source switch reaches the new source in one query, from a fresh cursor', async () => {
+    test('a source switch queries the new source once with the filter on screen, from a fresh cursor', async () => {
       const { fake, mount } = load();
       pagedList(fake);
       const host = new FakeHost();
       await mount(host);
       await host.emit({ type: 'customLogsSelectSource', sourceId: 'app-log' });
+      await host.emit({ type: 'customLogsSetFilter', filter: { since: '24h' } });
       assert.equal(host.last('customLogsPage')?.hasMore, true);
       host.clear();
       const before = fake.calls.customLogList.length;
 
-      await host.emit({
-        type: 'customLogsSelectSource',
-        sourceId: 'nebula',
-        filter: { minLevel: 'ERROR', since: '24h' }
-      });
+      await host.emit({ type: 'customLogsSelectSource', sourceId: 'nebula', filter: { minLevel: 'ERROR' } });
 
       const requests = fake.calls.customLogList.slice(before);
       assert.deepEqual(
         requests.map(request => [request.source, request.filter]),
-        [['nebula', { minLevel: 'ERROR', since: '24h' }]],
-        'app-log cannot filter by level, so the level must not pass through it'
+        [['nebula', { since: '24h' }]],
+        'a filter sent with the switch is not applied'
       );
       assert.equal('cursor' in requests[0]!, false);
       assert.deepEqual(types(host), [
@@ -363,13 +360,13 @@ suite('Custom Logs view provider', () => {
         'customLogsPage',
         'customLogsLoading'
       ]);
-      assert.deepEqual(host.last('customLogsFilter')?.value, { minLevel: 'ERROR', since: '24h' });
+      assert.deepEqual(host.last('customLogsFilter')?.value, { since: '24h' });
 
       await host.emit({ type: 'customLogsLoadMore' });
       assert.equal(fake.calls.customLogList.at(-1)?.cursor, 'cursor-filtered');
     });
 
-    test('a filter typed with the source already on screen applies as a filter change', async () => {
+    test('selecting the source on screen again queries nothing', async () => {
       const { fake, mount } = load();
       const host = new FakeHost();
       await mount(host);
@@ -377,11 +374,8 @@ suite('Custom Logs view provider', () => {
 
       await host.emit({ type: 'customLogsSelectSource', sourceId: 'nebula', filter: { minLevel: 'ERROR' } });
 
-      assert.deepEqual(
-        fake.calls.customLogList.slice(before).map(request => [request.source, request.filter]),
-        [['nebula', { minLevel: 'ERROR' }]]
-      );
-      assert.deepEqual(host.last('customLogsFilter')?.value, { minLevel: 'ERROR' });
+      assert.equal(fake.calls.customLogList.length, before);
+      assert.deepEqual(host.last('customLogsFilter')?.value, {});
     });
 
     test('a superseded request never overwrites the newer page or flashes an error', async () => {

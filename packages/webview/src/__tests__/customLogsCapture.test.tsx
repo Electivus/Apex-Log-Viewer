@@ -9,8 +9,8 @@ import type {
 } from '@alv/protocol/customLogsTypes';
 
 import {
-  chips,
   grid,
+  inFilters,
   lastPost,
   listedTitles,
   makeRow,
@@ -18,8 +18,7 @@ import {
   nebula,
   posts,
   removeMountSequenceMeta,
-  send,
-  submit
+  send
 } from './customLogsTestKit';
 
 const mockScroller = Object.assign(new EventTarget(), { scrollTop: 0, scrollLeft: 0 });
@@ -297,17 +296,18 @@ describe('capture strip', () => {
     it('say they run over the stored events, where a record source says Salesforce', () => {
       const { bus } = mountEvents();
       send(bus, { type: 'customLogsCapture', value: capture({ state: 'live', basis: 'signal' }) });
-      submit('level >= WARN');
 
-      expect(chips().map(chip => chip.getAttribute('title'))).toContain(
-        'Runs over the stored events: changes the list without asking Salesforce'
-      );
+      inFilters(() => {
+        expect(
+          screen.getByText('Runs over the stored events: changes the list without asking Salesforce.')
+        ).toBeInTheDocument();
+      });
 
       send(bus, { type: 'customLogsCapture' });
 
-      expect(chips().map(chip => chip.getAttribute('title'))).toContain(
-        'Runs in Salesforce: changes the query and reloads the list'
-      );
+      inFilters(() => {
+        expect(screen.getByText('Runs in Salesforce: changes the query and reloads the list.')).toBeInTheDocument();
+      });
     });
   });
 });

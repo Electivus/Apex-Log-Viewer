@@ -2,9 +2,12 @@ import React from 'react';
 import { ExternalLink, Loader2, RefreshCw, Settings } from 'lucide-react';
 import type { OrgItem } from '@alv/protocol/types';
 import type { CustomLogsMessages } from '../../i18n';
+import type { FilterKey, FilterMenuModel } from '../../utils/customLogs/serverFilter';
 import { Button } from '../ui/button';
 import { LabeledSelect } from '../LabeledSelect';
 import { OrgSelect } from '../OrgSelect';
+import { CustomLogsFilters } from './CustomLogsFilters';
+import { SearchInput } from './SearchInput';
 
 /** The label sits beside the select, so the toolbar stays one row tall in a short panel. */
 const INLINE_SELECT = 'min-w-0 flex-row items-center gap-2';
@@ -20,6 +23,11 @@ type CustomLogsToolbarProps = {
   sources: Array<{ id: string; label: string }>;
   selectedSource?: string;
   onSelectSource: (sourceId: string) => void;
+  search: string;
+  onSearchChange: (value: string) => void;
+  filters: FilterMenuModel;
+  onFilterChange: (key: FilterKey, value: string) => void;
+  onClearFilters: () => void;
   loading: boolean;
   showOpenInEditor: boolean;
   onRefresh: () => void;
@@ -37,6 +45,11 @@ export function CustomLogsToolbar({
   sources,
   selectedSource,
   onSelectSource,
+  search,
+  onSearchChange,
+  filters,
+  onFilterChange,
+  onClearFilters,
   loading,
   showOpenInEditor,
   onRefresh,
@@ -65,6 +78,15 @@ export function CustomLogsToolbar({
           triggerClassName="min-w-[200px]"
         />
       ) : null}
+      <SearchInput
+        value={search}
+        onChange={onSearchChange}
+        label={t.search.label}
+        placeholder={t.search.placeholder}
+        clearLabel={t.search.clear}
+        className="min-w-[180px] max-w-[360px] flex-1"
+      />
+      <CustomLogsFilters t={t} model={filters} onChange={onFilterChange} onClear={onClearFilters} />
       <span className="flex-1" />
       <Button
         type="button"

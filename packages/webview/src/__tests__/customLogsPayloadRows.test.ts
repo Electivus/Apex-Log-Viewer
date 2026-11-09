@@ -4,30 +4,18 @@ import {
   type CustomLogPayloadView,
   type CustomLogScalar
 } from '@alv/protocol/customLogsTypes';
-import { parseFilterExpression, type FilterCondition } from '../utils/customLogs/filterGrammar';
 import {
   buildPayloadTree,
   countPayloadStates,
   discoverPayloadFields,
-  filterLoadedRows,
   normalizePayloadPath,
-  payloadMatches,
   payloadValues,
   resolvePayloadColumns,
-  sortLoadedRows,
-  topValues
+  sortLoadedRows
 } from '../utils/customLogs/payloadRows';
 
 function parsed(values: Record<string, CustomLogScalar>): CustomLogPayloadView {
   return { state: 'parsed', values, droppedPaths: 0, cutValues: [] };
-}
-
-function condition(source: string): FilterCondition {
-  const result = parseFilterExpression(source);
-  if (!result.ok || result.conditions.length !== 1) {
-    throw new Error(`bad condition ${source}`);
-  }
-  return result.conditions[0]!;
 }
 
 function ids(rows: Array<{ id: string }>): string[] {
@@ -119,81 +107,6 @@ describe('reading a row payload', () => {
   });
 });
 
-describe('filtering loaded rows by payload path', () => {
-  const rows = [
-    { id: 'num-502', payload: parsed({ 'http.status': 502, orderId: 'ORD-1', retry: null }) },
-    { id: 'num-200', payload: parsed({ 'http.status': 200, orderId: 'ORD-2' }) },
-    { id: 'str-500', payload: parsed({ 'http.status': '500', orderId: 'ORD-3' }) },
-    { id: 'str-na', payload: parsed({ 'http.status': 'n/a' }) },
-    { id: 'bool', payload: parsed({ 'http.status': true, cacheHit: true }) },
-    { id: 'no-path', payload: parsed({ orderId: 'ORD-9' }) },
-    { id: 'invalid', payload: { state: 'invalid' } as CustomLogPayloadView },
-    { id: 'text', payload: { state: 'text' } as CustomLogPayloadView },
-    { id: 'empty', payload: { state: 'empty' } as CustomLogPayloadView },
-    { id: 'hidden', payload: { state: 'hidden' } as CustomLogPayloadView },
-    { id: 'unmapped' }
-  ];
-
-  const matching = (source: string) => ids(filterLoadedRows(rows, [condition(source)]));
-
-  it('compares numbers as numbers whatever the typed text looks like', () => {
-    expect(matching('http.status >= 500')).toEqual(['num-502', 'str-500']);
-    expect(matching('http.status > 500')).toEqual(['num-502']);
-    expect(matching('http.status < 300')).toEqual(['num-200']);
-    expect(matching('http.status <= 200')).toEqual(['num-200']);
-  });
-
-  it('matches equality by the row own type', () => {
-    expect(matching('http.status = 502')).toEqual(['num-502']);
-    expect(matching('http.status = 500')).toEqual(['str-500']);
-    expect(matching('http.status = "n/a"')).toEqual(['str-na']);
-    expect(matching('cacheHit = true')).toEqual(['bool']);
-    expect(matching('retry = null')).toEqual(['num-502']);
-  });
-
-  it('compares as text when the typed value is not a number', () => {
-    expect(matching('http.status = abc')).toEqual([]);
-    expect(matching('http.status >= n')).toEqual(['str-na', 'bool']);
-  });
-
-  it('keeps rows without the path on != but never rows whose payload did not parse', () => {
-    expect(matching('http.status != 502')).toEqual(['num-200', 'str-500', 'str-na', 'bool', 'no-path']);
-  });
-
-  it('finds paths that exist, even with a null value', () => {
-    expect(matching('retry exists')).toEqual(['num-502']);
-    expect(matching('orderId exists')).toEqual(['num-502', 'num-200', 'str-500', 'no-path']);
-  });
-
-  it('matches contains without regard to case, over any value type', () => {
-    expect(matching('orderId contains "ord-1"')).toEqual(['num-502']);
-    expect(matching('http.status contains 50')).toEqual(['num-502', 'str-500']);
-  });
-
-  it('combines conditions with and', () => {
-    const both = filterLoadedRows(rows, [condition('http.status >= 500'), condition('orderId = ORD-1')]);
-    expect(ids(both)).toEqual(['num-502']);
-    expect(ids(filterLoadedRows(rows, []))).toHaveLength(rows.length);
-  });
-
-  it('lets tags[] = "vip" match any element of the array', () => {
-    const tagged = [
-      { id: 'first', payload: parsed({ 'tags[0]': 'vip', 'tags[1]': 'beta' }) },
-      { id: 'second', payload: parsed({ 'tags[0]': 'beta', 'tags[1]': 'vip' }) },
-      { id: 'none', payload: parsed({ 'tags[0]': 'beta' }) },
-      { id: 'untagged', payload: parsed({ orderId: 'x' }) }
-    ];
-    expect(ids(filterLoadedRows(tagged, [condition('tags[] = "vip"')]))).toEqual(['first', 'second']);
-    expect(ids(filterLoadedRows(tagged, [condition('tags[] != "vip"')]))).toEqual(['none', 'untagged']);
-    expect(ids(filterLoadedRows(tagged, [condition('tags[1] = "vip"')]))).toEqual(['second']);
-  });
-
-  it('matches one condition against one payload', () => {
-    expect(payloadMatches(parsed({ a: 1 }), condition('a = 1'))).toBe(true);
-    expect(payloadMatches({ state: 'invalid' }, condition('a != 1'))).toBe(false);
-  });
-});
-
 describe('sorting loaded rows', () => {
   const sortedIds = (values: Array<CustomLogScalar | undefined>, dir: 'asc' | 'desc') =>
     sortLoadedRows(
@@ -228,16 +141,6 @@ describe('sorting loaded rows', () => {
 });
 
 describe('summaries', () => {
-  it('counts each row once per value and ranks by frequency', () => {
-    const rows = [{ v: [500, 500] }, { v: [500] }, { v: [200] }, { v: [429] }, { v: [] }, { v: [null] }];
-    const { values, distinct } = topValues(rows, row => row.v, 2);
-    expect(values).toEqual([
-      { value: '500', count: 2 },
-      { value: '200', count: 1 }
-    ]);
-    expect(distinct).toBe(4);
-  });
-
   it('counts the payload states of the rows', () => {
     const rows = [
       { payload: parsed({}) },

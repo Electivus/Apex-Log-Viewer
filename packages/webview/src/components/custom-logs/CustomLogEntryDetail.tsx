@@ -1,6 +1,6 @@
 import React from 'react';
 import { Copy, Loader2, Lock } from 'lucide-react';
-import type { CustomLogEntry, CustomLogLongFieldView, CustomLogScalar } from '@alv/protocol/customLogsTypes';
+import type { CustomLogEntry, CustomLogLongFieldView } from '@alv/protocol/customLogsTypes';
 import type { CustomLogsMessages } from '../../i18n';
 import { formatLogTime } from '../../utils/customLogs/format';
 import { Button } from '../ui/button';
@@ -22,7 +22,6 @@ type CustomLogEntryDetailProps = {
   onCopyMessage: () => void;
   onOpenField: (key: string) => void;
   onToggleColumn: (path: string) => void;
-  onFilterEqual: (path: string, value: CustomLogScalar) => void;
 };
 
 function FieldState({ t, field }: { t: CustomLogsMessages; field: CustomLogLongFieldView }) {
@@ -64,8 +63,7 @@ export function CustomLogEntryDetail({
   onClose,
   onCopyMessage,
   onOpenField,
-  onToggleColumn,
-  onFilterEqual
+  onToggleColumn
 }: CustomLogEntryDetailProps) {
   const listed = (fields ?? []).filter(
     field => field.state !== 'unmapped' && !(field.key === 'payload' && entry.payload)
@@ -162,7 +160,6 @@ export function CustomLogEntryDetail({
           canOpenFull={payloadField?.state === 'value'}
           onOpenFull={() => onOpenField('payload')}
           onToggleColumn={onToggleColumn}
-          onFilterEqual={onFilterEqual}
         />
       ) : null}
     </DetailPane>
