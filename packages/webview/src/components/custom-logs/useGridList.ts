@@ -39,8 +39,8 @@ export function useGridList<T extends { id: string }>(
 
   // The item can arrive a render after the request, once the filters that hid it are relaxed, and the list's
   // handle after its first render; `element` changes with the handle, so either one runs this again.
-  // One call is enough: over dynamic row heights, `scrollToRow` follows the row while rows measure and the list
-  // resizes, until the row holds still in view, and a wheel, touch, pointer or scroll key on the list stops it.
+  // `scrollToRow` tracks dynamic row heights until the row settles or its one-second deadline expires.
+  // A wheel, touch, pointer or scroll key on the list also stops that tracking.
   const revealedRef = useRef<number | undefined>(undefined);
   useEffect(() => {
     const list = listRef.current;

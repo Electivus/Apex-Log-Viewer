@@ -385,7 +385,7 @@ suite('Custom Logs viewer panel', () => {
       assert.equal(appended.length, 3);
     });
 
-    test('stops at 10,000 entries with notLoaded, and the next Load more lands on it', async () => {
+    test('stops after a page reaches 10,000 entries with notLoaded, and the next Load more lands on it', async () => {
       const { fake, open } = load();
       fake.handlers.customLogGet = pagedLog(10_500);
 
