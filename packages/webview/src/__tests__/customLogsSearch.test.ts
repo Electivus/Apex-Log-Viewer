@@ -1,5 +1,5 @@
+import { execFileSync } from 'node:child_process';
 import type { CustomLogEntry, CustomLogPayloadView, CustomLogRow } from '@alv/protocol/customLogsTypes';
-import { formatLogTime } from '../utils/customLogs/format';
 import { entrySearchText, matchesSearch, parseSearch, rowSearchText, searchItems } from '../utils/customLogs/search';
 
 function parsed(values: Record<string, string | number | boolean | null>): CustomLogPayloadView {
@@ -82,22 +82,38 @@ describe('searching loaded rows', () => {
     }
   });
 
-  describe('in a time zone behind UTC', () => {
-    const zone = process.env.TZ;
-    beforeAll(() => {
-      process.env.TZ = 'America/Sao_Paulo';
-    });
-    afterAll(() => {
-      process.env.TZ = zone;
-    });
+  it.each([
+    ['UTC', '2026-10-29 23:41:07.000'],
+    ['America/Sao_Paulo', '2026-10-29 20:41:07.000'],
+    ['Asia/Tokyo', '2026-10-30 08:41:07.000']
+  ])('finds the stored and displayed time in %s', (timeZone, displayedTime) => {
+    const timed = row('timed', { time: '2026-10-29T23:41:07.000Z' });
+    const result = execFileSync(
+      process.execPath,
+      [
+        '-e',
+        `
+          const { buildSync } = require('esbuild');
+          const code = buildSync({
+            entryPoints: [process.argv[1]], bundle: true, write: false, platform: 'node', format: 'cjs'
+          }).outputFiles[0].text;
+          const searchModule = { exports: {} };
+          new Function('module', 'exports', code)(searchModule, searchModule.exports);
+          const { searchItems, parseSearch, rowSearchText } = searchModule.exports;
+          const row = JSON.parse(process.argv[2]);
+          const matches = JSON.parse(process.argv[3]).map(query =>
+            searchItems([row], parseSearch(query), rowSearchText).map(item => item.id)
+          );
+          console.log(JSON.stringify(matches));
+        `,
+        require.resolve('../utils/customLogs/search'),
+        JSON.stringify(timed),
+        JSON.stringify(['2026-10-29t23:41', displayedTime, 'no matching time'])
+      ],
+      { encoding: 'utf8', env: { ...process.env, TZ: timeZone }, timeout: 10_000 }
+    );
 
-    it('finds the time as stored and as the Time column shows it', () => {
-      const timed = row('timed', { time: '2026-10-29T23:41:07.000Z' });
-
-      expect(formatLogTime(timed.time)).toBe('2026-10-29 20:41:07.000');
-      expect(rowsMatching([timed], '2026-10-29t23:41')).toEqual([timed.id]);
-      expect(rowsMatching([timed], '20:41:07.000')).toEqual([timed.id]);
-    });
+    expect(JSON.parse(result)).toEqual([[timed.id], [timed.id], []]);
   });
 
   it('finds the values of the record columns, never their API names, and no text for an empty one', () => {
