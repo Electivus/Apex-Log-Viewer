@@ -59,6 +59,8 @@
 
 ### Fixes
 
+- Custom Logs: adding or removing a JSON column updates the open lists and transaction viewers for the same source without Refresh.
+- Logs and Custom Logs: keep rows aligned with their headers when keyboard focus scrolls an offscreen header button into view, including `+ Field` in the Custom Logs list and transaction viewer.
 - Log Viewer: one click on `Go to error`, on a diagnostic or on `Previous match` now brings the entry into view in a long log. Before, the rows above it grew after the jump and pushed it out, so a second click was needed. `Next match` and `Previous match` now jump at once instead of animating.
 - Logs panel search: the Match column shows `|` instead of `&#124;`, as the Log Viewer does, and a search with `|` finds text that the log holds as `&#124;`. A search with `&#124;` still works. The `Execute Anonymous:` source stays as written
 - Log Viewer and Tail: debug messages and other log text show `|` instead of `&#124;`, the form Salesforce writes to the log. Both still find a line by either form, and `View Raw` keeps the log as Salesforce wrote it. Text that a developer wrote as `&#124;` also shows as `|`, because the log cannot tell the two apart
