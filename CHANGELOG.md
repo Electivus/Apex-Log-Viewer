@@ -72,7 +72,6 @@
 - Tail: with `Color` on, a line that is not a log event now shows all its text. Before, the text up to the first `|` disappeared, so the `=== ApexLog` header lost its log id and an `Execute Anonymous:` source line lost its start.
 - Custom Logs: turning `electivus.apexLogViewer.customLogs.enabled` off now also closes the long-field tabs opened from a transaction viewer, in every editor group, and leaves other editors open. These tabs kept showing org data after the setting was off.
 - Custom Logs: turning `electivus.apexLogViewer.customLogs.enabled` off now also closes a transaction viewer or Custom Logs editor tab that stayed open through an extension host restart. These tabs kept showing org data after the setting was off.
-- CLI: `sf electivus log status` without `--target-org` now reports the org that `log sync` would use, the project's `target-org` or else the global one, instead of the first org in the `apexlogs/` store. A configured org that was never synced reads `hasState: false`. With no default org and several orgs in the store, the command fails and asks for a target org instead of picking one.
 - Log Viewer: show the log entries in an editor narrower than 1024 px. There the viewer stacks the entries above the Diagnostics panel, and the entries row shrank to about 13 px, so no entry was visible; it now keeps at least 18rem and the view scrolls to the Diagnostics panel below.
 - Custom Logs: an event that a capture stored just before another process took its lease now shows in that capture. The process that took over receives the event again and stores nothing, so until now neither process showed it, although `custom-log list` did.
 - Tail/Debug Flags: Tail, and the Apex Debug Flags editor opened from it, now start on the workspace's `target-org` when they open before the Logs panel. They used the `target-org` of the extension host's working directory or the global one, so Start and Apply could write a trace flag to another org ([#1224](https://github.com/Electivus/Apex-Log-Viewer/issues/1224)).
@@ -125,6 +124,21 @@
 
 - Scratch Org Pool: authenticate maintenance and consumers through the shared Dev Hub JWT policy, preserve PlatformCLI scratch authorization, renew lease calls after expired sessions, and validate an isolated pool with an independent runner.
 - Core: preserve the versioned behavioral contract corpus with real temporary workspaces and strict process/HTTP doubles for the TypeScript core shared by VS Code and the Salesforce CLI.
+
+## [SF Plugin 0.5.0-next.2](https://github.com/Electivus/Apex-Log-Viewer/compare/sf-plugin-v0.5.0-next.1...sf-plugin-v0.5.0-next.2) (2026-11-09)
+
+Pre-release of `@electivus/plugin-electivus` on the npm `next` dist-tag, alongside VS Code extension pre-release 0.55.9. Install it with `sf plugins install @electivus/plugin-electivus@next`. `latest` stays on 0.4.0.
+
+### Features
+
+- `sf electivus custom-log list --entries` lists the child entries of a transaction source, such as Nebula Logger's `LogEntry__c`, newest first. Each row includes its parent transaction in `log`, and `logColumns` describes the parent's columns. Pass `log.id` to `get --log-id`. Without `--entries`, `list` still returns transactions.
+- Entry and event rows include `origin` and mark the logger's own bookkeeping with `system: true`. `sources --json` reports `entryCapabilities`. With `--entries`, `--min-level` filters the entry's level and `--user` filters the user shown on the entry.
+- The bundled Custom Logs reference and `apex-log-viewer-cli` skill document entry listing and parent context.
+
+### Fixes
+
+- Custom Logs: time filters on epoch-millisecond fields use decimal SOQL literals, avoiding out-of-range integer errors.
+- `sf electivus log status` without `--target-org` now reports the org that `log sync` would use, the project's `target-org` or else the global one, instead of the first org in the `apexlogs/` store. A configured org that was never synced reads `hasState: false`. With no default org and several orgs in the store, the command fails and asks for a target org instead of picking one.
 
 ## [SF Plugin 0.5.0-next.1](https://github.com/Electivus/Apex-Log-Viewer/compare/sf-plugin-v0.5.0-next.0...sf-plugin-v0.5.0-next.1) (2026-11-06)
 
