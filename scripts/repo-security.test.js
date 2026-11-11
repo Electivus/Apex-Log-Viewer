@@ -1119,7 +1119,61 @@ test('devcontainer base image and Salesforce CLI install are pinned', () => {
     /^FROM mcr\.microsoft\.com\/vscode\/devcontainers\/typescript-node:24@sha256:[0-9a-f]{64}$/m
   );
   assert.match(dockerfile, /npm install -g @salesforce\/cli@\d+\.\d+\.\d+ --no-audit --no-fund/);
-  assert.match(dockerfile, /npm install -g pnpm@11\.11\.0 --no-audit --no-fund/);
+});
+
+test('container images install the workspace pnpm release from a hash-checked tarball', () => {
+  const workspacePnpm = JSON.parse(read('package.json')).packageManager.split('+')[0];
+  const integrities = new Set();
+
+  for (const dockerfilePath of ['.devcontainer/Dockerfile', 'test/e2e/proxy-lab/Dockerfile.runner']) {
+    const dockerfile = read(dockerfilePath);
+    const version = dockerfile.match(/^ARG ALV_PNPM_VERSION=(\d+\.\d+\.\d+)$/m)?.[1];
+    const integrity = dockerfile.match(/^ARG ALV_PNPM_INTEGRITY=(sha512-[A-Za-z0-9+/]{86}==)$/m)?.[1];
+
+    assert.equal(`pnpm@${version}`, workspacePnpm, `${dockerfilePath} should install the packageManager release`);
+    assert.ok(integrity, `${dockerfilePath} should pin the sha512 integrity of the pnpm tarball`);
+    integrities.add(integrity);
+
+    const download = dockerfile.indexOf('"https://registry.npmjs.org/pnpm/-/pnpm-${ALV_PNPM_VERSION}.tgz"');
+    const check = dockerfile.indexOf(
+      'test "sha512-$(openssl dgst -sha512 -binary /tmp/pnpm.tgz | openssl base64 -A)" = "${ALV_PNPM_INTEGRITY}"'
+    );
+    const unpack = dockerfile.indexOf('tar -xzf /tmp/pnpm.tgz');
+    assert.ok(
+      download !== -1 && download < check && check < unpack,
+      `${dockerfilePath} should download the pnpm tarball, check its hash, then unpack it`
+    );
+    assert.doesNotMatch(dockerfile, /npm (?:install|i) [^\n]*pnpm/, `${dockerfilePath} should not npm-install pnpm`);
+  }
+
+  assert.equal(integrities.size, 1, 'both images should pin the same pnpm tarball');
+});
+
+test('Dependabot refreshes the digest-pinned container base images', () => {
+  const updates = yaml.parse(read('.github/dependabot.yml')).updates;
+  const docker = updates.filter(update => update['package-ecosystem'] === 'docker');
+
+  assert.equal(docker.length, 1);
+  assert.deepEqual(docker[0].directories, ['/.devcontainer', '/test/e2e/proxy-lab']);
+  for (const dockerfilePath of [
+    '.devcontainer/Dockerfile',
+    'test/e2e/proxy-lab/Dockerfile.proxy',
+    'test/e2e/proxy-lab/Dockerfile.runner'
+  ]) {
+    const from = read(dockerfilePath).match(/^FROM .+$/gm);
+    assert.equal(from.length, 1, `${dockerfilePath} should have one base image`);
+    assert.match(from[0], /^FROM \S+:\S+@sha256:[0-9a-f]{64}$/, `${dockerfilePath} should keep the tag and the digest`);
+    assert.ok(
+      docker[0].directories.includes(`/${path.posix.dirname(dockerfilePath)}`),
+      `${dockerfilePath} should sit in a directory Dependabot updates`
+    );
+  }
+  // .nvmrc owns the Node release of the runner image, so only its digest may move.
+  assert.deepEqual(docker[0].ignore.find(rule => rule['dependency-name'] === 'node')?.['update-types'], [
+    'version-update:semver-major',
+    'version-update:semver-minor',
+    'version-update:semver-patch'
+  ]);
 });
 
 test('Playwright E2E workflow pins the Salesforce CLI release proven for JWT signup and export', () => {
