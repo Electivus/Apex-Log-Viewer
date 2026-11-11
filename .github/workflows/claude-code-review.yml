@@ -15,6 +15,9 @@ concurrency:
   group: claude-code-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+# The workflow grants no token scopes; the job below declares the ones it uses.
+permissions: {}
+
 jobs:
   claude-review:
     # Fork and Dependabot PRs do not receive ANTHROPIC_API_KEY, so skip them.
@@ -66,4 +69,3 @@ jobs:
           claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment"'
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
-

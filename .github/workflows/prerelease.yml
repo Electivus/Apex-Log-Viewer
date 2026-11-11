@@ -246,6 +246,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
+      # `gh release create --target` creates the pre-release and its tag, and the
+      # upload step replaces the VSIX assets of that release.
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
@@ -516,6 +518,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
+      # `gh release delete --cleanup-tag` deletes the release and the tag of a failed assembly.
       contents: write
     env:
       TAG: ${{ needs.prepare.outputs.tag }}

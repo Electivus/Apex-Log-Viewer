@@ -185,6 +185,8 @@ jobs:
       channel_suffix: ${{ steps.determine_channel.outputs.channel_suffix }}
       artifact_name: apex-log-viewer-${{ steps.determine_channel.outputs.version }}-${{ steps.determine_channel.outputs.channel_suffix }}-publish-vsix
     permissions:
+      # The `gh release` steps and the releases API call below create the GitHub
+      # release for the pushed tag, set its pre-release flag and upload the VSIX files.
       contents: write
     steps:
       - name: Checkout
