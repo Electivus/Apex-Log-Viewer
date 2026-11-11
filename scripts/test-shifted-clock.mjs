@@ -6,7 +6,7 @@
 //   node scripts/test-shifted-clock.mjs --all           # every core and sf-plugin test file, not only the event suites
 //
 // Exit 1 when any run fails. Run it after `pnpm run build:core`, as `pnpm run test:sf-plugin` does.
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -56,7 +56,22 @@ export function failureDetails(lines, index, maxLines = MAX_DETAIL_LINES) {
   return [...details.slice(0, maxLines), `… ${details.length - maxLines} more lines`];
 }
 
-function main(args) {
+function runShifted(days, suite) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['--import', 'tsx', '--test', '--test-reporter=tap', ...suite.files], {
+      cwd: path.join(repoRoot, suite.cwd),
+      env: { ...process.env, ALV_TEST_CLOCK_SHIFT_DAYS: String(days), NODE_OPTIONS: `--import ${preload}` }
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8').on('data', chunk => (stdout += chunk));
+    child.stderr.setEncoding('utf8').on('data', chunk => (stderr += chunk));
+    child.on('error', reject);
+    child.on('close', status => resolve({ status, stdout, stderr }));
+  });
+}
+
+async function main(args) {
   const daysFlag = args.indexOf('--days');
   const shifts = (daysFlag === -1 ? '45,400,-1' : (args[daysFlag + 1] ?? ''))
     .split(',')
@@ -67,33 +82,30 @@ function main(args) {
   }
   const suites = args.includes('--all') ? ALL_SUITES : EVENT_SUITES;
 
+  // The event suites spend most of their time waiting on timers, so the runs share the CPU well; they run
+  // together and report in the order they are listed.
+  const runs = shifts.flatMap(days => suites.map(suite => ({ days, suite })));
+  const results = await Promise.all(runs.map(({ days, suite }) => runShifted(days, suite)));
   let failed = false;
-  for (const days of shifts) {
-    for (const suite of suites) {
-      const run = spawnSync(process.execPath, ['--import', 'tsx', '--test', '--test-reporter=tap', ...suite.files], {
-        cwd: path.join(repoRoot, suite.cwd),
-        env: { ...process.env, ALV_TEST_CLOCK_SHIFT_DAYS: String(days), NODE_OPTIONS: `--import ${preload}` },
-        encoding: 'utf8',
-        maxBuffer: 256 * 1024 * 1024
-      });
-      const lines = run.stdout.split('\n');
-      const count = name => lines.find(line => line.startsWith(`# ${name} `))?.slice(`# ${name} `.length) ?? '?';
-      const failures = lines.flatMap((line, index) => (/^\s*not ok /.test(line) ? [index] : []));
-      const ok = run.status === 0 && failures.length === 0;
-      failed ||= !ok;
-      console.log(
-        `${ok ? 'PASS' : 'FAIL'}  ${days >= 0 ? '+' : ''}${days} days  ${suite.cwd}  tests ${count('tests')}, pass ${count('pass')}, fail ${count('fail')}`
-      );
-      for (const index of failures) {
-        console.log(`      ${lines[index].trim()}`);
-        for (const detail of failureDetails(lines, index)) console.log(`          ${detail}`);
-      }
-      if (!ok && failures.length === 0) console.log(run.stderr || run.stdout.slice(-2000));
+  runs.forEach(({ days, suite }, i) => {
+    const run = results[i];
+    const lines = run.stdout.split('\n');
+    const count = name => lines.find(line => line.startsWith(`# ${name} `))?.slice(`# ${name} `.length) ?? '?';
+    const failures = lines.flatMap((line, index) => (/^\s*not ok /.test(line) ? [index] : []));
+    const ok = run.status === 0 && failures.length === 0;
+    failed ||= !ok;
+    console.log(
+      `${ok ? 'PASS' : 'FAIL'}  ${days >= 0 ? '+' : ''}${days} days  ${suite.cwd}  tests ${count('tests')}, pass ${count('pass')}, fail ${count('fail')}`
+    );
+    for (const index of failures) {
+      console.log(`      ${lines[index].trim()}`);
+      for (const detail of failureDetails(lines, index)) console.log(`          ${detail}`);
     }
-  }
+    if (!ok && failures.length === 0) console.log(run.stderr || run.stdout.slice(-2000));
+  });
   return failed ? 1 : 0;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  process.exit(main(process.argv.slice(2)));
+  process.exit(await main(process.argv.slice(2)));
 }
