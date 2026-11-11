@@ -36,6 +36,30 @@ pnpm run telemetry:report -- \
 pnpm run telemetry:report -- --subscription=<sub-id> --resource-group=<rg> --app=<app-name>
 ```
 
+### Adoption
+
+The report opens with an adoption section that counts devices by `common.devDeviceId`, which VS Code shares across its editions on one machine. Use a 90-day lookback, the workspace retention, and leave your own machines out of the counts:
+
+```bash
+pnpm run telemetry:report -- \
+  --app=<prod-app-insights-name> \
+  --resource-group=<telemetry-resource-group> \
+  --subscription=<subscription-id> \
+  --lookback=90d \
+  --exclude-devices=<your-devDeviceId>[,<another-devDeviceId>]
+```
+
+`ALV_TELEMETRY_EXCLUDE_DEVICES` sets the same list. Each machine's id is the `telemetry.devDeviceId` value in VS Code's `User/globalStorage/storage.json`.
+
+- `extension.activate` fires whenever a folder with `sfdx-project.json` opens, so an activated device has the extension installed and works on a Salesforce project. It is not yet a user.
+- A device did something beyond activation once it sends any event other than `extension.activate` or `host.responsiveness`. Opening the Logs or Tail view lists orgs, which sends `orgs.list`, and commands count too, including failed ones.
+- "Tried to open a log" counts `command.openLogInViewer`, which fires before the log opens, and `log.open`.
+- A dormant device activated on 5 or more days and did nothing else in the lookback. The 90-day retention hides whether it used the views before that.
+- Engaged devices per week is the headline adoption number. A new device is one first seen in the lookback, not a new install, so the first weeks also count earlier users and an occasional user can count as new. The last week is still in progress.
+- A device's country is the country of its most recent event.
+
+To measure the effect of a release, add `--min-version=<version>` (or `ALV_TELEMETRY_MIN_VERSION`). The adoption section then counts only events that extension version or a later one sent, so a device that updates starts over as activated, and "new" means first seen on that version. Compare the result with a run without the option. Version 0.56.0 added the `Apex Logs` status bar item and the Get Started walkthrough, so `--min-version=0.56.0` shows whether devices that only activated before now use the views. Wait until those devices have had a few weeks on the version, because a device counts as dormant only after 5 days of activation.
+
 Direct workspace query example:
 
 ```bash

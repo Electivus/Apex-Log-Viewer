@@ -86,6 +86,100 @@ function buildSearchCoverageQuery({ componentResourceId, lookback }) {
   ].join(' ');
 }
 
+const AUTOMATIC_EVENTS = ['extension.activate', 'host.responsiveness'];
+const DORMANT_MIN_ACTIVATE_DAYS = 5;
+
+function parseDeviceList(value) {
+  return value
+    .split(',')
+    .map(entry => entry.trim())
+    .filter(Boolean);
+}
+
+function parseMinVersion(value) {
+  if (value && !/^\d+(\.\d+){0,3}$/.test(value)) {
+    throw new Error(`--min-version must be a version such as 0.56.0, got "${value}".`);
+  }
+  return value;
+}
+
+function buildDeviceEventsQuery({ componentResourceId, lookback, excludeDevices = [], minVersion = '' }) {
+  return [
+    buildScopedBaseQuery({ componentResourceId, lookback }),
+    '| extend props = parse_json(Properties)',
+    "| extend device = tostring(props['common.devDeviceId']), outcome = tostring(props['outcome'])",
+    `| extend event = replace_string(Name, ${kqlQuote('electivus.apex-log-viewer/')}, '')`,
+    `| extend engaged = event !in (${AUTOMATIC_EVENTS.map(kqlQuote).join(', ')})`,
+    '| where isnotempty(device)',
+    excludeDevices.length ? `| where device !in (${excludeDevices.map(kqlQuote).join(', ')})` : '',
+    minVersion
+      ? `| where parse_version(tostring(props['common.extversion'])) >= parse_version(${kqlQuote(minVersion)})`
+      : ''
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function buildAdoptionFunnelQuery(context) {
+  return [
+    buildDeviceEventsQuery(context),
+    "| summarize activateDays = dcountif(startofday(TimeGenerated), event == 'extension.activate'),",
+    'engagedDays = dcountif(startofday(TimeGenerated), engaged),',
+    "loadedLogs = max(toint(event == 'logs.refresh' and outcome == 'ok')),",
+    "triedLog = max(toint(event in ('command.openLogInViewer', 'log.open'))),",
+    "appliedFlags = max(toint(event == 'debugFlags.apply' and outcome == 'ok')),",
+    'lastSeen = max(TimeGenerated) by device',
+    `| extend dormant = engagedDays == 0 and activateDays >= ${DORMANT_MIN_ACTIVATE_DAYS}`,
+    '| summarize devices = count(), acted = countif(engagedDays > 0), loadedLogs = sum(loadedLogs),',
+    'triedLog = sum(triedLog), appliedFlags = sum(appliedFlags), returned = countif(engagedDays > 1),',
+    'dormant = countif(dormant), dormantSeenLast14d = countif(dormant and lastSeen > ago(14d))'
+  ].join(' ');
+}
+
+function buildWeeklyAdoptionQuery(context) {
+  return [
+    `let events = ${buildDeviceEventsQuery(context)};`,
+    'let firsts = events | summarize firstSeen = startofweek(min(TimeGenerated)), firstEngaged = startofweek(minif(TimeGenerated, engaged)) by device;',
+    'events',
+    '| summarize activated = dcount(device), engaged = dcountif(device, engaged) by week = startofweek(TimeGenerated)',
+    '| join kind=leftouter (firsts | summarize newDevices = count() by week = firstSeen) on week',
+    '| join kind=leftouter (firsts | where isnotnull(firstEngaged) | summarize newEngaged = count() by week = firstEngaged) on week',
+    '| project week, activated, engaged, newDevices = coalesce(newDevices, 0), newEngaged = coalesce(newEngaged, 0)',
+    '| order by week asc'
+  ].join(' ');
+}
+
+function buildCountryQuery(context) {
+  return [
+    buildDeviceEventsQuery(context),
+    '| summarize engaged = max(toint(engaged)), arg_max(TimeGenerated, ClientCountryOrRegion) by device',
+    "| summarize devices = count(), engaged = sum(engaged) by country = iff(isempty(ClientCountryOrRegion), '(unknown)', ClientCountryOrRegion)",
+    '| order by engaged desc, devices desc, country asc'
+  ].join(' ');
+}
+
+function share(part, whole) {
+  return whole ? `${Math.round((Number(part) / Number(whole)) * 100)}%` : '0%';
+}
+
+function formatAdoptionFunnel(row) {
+  const devices = Number(row.devices || 0);
+  return [
+    `Activated (opened a Salesforce project): ${devices}`,
+    `Did something beyond activation (a view or a command): ${row.acted} (${share(row.acted, devices)})`,
+    `Loaded logs: ${row.loadedLogs} (${share(row.loadedLogs, devices)})`,
+    `Tried to open a log: ${row.triedLog} (${share(row.triedLog, devices)})`,
+    `Applied debug flags: ${row.appliedFlags} (${share(row.appliedFlags, devices)})`,
+    `Came back on a second day: ${row.returned} (${share(row.returned, devices)})`,
+    `Dormant (activated on ${DORMANT_MIN_ACTIVATE_DAYS}+ days, did nothing else in the lookback): ${row.dormant}, ${row.dormantSeenLast14d} of them seen in the last 14 days`
+  ];
+}
+
+function formatWeek(row) {
+  const week = String(row.week).slice(0, 10);
+  return `${week}: ${row.activated} activated, ${row.engaged} engaged, ${row.newDevices} new, ${row.newEngaged} newly engaged`;
+}
+
 function rowsByName(rows) {
   const map = new Map();
   for (const row of rows) {
@@ -124,7 +218,9 @@ async function main() {
     resourceGroup: readOption('resource-group', process.env.ALV_TELEMETRY_RESOURCE_GROUP || ''),
     subscription: readOption('subscription', process.env.ALV_TELEMETRY_SUBSCRIPTION || ''),
     lookback: readOption('lookback', '30d'),
-    workspaceResourceId: readOption('workspace-resource-id', process.env.ALV_TELEMETRY_WORKSPACE_RESOURCE_ID || '')
+    workspaceResourceId: readOption('workspace-resource-id', process.env.ALV_TELEMETRY_WORKSPACE_RESOURCE_ID || ''),
+    excludeDevices: parseDeviceList(readOption('exclude-devices', process.env.ALV_TELEMETRY_EXCLUDE_DEVICES || '')),
+    minVersion: parseMinVersion(readOption('min-version', process.env.ALV_TELEMETRY_MIN_VERSION || ''))
   };
 
   if (!config.appName || !config.resourceGroup || !config.subscription) {
@@ -195,6 +291,18 @@ async function main() {
     )
   );
 
+  const adoptionContext = {
+    componentResourceId: component.id,
+    lookback: config.lookback,
+    excludeDevices: config.excludeDevices,
+    minVersion: config.minVersion
+  };
+  const [funnel] = toRows(
+    await queryWorkspace(workspace.workspaceCustomerId, buildAdoptionFunnelQuery(adoptionContext))
+  );
+  const weeks = toRows(await queryWorkspace(workspace.workspaceCustomerId, buildWeeklyAdoptionQuery(adoptionContext)));
+  const countries = toRows(await queryWorkspace(workspace.workspaceCustomerId, buildCountryQuery(adoptionContext)));
+
   const latencyByName = rowsByName(latencies);
   const refreshTotal = totalCount(outcomes, 'electivus.apex-log-viewer/logs.refresh');
   const refreshErrors = outcomeCount(outcomes, 'electivus.apex-log-viewer/logs.refresh', 'error');
@@ -209,6 +317,20 @@ async function main() {
   console.log(`- Workspace: ${workspace.workspaceName}`);
   console.log(`- Workspace customer id: ${workspace.workspaceCustomerId}`);
   console.log(`- Lookback: ${config.lookback}`);
+  console.log(`- Excluded devices: ${config.excludeDevices.length}`);
+  console.log(`- Adoption counts events from extension version: ${config.minVersion || 'any'}`);
+
+  printTable('Adoption funnel (devices)', formatAdoptionFunnel(funnel), line => line);
+  printTable(
+    'Weekly devices (new means first seen in the lookback, so the first weeks also count earlier users; the last week is still in progress)',
+    weeks,
+    formatWeek
+  );
+  printTable(
+    'Engaged devices by country',
+    countries.slice(0, 10),
+    row => `${row.country}: ${row.engaged} of ${row.devices}`
+  );
 
   printTable('Top events', topEvents.slice(0, 10), row => `${row.name}: ${row.events}`);
   printTable('CLI error buckets', cliErrors, row => `${row.name} / ${row.code || '(blank)'}: ${row.events}`);
@@ -257,6 +379,13 @@ if (require.main === module) {
 }
 
 module.exports = {
+  buildAdoptionFunnelQuery,
+  buildCountryQuery,
+  buildDeviceEventsQuery,
+  buildWeeklyAdoptionQuery,
+  formatAdoptionFunnel,
+  parseDeviceList,
+  parseMinVersion,
   buildCliErrorQuery,
   buildExceptionsQuery,
   buildLatencyQuery,
