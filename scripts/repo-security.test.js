@@ -1095,12 +1095,24 @@ test('CI workflow enforces dependency provenance and pnpm signature verification
 
 test('pnpm workspace owns the dependency security overrides', () => {
   const rootManifest = JSON.parse(read('package.json'));
-  const workspace = read('pnpm-workspace.yaml');
-  const lockfile = read('pnpm-lock.yaml');
+  const workspace = yaml.parse(read('pnpm-workspace.yaml'));
+  const lockfile = yaml.parse(read('pnpm-lock.yaml'));
 
   assert.equal(rootManifest.overrides, undefined);
-  assert.match(workspace, /^overrides:\n(?:  .+\n)*  serialize-javascript: '7\.0\.5'$/m);
-  assert.doesNotMatch(lockfile, /serialize-javascript@6\.0\.2/);
+  assert.ok(Object.keys(workspace.overrides).length > 0);
+
+  // No override pins serialize-javascript: mocha declares ^7.1.1, and an exact override had kept
+  // the lockfile on 7.0.5 after 7.1.3 fixed GHSA-m5mm-p8h7-m29v. The lockfile is what is checked.
+  const serializeJavascriptVersions = Object.keys(lockfile.packages)
+    .filter(key => key.startsWith('serialize-javascript@'))
+    .map(key => key.slice('serialize-javascript@'.length));
+  for (const version of serializeJavascriptVersions) {
+    const [major, minor, patch] = version.split('.').map(Number);
+    assert.ok(
+      major > 7 || (major === 7 && (minor > 1 || (minor === 1 && patch >= 3))),
+      `serialize-javascript@${version} is older than 7.1.3`
+    );
+  }
 });
 
 test('pnpm workspace enforces native supply-chain security policies', () => {
