@@ -176,6 +176,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
+      # `gh release create` and `gh release edit` publish the GitHub release for the tag.
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
