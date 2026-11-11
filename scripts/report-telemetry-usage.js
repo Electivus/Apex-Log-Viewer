@@ -87,7 +87,7 @@ function buildSearchCoverageQuery({ componentResourceId, lookback }) {
 }
 
 const AUTOMATIC_EVENTS = ['extension.activate', 'host.responsiveness'];
-const DORMANT_MIN_ACTIVATE_DAYS = 5;
+const DORMANT_MIN_PROJECT_DAYS = 5;
 
 function parseDeviceList(value) {
   return value
@@ -123,14 +123,14 @@ function buildDeviceEventsQuery({ componentResourceId, lookback, excludeDevices 
 function buildAdoptionFunnelQuery(context) {
   return [
     buildDeviceEventsQuery(context),
-    "| summarize activateDays = dcountif(startofday(TimeGenerated), event == 'extension.activate'),",
+    "| summarize projectDays = dcountif(startofday(TimeGenerated), event == 'extension.activate' and tostring(props['hasSalesforceProject']) == 'true'),",
     'engagedDays = dcountif(startofday(TimeGenerated), engaged),',
     "loadedLogs = max(toint(event == 'logs.refresh' and outcome == 'ok')),",
     "triedLog = max(toint(event in ('command.openLogInViewer', 'log.open'))),",
     "appliedFlags = max(toint(event == 'debugFlags.apply' and outcome == 'ok')),",
     'lastSeen = max(TimeGenerated) by device',
-    `| extend dormant = engagedDays == 0 and activateDays >= ${DORMANT_MIN_ACTIVATE_DAYS}`,
-    '| summarize devices = count(), acted = countif(engagedDays > 0), loadedLogs = sum(loadedLogs),',
+    `| extend dormant = engagedDays == 0 and projectDays >= ${DORMANT_MIN_PROJECT_DAYS}`,
+    '| summarize devices = count(), inProject = countif(projectDays > 0), acted = countif(engagedDays > 0), loadedLogs = sum(loadedLogs),',
     'triedLog = sum(triedLog), appliedFlags = sum(appliedFlags), returned = countif(engagedDays > 1),',
     'dormant = countif(dormant), dormantSeenLast14d = countif(dormant and lastSeen > ago(14d))'
   ].join(' ');
@@ -165,13 +165,13 @@ function share(part, whole) {
 function formatAdoptionFunnel(row) {
   const devices = Number(row.devices || 0);
   return [
-    `Activated (opened a Salesforce project): ${devices}`,
+    `Activated: ${devices}, ${row.inProject} of them in a Salesforce project`,
     `Did something beyond activation (a view or a command): ${row.acted} (${share(row.acted, devices)})`,
     `Loaded logs: ${row.loadedLogs} (${share(row.loadedLogs, devices)})`,
     `Tried to open a log: ${row.triedLog} (${share(row.triedLog, devices)})`,
     `Applied debug flags: ${row.appliedFlags} (${share(row.appliedFlags, devices)})`,
     `Came back on a second day: ${row.returned} (${share(row.returned, devices)})`,
-    `Dormant (activated on ${DORMANT_MIN_ACTIVATE_DAYS}+ days, did nothing else in the lookback): ${row.dormant}, ${row.dormantSeenLast14d} of them seen in the last 14 days`
+    `Dormant (a Salesforce project open on ${DORMANT_MIN_PROJECT_DAYS}+ days, nothing else in the lookback): ${row.dormant}, ${row.dormantSeenLast14d} of them seen in the last 14 days`
   ];
 }
 

@@ -51,14 +51,14 @@ pnpm run telemetry:report -- \
 
 `ALV_TELEMETRY_EXCLUDE_DEVICES` sets the same list. Each machine's id is the `telemetry.devDeviceId` value in VS Code's `User/globalStorage/storage.json`.
 
-- `extension.activate` fires whenever a folder with `sfdx-project.json` opens, so an activated device has the extension installed and works on a Salesforce project. It is not yet a user.
+- `extension.activate` fires when a folder with `sfdx-project.json` opens. It also fires when a command or a click on a panel tab starts the extension in another folder, and its `hasSalesforceProject` property says which. The funnel counts every activated device and says how many activated in a Salesforce project. An activated device is not yet a user.
 - A device did something beyond activation once it sends any event other than `extension.activate` or `host.responsiveness`. Opening the Logs or Tail view lists orgs, which sends `orgs.list`, and commands count too, including failed ones.
 - "Tried to open a log" counts `command.openLogInViewer`, which fires before the log opens, and `log.open`.
-- A dormant device activated on 5 or more days and did nothing else in the lookback. The 90-day retention hides whether it used the views before that.
+- A dormant device had a Salesforce project open on 5 or more days and did nothing else in the lookback. The 90-day retention hides whether it used the views before that.
 - Engaged devices per week is the headline adoption number. A new device is one first seen in the lookback, not a new install, so the first weeks also count earlier users and an occasional user can count as new. The last week is still in progress.
 - A device's country is the country of its most recent event.
 
-To measure the effect of a release, add `--min-version=<version>` (or `ALV_TELEMETRY_MIN_VERSION`). The adoption section then counts only events that extension version or a later one sent, so a device that updates starts over as activated, and "new" means first seen on that version. Compare the result with a run without the option. Version 0.56.0 added the `Apex Logs` status bar item and the Get Started walkthrough, so `--min-version=0.56.0` shows whether devices that only activated before now use the views. Wait until those devices have had a few weeks on the version, because a device counts as dormant only after 5 days of activation.
+To measure the effect of a release, add `--min-version=<version>` (or `ALV_TELEMETRY_MIN_VERSION`). The adoption section then counts only events that extension version or a later one sent, so a device that updates starts over as activated, and "new" means first seen on that version. Compare the result with a run without the option. Version 0.56.0 added the `Apex Logs` status bar item and the Get Started walkthrough, so `--min-version=0.56.0` shows whether devices that only activated before now use the views. Wait until those devices have had a few weeks on the version, because a device counts as dormant only after 5 days with a Salesforce project open.
 
 Direct workspace query example:
 
