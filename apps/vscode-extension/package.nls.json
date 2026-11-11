@@ -1,6 +1,6 @@
 {
   "extension.displayName": "Electivus Apex Log Viewer",
-  "extension.description": "Fast, searchable Salesforce Apex logs in VS Code — browse, filter, tail, and debug with Apex Replay.",
+  "extension.description": "Search, triage, and tail Salesforce debug logs in VS Code. Browse Apex logs, manage trace flags, read Nebula Logger entries (experimental), and open Apex Replay Debugger. Works with the sf CLI and sfdx.",
   "salesforce.panel.title": "Apex Logs",
   "salesforce.tail.panel.title": "Apex Tail",
   "salesforce.logs.view.name": "Apex Logs",
