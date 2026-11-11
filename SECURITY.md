@@ -104,6 +104,10 @@ security controls detect risk.
   key longer than 1024 characters, which js-yaml writes as an explicit `? ` key.
 - CI also runs `pnpm audit signatures` so npm registry signature/attestation
   coverage is validated as part of the gated path.
+- The devcontainer and proxy-lab images pin their base image by tag and digest,
+  and Dependabot refreshes those digests. They install pnpm from the registry
+  tarball after checking it against a pinned sha512, and the Salesforce CLI by
+  exact version.
 - Workflow files, package manifests, lockfiles, plugin packaging scripts, and
   release/publish scripts are protected by `CODEOWNERS`.
 

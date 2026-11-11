@@ -63,3 +63,25 @@ updates:
       time: '06:00'
       timezone: 'America/Bahia'
     open-pull-requests-limit: 3
+  - package-ecosystem: 'docker'
+    directories:
+      - '/.devcontainer'
+      - '/test/e2e/proxy-lab'
+    schedule:
+      interval: 'weekly'
+      day: 'wednesday'
+      time: '06:00'
+      timezone: 'America/Bahia'
+    open-pull-requests-limit: 3
+    ignore:
+      # The runner image tag is the Node release in .nvmrc and moves with it by hand.
+      # Dependabot still refreshes the digest of that tag.
+      - dependency-name: 'node'
+        update-types:
+          - 'version-update:semver-major'
+          - 'version-update:semver-minor'
+          - 'version-update:semver-patch'
+      # The devcontainer stays on the Node major in .nvmrc.
+      - dependency-name: '*typescript-node'
+        update-types:
+          - 'version-update:semver-major'

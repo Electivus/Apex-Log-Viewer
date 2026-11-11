@@ -920,7 +920,9 @@ test('proxy lab runner image installs the configured Salesforce CLI package', ()
   assert.match(runnerDockerfile, /^ARG ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE=@salesforce\/cli@2\.150\.6$/m);
   assert.match(runnerDockerfile, /npm install -g "\$\{ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE\}" --no-audit --no-fund/);
   assert.match(runnerDockerfile, /^ARG ALV_PNPM_VERSION=11\.11\.0$/m);
-  assert.match(runnerDockerfile, /npm install -g "pnpm@\$\{ALV_PNPM_VERSION\}" --no-audit --no-fund/);
+  assert.match(runnerDockerfile, /^ARG ALV_PNPM_INTEGRITY=sha512-[A-Za-z0-9+/]{86}==$/m);
+  assert.match(runnerDockerfile, /registry\.npmjs\.org\/pnpm\/-\/pnpm-\$\{ALV_PNPM_VERSION\}\.tgz/);
+  assert.doesNotMatch(runnerDockerfile, /npm install -g "pnpm@/);
 });
 
 test('proxy lab Dockerfiles bound apt network waits during image builds', () => {
