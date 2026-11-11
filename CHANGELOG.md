@@ -2,9 +2,15 @@
 
 ## Unreleased
 
+### Docs
+
+- Marketplace listing: the description, 22 keywords and the `Debuggers` category now use the words Salesforce developers search for, such as `salesforce debug log`, `trace flag`, `sfdx`, `sf cli`, `nebula logger` and `log analyzer`. Production telemetry showed nearly every install starts from a search inside VS Code, where the listing ranked 9th for `apex log`, about 24th for `salesforce debug log`, and below 50th for `debug log` and `trace flag`.
+- README: the opening says what this extension adds to Salesforce's own Salesforce Apex Log extension, and a new section says where the Apex Logs, Apex Tail and Custom Logs tabs live in the bottom panel, which command opens them, and the three steps to a first log.
+
 ### Maintenance
 
 - Telemetry: `pnpm run telemetry:report` opens with an adoption section that counts devices, not events. It shows how many devices activated the extension, how many of them in a Salesforce project, and how many did something beyond activation, loaded logs, came back on a second day or stayed dormant, plus devices per week and engaged devices by country. `--exclude-devices` leaves the maintainer's machines out, and `--min-version` counts only events from one extension version on, to measure a release. `docs/AZURE-MONITOR.md` defines each stage.
+- Add `scripts/marketplace-search-rank.mjs`, which prints this extension's Marketplace search rank for each search term in the order VS Code shows, so a listing change can be measured after it ships. Run it with `node scripts/marketplace-search-rank.mjs "salesforce debug log"`.
 - Security: update `fast-uri` to 3.1.9, which the extension bundles through the `ajv` schema validator of `@salesforce/core`, and `brace-expansion` to 1.1.21, 2.1.7 and 5.0.12. Remove the three exact `brace-expansion` overrides, which had kept the lockfile on vulnerable versions.
 
 ## [0.56.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.54.0...v0.56.0) (2026-11-09)
