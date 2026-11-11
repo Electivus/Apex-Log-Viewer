@@ -24,7 +24,12 @@ overrides:
   babel-plugin-istanbul: '8.0.2'
   diff: '8.0.3'
   follow-redirects: '1.16.0'
-  glob: '13.0.6'
+  # minimatch 10 has no fix for GHSA-g3hv-75wg-m249 (fixed in 11.0.1), and glob 13 reads minimatch
+  # internals that 11 removed, so both majors are forced together. Drop each line once every
+  # dependent declares the new major itself (`pnpm why -r minimatch glob` lists who still asks
+  # for minimatch 10 or glob 13).
+  glob: '14.0.4'
+  'minimatch@>=7.0.0 <11.0.1': '11.0.5'
   underscore: '1.13.8'
   uuid: '11.1.1'
   ws: '8.21.0'
