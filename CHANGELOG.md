@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Maintenance
+
+- Security: update `fast-uri` to 3.1.9, which the extension bundles through the `ajv` schema validator of `@salesforce/core`, and `brace-expansion` to 1.1.21, 2.1.7 and 5.0.12. Remove the three exact `brace-expansion` overrides, which had kept the lockfile on vulnerable versions.
+
 ## [0.56.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.54.0...v0.56.0) (2026-11-09)
 
 Stable extension release with all changes since 0.54.0, including those shipped in the 0.55.x pre-releases. Custom Logs remains experimental and off by default until `electivus.apexLogViewer.customLogs.enabled` is turned on. The Salesforce CLI plugin has its own stable release, 0.5.0, below.
