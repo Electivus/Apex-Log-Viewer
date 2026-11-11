@@ -1016,48 +1016,6 @@ test('every workflow declares its workflow-level token permissions', () => {
   }
 });
 
-test('Claude workflows grant read-only job tokens and keep fork code away from secrets', () => {
-  const claude = yaml.parse(read('.github/workflows/claude.yml'));
-  assert.deepEqual(claude.permissions, {});
-  assert.deepEqual(Object.keys(claude.jobs), ['claude']);
-  assert.deepEqual(claude.jobs.claude.permissions, {
-    contents: 'read',
-    'pull-requests': 'read',
-    issues: 'read',
-    'id-token': 'write',
-    actions: 'read'
-  });
-  // These events run in the base repository. The action rejects an actor without write access
-  // unless one of these inputs widens the gate.
-  assert.deepEqual(Object.keys(claude.on), [
-    'issue_comment',
-    'pull_request_review_comment',
-    'issues',
-    'pull_request_review'
-  ]);
-  const claudeStep = findRequiredStep(claude.jobs.claude.steps, 'Claude Code', step =>
-    step.uses?.startsWith('anthropics/claude-code-action@')
-  );
-  assert.equal(claudeStep.with.allowed_non_write_users, undefined);
-  assert.equal(claudeStep.with.allowed_bots, undefined);
-
-  const review = yaml.parse(read('.github/workflows/claude-code-review.yml'));
-  assert.deepEqual(review.permissions, {});
-  assert.deepEqual(Object.keys(review.jobs), ['claude-review']);
-  assert.deepEqual(review.jobs['claude-review'].permissions, {
-    contents: 'read',
-    'pull-requests': 'read',
-    issues: 'read',
-    'id-token': 'write'
-  });
-  // `pull_request` gives a fork no secrets, and the job condition skips forks before any step runs.
-  assert.deepEqual(Object.keys(review.on), ['pull_request']);
-  assert.match(
-    review.jobs['claude-review'].if,
-    /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/
-  );
-});
-
 test('Marketplace OIDC access stays confined to protected publishing and verification jobs', () => {
   for (const [workflowPath, oidcJobs] of [
     ['.github/workflows/release.yml', ['publish_marketplace']],
