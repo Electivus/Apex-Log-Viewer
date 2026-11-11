@@ -26,15 +26,10 @@ Concurrency: Most workflows use concurrency groups to avoid duplicate runs per r
 
 - Third-party and GitHub-owned Actions are pinned to full commit SHAs rather
   than mutable tags.
-- The repository Actions allowlist must include every pinned third-party action.
+- The repository Actions allowlist must include every pinned third-party action,
+  and the actions a composite action pins in its own `action.yml`.
   In particular, keep the current `pnpm/action-setup` SHA synchronized with the
   selected-actions policy or workflows will fail before creating jobs.
-- The Claude Code workflows (`.github/workflows/claude.yml` and
-  `.github/workflows/claude-code-review.yml`) need both
-  `anthropics/claude-code-action` and the `oven-sh/setup-bun` SHA that its
-  composite `action.yml` pins. When bumping `claude-code-action`, check its
-  `action.yml` at the new SHA and allowlist both SHAs before merging; otherwise
-  every run ends in `startup_failure` with no jobs or logs.
 - Dependency-source policy allows only registry packages and in-repo workspace
   links, and it validates workspace manifests and `pnpm-lock.yaml` before
   dependency install.
