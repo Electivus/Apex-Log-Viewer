@@ -2,7 +2,12 @@
 
 # Electivus Apex Log Viewer
 
-Search downloaded Salesforce Apex logs inside VS Code, jump straight to the right failure, and keep triage, log inspection, tailing, replay, and debug flags in one workflow.
+Electivus Apex Log Viewer is a Salesforce debug log viewer for VS Code. Salesforce's own **Salesforce Apex Log** extension retrieves logs and manages trace flags. This extension adds what you need once the logs are on your machine:
+
+- Full-text search across the bodies of downloaded logs, with match snippets.
+- Error and triage badges that mark failing logs in the list before you open them.
+- **Apex Tail** for live logs and **Custom Logs** for Nebula Logger and other logging-framework records.
+- The `sf electivus` Salesforce CLI plugin and agent skills, so Codex, Claude Code, and GitHub Copilot can sync and search the same logs.
 
 [Install from Marketplace](https://marketplace.visualstudio.com/items?itemName=electivus.apex-log-viewer) · [Changelog](CHANGELOG.md) · [Report an issue](https://github.com/Electivus/Apex-Log-Viewer/issues)
 
@@ -13,6 +18,24 @@ Search downloaded Salesforce Apex logs inside VS Code, jump straight to the righ
 ![Rating](https://img.shields.io/visual-studio-marketplace/r/electivus.apex-log-viewer)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 [![skills.sh](https://skills.sh/b/Electivus/Apex-Log-Viewer)](https://skills.sh/Electivus/Apex-Log-Viewer)
+
+## Find the views after you install
+
+The extension adds no Activity Bar icon. Its views live in the bottom panel of VS Code, next to Terminal and Problems. Press `Ctrl+J` (`Cmd+J` on macOS) to show the panel, then pick a tab:
+
+- **Apex Logs** lists, searches, and opens the logs of your org.
+- **Apex Tail** streams logs while you run your code.
+- **Custom Logs** reads Nebula Logger and other logging-framework records. It is experimental and hidden until you set `electivus.apexLogViewer.customLogs.enabled` to `true`.
+
+To open a tab from the Command Palette (`Ctrl+Shift+P`, or `Cmd+Shift+P` on macOS), run `Electivus Apex Logs: Refresh Logs` for **Apex Logs** or `Electivus Apex Logs: Tail Logs` for **Apex Tail**. In a Salesforce project, the **Apex Logs** item at the bottom left of the status bar opens the same tab.
+
+### Get your first log in 3 steps
+
+1. Open a Salesforce project (a folder that contains `sfdx-project.json`) and authorize an org with `sf org login web`.
+2. Run `Electivus Apex Logs: Refresh Logs`. The **Apex Logs** tab opens and lists the logs of your default org, or of the first authorized org if you have no default. Run `Electivus Apex Logs: Select Org` to pick another org.
+3. Select a row and press `Enter` to open the log in the Log Viewer. Use the search box to search inside the log bodies the extension has downloaded.
+
+If the list is empty, Salesforce has not written a log yet. It writes one only while a trace flag is active for the user. Select **Debug Flags** in the Apex Logs toolbar, apply a flag, run your code, and refresh.
 
 ## What It Does Best
 
