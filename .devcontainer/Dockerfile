@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/vscode/devcontainers/typescript-node:24@sha256:e36c918ec9c679c18451231e277ea9122c00a097fb6e4a23c8c3d35bf08bbc3a
+FROM mcr.microsoft.com/vscode/devcontainers/typescript-node:24@sha256:85bf802bec074be0be2fc4229ca4d3882c6f9c9bfda1de7995d025257778514c
 
 ARG ALV_PNPM_VERSION=11.11.0
 # The `dist.integrity` of that version: `npm view pnpm@<version> dist.integrity`.
