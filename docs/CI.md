@@ -25,7 +25,9 @@ Concurrency: Most workflows use concurrency groups to avoid duplicate runs per r
 ## Workflow Supply Chain Controls
 
 - Third-party and GitHub-owned Actions are pinned to full commit SHAs rather
-  than mutable tags.
+  than mutable tags. Pin the commit an annotated tag points at, the `vX.Y.Z^{}`
+  line of `git ls-remote --tags`, never the tag object's own SHA. The workflow
+  still runs, but Dependabot cannot update a tag-object pin (#1393).
 - The repository Actions allowlist must include every pinned third-party action,
   and the actions a composite action pins in its own `action.yml`.
   In particular, keep the current `pnpm/action-setup` SHA synchronized with the

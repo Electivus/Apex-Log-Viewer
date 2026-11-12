@@ -690,7 +690,7 @@ test('real-org Playwright workflow logs into Azure immediately before final tele
 
   assert.equal(
     azureLoginStep.step.uses,
-    'azure/login@93381592711f247e165c389ebb30b596c84cdc48',
+    'azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906',
     'expected azure/login to stay pinned to the SHA currently allowed by the Electivus org action policy'
   );
   assert.ok(!stepNames.includes('Resolve VS Code cache metadata'));
