@@ -14,9 +14,9 @@ services:
       - e2e_proxy_mitmproxy_ca:/mitmproxy
     healthcheck:
       test: ['CMD-SHELL', 'test -s /mitmproxy/mitmproxy-ca-cert.cer && nc -z 127.0.0.1 8888']
-      interval: 5s
+      interval: 1s
       timeout: 3s
-      retries: 24
+      retries: 120
 
   runner:
     build:

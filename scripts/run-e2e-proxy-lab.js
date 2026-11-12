@@ -31,12 +31,21 @@ function normalizeSalesforceCliPackage(value) {
   return packageName;
 }
 
+function resolveComposeFile(repoRoot = path.join(__dirname, '..')) {
+  return path.join(repoRoot, 'docker-compose.e2e-proxy.yml');
+}
+
+// One build of every service lets BuildKit build the proxy and runner images
+// concurrently. `compose run --build` builds the proxy, starts it, and only then
+// builds the runner.
+function resolveComposeBuildArgs(options = {}) {
+  return ['compose', '-f', resolveComposeFile(options.repoRoot), 'build'];
+}
+
 function resolveComposeArgs(commandArgs = [], options = {}) {
-  const repoRoot = options.repoRoot || path.join(__dirname, '..');
-  const composeFile = path.join(repoRoot, 'docker-compose.e2e-proxy.yml');
-  const args = ['compose', '-f', composeFile];
+  const args = ['compose', '-f', resolveComposeFile(options.repoRoot)];
   if (options.overrideFile) args.push('-f', options.overrideFile);
-  args.push('run', '--rm', '--build', '-T');
+  args.push('run', '--rm', '-T');
   args.push('runner');
 
   if (commandArgs.length > 0) {
@@ -105,6 +114,28 @@ function ensureHostVolumeMountpoints(repoRoot, fsImpl = fs) {
   }
 }
 
+function spawnCompose(spawnImpl, docker, args, options) {
+  return new Promise((resolve, reject) => {
+    const child = spawnImpl(docker, args, { ...options, stdio: 'inherit' });
+    const interrupt = () => child.kill('SIGINT');
+    const terminate = () => child.kill('SIGTERM');
+    const stopListening = () => {
+      process.off('SIGINT', interrupt);
+      process.off('SIGTERM', terminate);
+    };
+    process.once('SIGINT', interrupt);
+    process.once('SIGTERM', terminate);
+    child.once('close', code => {
+      stopListening();
+      resolve(typeof code === 'number' ? code : 1);
+    });
+    child.once('error', () => {
+      stopListening();
+      reject(new Error('Failed to start Docker compose. Check DOCKER and the container engine.'));
+    });
+  });
+}
+
 function resolveProxyLabEnv(env = process.env, processImpl = process, options = {}) {
   const resolved = { ...env };
   if (options.sfCliPackage) {
@@ -157,8 +188,11 @@ async function main({
       }
       services.proxy = { volumes: [{ type: 'bind', source, target: '/run/alv-upstream-ca.pem', read_only: true }] };
     }
+    if (config) validateDevHubJwt(config, files);
+    const composeOptions = { cwd: repoRoot, env: composeEnv };
+    const buildCode = await spawnCompose(spawnImpl, docker, resolveComposeBuildArgs({ repoRoot }), composeOptions);
+    if (buildCode !== 0) return buildCode;
     if (config) {
-      validateDevHubJwt(config, files);
       // Copy caller-owned files outside the repository/build context. Compose
       // receives only the mount path, never credential values or the host alias.
       const key = config.privateKey || files.readFileSync(path.resolve(config.privateKeyFile), 'utf8');
@@ -204,31 +238,18 @@ async function main({
       files.writeFileSync(overrideFile, JSON.stringify({ services, volumes }));
     }
     ensureHostVolumeMountpoints(repoRoot, files);
-    return await new Promise((resolve, reject) => {
-      composeAttempted = true;
-      const child = spawnImpl(docker, resolveComposeArgs(parsedArgs.commandArgs, { repoRoot, overrideFile }), {
-        cwd: repoRoot,
-        env: composeEnv,
-        stdio: 'inherit'
-      });
-      const interrupt = () => child.kill('SIGINT');
-      const terminate = () => child.kill('SIGTERM');
-      const stopListening = () => {
-        process.off('SIGINT', interrupt);
-        process.off('SIGTERM', terminate);
-      };
-      process.once('SIGINT', interrupt);
-      process.once('SIGTERM', terminate);
-      child.once('close', code => {
-        stopListening();
-        resolve(typeof code === 'number' ? code : 1);
-      });
-      child.once('error', () => {
-        stopListening();
-        composeAttempted = false;
-        reject(new Error('Failed to start Docker compose. Check DOCKER and the container engine.'));
-      });
-    });
+    composeAttempted = true;
+    try {
+      return await spawnCompose(
+        spawnImpl,
+        docker,
+        resolveComposeArgs(parsedArgs.commandArgs, { repoRoot, overrideFile }),
+        composeOptions
+      );
+    } catch (error) {
+      composeAttempted = false;
+      throw error;
+    }
   } finally {
     if (configDirectory) {
       try {
@@ -287,5 +308,6 @@ module.exports = {
   normalizeSalesforceCliPackage,
   parseProxyLabArgs,
   resolveProxyLabEnv,
-  resolveComposeArgs
+  resolveComposeArgs,
+  resolveComposeBuildArgs
 };
