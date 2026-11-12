@@ -32,7 +32,7 @@ Run `pnpm run test:conformance` to execute the v1 scenarios through `createApexL
 - `pnpm run test:integration`: installs dependency extensions if needed and runs integration tests.
 - `pnpm run test:all`: runs the Jest webview suites, the Node-only extension lane, and then both VS Code-hosted scopes.
 - `pnpm run test:e2e:cli`: runs the plugin real-org Playwright suite. If build output is missing, it builds the plugin before validating `sf electivus log sync` and `log status` against a seeded scratch org.
-- `pnpm run test:e2e`: runs Playwright E2E tests against a real scratch org. The runner uses either the legacy single-scratch flow or the Dev Hub scratch-org pool, depending on the configured strategy.
+- `pnpm run test:e2e`: runs Playwright E2E tests against a real scratch org. The runner uses either the legacy single-scratch flow or the Dev Hub scratch-org pool, depending on the configured strategy. It first runs `pnpm run build:vscode`, which builds the extension host bundle and the webviews but not the Salesforce CLI plugin, because the extension suite never loads the plugin.
 - `pnpm run test:e2e:telemetry`: runs the same Playwright E2E suite, but first resolves a dedicated App Insights component for E2E and then validates that telemetry from the current run arrived there.
 
 The Node-only Mocha runner lives in `scripts/run-node-tests.js`. The `sf electivus` real-org runner lives in `scripts/run-playwright-cli-e2e.js` and uses `playwright.cli.config.ts`. The VS Code-hosted test orchestrator lives in `scripts/run-tests.js` and the Mocha programmatic host runner in `apps/vscode-extension/src/test/runner.ts`.
@@ -174,6 +174,7 @@ Useful env vars:
 
 `pnpm run test:e2e:proxy-lab` runs the E2E command inside Docker Compose with a real proxy in front of the runner:
 
+- The orchestrator first runs one `docker compose build`, so BuildKit builds the `proxy` and `runner` images at the same time, before any credential is written to disk. It then starts the runner with `docker compose run`, which no longer rebuilds. The proxy health check polls every second, so the runner starts about a second after mitmproxy is ready.
 - `runner` is attached only to an internal Docker network, so direct internet egress is blocked.
 - `proxy` is attached to both the internal network and an external egress network, exposing mitmproxy on `http://proxy:8888` only inside Compose.
 - The proxy requires Basic authentication using test-only credentials in the proxy URL, matching the corporate shape `http://username:pwd@proxy.company.com:8080`.

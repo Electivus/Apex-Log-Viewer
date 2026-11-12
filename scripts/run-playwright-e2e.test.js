@@ -125,7 +125,14 @@ test('resolveBuildInvocation uses cmd.exe on Windows to avoid pnpm.cmd spawn iss
   const invocation = resolveBuildInvocation('win32');
 
   assert.equal(invocation.command, process.env.ComSpec || 'cmd.exe');
-  assert.deepEqual(invocation.args, ['/d', '/s', '/c', 'pnpm.cmd', 'run', 'build']);
+  assert.deepEqual(invocation.args, ['/d', '/s', '/c', 'pnpm.cmd', 'run', 'build:vscode']);
+});
+
+test('extension E2E builds the extension host and webviews without the Salesforce CLI plugin', () => {
+  const { scripts } = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  const script = resolveBuildInvocation('linux').args.at(-1);
+
+  assert.equal(scripts[script], 'pnpm run build:extension && pnpm run build:webview');
 });
 
 test('resolvePlaywrightInvocation defaults to two retries for three total E2E attempts', () => {

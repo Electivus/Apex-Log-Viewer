@@ -29,6 +29,7 @@
     "build:extension": "pnpm run build:shared && pnpm run build:ripgrep-runtime && pnpm run build:package-metadata && node apps/vscode-extension/esbuild.extension.mjs --minify",
     "build:webview": "pnpm run build:protocol && pnpm run tailwind:build && pnpm run build:webview:bundle",
     "build": "pnpm run build:extension && pnpm run build:webview && pnpm run build:sf-plugin",
+    "build:vscode": "pnpm run build:extension && pnpm run build:webview",
     "build:icon": "node scripts/gen-icon.mjs",
     "build:assets": "node scripts/gen-assets.mjs",
     "l10n:write": "node scripts/gen-l10n.cjs",

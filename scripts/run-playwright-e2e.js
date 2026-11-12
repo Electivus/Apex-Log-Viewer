@@ -76,13 +76,13 @@ function resolveBuildInvocation(targetPlatform = process.platform) {
   if (targetPlatform === 'win32') {
     return {
       command: process.env.ComSpec || 'cmd.exe',
-      args: ['/d', '/s', '/c', 'pnpm.cmd', 'run', 'build']
+      args: ['/d', '/s', '/c', 'pnpm.cmd', 'run', 'build:vscode']
     };
   }
 
   return {
     command: 'pnpm',
-    args: ['run', 'build']
+    args: ['run', 'build:vscode']
   };
 }
 
@@ -107,7 +107,7 @@ async function ensureBuildArtifacts(repoRoot, options = {}) {
   console.log(
     options.force
       ? '[e2e] Building before Playwright with the prepared runtime environment...'
-      : `[e2e] Missing build artifacts (${missingArtifacts.join(', ')}). Running pnpm run build before Playwright...`
+      : `[e2e] Missing build artifacts (${missingArtifacts.join(', ')}). Running pnpm run build:vscode before Playwright...`
   );
   const buildInvocation = resolveBuildInvocation();
   const result = await spawnAsync(
@@ -119,7 +119,7 @@ async function ensureBuildArtifacts(repoRoot, options = {}) {
   if (result.code !== 0) {
     const details =
       typeof result.code === 'number' ? `exit code ${result.code}` : `signal ${result.signal || 'unknown'}`;
-    throw new Error(`pnpm run build failed while preparing Playwright E2E (${details}).`);
+    throw new Error(`pnpm run build:vscode failed while preparing Playwright E2E (${details}).`);
   }
 }
 

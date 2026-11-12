@@ -13,6 +13,7 @@ const {
   normalizeSalesforceCliPackage,
   parseProxyLabArgs,
   resolveComposeArgs,
+  resolveComposeBuildArgs,
   resolveProxyLabEnv
 } = require('./run-e2e-proxy-lab');
 const { main } = require('./run-e2e-proxy-lab');
@@ -20,6 +21,17 @@ const { main } = require('./run-e2e-proxy-lab');
 async function fakeEngine(_file, args) {
   assert.equal(args[0], 'volume');
   return { stdout: '' };
+}
+
+// main() builds the lab images before it runs the runner. Answer that build so a
+// test sees only the `compose run` call it asserts on.
+function composeRun(runImpl) {
+  return (file, args, options) => {
+    if (args.at(-1) !== 'build') return runImpl(file, args, options);
+    const child = new EventEmitter();
+    process.nextTick(() => child.emit('close', 0));
+    return child;
+  };
 }
 
 function reportCleanExit(args) {
@@ -82,7 +94,7 @@ test('integration entry points preserve the direct runner scratch opt-in through
         argv,
         env,
         execFileAsync: fakeEngine,
-        spawnImpl: (_file, args) => {
+        spawnImpl: composeRun((_file, args) => {
           const config = reportCleanExit(args);
           inputDirectory = config.services.runner?.volumes.find(mount => mount.target === '/run/alv-devhub')?.source;
           assert.ok(inputDirectory, `${argv.join(' ')} must transport selected JWT`);
@@ -97,7 +109,7 @@ test('integration entry points preserve the direct runner scratch opt-in through
             error => child.emit('error', error)
           );
           return child;
-        }
+        })
       });
       assert.equal(code, 0);
       assert.equal(fs.existsSync(inputDirectory), false);
@@ -169,7 +181,7 @@ test('lab transports validated JWT in an owned read-only mount and cleans it aft
           SF_SCRATCH_SIGNUP_CONNECTED_APP: 'PlatformCLI',
           SF_TEMP_SHOW_SECRETS: 'true'
         },
-        spawnImpl: (_command, args, options) => {
+        spawnImpl: composeRun((_command, args, options) => {
           const overrideFile = args[args.lastIndexOf('-f') + 1];
           const volumes = yaml.parse(fs.readFileSync(overrideFile, 'utf8')).services.runner.volumes;
           const state = volumes.find(value => value.target === '/run/alv-state');
@@ -199,7 +211,7 @@ test('lab transports validated JWT in an owned read-only mount and cleans it aft
           const child = new EventEmitter();
           process.nextTick(() => child.emit('close', exitCode, null));
           return child;
-        }
+        })
       });
       assert.equal(result, exitCode);
       assert.equal(fs.existsSync(secretDirectory), false);
@@ -236,7 +248,7 @@ test('interrupted runner reports its owned volume and removes input without dest
             engineCalls.push(args[1]);
             return fakeEngine(...args);
           },
-          spawnImpl: (_file, args) => {
+          spawnImpl: composeRun((_file, args) => {
             const config = JSON.parse(fs.readFileSync(args[args.lastIndexOf('-f') + 1], 'utf8'));
             operation = path.dirname(
               config.services.runner.volumes.find(mount => mount.target === '/run/alv-devhub').source
@@ -245,7 +257,7 @@ test('interrupted runner reports its owned volume and removes input without dest
             const child = new EventEmitter();
             process.nextTick(() => child.emit('close', null, 'SIGTERM'));
             return child;
-          }
+          })
         }),
       error => error.message.includes(stateVolume) && error.message.includes(path.join(operation, 'report'))
     );
@@ -449,6 +461,13 @@ test('lab configuration isolates auth from reusable caches and uses the validate
   }
 });
 
+test('proxy health check polls every second and keeps the two-minute readiness budget', () => {
+  const { healthcheck } = yaml.parse(readComposeFile()).services.proxy;
+  const seconds = value => Number(/^(\d+)s$/.exec(value)?.[1]);
+  assert.equal(seconds(healthcheck.interval), 1);
+  assert.ok(seconds(healthcheck.interval) * healthcheck.retries >= 120);
+});
+
 test('lab makes the approved upstream CA available read-only without adding it to image build inputs', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-lab-ca-test-'));
   const caFile = path.join(root, 'approved-ca.pem');
@@ -458,7 +477,7 @@ test('lab makes the approved upstream CA available read-only without adding it t
     const code = await main({
       argv: ['node', '-e', 'process.exit(0)'],
       env: { ALV_E2E_PROXY_LAB_UPSTREAM_CA_FILE: caFile },
-      spawnImpl: (_file, args) => {
+      spawnImpl: composeRun((_file, args) => {
         const files = args.flatMap((value, index) => (value === '-f' ? [args[index + 1]] : []));
         assert.equal(files.length, 2);
         overrideFile = files[1];
@@ -470,7 +489,7 @@ test('lab makes the approved upstream CA available read-only without adding it t
         const child = new EventEmitter();
         process.nextTick(() => child.emit('close', 0));
         return child;
-      }
+      })
     });
     assert.equal(code, 0);
     assert.equal(fs.existsSync(overrideFile), false);
@@ -503,6 +522,61 @@ test('invalid JWT material fails at the lab boundary without spawning or exposin
   assert.equal(spawned, false);
 });
 
+test('lab builds every image before credentials reach disk and stops on a failed build', async () => {
+  const { privateKey } = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    publicKeyEncoding: { type: 'spki', format: 'pem' }
+  });
+  const env = {
+    SF_DEVHUB_CLIENT_ID: 'TestEca',
+    SF_DEVHUB_USERNAME: 'test@example.invalid',
+    SF_DEVHUB_LOGIN_URL: 'https://login.salesforce.com',
+    SF_DEVHUB_PRIVATE_KEY: privateKey
+  };
+  for (const buildCode of [0, 17]) {
+    const calls = [];
+    let temporaryDirectories = 0;
+    const code = await main({
+      argv: ['pnpm', 'run', 'test:e2e:cli'],
+      env,
+      files: {
+        ...fs,
+        mkdtempSync: (...args) => {
+          temporaryDirectories += 1;
+          return fs.mkdtempSync(...args);
+        }
+      },
+      execFileAsync: async (...args) => {
+        calls.push(['engine', args[1][0]]);
+        return fakeEngine(...args);
+      },
+      spawnImpl: (_file, args, options) => {
+        calls.push([args.at(-1) === 'build' ? 'build' : 'run', temporaryDirectories]);
+        assert.equal(options.env.SF_DEVHUB_PRIVATE_KEY, undefined);
+        if (args.at(-1) === 'build') {
+          assert.deepEqual(args, resolveComposeBuildArgs({ repoRoot: path.join(__dirname, '..') }));
+        } else {
+          reportCleanExit(args);
+        }
+        const child = new EventEmitter();
+        process.nextTick(() => child.emit('close', args.at(-1) === 'build' ? buildCode : 0));
+        return child;
+      }
+    });
+    assert.equal(code, buildCode);
+    assert.deepEqual(calls[0], ['build', 0], 'images build before any credential directory exists');
+    if (buildCode === 0) {
+      assert.deepEqual(
+        calls.map(([kind]) => kind),
+        ['build', 'engine', 'run', 'engine']
+      );
+    } else {
+      assert.deepEqual(calls, [['build', 0]], 'a failed build creates no credential state and runs nothing');
+    }
+  }
+});
+
 test('Compose startup failure still removes the operation credential mount', async () => {
   const { privateKey } = generateKeyPairSync('rsa', {
     modulusLength: 2048,
@@ -521,7 +595,7 @@ test('Compose startup failure still removes the operation credential mount', asy
         },
         argv: [],
         execFileAsync: fakeEngine,
-        spawnImpl: (_file, args) => {
+        spawnImpl: composeRun((_file, args) => {
           const overrideFile = args[args.lastIndexOf('-f') + 1];
           directory = yaml
             .parse(fs.readFileSync(overrideFile, 'utf8'))
@@ -529,7 +603,7 @@ test('Compose startup failure still removes the operation credential mount', asy
           const child = new EventEmitter();
           process.nextTick(() => child.emit('error', new Error('engine unavailable')));
           return child;
-        }
+        })
       }),
     /Failed to start Docker compose/
   );
@@ -565,12 +639,12 @@ test('blocked credential removal reports the exact owned directory and does not 
               throw new Error('simulated EPERM');
             }
           },
-          spawnImpl: (_file, args) => {
+          spawnImpl: composeRun((_file, args) => {
             reportCleanExit(args);
             const child = new EventEmitter();
             process.nextTick(() => child.emit('close', 0));
             return child;
-          }
+          })
         }),
       error => error.message.endsWith(directory) && /credential cleanup failed/.test(error.message)
     );
@@ -623,6 +697,16 @@ function escapeRegExp(value) {
   return value.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
 }
 
+test('resolveComposeBuildArgs builds every lab image in one Compose build', () => {
+  const repoRoot = path.join('/workspace', 'apex-log-viewer');
+  assert.deepEqual(resolveComposeBuildArgs({ repoRoot }), [
+    'compose',
+    '-f',
+    path.join(repoRoot, 'docker-compose.e2e-proxy.yml'),
+    'build'
+  ]);
+});
+
 test('resolveComposeArgs runs the proxy lab runner with the compose file', () => {
   const repoRoot = path.join('/workspace', 'apex-log-viewer');
   assert.deepEqual(resolveComposeArgs([], { repoRoot }), [
@@ -631,7 +715,6 @@ test('resolveComposeArgs runs the proxy lab runner with the compose file', () =>
     path.join(repoRoot, 'docker-compose.e2e-proxy.yml'),
     'run',
     '--rm',
-    '--build',
     '-T',
     'runner'
   ]);
@@ -645,7 +728,6 @@ test('resolveComposeArgs forwards an explicit E2E command through the lab script
     path.join(repoRoot, 'docker-compose.e2e-proxy.yml'),
     'run',
     '--rm',
-    '--build',
     '-T',
     'runner',
     'bash',
