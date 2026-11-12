@@ -159,7 +159,7 @@ To reverse runtime setup, drain/delete this identity's scratches and disable its
 ## Fast validation
 
 ```powershell
-node --test scripts/devhub-identity.test.js
+node --test scripts/devhub-identity-*.test.js
 ```
 
 Public-command tests cover target/capacity guards, duplicate-safe resume, username collisions, lifecycle gates, effective grants, concrete license restrictions/interrupted fallback, app staging/preauthorization/revocation, two-home native lifecycle, bad exports/import failures and ownership-scoped cleanup. Mocked CLI success is not live minimum-license evidence. This suite also runs in `pnpm run test:scripts`; normal type/lint/build and Windows-native unit/integration checks apply.
