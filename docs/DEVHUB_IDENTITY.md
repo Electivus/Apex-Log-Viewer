@@ -16,7 +16,7 @@ Required tools: Node 24, the repository's pinned pnpm, Salesforce CLI **2.150.6*
 
 Authenticate the authorized bootstrap administrator beforehand and supply the independently verified **18-character** target org ID on every remote operation. Use one private state directory outside the repository. Preserve `identity.json`: its UUID marker reconciles interrupted operations without adopting unrelated records. Private directories use current-user/SYSTEM ACLs on Windows and mode 0700/0600 elsewhere. No global Salesforce default, proxy setting or certificate store is changed.
 
-Windows protection replaces the directory DACL with explicit current-user/SYSTEM full-control rules and verifies it, including certificate reruns. Descendants with unexpected principals or reparse points stop sensitive writes. It uses Windows PowerShell's .NET ACL APIs without loading modules from an inherited PowerShell 7 module path; no elevation or machine policy change is involved.
+Windows protection replaces the directory DACL with explicit current-user/SYSTEM full-control rules and verifies it, including certificate reruns. Descendants with unexpected principals or reparse points stop sensitive writes. It uses Windows PowerShell's .NET ACL APIs without loading modules from an inherited PowerShell 7 module path; no elevation or machine policy change is involved. Each process starts one PowerShell helper at its first protected directory and sends it every later one; each request still replaces, verifies and walks that directory, and any helper failure stops the write.
 
 ## Inspect and provision
 
