@@ -195,6 +195,42 @@ test(
   }
 );
 
+test(
+  'Windows private-directory protection settles mixed concurrent calls, including a non-ASCII path',
+  { skip: process.platform !== 'win32' },
+  async t => {
+    const { secureDirectory } = require('./devhub-identity-credentials');
+    const root = stateDirectory(t);
+    const directories = [path.join(root, 'ünïcødé-目录'), path.join(root, 'sibling')];
+    for (const directory of directories) require('node:fs').mkdirSync(directory);
+    const outcomes = await Promise.allSettled([
+      secureDirectory(path.join(root, 'missing')),
+      secureDirectory(directories[0]),
+      secureDirectory(path.join(root, 'also-missing')),
+      secureDirectory(directories[1])
+    ]);
+    assert.deepEqual(
+      outcomes.map(outcome => outcome.status),
+      ['rejected', 'fulfilled', 'rejected', 'fulfilled'],
+      'Each call must settle with its own outcome'
+    );
+    assert.match(outcomes[0].reason.message, /sensitive writes stopped/);
+    for (const directory of directories) {
+      const checked = require('cross-spawn').sync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          '[Console]::Write([System.IO.Directory]::GetAccessControl($env:ALV_ACL_CHECK).AreAccessRulesProtected)'
+        ],
+        { encoding: 'utf8', windowsHide: true, env: { ...process.env, ALV_ACL_CHECK: directory } }
+      );
+      assert.equal(checked.stdout, 'True', `A protected DACL must reach ${path.basename(directory)}`);
+    }
+  }
+);
+
 test('app provisioning does not adopt or overwrite an unrelated app with the planned API name', async t => {
   const fixture = provisioningFixture();
   const directory = stateDirectory(t);

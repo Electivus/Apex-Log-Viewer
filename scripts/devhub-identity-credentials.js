@@ -43,17 +43,12 @@ async function outsideRepository(directory) {
   return real;
 }
 
-async function secureDirectory(directory) {
-  if (process.platform !== 'win32') {
-    await fs.chmod(directory, 0o700);
-    return;
-  }
-  // A fresh protected DACL removes unexpected explicit ACEs too. Use Windows
-  // PowerShell's .NET Framework APIs directly so a PowerShell 7 PSModulePath
-  // inherited by the child cannot redirect Get-Acl/Set-Acl to incompatible modules.
-  const script = String.raw`
+// A fresh protected DACL removes unexpected explicit ACEs too. Use Windows
+// PowerShell's .NET Framework APIs directly so a PowerShell 7 PSModulePath
+// inherited by the child cannot redirect Get-Acl/Set-Acl to incompatible modules.
+const ACL_HELPER = String.raw`
 $ErrorActionPreference = 'Stop'
-$target = $env:ALV_IDENTITY_ACL_DIRECTORY
+function Protect([string]$target) {
 $current = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $system = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
 $security = [System.Security.AccessControl.DirectorySecurity]::new()
@@ -87,16 +82,70 @@ while ($pending.Count) {
       if ($rule.IdentityReference.Value -notin @($current.Value, $system.Value)) { throw 'Unexpected descendant ACE; sensitive writes stopped.' }
     }
   }
+}
+}
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+while ($null -ne ($request = [Console]::In.ReadLine())) {
+  $id, $encoded = $request -split ' ', 2
+  try { $null = Protect $utf8.GetString([Convert]::FromBase64String($encoded)); $reply = 'ok' } catch { $reply = 'fail' }
+  [Console]::Out.WriteLine("$id $reply")
+  [Console]::Out.Flush()
 }`;
-  const acl = spawn.sync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
-    encoding: 'utf8',
+
+const ACL_FAILURE =
+  'Cannot establish and verify the private directory ACL, or a descendant has unexpected access; sensitive writes stopped.';
+
+let aclHelper;
+
+function startAclHelper() {
+  const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ACL_HELPER], {
     windowsHide: true,
-    env: { ...process.env, ALV_IDENTITY_ACL_DIRECTORY: directory }
+    stdio: ['pipe', 'pipe', 'ignore']
   });
-  if (acl.status !== 0)
-    throw new Error(
-      'Cannot establish and verify the private directory ACL, or a descendant has unexpected access; sensitive writes stopped.'
-    );
+  const handles = [child, child.stdin, child.stdout];
+  const pending = [];
+  let sequence = 0;
+  let buffer = '';
+  function protect(directory) {
+    return new Promise((resolve, reject) => {
+      const id = ++sequence;
+      pending.push({ id, resolve, reject });
+      for (const handle of handles) handle.ref();
+      child.stdin.write(`${id} ${Buffer.from(path.resolve(directory), 'utf8').toString('base64')}\n`);
+    });
+  }
+  function failClosed() {
+    if (aclHelper === protect) aclHelper = undefined;
+    child.kill();
+    for (const request of pending.splice(0)) request.reject(new Error(ACL_FAILURE));
+  }
+  child.on('error', failClosed);
+  child.on('exit', failClosed);
+  child.stdin.on('error', failClosed);
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', chunk => {
+    buffer += chunk;
+    for (let end = buffer.indexOf('\n'); end >= 0; end = buffer.indexOf('\n')) {
+      const reply = buffer.slice(0, end).trim();
+      buffer = buffer.slice(end + 1);
+      const request = pending[0];
+      if (!request || !reply.startsWith(`${request.id} `)) return failClosed();
+      pending.shift();
+      if (reply === `${request.id} ok`) request.resolve();
+      else request.reject(new Error(ACL_FAILURE));
+    }
+    if (!pending.length) for (const handle of handles) handle.unref();
+  });
+  return protect;
+}
+
+async function secureDirectory(directory) {
+  if (process.platform !== 'win32') {
+    await fs.chmod(directory, 0o700);
+    return;
+  }
+  aclHelper ||= startAclHelper();
+  await aclHelper(directory);
 }
 
 async function readCertificate(certificateFile, privateKeyFile, lifecycle) {
