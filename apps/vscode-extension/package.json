@@ -2,7 +2,7 @@
   "name": "apex-log-viewer",
   "displayName": "Electivus Apex Log Viewer",
   "description": "Search, triage, and tail Salesforce debug logs in VS Code. Browse Apex logs, manage trace flags, read Nebula Logger entries (experimental), and open Apex Replay Debugger. Works with the sf CLI and sfdx.",
-  "version": "0.56.0",
+  "version": "0.56.1",
   "publisher": "electivus",
   "telemetryConnectionString": "InstrumentationKey=a8895b37-e877-4b0c-bed4-0d421e313bf5;IngestionEndpoint=https://eastus-8.in.applicationinsights.azure.com/;LiveEndpoint=https://eastus.livediagnostics.monitor.azure.com/;ApplicationId=91194049-f752-4b25-934c-0cdef9251e6f",
   "license": "MIT",

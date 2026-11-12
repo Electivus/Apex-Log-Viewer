@@ -2,9 +2,13 @@
 
 ## Unreleased
 
+## [0.56.1](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.56.0...v0.56.1) (2026-11-12)
+
+Stable patch release. The Marketplace listing and README now say what this extension adds to Salesforce's own Apex log extension and where its views live, and the bundled `fast-uri` update fixes a security alert. The extension behaves as in 0.56.0.
+
 ### Docs
 
-- Marketplace listing: the description, 22 keywords and the `Debuggers` category now use the words Salesforce developers search for, such as `salesforce debug log`, `trace flag`, `sfdx`, `sf cli`, `nebula logger` and `log analyzer`. Production telemetry showed nearly every install starts from a search inside VS Code, where the listing ranked 9th for `apex log`, about 24th for `salesforce debug log`, and below 50th for `debug log` and `trace flag`.
+- Marketplace listing: the description, 22 keywords and the `Debuggers` category now use the words Salesforce developers search for, such as `salesforce debug log`, `trace flag`, `sfdx`, `sf cli`, `nebula logger` and `log analyzer`.
 - README: the opening says what this extension adds to Salesforce's own Salesforce Apex Log extension, and a new section says where the Apex Logs, Apex Tail and Custom Logs tabs live in the bottom panel, which command opens them, and the three steps to a first log.
 
 ### Maintenance
