@@ -12,7 +12,6 @@ services:
       - '8888'
     volumes:
       - e2e_proxy_mitmproxy_ca:/mitmproxy
-    # The runner waits for the first passing check; mitmproxy is ready about a second after start.
     healthcheck:
       test: ['CMD-SHELL', 'test -s /mitmproxy/mitmproxy-ca-cert.cer && nc -z 127.0.0.1 8888']
       interval: 1s

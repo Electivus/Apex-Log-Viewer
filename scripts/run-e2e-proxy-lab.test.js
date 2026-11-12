@@ -23,9 +23,7 @@ async function fakeEngine(_file, args) {
   return { stdout: '' };
 }
 
-// main() builds the lab images before it runs the runner. Answer that build so a
-// test sees only the `compose run` call it asserts on.
-function composeRun(runImpl) {
+function afterPassingBuild(runImpl) {
   return (file, args, options) => {
     if (args.at(-1) !== 'build') return runImpl(file, args, options);
     const child = new EventEmitter();
@@ -94,7 +92,7 @@ test('integration entry points preserve the direct runner scratch opt-in through
         argv,
         env,
         execFileAsync: fakeEngine,
-        spawnImpl: composeRun((_file, args) => {
+        spawnImpl: afterPassingBuild((_file, args) => {
           const config = reportCleanExit(args);
           inputDirectory = config.services.runner?.volumes.find(mount => mount.target === '/run/alv-devhub')?.source;
           assert.ok(inputDirectory, `${argv.join(' ')} must transport selected JWT`);
@@ -181,7 +179,7 @@ test('lab transports validated JWT in an owned read-only mount and cleans it aft
           SF_SCRATCH_SIGNUP_CONNECTED_APP: 'PlatformCLI',
           SF_TEMP_SHOW_SECRETS: 'true'
         },
-        spawnImpl: composeRun((_command, args, options) => {
+        spawnImpl: afterPassingBuild((_command, args, options) => {
           const overrideFile = args[args.lastIndexOf('-f') + 1];
           const volumes = yaml.parse(fs.readFileSync(overrideFile, 'utf8')).services.runner.volumes;
           const state = volumes.find(value => value.target === '/run/alv-state');
@@ -248,7 +246,7 @@ test('interrupted runner reports its owned volume and removes input without dest
             engineCalls.push(args[1]);
             return fakeEngine(...args);
           },
-          spawnImpl: composeRun((_file, args) => {
+          spawnImpl: afterPassingBuild((_file, args) => {
             const config = JSON.parse(fs.readFileSync(args[args.lastIndexOf('-f') + 1], 'utf8'));
             operation = path.dirname(
               config.services.runner.volumes.find(mount => mount.target === '/run/alv-devhub').source
@@ -477,7 +475,7 @@ test('lab makes the approved upstream CA available read-only without adding it t
     const code = await main({
       argv: ['node', '-e', 'process.exit(0)'],
       env: { ALV_E2E_PROXY_LAB_UPSTREAM_CA_FILE: caFile },
-      spawnImpl: composeRun((_file, args) => {
+      spawnImpl: afterPassingBuild((_file, args) => {
         const files = args.flatMap((value, index) => (value === '-f' ? [args[index + 1]] : []));
         assert.equal(files.length, 2);
         overrideFile = files[1];
@@ -595,7 +593,7 @@ test('Compose startup failure still removes the operation credential mount', asy
         },
         argv: [],
         execFileAsync: fakeEngine,
-        spawnImpl: composeRun((_file, args) => {
+        spawnImpl: afterPassingBuild((_file, args) => {
           const overrideFile = args[args.lastIndexOf('-f') + 1];
           directory = yaml
             .parse(fs.readFileSync(overrideFile, 'utf8'))
@@ -639,7 +637,7 @@ test('blocked credential removal reports the exact owned directory and does not 
               throw new Error('simulated EPERM');
             }
           },
-          spawnImpl: composeRun((_file, args) => {
+          spawnImpl: afterPassingBuild((_file, args) => {
             reportCleanExit(args);
             const child = new EventEmitter();
             process.nextTick(() => child.emit('close', 0));

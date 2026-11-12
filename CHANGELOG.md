@@ -9,6 +9,7 @@
 
 ### Maintenance
 
+- E2E: the Ubuntu proxy-lab lane spends less time on setup. It builds the proxy and runner images in one parallel `docker compose build` before it starts the runner, and the proxy health check polls every second instead of every 5 seconds. `pnpm run test:e2e` now builds only what the extension suite loads, the extension host and webviews (`pnpm run build:vscode`), not the Salesforce CLI plugin.
 - Telemetry: `pnpm run telemetry:report` opens with an adoption section that counts devices, not events. It shows how many devices activated the extension, how many of them in a Salesforce project, and how many did something beyond activation, loaded logs, came back on a second day or stayed dormant, plus devices per week and engaged devices by country. `--exclude-devices` leaves the maintainer's machines out, and `--min-version` counts only events from one extension version on, to measure a release. `docs/AZURE-MONITOR.md` defines each stage.
 - Add `scripts/marketplace-search-rank.mjs`, which prints this extension's Marketplace search rank for each search term in the order VS Code shows, so a listing change can be measured after it ships. Run it with `node scripts/marketplace-search-rank.mjs "salesforce debug log"`.
 - Security: update `fast-uri` to 3.1.9, which the extension bundles through the `ajv` schema validator of `@salesforce/core`, and `brace-expansion` to 1.1.21, 2.1.7 and 5.0.12. Remove the three exact `brace-expansion` overrides, which had kept the lockfile on vulnerable versions.

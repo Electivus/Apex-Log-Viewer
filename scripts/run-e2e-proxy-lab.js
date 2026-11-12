@@ -190,7 +190,6 @@ async function main({
     }
     if (config) validateDevHubJwt(config, files);
     const composeOptions = { cwd: repoRoot, env: composeEnv };
-    // Build before any credential reaches disk, so a failed build leaves nothing to clean up.
     const buildCode = await spawnCompose(spawnImpl, docker, resolveComposeBuildArgs({ repoRoot }), composeOptions);
     if (buildCode !== 0) return buildCode;
     if (config) {
