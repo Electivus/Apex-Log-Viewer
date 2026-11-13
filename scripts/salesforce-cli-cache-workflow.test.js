@@ -65,11 +65,7 @@ function salesforceCliCacheContract(job) {
   const nodeRuntime = job.steps
     .slice(0, resolverIndex)
     .filter(step => /^actions\/setup-node@/.test(String(step.uses || '')))
-    .map(step => {
-      // Package-manager caching does not change the selected Node runtime.
-      const { cache, 'cache-dependency-path': cacheDependencyPath, ...runtime } = step.with || {};
-      return { if: step.if, uses: step.uses, with: runtime };
-    });
+    .map(step => ({ if: step.if, uses: step.uses, with: step.with }));
 
   return {
     packageName: job.env?.SALESFORCE_CLI_PACKAGE,
