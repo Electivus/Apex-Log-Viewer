@@ -1,8 +1,7 @@
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { expect, type Page } from '@playwright/test';
-import type { ElectronApplication } from 'playwright';
+import { expect, type ElectronApplication, type Page } from '@playwright/test';
 import { seedApexLog } from '../utils/seedLog';
 import { createTempWorkspace } from '../utils/tempWorkspace';
 import { launchVsCode, resolveExtensionDevelopmentPath } from '../utils/vscode';

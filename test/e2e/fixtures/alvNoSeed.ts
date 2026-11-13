@@ -1,6 +1,5 @@
 import path from 'node:path';
-import { expect, type Page } from '@playwright/test';
-import type { ElectronApplication } from 'playwright';
+import { expect, type ElectronApplication, type Page } from '@playwright/test';
 import { createTempWorkspace } from '../utils/tempWorkspace';
 import { launchVsCode, resolveExtensionDevelopmentPath } from '../utils/vscode';
 import { test as base } from './alvPoolLease';

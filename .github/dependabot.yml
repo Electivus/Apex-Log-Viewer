@@ -25,17 +25,6 @@ updates:
         patterns:
           - 'react'
           - 'react-dom'
-      # scripts/run-playwright-e2e.test.js requires both ranges to stay identical.
-      playwright:
-        applies-to: version-updates
-        patterns:
-          - 'playwright'
-          - '@playwright/test'
-      playwright-security:
-        applies-to: security-updates
-        patterns:
-          - 'playwright'
-          - '@playwright/test'
     ignore:
       # TS 7 removes baseUrl/Node10 resolution and is outside ts-jest/parser peers.
       # Revisit with a coordinated compiler and test-transformer migration (#980).

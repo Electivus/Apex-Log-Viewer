@@ -16,7 +16,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath } from '@vscode/test-electron';
-import { _electron as electron, type ElectronApplication, type Page } from 'playwright';
+import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { envFlag } from './envFlag';
 import { removePathBestEffort } from './fsCleanup';
 import { dismissAllNotifications } from './notifications';

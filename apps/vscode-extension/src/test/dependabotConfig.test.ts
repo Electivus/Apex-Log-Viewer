@@ -37,11 +37,9 @@ suite('dependabot config', () => {
           'applies-to': 'version-updates',
           patterns: ['react', 'react-dom', '@types/react', '@types/react-dom']
         },
-        'react-security': { 'applies-to': 'security-updates', patterns: ['react', 'react-dom'] },
-        playwright: { 'applies-to': 'version-updates', patterns: ['playwright', '@playwright/test'] },
-        'playwright-security': { 'applies-to': 'security-updates', patterns: ['playwright', '@playwright/test'] }
+        'react-security': { 'applies-to': 'security-updates', patterns: ['react', 'react-dom'] }
       },
-      'react with react-dom, and playwright with @playwright/test, must update together: react-dom throws on a react version mismatch and run-playwright-e2e.test.js requires equal ranges'
+      'react with react-dom must update together: react-dom throws on a react version mismatch'
     );
   });
 
