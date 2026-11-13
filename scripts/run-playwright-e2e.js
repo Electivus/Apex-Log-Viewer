@@ -6,6 +6,7 @@ const { existsSync } = require('fs');
 const path = require('path');
 const { XVFB_ARGS, shouldUseXvfb } = require('./e2e-display');
 const { bootstrapLocalE2e } = require('./local-e2e-bootstrap');
+const { resolvePlaywrightShuffleArgs } = require('./playwright-shuffle');
 
 const requiredBuildArtifacts = [
   'apps/vscode-extension/dist/extension.js',
@@ -140,6 +141,7 @@ function resolvePlaywrightInvocation(rawExtraArgs) {
   }
   const retryArgs = [`--retries=${configuredRetries}`];
   const shardArgs = resolvePlaywrightShardArgs(extraArgs);
+  const shuffleArgs = resolvePlaywrightShuffleArgs(extraArgs);
 
   try {
     // Prefer the local Playwright CLI directly. On Windows under Git Bash,
@@ -147,13 +149,13 @@ function resolvePlaywrightInvocation(rawExtraArgs) {
     const cliPath = require.resolve('@playwright/test/cli');
     return {
       command: process.execPath,
-      args: [cliPath, 'test', ...retryArgs, ...shardArgs, ...extraArgs]
+      args: [cliPath, 'test', ...retryArgs, ...shardArgs, ...shuffleArgs, ...extraArgs]
     };
   } catch {}
 
   return {
     command: process.platform === 'win32' ? 'npx.cmd' : 'npx',
-    args: ['playwright', 'test', ...retryArgs, ...shardArgs, ...extraArgs]
+    args: ['playwright', 'test', ...retryArgs, ...shardArgs, ...shuffleArgs, ...extraArgs]
   };
 }
 

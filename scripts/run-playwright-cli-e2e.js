@@ -5,6 +5,7 @@ const { spawn, spawnSync } = require('child_process');
 const { existsSync, realpathSync } = require('fs');
 const path = require('path');
 const { bootstrapLocalE2e } = require('./local-e2e-bootstrap');
+const { resolvePlaywrightShuffleArgs } = require('./playwright-shuffle');
 
 const requiredSfPluginArtifacts = [resolveSfPluginCommandRelativePath()];
 
@@ -209,6 +210,7 @@ function resolvePlaywrightInvocation(rawExtraArgs, options = {}) {
   const cliSuiteRoot = path.join(repoRoot, resolveCliSuiteRelativePath());
   const configuredRetries = String((options.env || process.env).PLAYWRIGHT_RETRIES || '').trim();
   const shardArgs = resolvePlaywrightShardArgs(extraArgs, options.env || process.env);
+  const shuffleArgs = resolvePlaywrightShuffleArgs(extraArgs, options.env || process.env);
   const isShardedInvocation = shardArgs.length > 0 || hasExplicitShardArg(extraArgs);
   const maybePassWithNoTests = existsSync(cliSuiteRoot) && !isShardedInvocation ? [] : ['--pass-with-no-tests'];
 
@@ -220,7 +222,16 @@ function resolvePlaywrightInvocation(rawExtraArgs, options = {}) {
 
   return {
     command: process.execPath,
-    args: [cliPath, 'test', configArg, ...maybePassWithNoTests, ...retryArgs, ...shardArgs, ...extraArgs]
+    args: [
+      cliPath,
+      'test',
+      configArg,
+      ...maybePassWithNoTests,
+      ...retryArgs,
+      ...shardArgs,
+      ...shuffleArgs,
+      ...extraArgs
+    ]
   };
 }
 

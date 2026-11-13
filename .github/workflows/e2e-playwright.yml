@@ -25,6 +25,10 @@ on:
         description: Optional Playwright worker override for the Ubuntu extension proxy-lab lane
         required: false
         type: string
+      playwright_shuffle:
+        description: Optional shuffled test order for every lane; 'random' or a seed printed by an earlier run
+        required: false
+        type: string
       jwt_smoke_devhub_org_id:
         description: Optional verified Dev Hub org ID; enables controlled JWT signup/export/import and pool lifecycle smokes
         required: false
@@ -87,6 +91,7 @@ jobs:
       PLAYWRIGHT_WORKERS: ${{ github.event.inputs.playwright_workers || vars.PLAYWRIGHT_WORKERS || '1' }}
       PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS: ${{ github.event.inputs.playwright_extension_proxy_lab_workers || vars.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS || '1' }}
       PLAYWRIGHT_RETRIES: ${{ vars.PLAYWRIGHT_RETRIES || '0' }}
+      PLAYWRIGHT_SHUFFLE: ${{ github.event.inputs.playwright_shuffle }}
       PLAYWRIGHT_TIMEOUT_MS: ${{ vars.PLAYWRIGHT_TIMEOUT_MS || '360000' }}
       PLAYWRIGHT_EXPECT_TIMEOUT_MS: ${{ vars.PLAYWRIGHT_EXPECT_TIMEOUT_MS || '60000' }}
       SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}
@@ -222,6 +227,7 @@ jobs:
       SALESFORCE_CLI_PACKAGE: '@salesforce/cli@2.150.6'
       PLAYWRIGHT_WORKERS: ${{ github.event.inputs.playwright_workers || vars.PLAYWRIGHT_WORKERS || '1' }}
       PLAYWRIGHT_RETRIES: ${{ vars.PLAYWRIGHT_RETRIES || '0' }}
+      PLAYWRIGHT_SHUFFLE: ${{ github.event.inputs.playwright_shuffle }}
       PLAYWRIGHT_TIMEOUT_MS: ${{ vars.PLAYWRIGHT_TIMEOUT_MS || '360000' }}
       PLAYWRIGHT_EXPECT_TIMEOUT_MS: ${{ vars.PLAYWRIGHT_EXPECT_TIMEOUT_MS || '60000' }}
       SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}

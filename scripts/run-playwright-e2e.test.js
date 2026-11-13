@@ -171,6 +171,35 @@ test('resolvePlaywrightInvocation includes a retries override when PLAYWRIGHT_RE
   }
 });
 
+test('resolvePlaywrightInvocation shuffles the order with the PLAYWRIGHT_SHUFFLE seed', () => {
+  const originalRetries = process.env.PLAYWRIGHT_RETRIES;
+  const originalShuffle = process.env.PLAYWRIGHT_SHUFFLE;
+  process.env.PLAYWRIGHT_RETRIES = '0';
+  process.env.PLAYWRIGHT_SHUFFLE = '42';
+
+  try {
+    const invocation = resolvePlaywrightInvocation(['--', 'test/e2e/specs/openLogViewer.e2e.spec.ts']);
+
+    assert.deepEqual(invocation.args.slice(1), [
+      'test',
+      '--retries=0',
+      '--shuffle=42',
+      'test/e2e/specs/openLogViewer.e2e.spec.ts'
+    ]);
+  } finally {
+    for (const [name, value] of [
+      ['PLAYWRIGHT_RETRIES', originalRetries],
+      ['PLAYWRIGHT_SHUFFLE', originalShuffle]
+    ]) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+  }
+});
+
 test('resolvePlaywrightInvocation includes a shard override when PLAYWRIGHT_SHARD is set', () => {
   const originalRetries = process.env.PLAYWRIGHT_RETRIES;
   const originalShard = process.env.PLAYWRIGHT_SHARD;
