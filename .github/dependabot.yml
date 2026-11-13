@@ -7,7 +7,7 @@ updates:
       day: 'monday'
       time: '06:00'
       timezone: 'America/Bahia'
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 25
     # Exceed pnpm's one-day minimum release age without delaying security updates.
     cooldown:
       default-days: 3
