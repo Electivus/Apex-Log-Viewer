@@ -5,6 +5,7 @@ import {
   evidenceName,
   hasTargetOrg,
   scratchStrategy,
+  sfBinary,
   splitSfArgs
 } from '../.agents/skills/verify-apex-log-viewer/scripts/sfArgs.mjs';
 
@@ -37,6 +38,13 @@ test('verify sf takes --linked only before the sf electivus arguments', () => {
   assert.deepEqual(splitSfArgs(['--linked', '--', 'log', 'sync']), { linked: true, args: ['log', 'sync'] });
   assert.deepEqual(splitSfArgs(['--linked', 'doctor']), { linked: true, args: ['doctor'] });
   assert.deepEqual(splitSfArgs(['--', '--linked']), { linked: false, args: ['--linked'] });
+});
+
+test('verify sf --linked runs the Salesforce CLI the E2E harness selects', () => {
+  assert.equal(sfBinary({}), 'sf');
+  assert.equal(sfBinary({ ALV_SF_BIN_PATH: ' /opt/alv-sf-node/sf ' }), '/opt/alv-sf-node/sf');
+  assert.equal(sfBinary({ SF_CLI_BIN_PATH: '/opt/sf', ALV_SF_BIN_PATH: '/opt/alv-sf-node/sf' }), '/opt/sf');
+  assert.equal(sfBinary({ SF_CLI_BIN_PATH: '  ', ALV_SF_BIN_PATH: '' }), 'sf');
 });
 
 test('verify doctor resolves the scratch strategy as the E2E harness does', () => {

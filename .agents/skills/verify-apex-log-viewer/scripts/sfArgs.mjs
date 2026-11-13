@@ -16,6 +16,14 @@ export function splitSfArgs(rest) {
 }
 
 /**
+ * The Salesforce CLI that `sf --linked` runs, picked as test/e2e/utils/sfCli.ts picks it: `SF_CLI_BIN_PATH`, then
+ * `ALV_SF_BIN_PATH` (the isolated CLI that scripts/run-macos-e2e.sh selects), then `sf` on PATH.
+ */
+export function sfBinary(env) {
+  return String(env.SF_CLI_BIN_PATH || env.ALV_SF_BIN_PATH || '').trim() || 'sf';
+}
+
+/**
  * The evidence file name of an `sf` call: the prefix (`sf`, or `sf-linked` for the real `sf`) plus its first
  * two command words, the words before the first flag. A flag's value, such as a path, never reaches the name,
  * and any other character becomes `_`.

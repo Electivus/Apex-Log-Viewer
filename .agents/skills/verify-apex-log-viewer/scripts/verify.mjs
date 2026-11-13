@@ -10,7 +10,7 @@ import { createRequire } from 'node:module';
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { evidenceName, hasTargetOrg, scratchStrategy, splitSfArgs } from './sfArgs.mjs';
+import { evidenceName, hasTargetOrg, scratchStrategy, sfBinary, splitSfArgs } from './sfArgs.mjs';
 
 const skillDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = path.resolve(skillDir, '..', '..', '..');
@@ -452,11 +452,13 @@ function linkedPluginRoots(dataDir) {
 }
 
 /**
- * The real `sf` on PATH with its own data, cache and config directories under the session directory, so it
- * loads the local plugin build, linked once per session, and never the plugins the user installed. `stop`
- * deletes the session directory, and the link with it. Org auth stays shared, because it lives in ~/.sfdx.
+ * The real Salesforce CLI (see sfBinary) with its own data, cache and config directories under the session
+ * directory, so it loads the local plugin build, linked once per session, and never the plugins the user
+ * installed. `stop` deletes the session directory, and the link with it. Org auth stays shared, because it
+ * lives in ~/.sfdx.
  */
 function linkedSf() {
+  const sfBin = sfBinary(process.env);
   const root = path.join(sessionDir, 'sf-cli');
   const env = {
     ...process.env,
@@ -468,12 +470,12 @@ function linkedSf() {
   for (const dir of [env.SF_DATA_DIR, env.SF_CACHE_DIR, env.SF_CONFIG_DIR]) mkdirSync(dir, { recursive: true });
   const pluginRoot = path.join(repoRoot, 'packages', 'sf-plugin');
   if (!linkedPluginRoots(env.SF_DATA_DIR).includes(pluginRoot)) {
-    const link = spawnSync('sf', ['plugins', 'link', pluginRoot, '--no-install'], { env, encoding: 'utf8' });
+    const link = spawnSync(sfBin, ['plugins', 'link', pluginRoot, '--no-install'], { env, encoding: 'utf8' });
     if (link.status !== 0 || !linkedPluginRoots(env.SF_DATA_DIR).includes(pluginRoot)) {
-      fail(`sf plugins link ${pluginRoot} failed: ${(link.stderr || link.stdout || String(link.error)).trim()}`);
+      fail(`${sfBin} plugins link ${pluginRoot} failed: ${(link.stderr || link.stdout || String(link.error)).trim()}`);
     }
   }
-  return { file: 'sf', args: ['electivus'], env, label: 'sf electivus' };
+  return { file: sfBin, args: ['electivus'], env, label: 'sf electivus' };
 }
 
 function sf(rest) {
@@ -505,6 +507,7 @@ function sf(rest) {
   const name = evidenceName(args, linked ? 'sf-linked' : 'sf');
   const record = {
     command: `${runner.label} ${args.join(' ')}`,
+    ...(linked ? { sfBinary: runner.file } : {}),
     cwd: state.workspacePath,
     exitCode: result.status,
     stdout: result.stdout,

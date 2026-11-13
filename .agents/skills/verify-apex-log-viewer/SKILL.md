@@ -21,7 +21,7 @@ V=".agents/skills/verify-apex-log-viewer/scripts/verify.mjs"
 ## Surfaces
 
 - **Primary: the VS Code extension.** It has six webviews: the Logs, Tail and Custom Logs panels (bottom panel tabs), plus the Log Viewer, Custom Log Viewer and Debug Flags editor tabs. The Logs, Tail and Custom Logs surfaces can also open in the editor area. Custom Logs is experimental and appears only after its setting is turned on (see Gotchas). Drive them with steps.
-- **Secondary: the `sf electivus` Salesforce CLI plugin** (`packages/sf-plugin`). Run it with `node $V sf -- <args>` inside the session workspace so it shares the org and the `apexlogs/` store with the extension. `node $V sf --linked -- <args>` runs the same build inside the real `sf` on PATH, the way a user runs it, without touching the user's installed plugins.
+- **Secondary: the `sf electivus` Salesforce CLI plugin** (`packages/sf-plugin`). Run it with `node $V sf -- <args>` inside the session workspace so it shares the org and the `apexlogs/` store with the extension. `node $V sf --linked -- <args>` runs the same build inside the real Salesforce CLI, the way a user runs it, without touching the user's installed plugins.
 - **Not covered:** VSIX packaging (`pnpm run test:smoke:vsix`), the Agent Skills catalog (`pnpm run test:sf-plugin:package`) and telemetry ingestion (`pnpm run test:e2e:telemetry`).
 
 ## Launch
@@ -73,7 +73,7 @@ node $V sf -- log sync --json            # sf electivus ... in the session works
 node $V sf --linked -- log sync --json   # the same through the real sf, with the local build linked
 ```
 
-`sf` runs `node packages/sf-plugin/bin/run.js electivus …`. `sf --linked` runs the `sf` on PATH with its own `SF_DATA_DIR`, `SF_CACHE_DIR` and `SF_CONFIG_DIR` under `output/verify/session/sf-cli/`, where its first call runs `sf plugins link packages/sf-plugin --no-install`. That `sf` loads only the local build, never the plugins the user installed, and shares the org auth in `~/.sfdx`. `stop` deletes the link with the session directory. See [features/sf-cli.md](features/sf-cli.md).
+`sf` runs `node packages/sf-plugin/bin/run.js electivus …`. `sf --linked` runs the Salesforce CLI that `SF_CLI_BIN_PATH` or `ALV_SF_BIN_PATH` selects, as the E2E harness does (`scripts/run-macos-e2e.sh` sets both to its isolated CLI), else `sf` on PATH. It gives that CLI its own `SF_DATA_DIR`, `SF_CACHE_DIR` and `SF_CONFIG_DIR` under `output/verify/session/sf-cli/`, where its first call runs `sf plugins link packages/sf-plugin --no-install`. That `sf` loads only the local build, never the plugins the user installed, and shares the org auth in `~/.sfdx`. `stop` deletes the link with the session directory. See [features/sf-cli.md](features/sf-cli.md).
 
 A step is an ES module whose default export receives the live session. Write ad-hoc steps in your scratchpad (any path works). They need no imports, because everything arrives in the argument:
 
@@ -150,7 +150,7 @@ Everything goes to `output/verify/evidence/<YYYYMMDD-HHMMSS>/` (gitignored), and
 
 - `NNN-<name>.png`: screenshots in order, from `001-ready.png` (the window before any step) to `NNN-final-window.png` (taken at stop).
 - `steps.jsonl`: one record per `run` with the step path (repo-relative, or absolute for steps outside the repo), args, `ok`, duration, returned result or error, and failure screenshot.
-- `cli-<time>-sf-<cmd>.json`: the exact command (`node packages/sf-plugin/bin/run.js electivus …`), cwd, exit code, stdout and stderr of every `sf` call; `cli-<time>-sf-linked-<cmd>.json` with `sf electivus …` for every `sf --linked` call.
+- `cli-<time>-sf-<cmd>.json`: the exact command (`node packages/sf-plugin/bin/run.js electivus …`), cwd, exit code, stdout and stderr of every `sf` call; `cli-<time>-sf-linked-<cmd>.json` with `sf electivus …` and the CLI it ran (`sfBinary`) for every `sf --linked` call.
 - `vscode-logs/`: VS Code logs copied at stop. The extension's trace-level output channel is at `vscode-logs/<timestamp>/window1/exthost/electivus.apex-log-viewer/Electivus Apex Log Viewer.log`.
 - `workspace-files.json`: every file left in the session workspace at stop (`apexlogs/` store, `sync-state.json`), with sizes.
 - `host.out`: host progress and E2E timing lines. `session.json`: final session state (org, slot, phase).
