@@ -41,7 +41,6 @@ export function LabeledSelect({
   className,
   triggerClassName
 }: LabeledSelectProps) {
-  const PLACEHOLDER_VALUE = '__radix_empty__';
   const canUseRadix =
     typeof window !== 'undefined' &&
     typeof document !== 'undefined' &&
@@ -62,7 +61,7 @@ export function LabeledSelect({
   }
 
   const hasPlaceholder = typeof placeholderLabel === 'string';
-  const fallbackValue = value || (hasPlaceholder ? '' : options[0]?.value ?? '');
+  const selectedValue = value || (hasPlaceholder ? '' : options[0]?.value ?? '');
 
   if (!canUseRadix) {
     return (
@@ -76,7 +75,7 @@ export function LabeledSelect({
         <select
           id={selectId}
           data-testid={testId}
-          value={fallbackValue}
+          value={selectedValue}
           onChange={e => onChange(e.target.value)}
           disabled={disabled}
           className={cn(
@@ -94,37 +93,18 @@ export function LabeledSelect({
       </div>
     );
   }
-  const normalizedValue = (() => {
-    if (value) {
-      return value;
-    }
-    if (hasPlaceholder) {
-      return PLACEHOLDER_VALUE;
-    }
-    return options[0]?.value ?? undefined;
-  })();
-
-  const handleValueChange = (nextValue: string) => {
-    if (nextValue === PLACEHOLDER_VALUE) {
-      onChange('');
-      return;
-    }
-    onChange(nextValue);
-  };
 
   return (
     <div className={cn('flex min-w-[160px] flex-col gap-1', className)}>
       <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </Label>
-      <Select value={normalizedValue} onValueChange={handleValueChange} disabled={disabled}>
+      <Select value={selectedValue} onValueChange={onChange} disabled={disabled}>
         <SelectTrigger data-testid={testId} className={cn('min-w-[160px]', triggerClassName)}>
           <SelectValue placeholder={placeholderLabel} />
         </SelectTrigger>
         <SelectContent>
-          {hasPlaceholder && (
-            <SelectItem value={PLACEHOLDER_VALUE}>{placeholderLabel}</SelectItem>
-          )}
+          {hasPlaceholder && <SelectItem value="">{placeholderLabel}</SelectItem>}
           {options.map(option => (
             <SelectItem key={option.value} value={option.value}>
               {option.label}
