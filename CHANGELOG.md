@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Maintenance
+
+- Build: the webview CSS no longer passes through PostCSS. Tailwind 4 already adds the vendor prefixes, so `postcss.config.cjs`, `postcss` and `autoprefixer` are gone, and the built CSS is byte-identical.
+- Development: `pnpm run watch:webview` keeps rebuilding the CSS after the first build, and starts both watchers on Windows too.
+- TypeScript: the configs drop `baseUrl`, Node10 module resolution and `ignoreDeprecations`, which TypeScript 7 rejects.
+- Tests: local extension coverage measures the extension, core and protocol sources again. Since the monorepo move it had reported no file.
+- E2E: the helpers import `_electron` from `@playwright/test`, so the direct `playwright` dependency and its paired Dependabot group are gone. A `playwright_shuffle` dispatch input, or `PLAYWRIGHT_SHUFFLE` locally, runs the real-org suites in a shuffled order that a seed can replay.
+- Webview: `LabeledSelect` passes an empty value straight to Radix Select, which accepts it since 2.3.1, instead of mapping it to a placeholder sentinel.
+- CI: workflows no longer cache the pnpm store, which saved no install time and pushed the caches that do save time out of the repository quota.
+- Dependabot: the npm open pull request limit goes from 10 to 25, so routine updates no longer stall behind open pull requests.
+- Remove the uncalled `l10n:xlf` script and `@vscode/l10n-dev`.
+
 ## [0.56.1](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.56.0...v0.56.1) (2026-11-12)
 
 Stable patch release. The Marketplace listing and README now say what this extension adds to Salesforce's own Apex log extension and where its views live, and the bundled `fast-uri` update fixes a security alert. The extension behaves as in 0.56.0.
