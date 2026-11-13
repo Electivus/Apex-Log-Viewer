@@ -139,7 +139,7 @@
     "skills": "1.7.0",
     "tailwindcss": "^4.3.3",
     "tailwindcss-animate": "^1.0.7",
-    "ts-jest": "^29.4.12",
+    "ts-jest": "^29.4.15",
     "typescript": "^6.0.3",
     "undici": "^8.12.3",
     "yaml": "^2.9.1"
