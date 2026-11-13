@@ -10,7 +10,7 @@ import { createRequire } from 'node:module';
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { evidenceName, hasTargetOrg, scratchStrategy } from './sfArgs.mjs';
+import { evidenceName, hasTargetOrg, scratchStrategy, splitSfArgs } from './sfArgs.mjs';
 
 const skillDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = path.resolve(skillDir, '..', '..', '..');
@@ -442,25 +442,69 @@ async function shot(positional) {
   if (status !== 200) process.exit(1);
 }
 
-function sf(positional) {
+function linkedPluginRoots(dataDir) {
+  try {
+    const plugins = JSON.parse(readFileSync(path.join(dataDir, 'package.json'), 'utf8')).oclif?.plugins ?? [];
+    return plugins.filter(plugin => plugin.type === 'link').map(plugin => plugin.root);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The real `sf` on PATH with its own data, cache and config directories under the session directory, so it
+ * loads the local plugin build, linked once per session, and never the plugins the user installed. `stop`
+ * deletes the session directory, and the link with it. Org auth stays shared, because it lives in ~/.sfdx.
+ */
+function linkedSf() {
+  const root = path.join(sessionDir, 'sf-cli');
+  const env = {
+    ...process.env,
+    SF_DATA_DIR: path.join(root, 'data'),
+    SF_CACHE_DIR: path.join(root, 'cache'),
+    SF_CONFIG_DIR: path.join(root, 'config'),
+    SF_SKIP_NEW_VERSION_CHECK: 'true'
+  };
+  for (const dir of [env.SF_DATA_DIR, env.SF_CACHE_DIR, env.SF_CONFIG_DIR]) mkdirSync(dir, { recursive: true });
+  const pluginRoot = path.join(repoRoot, 'packages', 'sf-plugin');
+  if (!linkedPluginRoots(env.SF_DATA_DIR).includes(pluginRoot)) {
+    const link = spawnSync('sf', ['plugins', 'link', pluginRoot, '--no-install'], { env, encoding: 'utf8' });
+    if (link.status !== 0 || !linkedPluginRoots(env.SF_DATA_DIR).includes(pluginRoot)) {
+      fail(`sf plugins link ${pluginRoot} failed: ${(link.stderr || link.stdout || String(link.error)).trim()}`);
+    }
+  }
+  return { file: 'sf', args: ['electivus'], env, label: 'sf electivus' };
+}
+
+function sf(rest) {
   const state = readState();
   if (!state?.workspacePath) fail('no running session; sf runs inside the session workspace against its org.');
   const bin = path.join(repoRoot, 'packages', 'sf-plugin', 'bin', 'run.js');
   if (!existsSync(path.join(repoRoot, 'packages', 'sf-plugin', 'oclif.manifest.json'))) {
     fail('sf plugin is not built; run pnpm run build:sf-plugin');
   }
+  const { linked, args: positional } = splitSfArgs(rest);
   const args = [...positional];
   if (!hasTargetOrg(args)) {
     args.push('--target-org', state.org.alias);
   }
-  const result = spawnSync(process.execPath, [bin, 'electivus', ...args], {
+  const runner = linked
+    ? linkedSf()
+    : {
+        file: process.execPath,
+        args: [bin, 'electivus'],
+        env: process.env,
+        label: 'node packages/sf-plugin/bin/run.js electivus'
+      };
+  const result = spawnSync(runner.file, [...runner.args, ...args], {
     cwd: state.workspacePath,
+    env: runner.env,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024
   });
-  const name = evidenceName(args);
+  const name = evidenceName(args, linked ? 'sf-linked' : 'sf');
   const record = {
-    command: `node packages/sf-plugin/bin/run.js electivus ${args.join(' ')}`,
+    command: `${runner.label} ${args.join(' ')}`,
     cwd: state.workspacePath,
     exitCode: result.status,
     stdout: result.stdout,
@@ -514,7 +558,7 @@ const commands = {
   start: () => start(flags),
   run: () => run(positional),
   shot: () => shot(positional),
-  sf: () => sf(rest[0] === '--' ? rest.slice(1) : rest),
+  sf: () => sf(rest),
   stop: () => stop(flags)
 };
 if (!commands[command]) {

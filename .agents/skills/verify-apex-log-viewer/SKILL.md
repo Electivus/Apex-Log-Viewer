@@ -21,7 +21,7 @@ V=".agents/skills/verify-apex-log-viewer/scripts/verify.mjs"
 ## Surfaces
 
 - **Primary: the VS Code extension.** It has six webviews: the Logs, Tail and Custom Logs panels (bottom panel tabs), plus the Log Viewer, Custom Log Viewer and Debug Flags editor tabs. The Logs, Tail and Custom Logs surfaces can also open in the editor area. Custom Logs is experimental and appears only after its setting is turned on (see Gotchas). Drive them with steps.
-- **Secondary: the `sf electivus` Salesforce CLI plugin** (`packages/sf-plugin`). Run it with `node $V sf -- <args>` inside the session workspace so it shares the org and the `apexlogs/` store with the extension.
+- **Secondary: the `sf electivus` Salesforce CLI plugin** (`packages/sf-plugin`). Run it with `node $V sf -- <args>` inside the session workspace so it shares the org and the `apexlogs/` store with the extension. `node $V sf --linked -- <args>` runs the same build inside the real `sf` on PATH, the way a user runs it, without touching the user's installed plugins.
 - **Not covered:** VSIX packaging (`pnpm run test:smoke:vsix`), the Agent Skills catalog (`pnpm run test:sf-plugin:package`) and telemetry ingestion (`pnpm run test:e2e:telemetry`).
 
 ## Launch
@@ -54,7 +54,7 @@ Org selection comes from the environment, the same as for `test:e2e`:
 - `SF_SCRATCH_POOL_NAME` (or `SF_SCRATCH_STRATEGY=pool`) leases a pool slot. The session reuses a healthy slot and never recreates one, because only CI may create a slot's scratch org. If no healthy slot is free, `start` fails and says so; retry after Slot Recovery, or unset both variables. Without them, the session uses the single scratch `SF_SCRATCH_ALIAS` (default `ALV_E2E_Scratch`), created once and reused until it expires or is deleted.
 - The lease owner shows as `verify:<hostname>` unless you set `SF_SCRATCH_POOL_OWNER`.
 - `--locale <locale>` runs VS Code in another display language, such as `pt-br`, `de` or `zh-cn`. The host installs Microsoft's language pack for it into the cached support extensions on first use, which needs the Marketplace, and opens the fresh profile once so VS Code registers the pack before the real launch, which adds about 4 s. The extension then shows its own translations, so you can check translated panels, notices and commands in the product. The ready JSON and `session.json` carry `"locale"`. Without the flag VS Code runs in English.
-- `--target-org <alias>` skips the Dev Hub entirely and drives a real org you already authenticated. Treat that org as someone else's data. It is not seeded by default. Only mutate it (trace flags, log deletion, anonymous Apex) when the user asked for that.
+- `--target-org <alias>` skips the Dev Hub entirely and drives a real org you already authenticated. `start` runs `sf org display` on it, which for a scratch org also needs the Dev Hub that created it authenticated; without it `start` fails with `NamedOrgNotFoundError` naming that Dev Hub. Treat that org as someone else's data. It is not seeded by default. Only mutate it (trace flags, log deletion, anonymous Apex) when the user asked for that.
 
 ## Doctor
 
@@ -70,7 +70,10 @@ Run it first whenever anything looks off. **Preflight** checks Node against `.nv
 node $V run <step> ['{"json":"args"}']   # step = name in steps/ or a path to any .mjs file
 node $V shot <name>                      # full-window screenshot into the evidence dir
 node $V sf -- log sync --json            # sf electivus ... in the session workspace; --target-org added
+node $V sf --linked -- log sync --json   # the same through the real sf, with the local build linked
 ```
+
+`sf` runs `node packages/sf-plugin/bin/run.js electivus …`. `sf --linked` runs the `sf` on PATH with its own `SF_DATA_DIR`, `SF_CACHE_DIR` and `SF_CONFIG_DIR` under `output/verify/session/sf-cli/`, where its first call runs `sf plugins link packages/sf-plugin --no-install`. That `sf` loads only the local build, never the plugins the user installed, and shares the org auth in `~/.sfdx`. `stop` deletes the link with the session directory. See [features/sf-cli.md](features/sf-cli.md).
 
 A step is an ES module whose default export receives the live session. Write ad-hoc steps in your scratchpad (any path works). They need no imports, because everything arrives in the argument:
 
@@ -114,7 +117,7 @@ Steps run one at a time. Playwright actions without an explicit `timeout` fail a
 Stable handles (prefer these over text and position), grouped by webview:
 
 - **Logs panel:** `[data-testid="logs-open-debug-flags"]`, `logs-errors-only-switch`, `logs-filters-button`, `logs-filters-count`, `logs-status-strip`, `logs-empty-message`, `logs-error-badge`, `logs-reason-badge`, `logs-status-text`, `[data-log-id="<07L…>"]`, rows `[role="row"][tabindex="0"]`, headers `[role="columnheader"][aria-sort]`, search hits `mark.match-highlight`, `button[aria-label="Open"]`, `button[aria-label="Apex Replay"]`.
-- **Log Viewer:** `input[placeholder="Search entries…"]` (`input[type="search"]` in any display language), `button[aria-label="Next match"]` / `"Previous match"` (`Próxima ocorrência` / `Ocorrência anterior` under `--locale pt-br`), the counter `getByText(/^\d+\/\d+$/)`, the active match `.log-row-active-match`, search hits as plain `mark` (not `.match-highlight`).
+- **Log Viewer:** `input[placeholder="Search entries…"]` (`input[type="search"]` in any display language), `button[aria-label="Next match"]` / `"Previous match"` (`Próxima ocorrência` / `Ocorrência anterior` under `--locale pt-br`), the counter `getByText(/^\d+\/\d+$/)`, the active match `.log-row-active-match`, search hits `mark.log-find-mark` (not `.match-highlight`), the failure banner `[data-testid="log-viewer-failure"]` and `log-viewer-go-to-error`.
 - **Tail:** `tail-open-debug-flags`, `tail-debug-level`, the org select `getByRole('combobox').first()`, `getByLabel('Search live logs…')`, switches `getByRole('switch', { name: 'Debug Only' | 'Color' | 'Auto-scroll' })`, rows `[role="row"]`.
 - **Debug Flags:** `debug-flags-org-select`, `debug-flags-user-search`, `debug-flags-user-row-<userId>`, `debug-flags-special-target-*`, `debug-flags-target-unavailable`, `debug-flags-selected-target-label`, `debug-flags-log-type`, `debug-flags-debug-level`, `debug-flags-other-log-type-note`, `debug-flags-other-log-type-switch`, `debug-flags-status-*` (`pill`, `level`, `expiration`, `resolved-count`, `active-count`), `debug-flags-ttl`, `debug-flags-apply`, `debug-flags-remove`, `debug-flags-notice`, `debug-flags-error`, `debug-level-*`.
 - **Custom Logs:** `custom-logs-root`, `custom-logs-org`, `custom-logs-source`, `custom-logs-empty`, `custom-logs-config-issues`, `custom-logs-capture` (its `data-state`), rows `[data-row-id="<recordId>"]`, `custom-logs-filters-button`, `custom-logs-filters-count`, `custom-logs-show-system`, `custom-log-row-detail`. **Custom Log Viewer:** `custom-log-viewer-root`, `custom-log-viewer-title`, `custom-log-apex-hint`, `custom-log-focus-notice`, entries `[data-entry-id="<id>"]` (`aria-selected`), `custom-log-entry-detail`, `entry-field-<key>`, `payload-leaf-<path>`.
@@ -147,7 +150,7 @@ Everything goes to `output/verify/evidence/<YYYYMMDD-HHMMSS>/` (gitignored), and
 
 - `NNN-<name>.png`: screenshots in order, from `001-ready.png` (the window before any step) to `NNN-final-window.png` (taken at stop).
 - `steps.jsonl`: one record per `run` with the step path (repo-relative, or absolute for steps outside the repo), args, `ok`, duration, returned result or error, and failure screenshot.
-- `cli-<time>-sf-<cmd>.json`: the exact command (`node packages/sf-plugin/bin/run.js electivus …`), cwd, exit code, stdout and stderr of every `sf` call.
+- `cli-<time>-sf-<cmd>.json`: the exact command (`node packages/sf-plugin/bin/run.js electivus …`), cwd, exit code, stdout and stderr of every `sf` call; `cli-<time>-sf-linked-<cmd>.json` with `sf electivus …` for every `sf --linked` call.
 - `vscode-logs/`: VS Code logs copied at stop. The extension's trace-level output channel is at `vscode-logs/<timestamp>/window1/exthost/electivus.apex-log-viewer/Electivus Apex Log Viewer.log`.
 - `workspace-files.json`: every file left in the session workspace at stop (`apexlogs/` store, `sync-state.json`), with sizes.
 - `host.out`: host progress and E2E timing lines. `session.json`: final session state (org, slot, phase).
@@ -163,7 +166,7 @@ Proof standards:
 ## Cleanup
 
 ```bash
-node $V stop            # close VS Code, copy logs, delete workspace + VS Code profile, release lease as healthy
+node $V stop            # close VS Code, copy logs, delete workspace + VS Code profile + linked sf, release lease as healthy
 node $V stop --retire   # same, but mark the pool slot needs_recreate (you broke the org's state)
 node $V stop --keep     # keep the temp workspace and redacted VS Code profile for inspection
 ```
