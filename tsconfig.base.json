@@ -13,16 +13,6 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
-    "ignoreDeprecations": "6.0",
-    "baseUrl": ".",
-    "paths": {
-      "@alv/webview/*": [
-        "packages/webview/src/*"
-      ],
-      "@alv/vscode-extension/*": [
-        "apps/vscode-extension/src/*"
-      ]
-    }
+    "noImplicitOverride": true
   }
 }

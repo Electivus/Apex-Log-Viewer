@@ -26,7 +26,7 @@ updates:
           - 'react'
           - 'react-dom'
     ignore:
-      # TS 7 removes baseUrl/Node10 resolution and is outside ts-jest/parser peers.
+      # TS 7 is outside the ts-jest and typescript-eslint parser peer ranges.
       # Revisit with a coordinated compiler and test-transformer migration (#980).
       - dependency-name: 'typescript'
         versions: ['>=7.0.0 <8.0.0']

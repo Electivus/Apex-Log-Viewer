@@ -8,24 +8,23 @@
     "lib": ["ES2022", "DOM"],
     "jsx": "react-jsx",
     "module": "CommonJS",
-    "moduleResolution": "Node",
+    "moduleResolution": "Bundler",
     "types": ["node", "mocha"],
-    "baseUrl": ".",
     "paths": {
       "@alv/core": [
-        "packages/core/src/index.ts"
+        "./packages/core/src/index.ts"
       ],
       "@alv/core/*": [
-        "packages/core/src/*"
+        "./packages/core/src/*"
       ],
       "@alv/protocol": [
-        "packages/protocol/src/index.ts"
+        "./packages/protocol/src/index.ts"
       ],
       "@alv/protocol/*": [
-        "packages/protocol/src/*"
+        "./packages/protocol/src/*"
       ],
       "react-window": [
-        "apps/vscode-extension/src/test/stubs/react-window"
+        "./apps/vscode-extension/src/test/stubs/react-window"
       ]
     }
   },
