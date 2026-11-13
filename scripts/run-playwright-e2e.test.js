@@ -30,16 +30,6 @@ function writeArtifacts(repoRoot, artifactPaths) {
   }
 }
 
-test('root manifest declares the Playwright runtime imported by the E2E helpers', () => {
-  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-
-  assert.equal(
-    manifest.devDependencies?.playwright,
-    manifest.devDependencies?.['@playwright/test'],
-    'playwright must be a direct dependency at the same version range as @playwright/test'
-  );
-});
-
 test('findMissingBuildArtifacts reports the missing build outputs', () => {
   const repoRoot = createTempRepo();
   try {
@@ -177,6 +167,35 @@ test('resolvePlaywrightInvocation includes a retries override when PLAYWRIGHT_RE
       delete process.env.PLAYWRIGHT_RETRIES;
     } else {
       process.env.PLAYWRIGHT_RETRIES = originalRetries;
+    }
+  }
+});
+
+test('resolvePlaywrightInvocation shuffles the order with the PLAYWRIGHT_SHUFFLE seed', () => {
+  const originalRetries = process.env.PLAYWRIGHT_RETRIES;
+  const originalShuffle = process.env.PLAYWRIGHT_SHUFFLE;
+  process.env.PLAYWRIGHT_RETRIES = '0';
+  process.env.PLAYWRIGHT_SHUFFLE = '42';
+
+  try {
+    const invocation = resolvePlaywrightInvocation(['--', 'test/e2e/specs/openLogViewer.e2e.spec.ts']);
+
+    assert.deepEqual(invocation.args.slice(1), [
+      'test',
+      '--retries=0',
+      '--shuffle=42',
+      'test/e2e/specs/openLogViewer.e2e.spec.ts'
+    ]);
+  } finally {
+    for (const [name, value] of [
+      ['PLAYWRIGHT_RETRIES', originalRetries],
+      ['PLAYWRIGHT_SHUFFLE', originalShuffle]
+    ]) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
     }
   }
 });

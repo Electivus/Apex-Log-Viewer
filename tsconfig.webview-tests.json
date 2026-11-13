@@ -4,7 +4,7 @@
     "types": ["jest", "node", "@testing-library/jest-dom"],
     "isolatedModules": true,
     "module": "CommonJS",
-    "moduleResolution": "Node"
+    "moduleResolution": "Bundler"
   },
   "include": [
     "packages/webview/src/**/*.ts",

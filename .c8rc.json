@@ -1,5 +1,4 @@
 {
-  "reporter": ["text", "lcov"],
   "all": true,
   "check-coverage": true,
   "branches": 60,
@@ -7,15 +6,14 @@
   "lines": 40,
   "statements": 40,
   "include": [
-    "dist/**/*.js",
-    "out/**/*.js",
-    "src/**/*.ts",
-    "src/**/*.tsx"
+    "apps/vscode-extension/src/**",
+    "packages/core/src/**",
+    "packages/protocol/src/**"
   ],
   "exclude-after-remap": true,
   "exclude": [
-    "out/test/**",
-    "src/test/**",
+    "apps/vscode-extension/src/test/**",
+    "apps/vscode-extension/src/node-test/**",
     "**/*.d.ts"
   ]
 }

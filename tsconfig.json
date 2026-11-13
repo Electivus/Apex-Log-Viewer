@@ -25,7 +25,6 @@
     "src/webview",
     "src/test",
     "tailwind.config.js",
-    "postcss.config.cjs",
     "Visual Prototype for Apex Log",
     "Visual Prototype for Apex Log/**/*"
   ]

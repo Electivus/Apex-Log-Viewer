@@ -300,6 +300,47 @@ test('resolvePlaywrightInvocation lets an explicit shard arg override PLAYWRIGHT
   }
 });
 
+test('resolvePlaywrightInvocation passes PLAYWRIGHT_SHUFFLE as a seed that a spec path cannot be mistaken for', () => {
+  const repoRoot = createTempRepo();
+  try {
+    const runner = loadRunner();
+    fs.mkdirSync(path.join(repoRoot, 'test', 'e2e', 'cli'), { recursive: true });
+    const spec = 'test/e2e/cli/specs/logs.e2e.spec.ts';
+
+    const replay = runner.resolvePlaywrightInvocation(['--', spec], {
+      env: { PLAYWRIGHT_RETRIES: '0', PLAYWRIGHT_SHUFFLE: '42' },
+      repoRoot
+    });
+    assert.deepEqual(replay.args.slice(1), [
+      'test',
+      '--config=playwright.cli.config.ts',
+      '--retries=0',
+      '--shuffle=42',
+      spec
+    ]);
+
+    const random = runner.resolvePlaywrightInvocation([spec], { env: { PLAYWRIGHT_SHUFFLE: 'random' }, repoRoot });
+    assert.match(random.args.find(arg => String(arg).startsWith('--shuffle')), /^--shuffle=\d+$/);
+
+    const explicit = runner.resolvePlaywrightInvocation(['--shuffle=7'], { env: { PLAYWRIGHT_SHUFFLE: '42' }, repoRoot });
+    assert.deepEqual(
+      explicit.args.filter(arg => String(arg).startsWith('--shuffle')),
+      ['--shuffle=7']
+    );
+  } finally {
+    cleanupTempRepo(repoRoot);
+  }
+});
+
+test('resolvePlaywrightInvocation rejects a PLAYWRIGHT_SHUFFLE that is neither random nor a numeric seed', () => {
+  const runner = loadRunner();
+
+  assert.throws(
+    () => runner.resolvePlaywrightInvocation([], { env: { PLAYWRIGHT_SHUFFLE: 'yes; rm -rf /' } }),
+    /PLAYWRIGHT_SHUFFLE must be 'random' or a numeric seed/
+  );
+});
+
 test('resolvePlaywrightInvocation drops the leading -- that pnpm run forwards, so a spec filter still applies', () => {
   const repoRoot = createTempRepo();
   try {

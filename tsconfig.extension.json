@@ -10,7 +10,6 @@
   "exclude": [
     "apps/vscode-extension/src/test/**",
     "apps/vscode-extension/src/node-test/**",
-    "tailwind.config.js",
-    "postcss.config.cjs"
+    "tailwind.config.js"
   ]
 }

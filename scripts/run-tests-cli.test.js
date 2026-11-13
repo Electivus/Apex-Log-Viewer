@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const path = require("node:path");
 
 const { createRunnerPlan } = require("./run-tests-cli");
@@ -41,10 +42,7 @@ test("createRunnerPlan wraps the VS Code host runner with c8 when coverage is en
   assert.equal(plan.command, execPath);
   assert.equal(plan.args[0], "--enable-source-maps");
   assert.match(plan.args[1], /c8[\\/]bin[\\/]c8\.js$/);
-  assert.deepEqual(plan.args.slice(2, 12), [
-    "--exclude",
-    "packages/webview/src/**",
-    "--exclude-after-remap",
+  assert.deepEqual(plan.args.slice(2), [
     "--report-dir",
     path.join(repoRoot, "coverage", "extension"),
     "--reporter",
@@ -52,8 +50,6 @@ test("createRunnerPlan wraps the VS Code host runner with c8 when coverage is en
     "--reporter",
     "json-summary",
     "--reporter",
-  ]);
-  assert.deepEqual(plan.args.slice(12), [
     "lcovonly",
     "--reporter",
     "html",
@@ -81,4 +77,18 @@ test("createRunnerPlan ignores ENABLE_COVERAGE=false", () => {
     "--scope=unit",
   ]);
   assert.equal(plan.reportDir, undefined);
+});
+
+test(".c8rc.json measures source files that exist and leaves tests out", () => {
+  const repoRoot = path.join(__dirname, "..");
+  const config = JSON.parse(fs.readFileSync(path.join(repoRoot, ".c8rc.json"), "utf8"));
+  const sourceFiles = (pattern) => fs.globSync(pattern, { cwd: repoRoot }).filter((file) => /\.tsx?$/.test(file));
+
+  for (const pattern of config.include) {
+    assert.ok(sourceFiles(pattern).length > 0, `.c8rc.json include "${pattern}" matches no source file`);
+  }
+  for (const testDir of ["apps/vscode-extension/src/test/**", "apps/vscode-extension/src/node-test/**"]) {
+    assert.ok(sourceFiles(testDir).length > 0, `${testDir} holds no test file`);
+    assert.ok(config.exclude.includes(testDir), `.c8rc.json must exclude ${testDir}`);
+  }
 });
