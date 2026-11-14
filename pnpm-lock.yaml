@@ -179,9 +179,15 @@ importers:
 
   packages/core:
     dependencies:
+      '@jsforce/jsforce-node':
+        specifier: ^3.10.24
+        version: 3.13.1
       '@salesforce/core':
         specifier: ^9.2.0
         version: 9.2.0
+      undici:
+        specifier: ^8.12.3
+        version: 8.12.3
     devDependencies:
       ajv:
         specifier: ^8.20.0

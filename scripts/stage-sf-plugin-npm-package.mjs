@@ -48,8 +48,17 @@ export async function stageSfPluginPackage({
     const coreManifest = await readJson(path.join(coreSourceDir, 'package.json'));
     const stagedCoreManifest = { ...coreManifest };
     delete stagedCoreManifest.private;
+    // npm installs no dependency of a bundled package, so the plugin has to declare the ones core needs at run time.
+    const coreDependencies = coreManifest.dependencies ?? {};
+    for (const [name, range] of Object.entries(coreDependencies)) {
+      const declared = stagedManifest.dependencies?.[name];
+      if (declared !== undefined && declared !== range) {
+        throw new Error(`the plugin declares ${name}@${declared} but the bundled core needs ${name}@${range}`);
+      }
+    }
     stagedManifest.dependencies = {
       ...stagedManifest.dependencies,
+      ...coreDependencies,
       '@alv/core': coreManifest.version
     };
     const stagedCoreDir = path.join(targetDir, 'node_modules', '@alv', 'core');
