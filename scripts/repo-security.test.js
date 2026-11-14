@@ -1038,6 +1038,24 @@ test('OIDC tokens go only to jobs that exchange them', () => {
   }
 });
 
+test('workflow scripts read expressions from env, never inline', () => {
+  for (const workflowPath of workflowFiles()) {
+    for (const { jobName, steps } of workflowJobs(read(workflowPath))) {
+      for (const step of steps) {
+        for (const [field, script] of [
+          ['run', step.run],
+          ['with.script', step.with?.script]
+        ]) {
+          assert.ok(
+            typeof script !== 'string' || !script.includes('${{'),
+            `${workflowPath} job ${jobName} step "${step.name ?? step.uses}" expands \${{ }} inside ${field}; pass the value through env and read the variable`
+          );
+        }
+      }
+    }
+  }
+});
+
 test('Marketplace OIDC access stays confined to protected publishing and verification jobs', () => {
   for (const [workflowPath, oidcJobs] of [
     ['.github/workflows/release.yml', ['publish_marketplace']],

@@ -45,6 +45,9 @@ Concurrency: Most workflows use concurrency groups to avoid duplicate runs per r
 - If `pnpm audit signatures` fails in CI, treat it as a provenance problem:
   investigate the package metadata or lockfile change instead of removing the
   gate.
+- `run:` scripts never expand `${{ }}`. A step passes expression values through
+  `env` and the script reads the variable, so input text cannot become shell
+  code. `scripts/repo-security.test.js` enforces it.
 
 ## Codex Review Gate
 

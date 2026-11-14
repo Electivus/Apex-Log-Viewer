@@ -267,9 +267,9 @@ jobs:
           echo "Setting prerelease=${PRE_RELEASE} for ${TAG_NAME}"
           RID=$(gh release view "${TAG_NAME}" --json databaseId -q .databaseId)
           if [ "${PRE_RELEASE}" = "true" ]; then
-            gh api -X PATCH repos/${{ github.repository }}/releases/$RID -f prerelease=true
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${RID}" -f prerelease=true
           else
-            gh api -X PATCH repos/${{ github.repository }}/releases/$RID -f prerelease=false
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${RID}" -f prerelease=false
           fi
 
       - name: Download packaged VSIX artifacts

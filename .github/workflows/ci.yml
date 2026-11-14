@@ -94,8 +94,10 @@ jobs:
 
       - name: Run tests
         shell: bash
+        env:
+          TEST_SCOPE: ${{ github.event.inputs.scope || 'unit' }}
         run: |
-          case "${{ github.event.inputs.scope || 'unit' }}" in
+          case "${TEST_SCOPE}" in
             unit) pnpm run test:unit:ci ;;
             integration) pnpm run test:integration:ci ;;
             all) pnpm run test:ci ;;

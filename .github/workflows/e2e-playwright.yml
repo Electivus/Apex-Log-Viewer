@@ -336,9 +336,10 @@ jobs:
         run: |
           echo "Scratch strategy: ${SCRATCH_STRATEGY}"
           echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
-          echo "Direct E2E OS: ${{ matrix.os.artifact_suffix }}"
+          echo "Direct E2E OS: ${DIRECT_E2E_OS}"
           node scripts/run-playwright-cli-e2e.js
         env:
+          DIRECT_E2E_OS: ${{ matrix.os.artifact_suffix }}
           ALV_DEVHUB_JWT_SMOKE: ${{ inputs.jwt_smoke_devhub_org_id != '' && '1' || '' }}
           ALV_JWT_SMOKE_DEVHUB_ORG_ID: ${{ inputs.jwt_smoke_devhub_org_id }}
           PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
@@ -371,9 +372,10 @@ jobs:
         run: |
           echo "Scratch strategy: ${SCRATCH_STRATEGY}"
           echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
-          echo "Direct E2E OS: ${{ matrix.os.artifact_suffix }}"
+          echo "Direct E2E OS: ${DIRECT_E2E_OS}"
           node scripts/run-playwright-e2e.js
         env:
+          DIRECT_E2E_OS: ${{ matrix.os.artifact_suffix }}
           VSCODE_TEST_VERSION: ${{ env.VSCODE_TEST_VERSION }}
           PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
           SF_SCRATCH_STRATEGY: ${{ env.SCRATCH_STRATEGY }}
