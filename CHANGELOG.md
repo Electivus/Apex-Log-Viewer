@@ -20,6 +20,7 @@
 - CI: workflows no longer cache the pnpm store, which saved no install time and pushed the caches that do save time out of the repository quota.
 - Dependabot: the npm open pull request limit goes from 10 to 25, so routine updates no longer stall behind open pull requests.
 - Remove the uncalled `l10n:xlf` script and `@vscode/l10n-dev`.
+- Dependencies: `pnpm-workspace.yaml` keeps one override, `test-exclude@7>glob`, with a comment that says why it exists and when to remove it. It replaces an override that forced every `glob` to exactly 13.0.6. The other nine overrides matched no package, or held a version that the dependents' own ranges already give. The lockfile moves `diff` to 9.0.0, which mocha 12 asks for, and `@nevware21/ts-utils` to 0.16.0. The extension bundle is byte-identical. Two repo-security tests fail when an override matches no locked package or has no comment above it.
 
 ## [0.56.1](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.56.0...v0.56.1) (2026-11-12)
 
