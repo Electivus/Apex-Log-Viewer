@@ -5,10 +5,6 @@ import { logWarn } from '../utils/logger';
 
 const PROXY_SETTINGS = ['http.proxy', 'http.noProxy', 'http.proxySupport'];
 
-/**
- * VS Code's proxy settings for extension traffic. VS Code applies them by patching Node's `http` and `https`, which
- * jsforce's own fetch never calls. `off` turns that support off, so requests follow the environment, as in the CLI.
- */
 function readProxySettings(): SalesforceProxySettings {
   if (getConfig<unknown>('http.proxySupport', 'override') === 'off') {
     return {};
@@ -29,7 +25,10 @@ function applyProxySettings(): void {
   }
 }
 
-/** Sends Salesforce requests through VS Code's proxy settings now and after every change to them. */
+/**
+ * VS Code applies `http.proxy` and `http.noProxy` by patching Node's `http`, `https` and global `fetch`. jsforce sends
+ * through the `undici` package's own `fetch`, bundled into the extension, which none of those patches reach.
+ */
 export function registerSalesforceProxy(): vscode.Disposable {
   applyProxySettings();
   return vscode.workspace.onDidChangeConfiguration(event => {
