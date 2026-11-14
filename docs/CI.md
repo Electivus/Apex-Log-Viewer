@@ -150,7 +150,7 @@ Configure these repository variables:
 - `ALV_E2E_TELEMETRY_BASE_APP`
 - `ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID` (optional)
 
-When the three Azure OIDC secrets and the required telemetry target variables are present, the Ubuntu extension job exports a dedicated `testRunId`, runs the full Playwright suite, and emits test telemetry. The final telemetry job authenticates to Azure and validates that the current E2E run reached the shared Log Analytics workspace rows for the configured E2E Application Insights component. If any required setting is missing, the workflow still runs all Playwright suites and only skips the telemetry-validation layer.
+When the three Azure OIDC secrets and the required telemetry target variables are present, the Ubuntu extension job exports a dedicated `testRunId`, runs the full Playwright suite, and emits test telemetry. The final telemetry job authenticates to Azure and validates that the current E2E run reached the shared Log Analytics workspace rows for the configured E2E Application Insights component. If any required setting is missing, the workflow still runs all Playwright suites and only skips the telemetry-validation layer. Only the Ubuntu extension job and the telemetry validation job, the two that run `azure/login`, receive `id-token: write`.
 
 ## Release Flow
 

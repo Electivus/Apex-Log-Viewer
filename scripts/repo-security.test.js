@@ -1000,9 +1000,6 @@ test('release workflows default to read-only token permissions', () => {
 
 test('every workflow declares its workflow-level token permissions', () => {
   // A workflow without a top-level `permissions` key inherits the repository default for every job.
-  // Write scopes belong to the job that uses them; the listed entries are the reviewed exceptions.
-  const workflowLevelWrites = { '.github/workflows/e2e-playwright.yml': ['id-token'] };
-
   for (const workflowPath of workflowFiles()) {
     const permissions = yaml.parse(read(workflowPath)).permissions;
     assert.equal(typeof permissions, 'object', `${workflowPath} should declare workflow-level permissions as a map`);
@@ -1011,8 +1008,32 @@ test('every workflow declares its workflow-level token permissions', () => {
       Object.entries(permissions)
         .filter(([, level]) => level === 'write')
         .map(([scope]) => scope),
-      workflowLevelWrites[workflowPath] || [],
+      [],
       `${workflowPath} should grant write scopes at the job level`
+    );
+  }
+});
+
+test('OIDC tokens go only to jobs that exchange them', () => {
+  const oidcWithoutAzureLogin = {
+    '.github/workflows/sf-plugin-release.yml': { publish_npm: 'npm trusted publishing' }
+  };
+
+  for (const workflowPath of workflowFiles()) {
+    const jobs = Object.entries(yaml.parse(read(workflowPath)).jobs ?? {});
+    const oidcJobs = jobs
+      .filter(([, job]) => job.permissions?.['id-token'] === 'write')
+      .map(([jobName]) => jobName)
+      .sort();
+    const exchangingJobs = jobs
+      .filter(([, job]) => (job.steps ?? []).some(step => step.uses?.startsWith('azure/login@')))
+      .map(([jobName]) => jobName)
+      .concat(Object.keys(oidcWithoutAzureLogin[workflowPath] ?? {}))
+      .sort();
+    assert.deepEqual(
+      oidcJobs,
+      exchangingJobs,
+      `${workflowPath} should grant id-token: write exactly to the jobs that run azure/login or a reviewed OIDC exchange`
     );
   }
 });
