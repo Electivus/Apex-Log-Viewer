@@ -191,6 +191,19 @@ test('a proxy variable it cannot use fails the requests of its protocol, names i
   assert.equal(salesforce.received, 0);
 });
 
+test('a proxy variable it cannot use fails its protocol even for the hosts NO_PROXY names', async t => {
+  const salesforce = await orgBehind(t, 'bad-variable-bypass@example.com');
+
+  const result = await searchUsersInChild('bad-variable-bypass@example.com', {
+    HTTP_PROXY: UNUSABLE_PROXY,
+    NO_PROXY: '127.0.0.1'
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error ?? '', /HTTP_PROXY/);
+  assert.equal(salesforce.received, 0);
+});
+
 test('a valid HTTP_PROXY carries http requests when HTTPS_PROXY is unusable', async t => {
   await orgBehind(t, 'bad-https-variable@example.com');
   const proxy = await startRecordingProxy(t);

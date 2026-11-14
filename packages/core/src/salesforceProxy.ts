@@ -35,11 +35,11 @@ export function unwrapSalesforceProxyError(error: unknown): unknown {
 }
 
 /**
- * Routes every jsforce request of this process, connection calls and token refreshes alike, through one agent that
- * honors NO_PROXY. jsforce otherwise builds a proxy agent per request from the proxy variables and ignores NO_PROXY.
- * CometD streaming runs on Faye and is not covered. Calling it again replaces the route for the next request. Each
- * protocol keeps its own proxy, and a proxy undici cannot use fails its protocol's requests with a
- * `SalesforceProxyError` instead of sending them direct.
+ * Routes every jsforce request of this process, connection calls and token refreshes alike, through one dispatcher
+ * that honors NO_PROXY; jsforce's own per-request proxy agent ignores it. CometD streaming runs on Faye and is not
+ * covered. Calling it again replaces the route for the next request. Each protocol keeps its own proxy. When undici
+ * rejects a protocol's proxy URL, every request over that protocol, bypass hosts included, fails with a
+ * `SalesforceProxyError` and is never sent direct.
  */
 export function configureSalesforceProxy(settings: SalesforceProxySettings = {}): void {
   const proxyUrl = settings.proxyUrl?.trim();
@@ -60,7 +60,10 @@ const VARIABLES: Record<Protocol, readonly ProxySource[]> = {
   'https:': ['https_proxy', 'HTTPS_PROXY']
 };
 
-/** Reads the variables in undici's order: lowercase first, and https falls back to the http proxy. */
+/**
+ * Mirrors undici's lookup: the first defined variable wins, lowercase first, so an empty one still hides its uppercase
+ * twin; https falls back to the http proxy.
+ */
 function routeFor(protocol: Protocol, proxyUrl: string | undefined): ProxyRoute {
   if (proxyUrl) return checkedRoute('http.proxy', proxyUrl);
   const source = VARIABLES[protocol].find(name => process.env[name] !== undefined);
