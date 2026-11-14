@@ -7,6 +7,7 @@
 - `sf electivus tooling get --path` accepts a path relative to the Tooling API, such as `sobjects/ApexLog/<id>`, as its help says. It used to fail with `TypeError: Failed to parse URL` and exit 10. Paths that start with `/`, such as `/tooling/...` and `/services/data/vXX.X/...`, and absolute URLs on the org's instance work as before.
 - Custom Log Viewer: the notice for an opened entry past the loaded ones, and the hint for a search that matches no loaded entry, name the footer's **Load more** button (**Carregar mais** in Portuguese) instead of **Load more entries**.
 - Debug Flags: when **Apply** or **Remove** fails because the org's log storage is full, the hint names the menu items the panel shows, **Clear logs** → **Delete all org logs**, instead of **All org logs**.
+- Proxy: Salesforce requests from the extension go through the proxy set in VS Code's `http.proxy` setting again, and skip the hosts in `http.noProxy`. Since jsforce 3.10.17 they had ignored both, because jsforce sends them with its own `fetch`, which VS Code's proxy support never sees. The extension and the `sf electivus` plugin now also skip the hosts in `NO_PROXY` when `HTTPS_PROXY` or `HTTP_PROXY` sets the proxy. System proxy settings and PAC files still do not apply; the README's Troubleshooting section lists the proxy sources that do.
 
 ### Maintenance
 
@@ -15,6 +16,8 @@
 - Development: the devcontainer installs Salesforce CLI 2.150.6, the release that CI, the proxy lab and the local test runner use, instead of 2.136.8. A repository test fails when the devcontainer and the real-org jobs pin different releases.
 - TypeScript: the configs drop `baseUrl`, Node10 module resolution and `ignoreDeprecations`, which TypeScript 7 rejects.
 - Tests: local extension coverage measures the extension, core and protocol sources again. Since the monorepo move it had reported no file.
+- E2E: `ALV_E2E_VSCODE_ENV`, a JSON object of variables for the VS Code process alone, lets the proxy lab start VS Code with the proxy only in its settings.
+- Salesforce CLI plugin: the staged npm package declares the runtime dependencies of the bundled core, because npm installs none of a bundled package's dependencies, and staging fails when the plugin and the core ask for different ranges of one package.
 - E2E: the helpers import `_electron` from `@playwright/test`, so the direct `playwright` dependency and its paired Dependabot group are gone. A `playwright_shuffle` dispatch input, or `PLAYWRIGHT_SHUFFLE` locally, runs the real-org suites in a shuffled order that a seed can replay.
 - Webview: `LabeledSelect` passes an empty value straight to Radix Select, which accepts it since 2.3.1, instead of mapping it to a placeholder sentinel.
 - CI: workflows no longer cache the pnpm store, which saved no install time and pushed the caches that do save time out of the repository quota.

@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { AuthInfo, ConfigAggregator, Connection, OrgConfigProperties, StateAggregator } from '@salesforce/core';
 
+import './salesforceProxy.js';
 import type {
   DebugLevelCreateParams,
   DebugLevelDeleteParams,
