@@ -303,13 +303,21 @@ jobs:
             echo "::error::Tag $TAG already points at $TAG_SHA, but this build is $GITHUB_SHA"
             exit 1
           fi
-          RELEASE_IDS=$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate --jq '.[] | select(.tag_name == env.TAG) | .id')
-          if [ -n "$RELEASE_IDS" ]; then
-            echo "Updating existing pre-release $TAG"
-            gh release edit "$TAG" --target "$GITHUB_SHA" --title "$TITLE" --notes "$BODY" --prerelease
-          else
+          RELEASES=$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate --jq '.[] | select(.tag_name == env.TAG) | "\(.id) \(.draft) \(.target_commitish)"')
+          if [ -z "$RELEASES" ]; then
             echo "Creating draft pre-release $TAG"
             gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "$TITLE" --notes "$BODY" --prerelease
+          elif [ "$(wc -l <<<"$RELEASES")" -gt 1 ]; then
+            echo "::error::Several releases carry tag $TAG. The rollback job deletes them; then run the workflow again."
+            exit 1
+          else
+            read -r RELEASE_ID RELEASE_DRAFT RELEASE_TARGET <<<"$RELEASES"
+            if [ "$RELEASE_DRAFT" = true ] && [ "$RELEASE_TARGET" != "$GITHUB_SHA" ]; then
+              echo "::error::Draft release $RELEASE_ID of $TAG was created for commit $RELEASE_TARGET, not this build $GITHUB_SHA. The rollback job deletes it; then run the workflow again."
+              exit 1
+            fi
+            echo "Updating existing pre-release $TAG"
+            gh release edit "$TAG" --title "$TITLE" --notes "$BODY" --prerelease
           fi
 
       - name: Upload VSIX to GitHub release
