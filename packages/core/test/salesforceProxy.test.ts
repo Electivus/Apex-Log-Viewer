@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import net, { type AddressInfo } from 'node:net';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -30,7 +30,11 @@ const oneUser: DoubleHandler = request =>
 
 type RecordingProxy = { url: string; seen: string[] };
 
-async function startRecordingProxy(t: test.TestContext, handler: DoubleHandler = oneUser): Promise<RecordingProxy> {
+async function startRecordingProxy(
+  t: test.TestContext,
+  handler: DoubleHandler = oneUser,
+  host = '127.0.0.1'
+): Promise<RecordingProxy> {
   const seen: string[] = [];
   const server = http.createServer((request, response) => {
     seen.push(`${request.method} ${request.url}`);
@@ -40,7 +44,7 @@ async function startRecordingProxy(t: test.TestContext, handler: DoubleHandler =
     seen.push(`CONNECT ${request.url}`);
     socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');
   });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>(resolve => server.listen(0, host, resolve));
   t.after(
     () =>
       new Promise<void>(resolve => {
@@ -48,7 +52,8 @@ async function startRecordingProxy(t: test.TestContext, handler: DoubleHandler =
         server.close(() => resolve());
       })
   );
-  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, seen };
+  const shown = host.includes(':') ? `[${host}]` : host;
+  return { url: `http://${shown}:${(server.address() as AddressInfo).port}`, seen };
 }
 
 type ChildResult = { ok: boolean; users?: number; error?: string; elapsedMs: number };
@@ -163,46 +168,174 @@ test('a configured proxy URL wins over the proxy variables', async t => {
 
 const UNUSABLE_PROXY = 'user:secret@proxy.company.com:8080';
 
-test('a configured proxy URL it cannot use fails the requests, names http.proxy and hides the URL', async t => {
-  const salesforce = await orgBehind(t, 'bad-setting@example.com');
-  const proxy = await startRecordingProxy(t);
+type Listener = { url: string; seen: string[] };
 
-  const result = await searchUsersInChild(
-    'bad-setting@example.com',
-    { HTTP_PROXY: proxy.url, HTTPS_PROXY: proxy.url },
-    { proxyUrl: UNUSABLE_PROXY }
-  );
+async function listenOn(t: test.TestContext, server: net.Server, host = '127.0.0.1'): Promise<number> {
+  await new Promise<void>(resolve => server.listen(0, host, resolve));
+  t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
+  return (server.address() as AddressInfo).port;
+}
 
-  assert.equal(result.ok, false);
-  assert.match(result.error ?? '', /http\.proxy/);
-  assert.doesNotMatch(result.error ?? '', /secret|proxy\.company/);
-  assert.deepEqual(proxy.seen, []);
-  assert.equal(salesforce.received, 0);
-});
-
-test('a proxy variable it cannot use fails the requests of its protocol, names it and hides the URL', async t => {
-  const salesforce = await orgBehind(t, 'bad-variable@example.com');
-
-  const result = await searchUsersInChild('bad-variable@example.com', { HTTP_PROXY: UNUSABLE_PROXY });
-
-  assert.equal(result.ok, false);
-  assert.match(result.error ?? '', /HTTP_PROXY/);
-  assert.doesNotMatch(result.error ?? '', /secret|proxy\.company/);
-  assert.equal(salesforce.received, 0);
-});
-
-test('a proxy variable it cannot use fails its protocol even for the hosts NO_PROXY names', async t => {
-  const salesforce = await orgBehind(t, 'bad-variable-bypass@example.com');
-
-  const result = await searchUsersInChild('bad-variable-bypass@example.com', {
-    HTTP_PROXY: UNUSABLE_PROXY,
-    NO_PROXY: '127.0.0.1'
+/** A SOCKS5 server that records the CONNECT target and always tunnels to the org double, whatever was asked. */
+async function startSocksProxy(t: test.TestContext, scheme: string, orgPort: number): Promise<Listener> {
+  const seen: string[] = [];
+  const sockets = new Set<net.Socket>();
+  const server = net.createServer(client => {
+    sockets.add(client);
+    client.on('error', () => client.destroy());
+    client.once('data', () => {
+      client.write(Buffer.from([5, 0]));
+      client.once('data', request => {
+        const port = request.readUInt16BE(request.length - 2);
+        const host =
+          request[3] === 1 ? [...request.subarray(4, 8)].join('.') : request.subarray(5, 5 + request[4]).toString();
+        seen.push(`CONNECT ${host}:${port}`);
+        const upstream = net.connect(orgPort, '127.0.0.1', () => {
+          client.write(Buffer.from([5, 0, 0, 1, 127, 0, 0, 1, 0, 0]));
+          client.pipe(upstream).pipe(client);
+        });
+        sockets.add(upstream);
+        upstream.on('error', () => client.destroy());
+      });
+    });
   });
+  t.after(() => sockets.forEach(socket => socket.destroy()));
+  const port = await listenOn(t, server);
+  return { url: `${scheme}://127.0.0.1:${port}`, seen };
+}
 
-  assert.equal(result.ok, false);
-  assert.match(result.error ?? '', /HTTP_PROXY/);
-  assert.equal(salesforce.received, 0);
-});
+/** Accepts and drops connections: an https:// proxy URL reaches it with a TLS handshake it never answers. */
+async function startConnectionRecorder(t: test.TestContext): Promise<Listener> {
+  const seen: string[] = [];
+  const server = net.createServer(socket => {
+    seen.push('connection');
+    socket.destroy();
+  });
+  const port = await listenOn(t, server);
+  return { url: `https://127.0.0.1:${port}`, seen };
+}
+
+/** Values that must never route anywhere: each fails its protocol with the named error, bypass hosts included. */
+const MALFORMED: Array<{ value: string; paths?: readonly Path[] }> = [
+  { value: 'proxy.company.com:8080' },
+  { value: UNUSABLE_PROXY },
+  { value: 'ftp://user:secret@proxy.company.com:21' },
+  { value: '//proxy.company.com:8080' },
+  { value: 'http://' },
+  { value: 'http://:8080' },
+  { value: 'http://user:secret@' },
+  { value: 'http://user:%zz@proxy.company.com:8080' },
+  { value: 'socks:' },
+  { value: 'socks://' },
+  { value: 'socks:/proxy.company.com:8080' },
+  { value: 'socks5:///proxy.company.com:8080' },
+  { value: 'socks5://:1080' },
+  { value: 'socks5://user:secret@' },
+  { value: 'http://proxy.company.com:8080/corporate/' },
+  { value: 'http://proxy.company.com:8080/?region=1' },
+  { value: '   ', paths: ['environment'] }
+];
+
+type WellFormed = {
+  name: string;
+  start: (t: test.TestContext, orgPort: number) => Promise<Listener>;
+  value?: (url: string) => string;
+  /** What reaching the listener looks like: a REST answer through it, or only a connection. */
+  carries: boolean;
+};
+
+const recording = (host?: string) => async (t: test.TestContext) => {
+  const proxy = await startRecordingProxy(t, oneUser, host);
+  return { url: proxy.url, seen: proxy.seen };
+};
+
+const WELL_FORMED: WellFormed[] = [
+  { name: 'http://host:port', start: recording(), carries: true },
+  { name: 'HTTP:// in capitals', start: recording(), value: url => url.replace('http:', 'HTTP:'), carries: true },
+  {
+    name: 'http:// with credentials',
+    start: recording(),
+    value: url => url.replace('http://', 'http://user:secret@'),
+    carries: true
+  },
+  { name: 'http:// with a trailing slash', start: recording(), value: url => `${url}/`, carries: true },
+  { name: 'http:// inside spaces', start: recording(), value: url => `  ${url}  `, carries: true },
+  { name: 'http://[::1]:port', start: recording('::1'), carries: true },
+  { name: 'socks://host:port', start: (t, orgPort) => startSocksProxy(t, 'socks', orgPort), carries: true },
+  { name: 'socks5://host:port', start: (t, orgPort) => startSocksProxy(t, 'socks5', orgPort), carries: true },
+  { name: 'https://host:port', start: startConnectionRecorder, carries: false }
+];
+
+type Path = 'environment' | 'settings';
+
+function proxyInput(path: Path, value: string, bypass: boolean): [Record<string, string>, unknown] {
+  if (path === 'environment') return [{ HTTP_PROXY: value, ...(bypass ? { NO_PROXY: '127.0.0.1' } : {}) }, undefined];
+  return [{}, { proxyUrl: value, ...(bypass ? { noProxy: ['127.0.0.1'] } : {}) }];
+}
+
+const PATHS: readonly Path[] = ['environment', 'settings'];
+const sourceName = (path: Path) => (path === 'environment' ? /HTTP_PROXY/ : /http\.proxy/);
+
+test(
+  'which proxy values route and which fail closed, through the variables and the settings',
+  { concurrency: 8 },
+  async t => {
+    let user = 0;
+    const cases: Array<{ name: string; run: () => Promise<void> }> = [];
+
+    for (const { value, paths = PATHS } of MALFORMED) {
+      for (const path of paths) {
+        for (const bypass of [false, true]) {
+          const username = `table-${user++}@example.com`;
+          const salesforce = await orgBehind(t, username);
+          cases.push({
+            name: `${JSON.stringify(value)} in ${path}${bypass ? ' with a matching bypass' : ''} fails with the named error`,
+            run: async () => {
+              const result = await searchUsersInChild(username, ...proxyInput(path, value, bypass));
+              assert.equal(result.ok, false);
+              assert.match(result.error ?? '', /were not sent/);
+              assert.match(result.error ?? '', sourceName(path));
+              assert.doesNotMatch(result.error ?? '', /secret|proxy\.company/);
+              assert.equal(salesforce.received, 0);
+            }
+          });
+        }
+      }
+    }
+
+    for (const proxy of WELL_FORMED) {
+      for (const path of PATHS) {
+        for (const bypass of [false, true]) {
+          const username = `table-${user++}@example.com`;
+          const salesforce = await orgBehind(t, username);
+          const listener = await proxy.start(t, Number(new URL(salesforce.instanceUrl).port));
+          const value = proxy.value ? proxy.value(listener.url) : listener.url;
+          cases.push({
+            name: `${proxy.name} in ${path}${bypass ? ' with a matching bypass goes direct' : ' carries the request'}`,
+            run: async () => {
+              const result = await searchUsersInChild(username, ...proxyInput(path, value, bypass));
+              if (bypass) {
+                assert.equal(result.ok, true, result.error);
+                assert.deepEqual(listener.seen, []);
+                assert.ok(salesforce.received > 0);
+              } else if (proxy.carries) {
+                assert.equal(result.ok, true, result.error);
+                assert.ok(listener.seen.length > 0, 'the proxy saw no request');
+              } else {
+                assert.equal(result.ok, false);
+                assert.doesNotMatch(result.error ?? '', /were not sent/);
+                assert.ok(listener.seen.length > 0, 'the proxy saw no connection');
+                assert.equal(salesforce.received, 0);
+              }
+            }
+          });
+        }
+      }
+    }
+
+    await Promise.all(cases.map(({ name, run }) => t.test(name, run)));
+  }
+);
 
 test('a valid HTTP_PROXY carries http requests when HTTPS_PROXY is unusable', async t => {
   await orgBehind(t, 'bad-https-variable@example.com');
