@@ -116,3 +116,43 @@ test('stageSfPluginPackage materializes the private workspace core for npm bundl
   assert.equal(coreManifest.private, undefined);
   assert.equal(await fs.readFile(path.join(outDir, 'node_modules', '@alv', 'core', 'lib', 'index.js'), 'utf8'), 'core');
 });
+
+test('stageSfPluginPackage declares the runtime dependencies of the bundled core, which npm would not install', async () => {
+  const mod = await loadModule();
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sf-plugin-stage-core-deps-'));
+  const packageDir = path.join(repoRoot, 'packages', 'sf-plugin');
+  const outDir = path.join(repoRoot, 'dist', 'sf-plugin-npm');
+  const writePlugin = dependencies =>
+    writeFile(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: '@electivus/plugin-electivus',
+        version: '1.2.3',
+        files: ['/lib'],
+        dependencies: { '@alv/core': 'workspace:*', ...dependencies },
+        bundleDependencies: ['@alv/core']
+      })
+    );
+  await writePlugin({ '@salesforce/core': '^9.2.0' });
+  await writeFile(path.join(packageDir, 'lib', 'index.js'), 'plugin');
+  await writeFile(
+    path.join(repoRoot, 'packages', 'core', 'package.json'),
+    JSON.stringify({
+      name: '@alv/core',
+      version: '0.0.0',
+      dependencies: { '@salesforce/core': '^9.2.0', undici: '^8.12.3' }
+    })
+  );
+  await writeFile(path.join(repoRoot, 'packages', 'core', 'lib', 'index.js'), 'core');
+
+  await mod.stageSfPluginPackage({ repoRoot, outDir });
+
+  const manifest = JSON.parse(await fs.readFile(path.join(outDir, 'package.json'), 'utf8'));
+  assert.deepEqual(manifest.dependencies, { '@alv/core': '0.0.0', '@salesforce/core': '^9.2.0', undici: '^8.12.3' });
+
+  await writePlugin({ '@salesforce/core': '^9.4.5' });
+  await assert.rejects(
+    mod.stageSfPluginPackage({ repoRoot, outDir }),
+    /the plugin declares @salesforce\/core@\^9\.4\.5 but the bundled core needs @salesforce\/core@\^9\.2\.0/
+  );
+});
