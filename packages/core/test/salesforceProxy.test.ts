@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  answerRest,
   isolateSalesforceHome,
   saveOrgAuth,
   startSalesforceDouble,
@@ -29,20 +30,11 @@ const oneUser: DoubleHandler = request =>
 
 type RecordingProxy = { url: string; seen: string[] };
 
-/** A forward proxy on loopback that records each request line and relays plain HTTP requests to their target. */
-async function startRecordingProxy(t: test.TestContext): Promise<RecordingProxy> {
+async function startRecordingProxy(t: test.TestContext, handler: DoubleHandler = oneUser): Promise<RecordingProxy> {
   const seen: string[] = [];
   const server = http.createServer((request, response) => {
     seen.push(`${request.method} ${request.url}`);
-    const upstream = http.request(request.url ?? '', { method: request.method, headers: request.headers }, answer => {
-      response.writeHead(answer.statusCode ?? 502, answer.headers);
-      answer.pipe(response);
-    });
-    upstream.on('error', () => {
-      response.writeHead(502);
-      response.end();
-    });
-    request.pipe(upstream);
+    answerRest(request, response, handler, []);
   });
   server.on('connect', (request, socket) => {
     seen.push(`CONNECT ${request.url}`);
@@ -61,7 +53,6 @@ async function startRecordingProxy(t: test.TestContext): Promise<RecordingProxy>
 
 type ChildResult = { ok: boolean; users?: number; error?: string; configured?: string; elapsedMs: number };
 
-/** Runs one core request in a fresh process whose environment holds `variables` from its first line. */
 async function searchUsersInChild(
   username: string,
   variables: Record<string, string>,
