@@ -128,10 +128,11 @@ suite('VS Code proxy settings for Salesforce requests', () => {
   test('follows a change to http.noProxy without a reload', async () => {
     const { registration, change } = loadProxyAdapter({ 'http.proxy': proxy.url });
     try {
+      await requestLimits();
       change('http.noProxy', ['127.0.0.1']);
       await requestLimits();
-      assert.deepEqual(proxy.seen, []);
-      assert.equal(salesforce.seen.length, 1);
+      assert.equal(proxy.seen.length, 1);
+      assert.equal(salesforce.seen.length, 2);
     } finally {
       registration.dispose();
     }
