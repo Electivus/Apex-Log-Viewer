@@ -134,6 +134,7 @@ const OTHER_SHA = '2222222222222222222222222222222222222222';
 const REPO = 'Electivus/Apex-Log-Viewer';
 const TAG = 'v0.57.3';
 const VSIX = 'apex-log-viewer-0.57.3-pre-20261114-1111111-linux-x64.vsix';
+const OTHER_VSIX = 'apex-log-viewer-0.57.3-pre-20261113-2222222-linux-x64.vsix';
 const FAKE_GITHUB = path.join(__dirname, 'prerelease-fake-github.js');
 
 const bashOnly = { skip: process.platform === 'win32' && 'runs Ubuntu workflow steps in bash' };
@@ -232,8 +233,8 @@ test('prerelease assembly keeps the pre-release a draft without a tag until its 
   assert.equal(published.github.tagSha, BUILD_SHA, published.output);
 });
 
-test('prerelease assembly adopts a draft left by an earlier attempt and tags this build', bashOnly, () => {
-  const run = runAssembly({ releases: [{ id: 5, draft: true, target: OTHER_SHA, assets: [VSIX] }] });
+test('prerelease assembly adopts a draft that an earlier attempt of this build left', bashOnly, () => {
+  const run = runAssembly({ releases: [{ id: 5, draft: true, target: BUILD_SHA, assets: [VSIX] }] });
 
   assert.equal(run.status, 0, run.output);
   assert.deepEqual(
@@ -245,7 +246,7 @@ test('prerelease assembly adopts a draft left by an earlier attempt and tags thi
 });
 
 test('prerelease assembly updates a pre-release that is already published for this build', bashOnly, () => {
-  const run = runAssembly({ tagSha: BUILD_SHA, releases: [{ id: 5, draft: false, target: BUILD_SHA, assets: [] }] });
+  const run = runAssembly({ tagSha: BUILD_SHA, releases: [{ id: 5, draft: false, target: 'main', assets: [] }] });
 
   assert.equal(run.status, 0, run.output);
   assert.deepEqual(
@@ -254,6 +255,52 @@ test('prerelease assembly updates a pre-release that is already published for th
     run.output
   );
   assert.equal(run.github.tagSha, BUILD_SHA, run.output);
+});
+
+test('prerelease assembly refuses a draft that another commit created, and the rollback clears it', bashOnly, () => {
+  const staleDraft = { id: 5, draft: true, target: OTHER_SHA, assets: [OTHER_VSIX] };
+  const refused = runAssembly({ releases: [staleDraft] });
+
+  assert.notEqual(refused.status, 0, refused.output);
+  assert.deepEqual(refused.github.releases, [staleDraft], refused.output);
+  assert.equal(refused.github.tagSha, null, refused.output);
+  assert.match(refused.output, new RegExp(`^::error::.*${OTHER_SHA}`, 'm'));
+
+  const rolledBack = runRollback(refused.github);
+  assert.equal(rolledBack.status, 0, rolledBack.output);
+  assert.deepEqual(rolledBack.github.releases, [], rolledBack.output);
+
+  const next = runAssembly(rolledBack.github);
+  assert.equal(next.status, 0, next.output);
+  assert.deepEqual(
+    next.github.releases.map(release => [release.draft, release.target, release.assets]),
+    [[false, BUILD_SHA, [VSIX]]],
+    next.output
+  );
+  assert.equal(next.github.tagSha, BUILD_SHA, next.output);
+});
+
+test('prerelease assembly refuses to choose between several releases that carry the tag', bashOnly, () => {
+  const releases = [
+    { id: 5, draft: true, target: BUILD_SHA, assets: [] },
+    { id: 6, draft: true, target: BUILD_SHA, assets: [] }
+  ];
+  const run = runAssembly({ releases });
+
+  assert.notEqual(run.status, 0, run.output);
+  assert.deepEqual(run.github.releases, releases, run.output);
+  assert.equal(run.github.tagSha, null, run.output);
+});
+
+test('prerelease assembly finds a draft of the tag past the first page of releases', bashOnly, () => {
+  const run = runAssembly({ unrelatedReleases: 30, releases: [{ id: 5, draft: true, target: BUILD_SHA, assets: [] }] });
+
+  assert.equal(run.status, 0, run.output);
+  assert.deepEqual(
+    run.github.releases.map(release => [release.id, release.draft, release.assets]),
+    [[5, false, [VSIX]]],
+    run.output
+  );
 });
 
 test('prerelease assembly fails instead of creating a second draft when the release lookup fails', bashOnly, () => {
@@ -290,6 +337,24 @@ test('prerelease rollback deletes every release that carries the tag', bashOnly,
 
   assert.equal(run.status, 0, run.output);
   assert.deepEqual(run.github.releases, [], run.output);
+});
+
+test('prerelease rollback deletes a draft of the tag past the first page of releases', bashOnly, () => {
+  const run = runRollback({ unrelatedReleases: 30, releases: [{ id: 1, draft: true, target: BUILD_SHA, assets: [] }] });
+
+  assert.equal(run.status, 0, run.output);
+  assert.deepEqual(run.github.releases, [], run.output);
+});
+
+test('prerelease rollback ignores other tags that start with the same name', bashOnly, () => {
+  const run = runRollback({
+    otherTags: ['v0.57.30'],
+    releases: [{ id: 1, draft: true, target: BUILD_SHA, assets: [] }]
+  });
+
+  assert.equal(run.status, 0, run.output);
+  assert.deepEqual(run.github.releases, [], run.output);
+  assert.deepEqual(run.github.otherTags, ['v0.57.30'], run.output);
 });
 
 test('prerelease rollback deletes a published pre-release and its tag', bashOnly, () => {

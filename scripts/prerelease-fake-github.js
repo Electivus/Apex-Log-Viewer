@@ -1,6 +1,8 @@
-// Mirrors GitHub, where a draft release has no tag until it is published and
-// GET releases/tags/{tag} skips drafts, and gh api, which prints a failed call's error
-// body to stdout without a final newline unless --silent is set.
+// Mirrors GitHub, where a draft release has no tag until it is published, GET
+// releases/tags/{tag} skips drafts, the releases list returns 30 releases a page and
+// git/matching-refs matches by prefix. Mirrors gh api, which fetches one page unless
+// --paginate is set and prints a failed call's error body to stdout without a final
+// newline unless --silent is set.
 const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 
@@ -10,6 +12,8 @@ const state = {
   tag: '',
   tagSha: null,
   releases: [],
+  unrelatedReleases: 0,
+  otherTags: [],
   apiError: null,
   listError: null,
   tagDeleteRefused: false,
@@ -74,7 +78,13 @@ function runApi() {
 
   if (method === 'GET' && apiPath === `${repoPath}/releases`) {
     if (state.listError) apiFail(state.listError);
-    return print(state.releases.map(releaseJson), jq);
+    const unrelated = Array.from({ length: state.unrelatedReleases }, (_, index) => ({
+      id: 1000 + index,
+      tag_name: `v0.1.${index}`,
+      draft: false
+    }));
+    const listed = [...unrelated, ...state.releases.map(releaseJson)];
+    return print(args.includes('--paginate') ? listed : listed.slice(0, 30), jq);
   }
   if (method === 'GET' && apiPath === `${repoPath}/releases/tags/${state.tag}`) {
     const published = state.releases.find(release => !release.draft);
@@ -82,7 +92,8 @@ function runApi() {
     return print(releaseJson(published), jq);
   }
   if (method === 'GET' && apiPath === `${repoPath}/git/matching-refs/tags/${state.tag}`) {
-    const refs = state.tagSha ? [{ ref: `refs/tags/${state.tag}`, object: { sha: state.tagSha } }] : [];
+    const tags = [...(state.tagSha ? [state.tag] : []), ...state.otherTags];
+    const refs = tags.filter(tag => tag.startsWith(state.tag)).map(tag => ({ ref: `refs/tags/${tag}` }));
     return print(refs, jq);
   }
   if (method === 'GET' && apiPath === `${repoPath}/commits/refs/tags/${state.tag}`) {
