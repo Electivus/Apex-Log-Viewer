@@ -83,11 +83,13 @@ function definedVariable(name: string): string | undefined {
   return names.find(key => key.toUpperCase() === name.toUpperCase());
 }
 
+/** The schemes the docs name. The locked undici refuses every other one itself; this pins the set against a later one. */
 const PROXY_SCHEMES = new Set(['http:', 'https:', 'socks:', 'socks5:']);
 
 /**
- * A usable proxy URL has one of the schemes undici speaks, a host, and nothing after the port. undici's `ProxyAgent`
- * alone is not the rule: it accepts `socks://` without a host and then dials localhost:1080.
+ * A usable proxy URL has one of those schemes, a host, and no port 0. undici's `ProxyAgent` alone is not the rule: for
+ * SOCKS it accepts a URL with no host and dials localhost, and it turns port 0 into 1080. It ignores a SOCKS URL's path,
+ * query and fragment, and refuses a path on an http or https proxy URL by itself.
  */
 function isProxyUrl(value: string): boolean {
   let url: URL;
@@ -96,8 +98,7 @@ function isProxyUrl(value: string): boolean {
   } catch {
     return false;
   }
-  const bare = (url.pathname === '' || url.pathname === '/') && !url.search && !url.hash;
-  return PROXY_SCHEMES.has(url.protocol) && url.hostname !== '' && bare;
+  return PROXY_SCHEMES.has(url.protocol) && url.hostname !== '' && url.port !== '0';
 }
 
 function checkedRoute(source: ProxySource, url: string): ProxyRoute {
