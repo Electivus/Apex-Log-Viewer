@@ -19,8 +19,6 @@ trustPolicyExclude:
   - 'undici-types@6.21.0'
 
 overrides:
-  '@nevware21/ts-utils': '0.14.0'
-  diff: '8.0.3'
   glob: '13.0.6'
 
 supportedArchitectures:
