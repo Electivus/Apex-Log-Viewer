@@ -78,7 +78,8 @@ test('CI resolves VS Code metadata per matrix platform and runs scope dispatch u
   assert.equal(vscodeCacheStep.env?.VSCODE_TARGET, 'stable');
   assert.equal(vscodeCacheStep.env?.VSCODE_PLATFORM, '${{ matrix.vscode_platform }}');
   assert.equal(runTestsStep.shell, 'bash');
-  assert.match(String(runTestsStep.run || ''), /case "\$\{\{ github\.event\.inputs\.scope \|\| 'unit' \}\}" in/);
+  assert.equal(runTestsStep.env?.TEST_SCOPE, "${{ github.event.inputs.scope || 'unit' }}");
+  assert.match(String(runTestsStep.run || ''), /case "\$\{TEST_SCOPE\}" in/);
 });
 
 test('CI keeps the VSIX smoke job Ubuntu-only after the cross-OS build matrix succeeds', () => {

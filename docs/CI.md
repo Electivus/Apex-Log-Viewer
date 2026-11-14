@@ -45,6 +45,21 @@ Concurrency: Most workflows use concurrency groups to avoid duplicate runs per r
 - If `pnpm audit signatures` fails in CI, treat it as a provenance problem:
   investigate the package metadata or lockfile change instead of removing the
   gate.
+- `run:` scripts never expand `${{ }}`. A step passes expression values through
+  `env` and the script reads the variable, so input text cannot become shell
+  code. `scripts/repo-security.test.js` enforces it.
+- Checkouts set `persist-credentials: false`, so later steps and uploaded
+  artifacts never hold the job token in git config. `gh` reads `GH_TOKEN`, so
+  no job needs the persisted token. A job that keeps it is a reviewed exception
+  in `scripts/repo-security.test.js`. The only one is `assemble_release` in
+  Pre-release, which keeps it until its rework lands. Its `git ls-remote` works
+  anonymously too, because the repository is public.
+- Release, Pre-release and SF Plugin Release restore no cache. A tag run can
+  restore caches saved on the default branch, so a cache written by a `main`
+  run would flow into the published VSIX or npm package. setup-node's
+  automatic cache already stays off for a pnpm `packageManager`. Setting
+  `package-manager-cache: false` keeps it off if that ever changes, and
+  `scripts/repo-security.test.js` fails if a cache step is added.
 
 ## Codex Review Gate
 
@@ -150,7 +165,7 @@ Configure these repository variables:
 - `ALV_E2E_TELEMETRY_BASE_APP`
 - `ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID` (optional)
 
-When the three Azure OIDC secrets and the required telemetry target variables are present, the Ubuntu extension job exports a dedicated `testRunId`, runs the full Playwright suite, and emits test telemetry. The final telemetry job authenticates to Azure and validates that the current E2E run reached the shared Log Analytics workspace rows for the configured E2E Application Insights component. If any required setting is missing, the workflow still runs all Playwright suites and only skips the telemetry-validation layer.
+When the three Azure OIDC secrets and the required telemetry target variables are present, the Ubuntu extension job exports a dedicated `testRunId`, runs the full Playwright suite, and emits test telemetry. The final telemetry job authenticates to Azure and validates that the current E2E run reached the shared Log Analytics workspace rows for the configured E2E Application Insights component. If any required setting is missing, the workflow still runs all Playwright suites and only skips the telemetry-validation layer. Only the Ubuntu extension job and the telemetry validation job, the two that run `azure/login`, receive `id-token: write`.
 
 ## Release Flow
 

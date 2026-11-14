@@ -36,7 +36,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   classify_e2e:
@@ -73,6 +72,9 @@ jobs:
     if: ${{ needs.classify_e2e.outputs.run_e2e == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
     env:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -100,6 +102,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -239,6 +243,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -334,9 +340,10 @@ jobs:
         run: |
           echo "Scratch strategy: ${SCRATCH_STRATEGY}"
           echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
-          echo "Direct E2E OS: ${{ matrix.os.artifact_suffix }}"
+          echo "Direct E2E OS: ${DIRECT_E2E_OS}"
           node scripts/run-playwright-cli-e2e.js
         env:
+          DIRECT_E2E_OS: ${{ matrix.os.artifact_suffix }}
           ALV_DEVHUB_JWT_SMOKE: ${{ inputs.jwt_smoke_devhub_org_id != '' && '1' || '' }}
           ALV_JWT_SMOKE_DEVHUB_ORG_ID: ${{ inputs.jwt_smoke_devhub_org_id }}
           PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
@@ -369,9 +376,10 @@ jobs:
         run: |
           echo "Scratch strategy: ${SCRATCH_STRATEGY}"
           echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
-          echo "Direct E2E OS: ${{ matrix.os.artifact_suffix }}"
+          echo "Direct E2E OS: ${DIRECT_E2E_OS}"
           node scripts/run-playwright-e2e.js
         env:
+          DIRECT_E2E_OS: ${{ matrix.os.artifact_suffix }}
           VSCODE_TEST_VERSION: ${{ env.VSCODE_TEST_VERSION }}
           PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
           SF_SCRATCH_STRATEGY: ${{ env.SCRATCH_STRATEGY }}
@@ -420,6 +428,9 @@ jobs:
     if: ${{ needs.classify_e2e.outputs.run_e2e == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
     env:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -434,6 +445,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1

@@ -1000,9 +1000,6 @@ test('release workflows default to read-only token permissions', () => {
 
 test('every workflow declares its workflow-level token permissions', () => {
   // A workflow without a top-level `permissions` key inherits the repository default for every job.
-  // Write scopes belong to the job that uses them; the listed entries are the reviewed exceptions.
-  const workflowLevelWrites = { '.github/workflows/e2e-playwright.yml': ['id-token'] };
-
   for (const workflowPath of workflowFiles()) {
     const permissions = yaml.parse(read(workflowPath)).permissions;
     assert.equal(typeof permissions, 'object', `${workflowPath} should declare workflow-level permissions as a map`);
@@ -1011,9 +1008,95 @@ test('every workflow declares its workflow-level token permissions', () => {
       Object.entries(permissions)
         .filter(([, level]) => level === 'write')
         .map(([scope]) => scope),
-      workflowLevelWrites[workflowPath] || [],
+      [],
       `${workflowPath} should grant write scopes at the job level`
     );
+  }
+});
+
+test('OIDC tokens go only to jobs that exchange them', () => {
+  const oidcWithoutAzureLogin = {
+    '.github/workflows/sf-plugin-release.yml': { publish_npm: 'npm trusted publishing' }
+  };
+
+  for (const workflowPath of workflowFiles()) {
+    const jobs = Object.entries(yaml.parse(read(workflowPath)).jobs ?? {});
+    const oidcJobs = jobs
+      .filter(([, job]) => job.permissions?.['id-token'] === 'write')
+      .map(([jobName]) => jobName)
+      .sort();
+    const exchangingJobs = jobs
+      .filter(([, job]) => (job.steps ?? []).some(step => step.uses?.startsWith('azure/login@')))
+      .map(([jobName]) => jobName)
+      .concat(Object.keys(oidcWithoutAzureLogin[workflowPath] ?? {}))
+      .sort();
+    assert.deepEqual(
+      oidcJobs,
+      exchangingJobs,
+      `${workflowPath} should grant id-token: write exactly to the jobs that run azure/login or a reviewed OIDC exchange`
+    );
+  }
+});
+
+test('workflow scripts read expressions from env, never inline', () => {
+  for (const workflowPath of workflowFiles()) {
+    for (const { jobName, steps } of workflowJobs(read(workflowPath))) {
+      for (const step of steps) {
+        for (const [field, script] of [
+          ['run', step.run],
+          ['with.script', step.with?.script]
+        ]) {
+          assert.ok(
+            typeof script !== 'string' || !script.includes('${{'),
+            `${workflowPath} job ${jobName} step "${step.name ?? step.uses}" expands \${{ }} inside ${field}; pass the value through env and read the variable`
+          );
+        }
+      }
+    }
+  }
+});
+
+test('actions/checkout never persists the job token', () => {
+  const persistingJobs = {
+    '.github/workflows/prerelease.yml': { assemble_release: 'pending its rework in #1430' }
+  };
+
+  for (const workflowPath of workflowFiles()) {
+    for (const { jobName, steps } of workflowJobs(read(workflowPath))) {
+      if (persistingJobs[workflowPath]?.[jobName]) {
+        continue;
+      }
+      for (const step of steps.filter(step => step.uses?.startsWith('actions/checkout@'))) {
+        assert.equal(
+          step.with?.['persist-credentials'],
+          false,
+          `${workflowPath} job ${jobName} should check out with persist-credentials: false; a job that must push needs a reviewed exception in this test`
+        );
+      }
+    }
+  }
+});
+
+test('publishing workflows restore no dependency cache', () => {
+  for (const workflowPath of [
+    '.github/workflows/release.yml',
+    '.github/workflows/prerelease.yml',
+    '.github/workflows/sf-plugin-release.yml'
+  ]) {
+    for (const { jobName, steps } of workflowJobs(read(workflowPath))) {
+      for (const step of steps) {
+        const where = `${workflowPath} job ${jobName} step "${step.name ?? step.uses}"`;
+        const uses = step.uses ?? '';
+        assert.ok(!uses.startsWith('actions/cache'), `${where} should not restore a cache into a published build`);
+        if (uses.startsWith('actions/setup-node@')) {
+          assert.equal(step.with?.['package-manager-cache'], false, `${where} should set package-manager-cache: false`);
+          assert.equal(step.with?.cache, undefined, `${where} should not set the setup-node cache input`);
+        }
+        if (uses.startsWith('pnpm/action-setup@')) {
+          assert.doesNotMatch(String(step.with?.cache), /^true$/i, `${where} should not enable the pnpm store cache`);
+        }
+      }
+    }
   }
 });
 
