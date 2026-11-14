@@ -12,6 +12,7 @@
 
 - Build: the webview CSS no longer passes through PostCSS. Tailwind 4 already adds the vendor prefixes, so `postcss.config.cjs`, `postcss` and `autoprefixer` are gone, and the built CSS is byte-identical.
 - Development: `pnpm run watch:webview` keeps rebuilding the CSS after the first build, and starts both watchers on Windows too.
+- Development: the devcontainer installs Salesforce CLI 2.150.6, the release that CI, the proxy lab and the local test runner use, instead of 2.136.8. A repository test fails when the devcontainer and the real-org jobs pin different releases.
 - TypeScript: the configs drop `baseUrl`, Node10 module resolution and `ignoreDeprecations`, which TypeScript 7 rejects.
 - Tests: local extension coverage measures the extension, core and protocol sources again. Since the monorepo move it had reported no file.
 - E2E: the helpers import `_electron` from `@playwright/test`, so the direct `playwright` dependency and its paired Dependabot group are gone. A `playwright_shuffle` dispatch input, or `PLAYWRIGHT_SHUFFLE` locally, runs the real-org suites in a shuffled order that a seed can replay.
