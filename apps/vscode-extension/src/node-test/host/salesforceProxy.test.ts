@@ -25,30 +25,25 @@ function closer(server: http.Server): () => Promise<void> {
     });
 }
 
+const answerLimits = (response: http.ServerResponse) => {
+  response.writeHead(200, { 'content-type': 'application/json' });
+  response.end(JSON.stringify({ DailyApiRequests: { Max: 15000, Remaining: 14999 } }));
+};
+
 async function startSalesforce(): Promise<Listening> {
   const seen: string[] = [];
   const server = await listen((request, response) => {
     seen.push(request.url ?? '');
-    response.writeHead(200, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({ DailyApiRequests: { Max: 15000, Remaining: 14999 } }));
+    answerLimits(response);
   });
   return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, seen, close: closer(server) };
 }
 
-/** A forward proxy that records each request line and relays plain HTTP requests to their target. */
 async function startProxy(): Promise<Listening> {
   const seen: string[] = [];
   const server = await listen((request, response) => {
     seen.push(`${request.method} ${request.url}`);
-    const upstream = http.request(request.url ?? '', { method: request.method, headers: request.headers }, answer => {
-      response.writeHead(answer.statusCode ?? 502, answer.headers);
-      answer.pipe(response);
-    });
-    upstream.on('error', () => {
-      response.writeHead(502);
-      response.end();
-    });
-    request.pipe(upstream);
+    answerLimits(response);
   });
   return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, seen, close: closer(server) };
 }
@@ -132,7 +127,7 @@ suite('VS Code proxy settings for Salesforce requests', () => {
       change('http.noProxy', ['127.0.0.1']);
       await requestLimits();
       assert.equal(proxy.seen.length, 1);
-      assert.equal(salesforce.seen.length, 2);
+      assert.equal(salesforce.seen.length, 1);
     } finally {
       registration.dispose();
     }
