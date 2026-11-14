@@ -196,6 +196,7 @@ const shownIds = () =>
 const viewerSearch = () => screen.getByRole('searchbox', { name: 'Search entries…' });
 const levelGroup = () => screen.getByRole('group', { name: 'Filter by level' });
 const detailGroup = () => screen.getByRole('group', { name: 'Filter by long field' });
+const loadMoreLabel = () => within(screen.getByRole('status')).getByRole('button').textContent;
 const posts = <T extends CustomLogViewerFromWebviewMessage['type']>(
   posted: CustomLogViewerFromWebviewMessage[],
   type: T
@@ -395,7 +396,7 @@ describe('Custom Log viewer app', () => {
       const first = mountViewer({ hasMore: true });
       fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'nothing here' } });
       expect(
-        screen.getByText('No loaded entry matches the current filters. Use Load more entries to widen the search.')
+        screen.getByText(`No loaded entry matches the current filters. Use ${loadMoreLabel()} to widen the search.`)
       ).toBeInTheDocument();
       first.view.unmount();
 
@@ -837,10 +838,11 @@ describe('Custom Log viewer app', () => {
     it('says the entry lies past the loaded entries, then lands on it once Load more brings it in', () => {
       const late = makeEntry('a025g00000Hk1C9AAJ', 6, 'Order 9 synced');
       const { bus } = mountViewer({ hasMore: true });
+      const label = loadMoreLabel();
 
       focus(bus, late.id, 'notLoaded');
       expect(screen.getByTestId('custom-log-focus-notice')).toHaveTextContent(
-        'The entry you opened comes after the 5 loaded entries. Use Load more entries to reach it.'
+        `The entry you opened comes after the 5 loaded entries. Use ${label} to reach it.`
       );
 
       send(bus, { type: 'customLogViewerEntries', mode: 'append', entries: [late], payloadFields: [], hasMore: true });
@@ -848,6 +850,22 @@ describe('Custom Log viewer app', () => {
 
       expect(screen.queryByTestId('custom-log-focus-notice')).toBeNull();
       expect(rowOf(late.id)).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('names the Load more button the pt-BR viewer shows in both of its hints', () => {
+      const { bus } = mountViewer({ hasMore: true, locale: 'pt-BR' });
+      const label = loadMoreLabel();
+
+      focus(bus, 'a025g00000Hk1C9AAJ', 'notLoaded');
+      fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'nada aqui' } });
+
+      expect(label).toBe('Carregar mais');
+      expect(screen.getByTestId('custom-log-focus-notice')).toHaveTextContent(
+        `A entrada que você abriu vem depois das 5 entradas carregadas. Use ${label} para chegar até ela.`
+      );
+      expect(
+        screen.getByText(`Nenhuma entrada carregada corresponde aos filtros atuais. Use ${label} para ampliar a busca.`)
+      ).toBeInTheDocument();
     });
 
     it('says when the entry is no longer in the log, until dismissed', () => {
