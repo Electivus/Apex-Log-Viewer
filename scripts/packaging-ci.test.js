@@ -310,7 +310,7 @@ test('prerelease rollback fails and names the manual step when the ruleset refus
   assert.notEqual(run.status, 0, run.output);
   assert.deepEqual(run.github.releases, [], run.output);
   assert.equal(run.github.tagSha, BUILD_SHA, run.output);
-  assert.match(run.output, /::error::.*Release tags - Protect updates and deletes/);
+  assert.match(run.output, /^::error::.*Release tags - Protect updates and deletes/m);
   assert.match(run.output, /git push origin :refs\/tags\/v0\.57\.3/);
 });
 

@@ -2,7 +2,8 @@
 // .github/workflows/prerelease.yml. The GitHub side lives in the JSON file named
 // by FAKE_GITHUB_STATE: { repo, tag, tagSha, releases: [{ id, draft, target, assets }],
 // apiError, listError, tagDeleteRefused }. It follows what the real API does: a draft has
-// no tag, GET releases/tags/{tag} skips drafts, and publishing creates the tag.
+// no tag, GET releases/tags/{tag} skips drafts, and publishing creates the tag. Like
+// gh api, a failed call prints the error body to stdout without a final newline.
 const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 
@@ -14,6 +15,12 @@ const fail = message => {
   process.exit(1);
 };
 const [tool, ...args] = process.argv.slice(2);
+
+function apiFail(error) {
+  const [, message, status] = /^(.*) \(HTTP (\d+)\)$/.exec(error);
+  if (!args.includes('--silent')) process.stdout.write(JSON.stringify({ message, status }));
+  fail(`gh: ${error}`);
+}
 
 function optionValue(names) {
   const index = args.findIndex(arg => names.includes(arg));
@@ -57,15 +64,15 @@ function runApi() {
   const method = optionValue(['-X', '--method']) || 'GET';
   const jq = optionValue(['--jq', '-q']);
   const repoPath = `repos/${state.repo}`;
-  if (state.apiError) fail(`gh: ${state.apiError}`);
+  if (state.apiError) apiFail(state.apiError);
 
   if (method === 'GET' && apiPath === `${repoPath}/releases`) {
-    if (state.listError) fail(`gh: ${state.listError}`);
+    if (state.listError) apiFail(state.listError);
     return print(state.releases.map(releaseJson), jq);
   }
   if (method === 'GET' && apiPath === `${repoPath}/releases/tags/${state.tag}`) {
     const published = state.releases.find(release => !release.draft);
-    if (!published) fail('gh: Not Found (HTTP 404)');
+    if (!published) apiFail('Not Found (HTTP 404)');
     return print(releaseJson(published), jq);
   }
   if (method === 'GET' && apiPath === `${repoPath}/git/matching-refs/tags/${state.tag}`) {
@@ -73,19 +80,19 @@ function runApi() {
     return print(refs, jq);
   }
   if (method === 'GET' && apiPath === `${repoPath}/commits/refs/tags/${state.tag}`) {
-    if (!state.tagSha) fail(`gh: No commit found for SHA: ${state.tag} (HTTP 422)`);
+    if (!state.tagSha) apiFail(`No commit found for SHA: ${state.tag} (HTTP 422)`);
     return print({ sha: state.tagSha }, jq);
   }
   const releaseMatch = method === 'DELETE' && new RegExp(`^${repoPath}/releases/(\\d+)$`).exec(apiPath);
   if (releaseMatch) {
     const before = state.releases.length;
     state.releases = state.releases.filter(release => String(release.id) !== releaseMatch[1]);
-    if (state.releases.length === before) fail('gh: Not Found (HTTP 404)');
+    if (state.releases.length === before) apiFail('Not Found (HTTP 404)');
     return save();
   }
   if (method === 'DELETE' && apiPath === `${repoPath}/git/refs/tags/${state.tag}`) {
-    if (!state.tagSha) fail('gh: Reference does not exist (HTTP 422)');
-    if (state.tagDeleteRefused) fail('gh: Repository rule violations found (HTTP 422)');
+    if (!state.tagSha) apiFail('Reference does not exist (HTTP 422)');
+    if (state.tagDeleteRefused) apiFail('Repository rule violations found (HTTP 422)');
     state.tagSha = null;
     return save();
   }
