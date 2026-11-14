@@ -19,7 +19,10 @@ trustPolicyExclude:
   - 'undici-types@6.21.0'
 
 overrides:
-  glob: '13.0.6'
+  # babel-plugin-istanbul 8 asks for test-exclude 7, which asks for the deprecated glob 10 and,
+  # through it, the deprecated minimatch 9. Remove this override once test-exclude no longer asks
+  # for glob 10. #1380 tracks the move to glob 14 and minimatch 11.
+  'test-exclude@7>glob': '^13.0.6'
 
 supportedArchitectures:
   os:
