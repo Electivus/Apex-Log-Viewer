@@ -1192,6 +1192,21 @@ test('pnpm workspace owns the dependency security overrides', () => {
   }
 });
 
+function packageNameOf(selector) {
+  return selector.match(/^(@?[^@]+)/)[1];
+}
+
+test('every pnpm override matches a package in the lockfile', () => {
+  const workspace = yaml.parse(read('pnpm-workspace.yaml'));
+  const lockfile = yaml.parse(read('pnpm-lock.yaml'));
+  const lockedNames = new Set(Object.keys(lockfile.packages).map(packageNameOf));
+
+  const unmatched = Object.keys(workspace.overrides).filter(
+    selector => !selector.split('>').every(part => lockedNames.has(packageNameOf(part)))
+  );
+  assert.deepEqual(unmatched, [], 'these overrides match no package in pnpm-lock.yaml; remove them');
+});
+
 test('pnpm workspace enforces native supply-chain security policies', () => {
   const workspace = yaml.parse(read('pnpm-workspace.yaml'));
 
