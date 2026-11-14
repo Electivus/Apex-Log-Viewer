@@ -1,14 +1,20 @@
-// Stands in for `gh` and `git` when scripts/packaging-ci.test.js runs steps of
-// .github/workflows/prerelease.yml. The GitHub side lives in the JSON file named
-// by FAKE_GITHUB_STATE: { repo, tag, tagSha, releases: [{ id, draft, target, assets }],
-// apiError, listError, tagDeleteRefused }. It follows what the real API does: a draft has
-// no tag, GET releases/tags/{tag} skips drafts, and publishing creates the tag. Like
-// gh api, a failed call prints the error body to stdout without a final newline.
+// Mirrors GitHub, where a draft release has no tag until it is published and
+// GET releases/tags/{tag} skips drafts, and gh api, which prints a failed call's error
+// body to stdout without a final newline unless --silent is set.
 const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 
 const statePath = process.env.FAKE_GITHUB_STATE;
-const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+const state = {
+  repo: '',
+  tag: '',
+  tagSha: null,
+  releases: [],
+  apiError: null,
+  listError: null,
+  tagDeleteRefused: false,
+  ...JSON.parse(fs.readFileSync(statePath, 'utf8'))
+};
 const save = () => fs.writeFileSync(statePath, JSON.stringify(state));
 const fail = message => {
   process.stderr.write(`${message}\n`);
@@ -135,17 +141,6 @@ function runRelease() {
   if (command === 'delete-asset') {
     release.assets = release.assets.filter(name => name !== args[2]);
     return save();
-  }
-  if (command === 'delete' && args.includes('--yes')) {
-    state.releases = state.releases.filter(existing => existing !== release);
-    save();
-    if (args.includes('--cleanup-tag')) {
-      if (state.tagDeleteRefused)
-        fail(`failed to delete tag tags/${state.tag}: Repository rule violations found (HTTP 422)`);
-      state.tagSha = null;
-      save();
-    }
-    return undefined;
   }
   fail(`unexpected gh release call: ${args.join(' ')}`);
 }

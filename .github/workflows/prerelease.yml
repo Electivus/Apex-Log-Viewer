@@ -240,8 +240,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      # The create step makes a draft pre-release, which has no tag yet. The upload
-      # step replaces its VSIX assets, and the publish step creates the tag.
+      # The `gh release` steps create or edit the pre-release, upload its VSIX files and
+      # publish the draft, which creates the tag.
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
@@ -517,7 +517,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      # The step deletes the draft or published pre-release of a failed assembly and its tag.
+      # `gh api -X DELETE` removes every release of the tag, drafts included, and tries to
+      # delete the tag.
       contents: write
     env:
       TAG: ${{ needs.prepare.outputs.tag }}
