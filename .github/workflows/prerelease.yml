@@ -517,19 +517,25 @@ jobs:
     env:
       TAG: ${{ needs.prepare.outputs.tag }}
       GH_TOKEN: ${{ github.token }}
+      # The job has no checkout, so `gh release` takes the repository from GH_REPO.
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: Delete GitHub pre-release and tag
         shell: bash
         run: |
           set -euo pipefail
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            TAG_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/commits/refs/tags/${TAG}" --jq .sha)
-            if [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
-              echo "Pre-release $TAG belongs to commit $TAG_SHA, not $GITHUB_SHA; leaving it in place"
+          if ! LOOKUP_ERROR=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --silent 2>&1); then
+            if [[ "$LOOKUP_ERROR" == *"(HTTP 404)"* ]]; then
+              echo "Pre-release $TAG does not exist; nothing to delete"
               exit 0
             fi
-            echo "Deleting pre-release $TAG due to assembly failure"
-            gh release delete "$TAG" --yes --cleanup-tag
-          else
-            echo "Pre-release $TAG does not exist; nothing to delete"
+            echo "::error::Could not look up pre-release $TAG: $LOOKUP_ERROR"
+            exit 1
           fi
+          TAG_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/commits/refs/tags/${TAG}" --jq .sha)
+          if [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+            echo "Pre-release $TAG belongs to commit $TAG_SHA, not $GITHUB_SHA; leaving it in place"
+            exit 0
+          fi
+          echo "Deleting pre-release $TAG due to assembly failure"
+          gh release delete "$TAG" --yes --cleanup-tag
