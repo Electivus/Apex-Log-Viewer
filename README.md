@@ -238,6 +238,8 @@ See [docs/SETTINGS.md](docs/SETTINGS.md) for the full configuration reference.
   Authenticate with `sf org login web` and verify with `sf org list`; the extension reads the resulting Salesforce auth state directly.
 - **Replay Debugger does not launch**
   Install the Salesforce Extension Pack or the standalone Apex Replay Debugger extension.
+- **Behind a corporate proxy**
+  Salesforce requests use the `http.proxy` user setting (credentials go in the URL, as `http://user:password@proxy.company.com:8080`), and skip the hosts in `http.noProxy`. With `http.proxy` empty, they use the `HTTPS_PROXY` or `HTTP_PROXY` variable VS Code started with; with `http.noProxy` empty, they skip the hosts in `NO_PROXY`. With `http.proxySupport` set to `off`, only the variables apply. Each proxy must be an `http://`, `https://`, `socks://` or `socks5://` URL with a host, such as `http://proxy.company.com:8080`, and no port 0. An `http://` or `https://` proxy URL takes no path; a SOCKS URL's path, query and fragment are ignored. When the proxy for a protocol is anything else, such as `proxy.company.com:8080` or a `socks://` with no host, Salesforce requests over that protocol fail with an error that names `http.proxy` or the variable, and they are never sent direct. A valid `HTTPS_PROXY` still carries https requests when `HTTP_PROXY` is not a full URL. System proxy settings, PAC files, `http.proxyStrictSSL`, `http.proxyAuthorization` and the proxy sign-in prompt do not reach these requests. The `sf electivus` plugin uses `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`. Apex Tail and Custom Logs capture stream through a separate client that these settings do not change.
 
 ## Contributing
 
