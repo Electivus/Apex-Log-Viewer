@@ -264,6 +264,8 @@ const MALFORMED: Array<{ value: string; paths?: readonly Path[] }> = [
   { value: 'socks5://user:secret@' },
   { value: 'http://proxy.company.com:8080/corporate/' },
   { value: 'http://proxy.company.com:8080/?region=1' },
+  { value: 'socks5://proxy.company.com:0' },
+  { value: 'http://proxy.company.com:0' },
   { value: '   ', paths: ['environment'] }
 ];
 
@@ -294,6 +296,24 @@ const WELL_FORMED: WellFormed[] = [
   { name: 'http://[::1]:port', start: recording('::1'), carries: true },
   { name: 'socks://host:port', start: (t, orgPort) => startSocksProxy(t, 'socks', orgPort), carries: true },
   { name: 'socks5://host:port', start: (t, orgPort) => startSocksProxy(t, 'socks5', orgPort), carries: true },
+  {
+    name: 'socks5:// with a path, which undici ignores',
+    start: (t, orgPort) => startSocksProxy(t, 'socks5', orgPort),
+    value: url => `${url}/corporate/`,
+    carries: true
+  },
+  {
+    name: 'socks5:// with a query, which undici ignores',
+    start: (t, orgPort) => startSocksProxy(t, 'socks5', orgPort),
+    value: url => `${url}/?region=1`,
+    carries: true
+  },
+  {
+    name: 'socks:// with a fragment, which undici ignores',
+    start: (t, orgPort) => startSocksProxy(t, 'socks', orgPort),
+    value: url => `${url}/#profile`,
+    carries: true
+  },
   { name: 'https://host:port', start: startConnectionRecorder, carries: false }
 ];
 
