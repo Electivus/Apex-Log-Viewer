@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixes
+
+- `sf electivus tooling get --path` accepts a path relative to the Tooling API, such as `sobjects/ApexLog/<id>`, as its help says. It used to fail with `TypeError: Failed to parse URL` and exit 10. Paths that start with `/`, such as `/tooling/...` and `/services/data/vXX.X/...`, and absolute URLs on the org's instance work as before.
+
 ### Maintenance
 
 - Build: the webview CSS no longer passes through PostCSS. Tailwind 4 already adds the vendor prefixes, so `postcss.config.cjs`, `postcss` and `autoprefixer` are gone, and the built CSS is byte-identical.
