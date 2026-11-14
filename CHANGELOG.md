@@ -18,7 +18,7 @@
 - E2E: the helpers import `_electron` from `@playwright/test`, so the direct `playwright` dependency and its paired Dependabot group are gone. A `playwright_shuffle` dispatch input, or `PLAYWRIGHT_SHUFFLE` locally, runs the real-org suites in a shuffled order that a seed can replay.
 - Webview: `LabeledSelect` passes an empty value straight to Radix Select, which accepts it since 2.3.1, instead of mapping it to a placeholder sentinel.
 - CI: workflows no longer cache the pnpm store, which saved no install time and pushed the caches that do save time out of the repository quota.
-- CI: when the GitHub pre-release step fails, the Pre-release rollback job now finds and deletes the pre-release and its tag. It used to log "does not exist" and leave both in place. Any lookup error other than a missing release now fails the job.
+- CI: the Pre-release workflow creates the GitHub pre-release as a draft and publishes it in the last assembly step, so a failed assembly no longer leaves a tag behind. The rollback job now finds and deletes that draft. It used to log "does not exist" and leave the release in place. If the release was already published, the release tag ruleset blocks the tag delete, and the job fails with the command that a repository admin runs.
 - Dependabot: the npm open pull request limit goes from 10 to 25, so routine updates no longer stall behind open pull requests.
 - Remove the uncalled `l10n:xlf` script and `@vscode/l10n-dev`.
 
