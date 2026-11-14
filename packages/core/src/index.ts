@@ -12,7 +12,6 @@ export type {
 export { summarizeLogText } from './logTriage.js';
 export {
   configureSalesforceProxy,
-  SalesforceProxyError,
   unwrapSalesforceProxyError,
   type SalesforceProxySettings
 } from './salesforceProxy.js';

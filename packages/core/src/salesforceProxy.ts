@@ -18,7 +18,7 @@ type ProxySource = 'http.proxy' | 'https_proxy' | 'HTTPS_PROXY' | 'http_proxy' |
 
 type ProxyRoute = { kind: 'direct' } | { kind: 'proxy'; url: string } | { kind: 'unusable'; source: ProxySource };
 
-export class SalesforceProxyError extends AlvError {
+class SalesforceProxyError extends AlvError {
   public constructor(source: ProxySource) {
     super(
       'PROXY_CONFIGURATION',
