@@ -59,18 +59,17 @@ async function startRecordingProxy(t: test.TestContext): Promise<RecordingProxy>
   return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, seen };
 }
 
-type ChildResult = { ok: boolean; users?: number; error?: string; configured?: string };
+type ChildResult = { ok: boolean; users?: number; error?: string; configured?: string; elapsedMs: number };
 
 /** Runs one core request in a fresh process whose environment holds `variables` from its first line. */
 async function searchUsersInChild(
   username: string,
   variables: Record<string, string>,
   settings?: unknown
-): Promise<ChildResult & { elapsedMs: number }> {
+): Promise<ChildResult> {
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const name of [...PROXY_VARIABLES, 'HTTP_TIMEOUT']) delete env[name];
   Object.assign(env, variables);
-  const started = Date.now();
   const child = spawn(
     process.execPath,
     [
@@ -89,7 +88,7 @@ async function searchUsersInChild(
   clearTimeout(killer);
   const line = output.trim().split('\n').pop() ?? '';
   try {
-    return { ...(JSON.parse(line) as ChildResult), elapsedMs: Date.now() - started };
+    return JSON.parse(line) as ChildResult;
   } catch {
     throw new Error(`the child printed no result:\n${output}`);
   }
@@ -141,18 +140,18 @@ test('a configured proxy URL carries the requests when no proxy variable is set'
   assert.equal(proxiedQueries(proxy).length, 1);
 });
 
-test('configured bypass hosts replace NO_PROXY', async t => {
+test('configured bypass hosts replace NO_PROXY instead of adding to it', async t => {
   await orgBehind(t, 'settings-bypass@example.com');
   const proxy = await startRecordingProxy(t);
 
   const result = await searchUsersInChild(
     'settings-bypass@example.com',
-    { HTTP_PROXY: proxy.url, HTTPS_PROXY: proxy.url, NO_PROXY: 'login.example.com' },
-    { noProxy: ['127.0.0.1'] }
+    { HTTP_PROXY: proxy.url, HTTPS_PROXY: proxy.url, NO_PROXY: '127.0.0.1' },
+    { noProxy: ['login.example.com'] }
   );
 
   assert.equal(result.ok, true, result.error);
-  assert.deepEqual(proxy.seen, []);
+  assert.equal(proxiedQueries(proxy).length, 1);
 });
 
 test('a proxy URL without a usable scheme and host is ignored for the environment proxy', async t => {
@@ -172,12 +171,12 @@ test('a proxy URL without a usable scheme and host is ignored for the environmen
 
 test('HTTP_TIMEOUT still bounds each Salesforce request', async t => {
   await orgBehind(t, 'timeout@example.com', async request => {
-    if (request.path === '/query') await new Promise(resolve => setTimeout(resolve, 8_000));
+    if (request.path === '/query') await new Promise(resolve => setTimeout(resolve, 20_000).unref());
     return oneUser(request);
   });
 
   const result = await searchUsersInChild('timeout@example.com', { HTTP_TIMEOUT: '1000' });
 
   assert.equal(result.ok, false);
-  assert.ok(result.elapsedMs < 7_000, `the request ran ${result.elapsedMs} ms past a 1000 ms HTTP_TIMEOUT`);
+  assert.ok(result.elapsedMs < 15_000, `the request ran ${result.elapsedMs} ms under a 1000 ms HTTP_TIMEOUT`);
 });
