@@ -22,4 +22,4 @@ RUN npm_prefix="$(npm prefix -g)" \
   && ln -sf ../lib/node_modules/pnpm/bin/pnpx.mjs "${npm_prefix}/bin/pnpx" \
   && ln -sf ../lib/node_modules/pnpm/bin/pnpx.mjs "${npm_prefix}/bin/pnx" \
   && test "$(pnpm --version)" = "${ALV_PNPM_VERSION}"
-RUN npm install -g @salesforce/cli@2.136.8 --no-audit --no-fund
+RUN npm install -g @salesforce/cli@2.150.6 --no-audit --no-fund
