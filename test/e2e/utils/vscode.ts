@@ -278,7 +278,7 @@ export function applyVsCodeEnvOverrides<T extends NodeJS.ProcessEnv>(
   launchEnv: T,
   rawOverrides: string | undefined = process.env.ALV_E2E_VSCODE_ENV
 ): T {
-  const raw = String(rawOverrides ?? '').trim();
+  const raw = (rawOverrides ?? '').trim();
   if (!raw) {
     return launchEnv;
   }
@@ -286,7 +286,7 @@ export function applyVsCodeEnvOverrides<T extends NodeJS.ProcessEnv>(
   try {
     overrides = JSON.parse(raw);
   } catch {
-    throw new Error('ALV_E2E_VSCODE_ENV must be a JSON object of strings or nulls.');
+    overrides = undefined;
   }
   if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) {
     throw new Error('ALV_E2E_VSCODE_ENV must be a JSON object of strings or nulls.');

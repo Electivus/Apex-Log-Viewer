@@ -16,8 +16,8 @@ let installed: EnvHttpProxyAgent | undefined;
 /**
  * Routes every Salesforce request of this process, from each jsforce connection and each token refresh. jsforce
  * builds a proxy agent from HTTPS_PROXY for each request and ignores NO_PROXY; this replaces it with one agent that
- * honors both. Calling it again replaces the route, and requests already sent finish on the old one. A `proxyUrl`
- * the agent cannot use is ignored for the environment, as VS Code ignores it, and so is an unusable environment proxy.
+ * honors both. Calling it again replaces the route for the next request. A `proxyUrl` the agent cannot use is ignored
+ * for the environment, as VS Code ignores it, and so is an unusable environment proxy.
  */
 export function configureSalesforceProxy(settings: SalesforceProxySettings = {}): 'ignored-proxy-url' | undefined {
   const noProxy = settings.noProxy?.length ? settings.noProxy.join(',') : undefined;
