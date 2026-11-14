@@ -137,7 +137,7 @@
     "sharp": "^0.35.5",
     "shell-quote": "^1.11.0",
     "skills": "1.7.0",
-    "tailwindcss": "^4.3.3",
+    "tailwindcss": "^4.3.5",
     "tailwindcss-animate": "^1.0.7",
     "ts-jest": "^29.4.12",
     "typescript": "^6.0.3",
