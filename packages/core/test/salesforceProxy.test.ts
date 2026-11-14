@@ -58,35 +58,56 @@ async function startRecordingProxy(
 
 type ChildResult = { ok: boolean; users?: number; error?: string; elapsedMs: number };
 
+function childEnvironment(variables: Record<string, string>): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const name of [...PROXY_VARIABLES, 'HTTP_TIMEOUT']) delete env[name];
+  return Object.assign(env, variables);
+}
+
+async function runChild(args: string[], env: NodeJS.ProcessEnv, input?: string): Promise<string> {
+  const child = spawn(
+    process.execPath,
+    ['--import', 'tsx', path.resolve(__dirname, 'support/salesforceProxyChild.ts'), ...args],
+    {
+      cwd: path.resolve(__dirname, '..'),
+      env,
+      stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'inherit']
+    }
+  );
+  if (input !== undefined) child.stdin?.end(input);
+  let output = '';
+  child.stdout?.on('data', (chunk: Buffer) => (output += chunk.toString()));
+  const killer = setTimeout(() => child.kill('SIGKILL'), 180_000);
+  await new Promise(resolve => child.on('close', resolve));
+  clearTimeout(killer);
+  return output.trim().split('\n').pop() ?? '';
+}
+
 async function searchUsersInChild(
   username: string,
   variables: Record<string, string>,
   settings?: unknown
 ): Promise<ChildResult> {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  for (const name of [...PROXY_VARIABLES, 'HTTP_TIMEOUT']) delete env[name];
-  Object.assign(env, variables);
-  const child = spawn(
-    process.execPath,
-    [
-      '--import',
-      'tsx',
-      path.resolve(__dirname, 'support/salesforceProxyChild.ts'),
-      username,
-      ...(settings === undefined ? [] : [JSON.stringify(settings)])
-    ],
-    { cwd: path.resolve(__dirname, '..'), env, stdio: ['ignore', 'pipe', 'inherit'] }
+  const line = await runChild(
+    [username, ...(settings === undefined ? [] : [JSON.stringify(settings)])],
+    childEnvironment(variables)
   );
-  let output = '';
-  child.stdout.on('data', (chunk: Buffer) => (output += chunk.toString()));
-  const killer = setTimeout(() => child.kill('SIGKILL'), 60_000);
-  await new Promise(resolve => child.on('close', resolve));
-  clearTimeout(killer);
-  const line = output.trim().split('\n').pop() ?? '';
   try {
     return JSON.parse(line) as ChildResult;
   } catch {
-    throw new Error(`the child printed no result:\n${output}`);
+    throw new Error(`the child printed no result:\n${line}`);
+  }
+}
+
+type Search = { username: string; variables: Record<string, string>; settings: unknown };
+
+/** Runs the searches one after another in one child, reconfiguring the proxy before each, as a settings change does. */
+async function searchUsersInOneChild(searches: Search[]): Promise<ChildResult[]> {
+  const line = await runChild(['--batch'], childEnvironment({ HTTP_TIMEOUT: '5000' }), JSON.stringify(searches));
+  try {
+    return JSON.parse(line) as ChildResult[];
+  } catch {
+    throw new Error(`the child printed no results:\n${line}`);
   }
 }
 
@@ -171,17 +192,24 @@ const UNUSABLE_PROXY = 'user:secret@proxy.company.com:8080';
 type Listener = { url: string; seen: string[] };
 
 async function listenOn(t: test.TestContext, server: net.Server, host = '127.0.0.1'): Promise<number> {
+  const sockets = new Set<net.Socket>();
+  server.on('connection', socket => sockets.add(socket));
   await new Promise<void>(resolve => server.listen(0, host, resolve));
-  t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
+  t.after(
+    () =>
+      new Promise<void>(resolve => {
+        sockets.forEach(socket => socket.destroy());
+        server.close(() => resolve());
+      })
+  );
   return (server.address() as AddressInfo).port;
 }
 
 /** A SOCKS5 server that records the CONNECT target and always tunnels to the org double, whatever was asked. */
 async function startSocksProxy(t: test.TestContext, scheme: string, orgPort: number): Promise<Listener> {
   const seen: string[] = [];
-  const sockets = new Set<net.Socket>();
+  const upstreams = new Set<net.Socket>();
   const server = net.createServer(client => {
-    sockets.add(client);
     client.on('error', () => client.destroy());
     client.once('data', () => {
       client.write(Buffer.from([5, 0]));
@@ -196,22 +224,23 @@ async function startSocksProxy(t: test.TestContext, scheme: string, orgPort: num
           client.write(Buffer.from([5, 0, 0, 1, 127, 0, 0, 1, 0, 0]));
           client.pipe(upstream).pipe(client);
         });
-        sockets.add(upstream);
+        upstreams.add(upstream);
         upstream.on('error', () => client.destroy());
       });
     });
   });
-  t.after(() => sockets.forEach(socket => socket.destroy()));
+  t.after(() => upstreams.forEach(socket => socket.destroy()));
   const port = await listenOn(t, server);
   return { url: `${scheme}://127.0.0.1:${port}`, seen };
 }
 
-/** Accepts and drops connections: an https:// proxy URL reaches it with a TLS handshake it never answers. */
+/** Answers plain HTTP to the TLS handshake an https:// proxy URL starts, which fails it without a retry. */
 async function startConnectionRecorder(t: test.TestContext): Promise<Listener> {
   const seen: string[] = [];
   const server = net.createServer(socket => {
     seen.push('connection');
-    socket.destroy();
+    socket.on('error', () => socket.destroy());
+    socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
   });
   const port = await listenOn(t, server);
   return { url: `https://127.0.0.1:${port}`, seen };
@@ -270,74 +299,75 @@ const WELL_FORMED: WellFormed[] = [
 
 type Path = 'environment' | 'settings';
 
-function proxyInput(path: Path, value: string, bypass: boolean): [Record<string, string>, unknown] {
-  if (path === 'environment') return [{ HTTP_PROXY: value, ...(bypass ? { NO_PROXY: '127.0.0.1' } : {}) }, undefined];
-  return [{}, { proxyUrl: value, ...(bypass ? { noProxy: ['127.0.0.1'] } : {}) }];
+function proxyInput(username: string, path: Path, value: string, bypass: boolean): Search {
+  if (path === 'environment') {
+    return { username, variables: { HTTP_PROXY: value, ...(bypass ? { NO_PROXY: '127.0.0.1' } : {}) }, settings: {} };
+  }
+  return { username, variables: {}, settings: { proxyUrl: value, ...(bypass ? { noProxy: ['127.0.0.1'] } : {}) } };
 }
 
 const PATHS: readonly Path[] = ['environment', 'settings'];
 const sourceName = (path: Path) => (path === 'environment' ? /HTTP_PROXY/ : /http\.proxy/);
 
-test(
-  'which proxy values route and which fail closed, through the variables and the settings',
-  { concurrency: 8 },
-  async t => {
-    let user = 0;
-    const cases: Array<{ name: string; run: () => Promise<void> }> = [];
+test('which proxy values route and which fail closed, through the variables and the settings', async t => {
+  let user = 0;
+  const cases: Array<{ name: string; search: Search; check: (result: ChildResult) => void }> = [];
 
-    for (const { value, paths = PATHS } of MALFORMED) {
-      for (const path of paths) {
-        for (const bypass of [false, true]) {
-          const username = `table-${user++}@example.com`;
-          const salesforce = await orgBehind(t, username);
-          cases.push({
-            name: `${JSON.stringify(value)} in ${path}${bypass ? ' with a matching bypass' : ''} fails with the named error`,
-            run: async () => {
-              const result = await searchUsersInChild(username, ...proxyInput(path, value, bypass));
+  for (const { value, paths = PATHS } of MALFORMED) {
+    for (const path of paths) {
+      for (const bypass of [false, true]) {
+        const username = `table-${user++}@example.com`;
+        const salesforce = await orgBehind(t, username);
+        cases.push({
+          name: `${JSON.stringify(value)} in ${path}${bypass ? ' with a matching bypass' : ''} fails with the named error`,
+          search: proxyInput(username, path, value, bypass),
+          check: result => {
+            assert.equal(result.ok, false);
+            assert.match(result.error ?? '', /were not sent/);
+            assert.match(result.error ?? '', sourceName(path));
+            assert.doesNotMatch(result.error ?? '', /secret|proxy\.company/);
+            assert.equal(salesforce.received, 0);
+          }
+        });
+      }
+    }
+  }
+
+  for (const proxy of WELL_FORMED) {
+    for (const path of PATHS) {
+      for (const bypass of [false, true]) {
+        const username = `table-${user++}@example.com`;
+        const salesforce = await orgBehind(t, username);
+        const listener = await proxy.start(t, Number(new URL(salesforce.instanceUrl).port));
+        const value = proxy.value ? proxy.value(listener.url) : listener.url;
+        cases.push({
+          name: `${proxy.name} in ${path}${bypass ? ' with a matching bypass goes direct' : ' carries the request'}`,
+          search: proxyInput(username, path, value, bypass),
+          check: result => {
+            if (bypass) {
+              assert.equal(result.ok, true, result.error);
+              assert.deepEqual(listener.seen, []);
+              assert.ok(salesforce.received > 0);
+            } else if (proxy.carries) {
+              assert.equal(result.ok, true, result.error);
+              assert.ok(listener.seen.length > 0, 'the proxy saw no request');
+            } else {
               assert.equal(result.ok, false);
-              assert.match(result.error ?? '', /were not sent/);
-              assert.match(result.error ?? '', sourceName(path));
-              assert.doesNotMatch(result.error ?? '', /secret|proxy\.company/);
+              assert.doesNotMatch(result.error ?? '', /were not sent/);
+              assert.ok(listener.seen.length > 0, 'the proxy saw no connection');
               assert.equal(salesforce.received, 0);
             }
-          });
-        }
+          }
+        });
       }
     }
-
-    for (const proxy of WELL_FORMED) {
-      for (const path of PATHS) {
-        for (const bypass of [false, true]) {
-          const username = `table-${user++}@example.com`;
-          const salesforce = await orgBehind(t, username);
-          const listener = await proxy.start(t, Number(new URL(salesforce.instanceUrl).port));
-          const value = proxy.value ? proxy.value(listener.url) : listener.url;
-          cases.push({
-            name: `${proxy.name} in ${path}${bypass ? ' with a matching bypass goes direct' : ' carries the request'}`,
-            run: async () => {
-              const result = await searchUsersInChild(username, ...proxyInput(path, value, bypass));
-              if (bypass) {
-                assert.equal(result.ok, true, result.error);
-                assert.deepEqual(listener.seen, []);
-                assert.ok(salesforce.received > 0);
-              } else if (proxy.carries) {
-                assert.equal(result.ok, true, result.error);
-                assert.ok(listener.seen.length > 0, 'the proxy saw no request');
-              } else {
-                assert.equal(result.ok, false);
-                assert.doesNotMatch(result.error ?? '', /were not sent/);
-                assert.ok(listener.seen.length > 0, 'the proxy saw no connection');
-                assert.equal(salesforce.received, 0);
-              }
-            }
-          });
-        }
-      }
-    }
-
-    await Promise.all(cases.map(({ name, run }) => t.test(name, run)));
   }
-);
+
+  const results = await searchUsersInOneChild(cases.map(({ search }) => search));
+  for (const [index, { name, check }] of cases.entries()) {
+    await t.test(name, () => check(results[index] as ChildResult));
+  }
+});
 
 test('a valid HTTP_PROXY carries http requests when HTTPS_PROXY is unusable', async t => {
   await orgBehind(t, 'bad-https-variable@example.com');
