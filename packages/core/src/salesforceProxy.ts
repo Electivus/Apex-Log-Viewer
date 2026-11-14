@@ -10,14 +10,12 @@ export type SalesforceProxySettings = {
   noProxy?: readonly string[];
 };
 
-let installed: EnvHttpProxyAgent | undefined;
-
 /**
  * Routes every jsforce request of this process, connection calls and token refreshes alike, through one agent that
  * honors NO_PROXY. jsforce otherwise builds a proxy agent per request from the proxy variables and ignores NO_PROXY.
  * CometD streaming runs on Faye and is not covered. Calling it again replaces the route for the next request. A
  * `proxyUrl` the agent rejects falls back to the environment and returns `'ignored-proxy-url'`; a rejected environment
- * proxy falls back to a direct connection.
+ * proxy falls back to a direct connection, as in VS Code. jsforce itself would reject it in an unhandled promise.
  */
 export function configureSalesforceProxy(settings: SalesforceProxySettings = {}): 'ignored-proxy-url' | undefined {
   const noProxy = settings.noProxy?.length ? settings.noProxy.join(',') : undefined;
@@ -33,9 +31,6 @@ export function configureSalesforceProxy(settings: SalesforceProxySettings = {})
     followRedirect: true
   });
   setDispatcher(agent);
-  const previous = installed;
-  installed = agent;
-  void previous?.close().catch(() => undefined);
 
   return proxyUrl && !fromSettings ? 'ignored-proxy-url' : undefined;
 }

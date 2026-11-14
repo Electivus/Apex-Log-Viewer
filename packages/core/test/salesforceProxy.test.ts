@@ -160,6 +160,18 @@ test('a proxy URL without a usable scheme and host is ignored for the environmen
   assert.equal(proxiedQueries(proxy).length, 1);
 });
 
+test('an environment proxy without a usable scheme and host is skipped for a direct connection', async t => {
+  const salesforce = await orgBehind(t, 'bad-variable@example.com');
+
+  const result = await searchUsersInChild('bad-variable@example.com', {
+    HTTP_PROXY: 'proxy.company.com:8080',
+    HTTPS_PROXY: 'proxy.company.com:8080'
+  });
+
+  assert.equal(result.ok, true, result.error);
+  assert.equal(salesforce.requests.length, 1);
+});
+
 test('HTTP_TIMEOUT still bounds each Salesforce request', async t => {
   await orgBehind(t, 'timeout@example.com', async request => {
     if (request.path === '/query') await new Promise(resolve => setTimeout(resolve, 20_000).unref());
