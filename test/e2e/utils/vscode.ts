@@ -269,11 +269,6 @@ export function resolveVsCodeCompositingLaunchArgs(targetPlatform: NodeJS.Platfo
   return targetPlatform === 'linux' ? ['--use-gl=angle', '--use-angle=swiftshader'] : [];
 }
 
-/**
- * Applies `ALV_E2E_VSCODE_ENV`, a JSON object of variables for the VS Code process alone, to its launch environment.
- * A `null` value removes the variable. The harness keeps its own environment, so a run can start VS Code without the
- * proxy variables the harness itself needs to reach the org.
- */
 export function applyVsCodeEnvOverrides<T extends NodeJS.ProcessEnv>(
   launchEnv: T,
   rawOverrides: string | undefined = process.env.ALV_E2E_VSCODE_ENV
