@@ -521,7 +521,7 @@ export function resolveOrgRequestPath(ctx: Pick<ConnectionContext, 'instanceUrl'
     throw new Error('Tooling request path is required.');
   }
   if (!URL.canParse(trimmed)) {
-    return trimmed;
+    return trimmed.startsWith('/') ? trimmed : `/tooling/${trimmed}`;
   }
   if (!ctx.instanceUrl || !URL.canParse(ctx.instanceUrl)) {
     throw new Error('Cannot validate absolute tooling request URL because the org instance URL is unavailable.');

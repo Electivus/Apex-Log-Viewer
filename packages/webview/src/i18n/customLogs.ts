@@ -167,7 +167,6 @@ export type CustomLogsMessages = {
     title: string;
     loading: string;
     refresh: string;
-    loadMore: string;
     entriesCount: string;
     entriesCountOne: string;
     errorsCount: string;
@@ -418,7 +417,6 @@ export const customLogsEn: CustomLogsMessages = {
     title: 'Custom log',
     loading: 'Loading entries…',
     refresh: 'Refresh',
-    loadMore: 'Load more entries',
     entriesCount: '{count} entries',
     entriesCountOne: '1 entry',
     errorsCount: '{count} errors',
@@ -450,9 +448,9 @@ export const customLogsEn: CustomLogsMessages = {
     },
     noEntries: 'This log has no entries.',
     noMatch: 'No loaded entry matches the current filters.',
-    noMatchMore: 'Use Load more entries to widen the search.',
+    noMatchMore: 'Use Load more to widen the search.',
     focus: {
-      notLoaded: 'The entry you opened comes after the {count} loaded entries. Use Load more entries to reach it.',
+      notLoaded: 'The entry you opened comes after the {count} loaded entries. Use Load more to reach it.',
       notFound: 'The entry you opened is no longer in this log.',
       dismiss: 'Dismiss'
     },
@@ -670,7 +668,6 @@ export const customLogsPtBR: CustomLogsMessages = {
     title: 'Log personalizado',
     loading: 'Carregando entradas…',
     refresh: 'Atualizar',
-    loadMore: 'Carregar mais entradas',
     entriesCount: '{count} entradas',
     entriesCountOne: '1 entrada',
     errorsCount: '{count} erros',
@@ -703,10 +700,10 @@ export const customLogsPtBR: CustomLogsMessages = {
     },
     noEntries: 'Este log não tem entradas.',
     noMatch: 'Nenhuma entrada carregada corresponde aos filtros atuais.',
-    noMatchMore: 'Use Carregar mais entradas para ampliar a busca.',
+    noMatchMore: 'Use Carregar mais para ampliar a busca.',
     focus: {
       notLoaded:
-        'A entrada que você abriu vem depois das {count} entradas carregadas. Use Carregar mais entradas para chegar até ela.',
+        'A entrada que você abriu vem depois das {count} entradas carregadas. Use Carregar mais para chegar até ela.',
       notFound: 'A entrada que você abriu não está mais neste log.',
       dismiss: 'Dispensar'
     },

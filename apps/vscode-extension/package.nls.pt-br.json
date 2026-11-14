@@ -60,7 +60,7 @@
   "logsCleanup.partial": "Excluídos {0} log(s), mas {1} falharam.",
   "logsCleanup.done": "Excluídos {0} log(s) Apex.",
   "logsCleanup.failed": "Falha ao limpar logs: {0}",
-  "logsCleanup.hintStorageFull": "Os logs da org parecem estar cheios. Use “Limpar logs” → “Todos da org” para liberar espaço.",
+  "logsCleanup.hintStorageFull": "O armazenamento de logs da org parece cheio. Use “Limpar logs” → “Deletar todos os logs da org” para liberar espaço.",
   "logsCleanup.actionClearAll": "Limpar logs da org…",
   "diagnostics.copied": "Electivus Apex Logs: pacote de diagnóstico copiado para a área de transferência.",
   "diagnostics.copyFailed": "Electivus Apex Logs: falha ao copiar diagnóstico: {0}",

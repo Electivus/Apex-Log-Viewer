@@ -397,7 +397,7 @@ export class DebugFlagsPanel {
       const hint = this.isLogStorageFullErrorMessage(msg)
         ? localize(
             'logsCleanup.hintStorageFull',
-            'Org log storage appears to be full. Use “Clear logs” → “All org logs” to free up space.'
+            'Org log storage appears to be full. Use “Clear logs” → “Delete all org logs” to free up space.'
           )
         : '';
       const fullMessage = hint ? `${base}\n\n${hint}` : base;
@@ -565,7 +565,7 @@ export class DebugFlagsPanel {
       const hint = this.isLogStorageFullErrorMessage(msg)
         ? localize(
             'logsCleanup.hintStorageFull',
-            'Org log storage appears to be full. Use “Clear logs” → “All org logs” to free up space.'
+            'Org log storage appears to be full. Use “Clear logs” → “Delete all org logs” to free up space.'
           )
         : '';
       const fullMessage = hint ? `${base}\n\n${hint}` : base;
