@@ -546,7 +546,7 @@ jobs:
           done
           if [ -n "$TAG_REF" ]; then
             echo "Deleting tag $TAG"
-            if ! gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}"; then
+            if ! gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" --silent; then
               echo "::error::Could not delete tag $TAG, which the published pre-release created. The ruleset \"Release tags - Protect updates and deletes\" blocks this job from deleting release tags. A repository admin must run: git push origin :refs/tags/${TAG}"
               exit 1
             fi
