@@ -30,7 +30,7 @@
     "watch": "tsc -p tsconfig.json --watch"
   },
   "dependencies": {
-    "@salesforce/core": "^9.2.0"
+    "@salesforce/core": "^9.4.5"
   },
   "devDependencies": {
     "ajv": "^8.20.0",
