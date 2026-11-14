@@ -62,11 +62,13 @@ const VARIABLES: Record<Protocol, readonly ProxySource[]> = {
 
 /**
  * Mirrors undici's lookup: the first defined variable wins, lowercase first, so an empty one still hides its uppercase
- * twin; https falls back to the http proxy.
+ * twin; https falls back to the http proxy. The name comes from `Object.keys`, which keeps the spelling the user set:
+ * Windows looks variables up in any case, so `process.env.http_proxy` also reads `HTTP_PROXY` there.
  */
 function routeFor(protocol: Protocol, proxyUrl: string | undefined): ProxyRoute {
   if (proxyUrl) return checkedRoute('http.proxy', proxyUrl);
-  const source = VARIABLES[protocol].find(name => process.env[name] !== undefined);
+  const defined = Object.keys(process.env);
+  const source = VARIABLES[protocol].find(name => defined.includes(name));
   const url = source && process.env[source];
   if (source && url) return checkedRoute(source, url);
   return protocol === 'https:' ? routeFor('http:', undefined) : { kind: 'direct' };
