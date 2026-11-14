@@ -20,6 +20,7 @@
 - CI: workflows no longer cache the pnpm store, which saved no install time and pushed the caches that do save time out of the repository quota.
 - Dependabot: the npm open pull request limit goes from 10 to 25, so routine updates no longer stall behind open pull requests.
 - Remove the uncalled `l10n:xlf` script and `@vscode/l10n-dev`.
+- CI: workflow hardening from a zizmor audit. Only the two E2E jobs that log in to Azure can request an OIDC token, checkouts no longer persist the job token (one Pre-release job aside), `run` scripts read expressions from `env`, and the release workflows opt out of setup-node caching. `scripts/repo-security.test.js` enforces each rule.
 
 ## [0.56.1](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.56.0...v0.56.1) (2026-11-12)
 
