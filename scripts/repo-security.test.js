@@ -1056,6 +1056,27 @@ test('workflow scripts read expressions from env, never inline', () => {
   }
 });
 
+test('actions/checkout never persists the job token', () => {
+  const persistingJobs = {
+    '.github/workflows/prerelease.yml': { assemble_release: 'pending its rework in #1430' }
+  };
+
+  for (const workflowPath of workflowFiles()) {
+    for (const { jobName, steps } of workflowJobs(read(workflowPath))) {
+      if (persistingJobs[workflowPath]?.[jobName]) {
+        continue;
+      }
+      for (const step of steps.filter(step => step.uses?.startsWith('actions/checkout@'))) {
+        assert.equal(
+          step.with?.['persist-credentials'],
+          false,
+          `${workflowPath} job ${jobName} should check out with persist-credentials: false; a job that must push needs a reviewed exception in this test`
+        );
+      }
+    }
+  }
+});
+
 test('Marketplace OIDC access stays confined to protected publishing and verification jobs', () => {
   for (const [workflowPath, oidcJobs] of [
     ['.github/workflows/release.yml', ['publish_marketplace']],

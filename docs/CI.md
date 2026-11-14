@@ -48,6 +48,12 @@ Concurrency: Most workflows use concurrency groups to avoid duplicate runs per r
 - `run:` scripts never expand `${{ }}`. A step passes expression values through
   `env` and the script reads the variable, so input text cannot become shell
   code. `scripts/repo-security.test.js` enforces it.
+- Checkouts set `persist-credentials: false`, so later steps and uploaded
+  artifacts never hold the job token in git config. `gh` reads `GH_TOKEN`, so
+  no job needs the persisted token. A job that keeps it is a reviewed exception
+  in `scripts/repo-security.test.js`. The only one is `assemble_release` in
+  Pre-release, which keeps it until its rework lands. Its `git ls-remote` works
+  anonymously too, because the repository is public.
 
 ## Codex Review Gate
 
