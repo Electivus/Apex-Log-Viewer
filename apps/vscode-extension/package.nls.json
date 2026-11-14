@@ -60,7 +60,7 @@
   "logsCleanup.partial": "Deleted {0} log(s), but {1} failed.",
   "logsCleanup.done": "Deleted {0} Apex log(s).",
   "logsCleanup.failed": "Failed to clear logs: {0}",
-  "logsCleanup.hintStorageFull": "Org log storage appears to be full. Use “Clear logs” → “All org logs” to free up space.",
+  "logsCleanup.hintStorageFull": "Org log storage appears to be full. Use “Clear logs” → “Delete all org logs” to free up space.",
   "logsCleanup.actionClearAll": "Clear org logs…",
   "diagnostics.copied": "Electivus Apex Logs: diagnostics package copied to clipboard.",
   "diagnostics.copyFailed": "Electivus Apex Logs: failed to copy diagnostics: {0}",

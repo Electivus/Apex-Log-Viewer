@@ -6,6 +6,7 @@
 
 - `sf electivus tooling get --path` accepts a path relative to the Tooling API, such as `sobjects/ApexLog/<id>`, as its help says. It used to fail with `TypeError: Failed to parse URL` and exit 10. Paths that start with `/`, such as `/tooling/...` and `/services/data/vXX.X/...`, and absolute URLs on the org's instance work as before.
 - Custom Log Viewer: the notice for an opened entry past the loaded ones, and the hint for a search that matches no loaded entry, name the footer's **Load more** button (**Carregar mais** in Portuguese) instead of **Load more entries**.
+- Debug Flags: when **Apply** or **Remove** fails because the org's log storage is full, the hint names the menu items the panel shows, **Clear logs** → **Delete all org logs**, instead of **All org logs**.
 
 ### Maintenance
 

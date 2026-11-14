@@ -21,7 +21,6 @@ export type Messages = {
     openTitle: string;
     deleteAll: string;
     deleteMine: string;
-    hintStorageFull: string;
   };
   open?: string;
   orgLabel: string;
@@ -166,8 +165,7 @@ const en: Messages = {
     open: 'Clear logs',
     openTitle: 'Delete Apex logs from the selected org',
     deleteAll: 'Delete all org logs',
-    deleteMine: 'Delete my logs',
-    hintStorageFull: 'Org log storage appears full. Use Clear logs → Delete all org logs.'
+    deleteMine: 'Delete my logs'
   },
   open: 'Open',
   orgLabel: 'Org',
@@ -314,8 +312,7 @@ const ptBR: Messages = {
     open: 'Limpar logs',
     openTitle: 'Deletar logs Apex da org selecionada',
     deleteAll: 'Deletar todos os logs da org',
-    deleteMine: 'Deletar meus logs',
-    hintStorageFull: 'O armazenamento de logs da org parece cheio. Use Limpar logs → Deletar todos os logs da org.'
+    deleteMine: 'Deletar meus logs'
   },
   open: 'Abrir',
   orgLabel: 'Org',

@@ -83,7 +83,7 @@
   "Open the Apex Logs panel to browse, search and debug Apex logs.": "Abra o painel Apex Logs para navegar, buscar e depurar logs do Apex.",
   "Open the Apex Logs panel to browse, search and debug the Apex logs of {0}.": "Abra o painel Apex Logs para navegar, buscar e depurar os logs do Apex de {0}.",
   "Opening Apex Log…": "Abrindo log Apex…",
-  "Org log storage appears to be full. Use “Clear logs” → “All org logs” to free up space.": "O armazenamento de logs da org parece cheio. Use “Limpar logs” → “Deletar todos os logs da org” para liberar espaço.",
+  "Org log storage appears to be full. Use “Clear logs” → “Delete all org logs” to free up space.": "O armazenamento de logs da org parece cheio. Use “Limpar logs” → “Deletar todos os logs da org” para liberar espaço.",
   "Processed {0}/{1} logs…": "{0}/{1} logs processados…",
   "Reconnecting": "Reconectando",
   "Reconnecting to {0} (attempt {1}).": "Reconectando a {0} (tentativa {1}).",
