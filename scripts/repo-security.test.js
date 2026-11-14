@@ -1077,6 +1077,29 @@ test('actions/checkout never persists the job token', () => {
   }
 });
 
+test('publishing workflows restore no dependency cache', () => {
+  for (const workflowPath of [
+    '.github/workflows/release.yml',
+    '.github/workflows/prerelease.yml',
+    '.github/workflows/sf-plugin-release.yml'
+  ]) {
+    for (const { jobName, steps } of workflowJobs(read(workflowPath))) {
+      for (const step of steps) {
+        const where = `${workflowPath} job ${jobName} step "${step.name ?? step.uses}"`;
+        const uses = step.uses ?? '';
+        assert.ok(!uses.startsWith('actions/cache'), `${where} should not restore a cache into a published build`);
+        if (uses.startsWith('actions/setup-node@')) {
+          assert.equal(step.with?.['package-manager-cache'], false, `${where} should set package-manager-cache: false`);
+          assert.equal(step.with?.cache, undefined, `${where} should not set the setup-node cache input`);
+        }
+        if (uses.startsWith('pnpm/action-setup@')) {
+          assert.doesNotMatch(String(step.with?.cache), /^true$/i, `${where} should not enable the pnpm store cache`);
+        }
+      }
+    }
+  }
+});
+
 test('Marketplace OIDC access stays confined to protected publishing and verification jobs', () => {
   for (const [workflowPath, oidcJobs] of [
     ['.github/workflows/release.yml', ['publish_marketplace']],

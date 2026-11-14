@@ -34,6 +34,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
 
       - name: Enforce dependency source policy
         run: node scripts/check-dependency-sources.mjs
@@ -93,6 +94,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
 
       - name: Enforce dependency source policy
         run: node scripts/check-dependency-sources.mjs
@@ -201,6 +203,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
 
       - name: Verify tag matches extension package version
         shell: bash
@@ -366,6 +369,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
 
       - name: Enforce dependency source policy
         run: node scripts/check-dependency-sources.mjs
@@ -443,6 +447,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
 
       - name: Enforce dependency source policy
         run: node scripts/check-dependency-sources.mjs

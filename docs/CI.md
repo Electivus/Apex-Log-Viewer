@@ -54,6 +54,12 @@ Concurrency: Most workflows use concurrency groups to avoid duplicate runs per r
   in `scripts/repo-security.test.js`. The only one is `assemble_release` in
   Pre-release, which keeps it until its rework lands. Its `git ls-remote` works
   anonymously too, because the repository is public.
+- Release, Pre-release and SF Plugin Release restore no cache. A tag run can
+  restore caches saved on the default branch, so a cache written by a `main`
+  run would flow into the published VSIX or npm package. setup-node's
+  automatic cache already stays off for a pnpm `packageManager`. Setting
+  `package-manager-cache: false` keeps it off if that ever changes, and
+  `scripts/repo-security.test.js` fails if a cache step is added.
 
 ## Codex Review Gate
 
