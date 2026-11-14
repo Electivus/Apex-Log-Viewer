@@ -7,20 +7,28 @@
 import { customLogError } from './errors.js';
 
 const DURATION = /^([1-9]\d{0,8})([mhd])$/;
-const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2}))?$/;
+const ISO_INSTANT = /^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2}))?$/;
 const UNIT_MS = { m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
+
+/** `Date.parse` reads a day past the end of its month, such as `2026-02-30`, as a day of the next month. */
+function dayExists([, year, month, day]: RegExpExecArray): boolean {
+  const date = new Date(0);
+  date.setUTCFullYear(Number(year), Number(month) - 1, Number(day));
+  return date.getUTCMonth() === Number(month) - 1;
+}
 
 /**
  * `30m`, `24h`, `7d` (a positive integer plus m, h or d, counted back from `now`) or an ISO-8601
  * instant with an explicit offset (a bare date means midnight UTC). Returns an ISO instant.
- * Throws `INVALID_ARGUMENT` for anything else.
+ * Throws `INVALID_ARGUMENT` for anything else, including a day its month does not have.
  */
 export function parseSinceExpression(input: string, now: Date): string {
   const text = input.trim();
   const duration = DURATION.exec(text);
+  const iso = ISO_INSTANT.exec(text);
   const instant = duration
     ? now.getTime() - Number(duration[1]) * UNIT_MS[duration[2] as keyof typeof UNIT_MS]
-    : ISO_INSTANT.test(text)
+    : iso && dayExists(iso)
       ? Date.parse(text)
       : Number.NaN;
   if (!Number.isFinite(instant) || Number.isNaN(new Date(instant).getTime())) {

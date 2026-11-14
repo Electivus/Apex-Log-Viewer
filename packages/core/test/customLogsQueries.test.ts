@@ -1060,7 +1060,20 @@ test('since and until take durations counted back from now, or an ISO instant', 
   assert.equal(parseSinceExpression('7d', now), '2026-10-23T12:00:00.000Z');
   assert.equal(parseSinceExpression('2026-10-29T08:30:00-03:00', now), '2026-10-29T11:30:00.000Z');
   assert.equal(parseSinceExpression('2026-10-29', now), '2026-10-29T00:00:00.000Z');
-  for (const bad of ['', '0h', '-5m', '1.5h', '24', '2026-10-29T08:30:00', 'yesterday', '99999999999d']) {
+  assert.equal(parseSinceExpression('2024-02-29T23:00:00+01:00', now), '2024-02-29T22:00:00.000Z');
+  for (const bad of [
+    '',
+    '0h',
+    '-5m',
+    '1.5h',
+    '24',
+    '2026-10-29T08:30:00',
+    'yesterday',
+    '99999999999d',
+    '0000-04-31',
+    '2026-02-29',
+    '2026-02-30T10:00:00Z'
+  ]) {
     assert.throws(
       () => parseSinceExpression(bad, now),
       (error: unknown) => error instanceof AlvError && error.code === 'INVALID_ARGUMENT',
