@@ -188,7 +188,9 @@ async function startSocksProxy(t: test.TestContext, scheme: string, orgPort: num
       client.once('data', request => {
         const port = request.readUInt16BE(request.length - 2);
         const host =
-          request[3] === 1 ? [...request.subarray(4, 8)].join('.') : request.subarray(5, 5 + request[4]).toString();
+          request[3] === 1
+            ? [...request.subarray(4, 8)].join('.')
+            : request.subarray(5, 5 + request.readUInt8(4)).toString();
         seen.push(`CONNECT ${host}:${port}`);
         const upstream = net.connect(orgPort, '127.0.0.1', () => {
           client.write(Buffer.from([5, 0, 0, 1, 127, 0, 0, 1, 0, 0]));

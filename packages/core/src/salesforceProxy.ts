@@ -83,7 +83,25 @@ function definedVariable(name: string): string | undefined {
   return names.find(key => key.toUpperCase() === name.toUpperCase());
 }
 
+const PROXY_SCHEMES = new Set(['http:', 'https:', 'socks:', 'socks5:']);
+
+/**
+ * A usable proxy URL has one of the schemes undici speaks, a host, and nothing after the port. undici's `ProxyAgent`
+ * alone is not the rule: it accepts `socks://` without a host and then dials localhost:1080.
+ */
+function isProxyUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  const bare = (url.pathname === '' || url.pathname === '/') && !url.search && !url.hash;
+  return PROXY_SCHEMES.has(url.protocol) && url.hostname !== '' && bare;
+}
+
 function checkedRoute(source: ProxySource, url: string): ProxyRoute {
+  if (!isProxyUrl(url)) return { kind: 'unusable', source };
   let probe: ProxyAgent;
   try {
     probe = new ProxyAgent(url);
