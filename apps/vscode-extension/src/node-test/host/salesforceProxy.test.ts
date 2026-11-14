@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { Connection } from '@jsforce/jsforce-node';
 import { configureSalesforceProxy } from '@alv/core';
 import proxyquire from 'proxyquire';
+import { getErrorMessage } from '../../host/utils/error';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 
@@ -144,13 +145,34 @@ suite('VS Code proxy settings for Salesforce requests', () => {
     }
   });
 
-  test('warns about an http.proxy it cannot use without repeating its credentials', async () => {
-    const { registration, warnings } = loadProxyAdapter({ 'http.proxy': 'user:secret@proxy.corp:8080' });
+  test('prefers http.proxy over HTTPS_PROXY and HTTP_PROXY', async () => {
+    const environment = await startProxy();
+    process.env.HTTPS_PROXY = environment.url;
+    process.env.HTTP_PROXY = environment.url;
+    const { registration } = loadProxyAdapter({ 'http.proxy': proxy.url });
     try {
       await requestLimits();
-      assert.equal(warnings.length, 1);
-      assert.doesNotMatch(warnings[0] ?? '', /secret|proxy\.corp/);
-      assert.equal(salesforce.seen.length, 1);
+      assert.deepEqual(proxy.seen, [`GET ${salesforce.url}/services/data/v64.0/limits`]);
+      assert.deepEqual(environment.seen, []);
+    } finally {
+      registration.dispose();
+      delete process.env.HTTPS_PROXY;
+      delete process.env.HTTP_PROXY;
+      await environment.close();
+    }
+  });
+
+  test('fails the requests on an http.proxy it cannot use, naming the setting without its credentials', async () => {
+    const { registration } = loadProxyAdapter({ 'http.proxy': 'user:secret@proxy.corp:8080' });
+    try {
+      const failure = await requestLimits().then(
+        () => undefined,
+        (error: unknown) => error
+      );
+      const message = getErrorMessage(failure);
+      assert.match(message, /http\.proxy/);
+      assert.doesNotMatch(message, /secret|proxy\.corp/);
+      assert.equal(salesforce.seen.length, 0);
     } finally {
       registration.dispose();
     }

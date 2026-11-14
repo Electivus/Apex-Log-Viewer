@@ -145,31 +145,81 @@ test('configured bypass hosts replace NO_PROXY instead of adding to it', async t
   assert.equal(proxiedQueries(proxy).length, 1);
 });
 
-test('a proxy URL without a usable scheme and host is ignored for the environment proxy', async t => {
-  await orgBehind(t, 'bad-setting@example.com');
+test('a configured proxy URL wins over the proxy variables', async t => {
+  await orgBehind(t, 'settings-precedence@example.com');
+  const configured = await startRecordingProxy(t);
+  const environment = await startRecordingProxy(t);
+
+  const result = await searchUsersInChild(
+    'settings-precedence@example.com',
+    { HTTP_PROXY: environment.url, HTTPS_PROXY: environment.url },
+    { proxyUrl: configured.url }
+  );
+
+  assert.equal(result.ok, true, result.error);
+  assert.equal(proxiedQueries(configured).length, 1);
+  assert.deepEqual(environment.seen, []);
+});
+
+const UNUSABLE_PROXY = 'user:secret@proxy.company.com:8080';
+
+test('a configured proxy URL it cannot use fails the requests, names http.proxy and hides the URL', async t => {
+  const salesforce = await orgBehind(t, 'bad-setting@example.com');
   const proxy = await startRecordingProxy(t);
 
   const result = await searchUsersInChild(
     'bad-setting@example.com',
     { HTTP_PROXY: proxy.url, HTTPS_PROXY: proxy.url },
-    { proxyUrl: 'proxy.company.com:8080' }
+    { proxyUrl: UNUSABLE_PROXY }
   );
 
-  assert.equal(result.configured, 'ignored-proxy-url');
-  assert.equal(result.ok, true, result.error);
-  assert.equal(proxiedQueries(proxy).length, 1);
+  assert.equal(result.ok, false);
+  assert.match(result.error ?? '', /http\.proxy/);
+  assert.doesNotMatch(result.error ?? '', /secret|proxy\.company/);
+  assert.deepEqual(proxy.seen, []);
+  assert.equal(salesforce.received, 0);
 });
 
-test('an environment proxy without a usable scheme and host is skipped for a direct connection', async t => {
+test('a proxy variable it cannot use fails the requests of its protocol, names it and hides the URL', async t => {
   const salesforce = await orgBehind(t, 'bad-variable@example.com');
 
-  const result = await searchUsersInChild('bad-variable@example.com', {
-    HTTP_PROXY: 'proxy.company.com:8080',
+  const result = await searchUsersInChild('bad-variable@example.com', { HTTP_PROXY: UNUSABLE_PROXY });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error ?? '', /HTTP_PROXY/);
+  assert.doesNotMatch(result.error ?? '', /secret|proxy\.company/);
+  assert.equal(salesforce.received, 0);
+});
+
+test('a valid HTTP_PROXY carries http requests when HTTPS_PROXY is unusable', async t => {
+  await orgBehind(t, 'bad-https-variable@example.com');
+  const proxy = await startRecordingProxy(t);
+
+  const result = await searchUsersInChild('bad-https-variable@example.com', {
+    HTTP_PROXY: proxy.url,
     HTTPS_PROXY: 'proxy.company.com:8080'
   });
 
   assert.equal(result.ok, true, result.error);
-  assert.equal(salesforce.requests.length, 1);
+  assert.equal(proxiedQueries(proxy).length, 1);
+});
+
+test('a valid HTTPS_PROXY carries https requests when HTTP_PROXY is unusable', async t => {
+  const salesforce = await startSalesforceDouble(t, oneUser);
+  const httpsInstance = salesforce.instanceUrl.replace(/^http:/, 'https:');
+  await saveOrgAuth('bad-http-variable@example.com', httpsInstance);
+  const proxy = await startRecordingProxy(t);
+
+  await searchUsersInChild('bad-http-variable@example.com', {
+    HTTP_PROXY: 'proxy.company.com:8080',
+    HTTPS_PROXY: proxy.url
+  });
+
+  assert.ok(
+    proxy.seen.includes(`CONNECT ${new URL(httpsInstance).host}`),
+    `the HTTPS proxy saw ${JSON.stringify(proxy.seen)}`
+  );
+  assert.equal(salesforce.received, 0);
 });
 
 test('HTTP_TIMEOUT still bounds each Salesforce request', async t => {
