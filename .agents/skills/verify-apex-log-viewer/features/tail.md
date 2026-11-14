@@ -4,13 +4,14 @@ Tail streams new Apex logs from the selected org while it runs. The user picks a
 
 ## Sub-features
 
-- `tail-start-stop` toggles streaming with one button labelled `Start` / `Stop`. `Stop` appears once Salesforce acknowledges the subscription, and a log written since Start is listed and shown then. While idle an empty list says `Press Start to tail logs.`, and while running `Waiting for logs…`. Start is disabled only while the view loads.
+- `tail-start-stop` toggles streaming with one button labelled `Start` / `Stop`. `Stop` appears once Salesforce acknowledges the subscription, and a log written since Start is listed and shown then. While idle an empty list says `Press Start to tail logs.`, and while running `Waiting for logs…`. Start is disabled only while the view loads. Without a level, Start says `Select a debug level`. A subscription Salesforce does not acknowledge fails with `Salesforce did not acknowledge the log subscription within 30 seconds.` (or `Subscribe failed: …`), and a failed Start reveals the Output panel. `Stop` disconnects and keeps the rows; the trace flag stays at the chosen level until it expires.
 - `tail-trace-flag`: Start moves the authenticated user's newest `DEVELOPER_LOG` trace flag to the chosen level, starting now and expiring in 30 minutes, and creates one when none exists. It never touches `USER_DEBUG` flags. Before that it marks the 20 newest logs as already seen, and after it subscribes to the Streaming API topic `/systemTopic/Logging`. Tail stops itself after 30 minutes with `Tail stopped after 30 minutes.`.
-- `tail-debug-level` sets that level through the `Debug level` select (`tail-debug-level`, uppercase through CSS). It opens on the level of the user's active `DEVELOPER_LOG` flag, otherwise on the first level by name. Webview state remembers one level per org username, set by a pick or by Start. A remembered level that the org no longer has falls back the same way, and a pick on one org does not change the level on another.
+- `tail-debug-level` sets that level through the `Debug level` select (`tail-debug-level`, uppercase through CSS). It opens on the level of the user's active `DEVELOPER_LOG` flag, otherwise on the first level by name. On an org with no debug level at all, selecting the org creates `ALV_DEVELOPER_FOCUS` and opens on it, an org write before any Start. Webview state remembers one level per org username, set by a pick or by Start. A remembered level that the org no longer has falls back the same way, and a pick on one org does not change the level on another.
 - `tail-org` selects the org with the `Org` picker (`getByRole('combobox').first()`, then the option, as in [logs-panel.md](logs-panel.md)). Switching org stops the tail and clears the buffer.
 - `tail-stream` shows each new log as `=== ApexLog <logId> | <StartTime> | <operation> | <status> | <size in bytes>`, then `Saved to <absolute path>/apexlogs/orgs/<safe org username>/logs/<YYYY-MM-DD>/<logId>.log`, then the log lines.
 - `tail-search` filters the buffer line by line with `Search live logs…`: only lines that contain the text remain, so the header row hides unless the text is in it, such as the log id.
-- `tail-view-options` provides the `Debug Only`, `Color` and `Auto-scroll` switches. A click on a row or a scroll up pauses `Auto-scroll`, and a scroll back to the end resumes a scroll's pause.
+- `tail-buffer` keeps the last `electivus.apexLogViewer.tail.bufferLines` lines (default 10000, 1000 to 200000) and drops older ones. A change applies to a running tail.
+- `tail-view-options` provides the `Debug Only`, `Color` and `Auto-scroll` switches, off, off and on by default. A click on a row or a scroll up pauses `Auto-scroll`, and a scroll back to the end resumes a scroll's pause.
 - `tail-actions` provides `Clear`, `Open Log` (Log Viewer), `Replay Debugger` and `Debug Flags`. `Open Log` and `Replay Debugger` need a selected row.
 - `tail-editor-area` uses `Open Tail in Editor Area` to open a second, independent Tail in an editor tab. Closing that tab stops its tail (`Tail webview detached; stopped tail (hostDisposed).` in the Output log). Running the command again reveals the tab and resets it to the panel's org.
 
@@ -18,7 +19,7 @@ Tail streams new Apex logs from the selected org while it runs. The user picks a
 
 - Run `Electivus Apex Logs: Tail Logs` from the command palette. It reveals the view and copies the Logs panel's org; it does not press Start.
 - Click the `Apex Tail` tab in the bottom panel.
-- Run `Electivus Apex Logs: Open Tail in Editor Area`.
+- Run `Electivus Apex Logs: Open Tail in Editor Area`, or use the Tail view's title-bar action.
 
 ## Driving it with verify steps
 
@@ -31,7 +32,7 @@ Preconditions:
 - **Open Log and Replay.** While tailing, click the `=== ApexLog <logId>` row in `h.tailFrame()`, then `Open Log`. `h.frameWith('text=<logId>.log')` then shows that log. `Replay Debugger` on the same row shows the `Apex Replay Debugger is unavailable…` toast, because the session does not install that extension.
 - **Search and Debug Only.** Fill `getByLabel('Search live logs…')` with the marker: the `Execute Anonymous:` line and the `USER_DEBUG` line remain. With `getByRole('switch', { name: 'Debug Only' })` on, only `USER_DEBUG` lines remain.
 - **Scroll.** Use `page.mouse.wheel` over a row on screen, such as the last one. The list is virtualized, so its first DOM row can be off screen, and a wheel there scrolls nothing.
-- **Second channels.** The extension's Output log (copied to `vscode-logs/` at stop) has `Tail: TraceFlag updated or already matching for level <level>` (or `Tail: ensure TraceFlag failed (continuing) -> <reason>` when the flag could not be written; Tail still subscribes), `Tail: primed seen set with N of M recent logs`, `Tail: subscribed to /systemTopic/Logging`, `Tail: backfilling log <id>` and `Tail: saved log <id> to <path>`. Read the trace flag through Tooling as in `tail-live`.
+- **Second channels.** The extension's Output log (copied to `vscode-logs/` at stop) has `Tail: TraceFlag updated or already matching for level <level>`, `Tail: TraceFlag created for user with level <level>` when the user had none (or `Tail: ensure TraceFlag failed (continuing) -> <reason>` when the flag could not be written; Tail still subscribes), `Tail: primed seen set with N of M recent logs`, `Tail: subscribed to /systemTopic/Logging`, `Tail: backfilling log <id>` and `Tail: saved log <id> to <path>`. Read the trace flag through Tooling as in `tail-live`.
 - **Proof.** Shoot the Tail frame. The list fills the panel under the one-row toolbar, so a short panel shows the newest rows; maximize it for more.
 
 ## Gotchas
@@ -40,5 +41,5 @@ Preconditions:
 - The list is virtualized and a short panel renders only the rows in view. Find a log by filling `Search live logs…` with its marker or its `=== ApexLog <id>`; `text=<marker>` on the whole list misses rows below the fold, especially with `Auto-scroll` paused.
 - Org and level reloads cover the toolbar with a loading overlay (`getByRole('status')`). Wait for it to go, and click without `force`: twice in a row, a forced click made right after `Tail Logs` revealed the panel never reached the host.
 - Start moves the seeded `ALV_E2E` flag. After a Start with another level, `h.seedLog()` finds no `ALV_E2E` flag, posts a second overlapping one and fails with `FIELD_INTEGRITY_EXCEPTION`. Steps that press Start must restore the flag, as `tail-live` does, and emit logs with `h.tooling.executeAnonymousApex(auth, apex)` while Tail runs.
-- The webview remembers the debug level per org, so a run without an explicit choice tests whatever the previous run picked on that org. It also remembers `Debug Only`, which hides the `=== ApexLog` header and `Saved to` rows: a step that asserts them turns the switch off first and back on afterwards, as `tail-live` does.
+- The webview remembers the debug level per org, so a run without an explicit choice tests whatever the previous run picked on that org. It also remembers the search text, `Color`, `Auto-scroll`, the selected line and `Debug Only`, which hides the `=== ApexLog` header and `Saved to` rows: a step that asserts them turns the switch off first and back on afterwards, as `tail-live` does.
 - Logs created before Start do not stream. Stop the tail before your step returns, because a running tail keeps its subscription and adds rows to later screenshots.
