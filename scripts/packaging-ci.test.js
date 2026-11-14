@@ -129,83 +129,24 @@ test('prerelease workflow runs only on manual dispatch', () => {
   );
 });
 
-test('prerelease workflow refuses to attach a build to a release tag that points at another commit', () => {
-  const assembleJob = readWorkflowJob('.github/workflows/prerelease.yml', 'assemble_release');
-
-  assert.match(
-    assembleJob,
-    /git ls-remote --tags origin "refs\/tags\/\$\{TAG\}"[\s\S]*?"\$TAG_SHA" != "\$GITHUB_SHA"[\s\S]*?exit 1[\s\S]*?gh release view "\$TAG"/,
-    'expected an existing tag on another commit to fail the job before the release is updated'
-  );
-  assert.match(
-    assembleJob,
-    /gh release create "\$TAG" --target "\$GITHUB_SHA"/,
-    'expected a new release to tag the built commit instead of the default branch head'
-  );
-});
-
 const BUILD_SHA = '1111111111111111111111111111111111111111';
 const OTHER_SHA = '2222222222222222222222222222222222222222';
+const REPO = 'Electivus/Apex-Log-Viewer';
+const TAG = 'v0.57.3';
+const VSIX = 'apex-log-viewer-0.57.3-pre-20261114-1111111-linux-x64.vsix';
+const FAKE_GITHUB = path.join(__dirname, 'prerelease-fake-github.js');
 
-const FAKE_GH = `#!/usr/bin/env node
-const fs = require('node:fs');
-const statePath = process.env.FAKE_GH_STATE;
-const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-const args = process.argv.slice(2);
-const fail = message => {
-  process.stderr.write(message + '\\n');
-  process.exit(1);
-};
-const releasePath = 'repos/' + state.repo + '/releases/tags/' + state.tag;
-const tagCommitPath = 'repos/' + state.repo + '/commits/refs/tags/' + state.tag;
-if (args[0] === 'api' && args[1] === releasePath) {
-  if (state.lookupError) fail('gh: ' + state.lookupError);
-  if (!state.release) fail('gh: Not Found (HTTP 404)');
-  if (!args.includes('--silent')) process.stdout.write(JSON.stringify({ tag_name: state.tag }) + '\\n');
-  process.exit(0);
-}
-if (args[0] === 'api' && args[1] === tagCommitPath) {
-  if (!state.tagSha) fail('gh: No commit found for SHA: ' + state.tag + ' (HTTP 422)');
-  process.stdout.write(state.tagSha + '\\n');
-  process.exit(0);
-}
-if (args[0] === 'release') {
-  if (process.env.GH_REPO !== state.repo) {
-    fail('failed to run git: fatal: not a git repository (or any of the parent directories): .git');
-  }
-  if (args[1] === 'view' && args[2] === state.tag) {
-    if (state.lookupError) fail(state.lookupError);
-    if (!state.release) fail('release not found');
-    process.exit(0);
-  }
-  if (args[1] === 'delete' && args[2] === state.tag && args.includes('--yes')) {
-    if (!state.release) fail('release not found');
-    state.release = false;
-    fs.writeFileSync(statePath, JSON.stringify(state));
-    if (args.includes('--cleanup-tag')) {
-      if (state.tagDeleteRefused) fail('failed to delete tag tags/' + state.tag + ': Repository rule violations found (HTTP 422)');
-      state.tagSha = null;
-      fs.writeFileSync(statePath, JSON.stringify(state));
-    }
-    process.exit(0);
-  }
-}
-process.stderr.write('unexpected gh call: ' + args.join(' ') + '\\n');
-process.exit(99);
-`;
+const bashOnly = { skip: process.platform === 'win32' && 'runs Ubuntu workflow steps in bash' };
 
-function runRollbackStep(initialState) {
-  const job = yaml.parse(readFile('.github/workflows/prerelease.yml')).jobs.rollback_prerelease;
-  const step = job.steps.find(candidate => candidate.name === 'Delete GitHub pre-release and tag');
-  assert.ok(step, 'expected the rollback job to keep its delete step');
-  assert.equal(step.shell, 'bash');
-
-  const repo = 'Electivus/Apex-Log-Viewer';
-  const tag = 'v0.57.3';
+function runPrereleaseSteps(jobName, stepNames, github, { checkout = false } = {}) {
+  const job = yaml.parse(readFile('.github/workflows/prerelease.yml')).jobs[jobName];
   const expressions = {
-    '${{ needs.prepare.outputs.tag }}': tag,
+    '${{ needs.prepare.outputs.tag }}': TAG,
+    '${{ needs.prepare.outputs.version }}': '0.57.3',
+    '${{ needs.prepare.outputs.label }}': '20261114',
+    '${{ needs.prepare.outputs.shortsha }}': '1111111',
     '${{ github.token }}': 'test-token',
-    '${{ github.repository }}': repo
+    '${{ github.repository }}': REPO
   };
   const jobEnv = Object.fromEntries(
     Object.entries(job.env || {}).map(([key, value]) => {
@@ -214,77 +155,212 @@ function runRollbackStep(initialState) {
     })
   );
 
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-rollback-'));
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-prerelease-'));
   try {
     const binDir = path.join(workDir, 'bin');
     fs.mkdirSync(binDir);
-    fs.writeFileSync(path.join(binDir, 'gh'), FAKE_GH, { mode: 0o755 });
-    const statePath = path.join(workDir, 'state.json');
-    fs.writeFileSync(statePath, JSON.stringify({ repo, tag, ...initialState }));
+    for (const tool of ['gh', 'git']) {
+      fs.writeFileSync(
+        path.join(binDir, tool),
+        `#!/bin/sh\nexec "${process.execPath}" "${FAKE_GITHUB}" ${tool} "$@"\n`,
+        { mode: 0o755 }
+      );
+    }
+    fs.writeFileSync(path.join(workDir, VSIX), 'vsix');
+    const statePath = path.join(workDir, 'github.json');
+    fs.writeFileSync(statePath, JSON.stringify({ repo: REPO, tag: TAG, tagSha: null, releases: [], ...github }));
 
-    const result = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', step.run], {
-      cwd: workDir,
-      env: {
-        PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
-        GITHUB_REPOSITORY: repo,
-        GITHUB_SHA: BUILD_SHA,
-        FAKE_GH_STATE: statePath,
-        ...jobEnv
-      },
-      encoding: 'utf8',
-      timeout: 10_000
-    });
-    assert.ifError(result.error);
-    const finalState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-    return {
-      status: result.status,
-      output: `${result.stdout}\n${result.stderr}`,
-      releaseLeft: finalState.release,
-      tagLeft: Boolean(finalState.tagSha)
-    };
+    let status = 0;
+    let output = '';
+    for (const stepName of stepNames) {
+      const step = job.steps.find(candidate => candidate.name === stepName);
+      assert.ok(step, `expected ${jobName} to have the step "${stepName}"`);
+      assert.equal(step.shell, 'bash');
+      const result = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', step.run], {
+        cwd: workDir,
+        env: {
+          PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
+          GITHUB_REPOSITORY: REPO,
+          GITHUB_SHA: BUILD_SHA,
+          GITHUB_RUN_NUMBER: '7',
+          FAKE_GITHUB_STATE: statePath,
+          ...(checkout ? { FAKE_CHECKOUT_REPO: REPO } : {}),
+          ...jobEnv
+        },
+        encoding: 'utf8',
+        timeout: 10_000
+      });
+      assert.ifError(result.error);
+      output += `${result.stdout}\n${result.stderr}\n`;
+      status = result.status;
+      if (status !== 0) break;
+    }
+    return { status, output, github: JSON.parse(fs.readFileSync(statePath, 'utf8')) };
   } finally {
     fs.rmSync(workDir, { recursive: true, force: true });
   }
 }
 
-const bashOnly = { skip: process.platform === 'win32' && 'runs the Ubuntu rollback step in bash' };
+const CREATE_STEP = 'Create or update GitHub pre-release';
+const UPLOAD_STEP = 'Upload VSIX to GitHub release';
+const PUBLISH_STEP = 'Publish GitHub pre-release';
 
-test('prerelease rollback deletes the pre-release and tag of the failed build', bashOnly, () => {
-  const run = runRollbackStep({ release: true, tagSha: BUILD_SHA });
+function runAssembly(github, stepNames = [CREATE_STEP, UPLOAD_STEP, PUBLISH_STEP]) {
+  return runPrereleaseSteps('assemble_release', stepNames, github, { checkout: true });
+}
 
-  assert.equal(run.status, 0, run.output);
-  assert.equal(run.releaseLeft, false, run.output);
-  assert.equal(run.tagLeft, false, run.output);
+function runRollback(github) {
+  return runPrereleaseSteps('rollback_prerelease', ['Delete GitHub pre-release and tag'], github);
+}
+
+test('prerelease assembly keeps the pre-release a draft without a tag until its last step', bashOnly, () => {
+  const steps = yaml.parse(readFile('.github/workflows/prerelease.yml')).jobs.assemble_release.steps;
+  assert.equal(steps.at(-1).name, PUBLISH_STEP, 'expected publishing to be the last step of the assembly');
+
+  const beforePublish = runAssembly({}, [CREATE_STEP, UPLOAD_STEP]);
+  assert.equal(beforePublish.status, 0, beforePublish.output);
+  assert.deepEqual(
+    beforePublish.github.releases.map(release => [release.draft, release.target, release.assets]),
+    [[true, BUILD_SHA, [VSIX]]],
+    beforePublish.output
+  );
+  assert.equal(beforePublish.github.tagSha, null, beforePublish.output);
+
+  const published = runAssembly(beforePublish.github, [PUBLISH_STEP]);
+  assert.equal(published.status, 0, published.output);
+  assert.equal(published.github.releases[0].draft, false, published.output);
+  assert.equal(published.github.tagSha, BUILD_SHA, published.output);
 });
 
-test('prerelease rollback treats a missing release as nothing to delete', bashOnly, () => {
-  const run = runRollbackStep({ release: false, tagSha: null });
+test('prerelease assembly adopts a draft left by an earlier attempt and tags this build', bashOnly, () => {
+  const run = runAssembly({ releases: [{ id: 5, draft: true, target: OTHER_SHA, assets: [VSIX] }] });
+
+  assert.equal(run.status, 0, run.output);
+  assert.deepEqual(
+    run.github.releases.map(release => [release.id, release.draft, release.assets]),
+    [[5, false, [VSIX]]],
+    run.output
+  );
+  assert.equal(run.github.tagSha, BUILD_SHA, run.output);
+});
+
+test('prerelease assembly updates a pre-release that is already published for this build', bashOnly, () => {
+  const run = runAssembly({ tagSha: BUILD_SHA, releases: [{ id: 5, draft: false, target: BUILD_SHA, assets: [] }] });
+
+  assert.equal(run.status, 0, run.output);
+  assert.deepEqual(
+    run.github.releases.map(release => [release.id, release.draft, release.assets]),
+    [[5, false, [VSIX]]],
+    run.output
+  );
+  assert.equal(run.github.tagSha, BUILD_SHA, run.output);
+});
+
+test('prerelease assembly fails instead of creating a second draft when the release lookup fails', bashOnly, () => {
+  const releases = [{ id: 5, draft: true, target: BUILD_SHA, assets: [] }];
+  const run = runAssembly({ listError: 'Server Error (HTTP 502)', releases });
+
+  assert.notEqual(run.status, 0, run.output);
+  assert.deepEqual(run.github.releases, releases, run.output);
+});
+
+test('prerelease assembly refuses a release tag that points at another commit', bashOnly, () => {
+  const run = runAssembly({ tagSha: OTHER_SHA });
+
+  assert.notEqual(run.status, 0, run.output);
+  assert.deepEqual(run.github.releases, [], run.output);
+  assert.equal(run.github.tagSha, OTHER_SHA, run.output);
+});
+
+test('prerelease rollback deletes the draft of an assembly that failed before publishing', bashOnly, () => {
+  const run = runRollback({ releases: [{ id: 1, draft: true, target: BUILD_SHA, assets: [VSIX] }] });
+
+  assert.equal(run.status, 0, run.output);
+  assert.deepEqual(run.github.releases, [], run.output);
+  assert.equal(run.github.tagSha, null, run.output);
+});
+
+test('prerelease rollback deletes every release that carries the tag', bashOnly, () => {
+  const run = runRollback({
+    releases: [
+      { id: 1, draft: true, target: BUILD_SHA, assets: [] },
+      { id: 2, draft: true, target: BUILD_SHA, assets: [] }
+    ]
+  });
+
+  assert.equal(run.status, 0, run.output);
+  assert.deepEqual(run.github.releases, [], run.output);
+});
+
+test('prerelease rollback deletes a published pre-release and its tag', bashOnly, () => {
+  const run = runRollback({ tagSha: BUILD_SHA, releases: [{ id: 1, draft: false, target: BUILD_SHA, assets: [] }] });
+
+  assert.equal(run.status, 0, run.output);
+  assert.deepEqual(run.github.releases, [], run.output);
+  assert.equal(run.github.tagSha, null, run.output);
+});
+
+test('prerelease rollback fails and names the manual step when the ruleset refuses the tag delete', bashOnly, () => {
+  const run = runRollback({
+    tagSha: BUILD_SHA,
+    tagDeleteRefused: true,
+    releases: [{ id: 1, draft: false, target: BUILD_SHA, assets: [] }]
+  });
+
+  assert.notEqual(run.status, 0, run.output);
+  assert.deepEqual(run.github.releases, [], run.output);
+  assert.equal(run.github.tagSha, BUILD_SHA, run.output);
+  assert.match(run.output, /::error::.*Release tags - Protect updates and deletes/);
+  assert.match(run.output, /git push origin :refs\/tags\/v0\.57\.3/);
+});
+
+test('prerelease rollback reruns keep failing on a refused tag until an admin deletes it', bashOnly, () => {
+  const first = runRollback({
+    tagSha: BUILD_SHA,
+    tagDeleteRefused: true,
+    releases: [{ id: 1, draft: false, target: BUILD_SHA, assets: [] }]
+  });
+  assert.notEqual(first.status, 0, first.output);
+
+  const rerun = runRollback(first.github);
+  assert.notEqual(rerun.status, 0, rerun.output);
+  assert.doesNotMatch(rerun.output, /nothing to delete/);
+  assert.match(rerun.output, /git push origin :refs\/tags\/v0\.57\.3/);
+
+  const afterAdmin = runRollback({ ...rerun.github, tagSha: null });
+  assert.equal(afterAdmin.status, 0, afterAdmin.output);
+  assert.match(afterAdmin.output, /nothing to delete/);
+});
+
+test('prerelease rollback rerun deletes a tag that an earlier run left behind', bashOnly, () => {
+  const run = runRollback({ tagSha: BUILD_SHA, releases: [] });
+
+  assert.equal(run.status, 0, run.output);
+  assert.equal(run.github.tagSha, null, run.output);
+});
+
+test('prerelease rollback treats a missing release and tag as nothing to delete', bashOnly, () => {
+  const run = runRollback({});
 
   assert.equal(run.status, 0, run.output);
   assert.match(run.output, /does not exist; nothing to delete/);
 });
 
-test('prerelease rollback fails when the release lookup fails for another reason', bashOnly, () => {
-  const run = runRollbackStep({ release: true, tagSha: BUILD_SHA, lookupError: 'Bad credentials (HTTP 401)' });
-
-  assert.notEqual(run.status, 0, run.output);
-  assert.equal(run.releaseLeft, true, run.output);
-  assert.equal(run.tagLeft, true, run.output);
-});
-
-test('prerelease rollback leaves a release whose tag points at another commit in place', bashOnly, () => {
-  const run = runRollbackStep({ release: true, tagSha: OTHER_SHA });
+test('prerelease rollback leaves a pre-release whose tag points at another commit in place', bashOnly, () => {
+  const releases = [{ id: 1, draft: false, target: OTHER_SHA, assets: [] }];
+  const run = runRollback({ tagSha: OTHER_SHA, releases });
 
   assert.equal(run.status, 0, run.output);
-  assert.equal(run.releaseLeft, true, run.output);
-  assert.equal(run.tagLeft, true, run.output);
+  assert.deepEqual(run.github.releases, releases, run.output);
+  assert.equal(run.github.tagSha, OTHER_SHA, run.output);
 });
 
-test('prerelease rollback fails when the tag ruleset refuses the tag delete', bashOnly, () => {
-  const run = runRollbackStep({ release: true, tagSha: BUILD_SHA, tagDeleteRefused: true });
+test('prerelease rollback fails when a GitHub API lookup fails', bashOnly, () => {
+  const releases = [{ id: 1, draft: true, target: BUILD_SHA, assets: [] }];
+  const run = runRollback({ apiError: 'Bad credentials (HTTP 401)', releases });
 
   assert.notEqual(run.status, 0, run.output);
-  assert.equal(run.tagLeft, true, run.output);
+  assert.deepEqual(run.github.releases, releases, run.output);
 });
 
 test('tag release workflow keeps the checked-in manifest unchanged after installing dependencies', () => {
