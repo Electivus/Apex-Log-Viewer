@@ -235,6 +235,28 @@ test('a valid HTTPS_PROXY carries https requests when HTTP_PROXY is unusable', a
   assert.equal(salesforce.received, 0);
 });
 
+test('on Windows a proxy variable in any letter case carries the requests and names its own spelling', async t => {
+  const salesforce = await orgBehind(t, 'windows-case@example.com');
+  const proxy = await startRecordingProxy(t);
+
+  const carried = await searchUsersInChild(
+    'windows-case@example.com',
+    { Http_Proxy: proxy.url, ALV_TEST_PLATFORM: 'win32' },
+    {}
+  );
+  const refused = await searchUsersInChild(
+    'windows-case@example.com',
+    { Http_Proxy: UNUSABLE_PROXY, ALV_TEST_PLATFORM: 'win32' },
+    {}
+  );
+
+  assert.equal(carried.ok, true, carried.error);
+  assert.equal(proxiedQueries(proxy).length, 1);
+  assert.equal(refused.ok, false);
+  assert.match(refused.error ?? '', /Http_Proxy/);
+  assert.equal(salesforce.received, 0);
+});
+
 test('HTTP_TIMEOUT still bounds each Salesforce request', async t => {
   await orgBehind(t, 'timeout@example.com', async request => {
     if (request.path === '/query') await new Promise(resolve => setTimeout(resolve, 20_000).unref());

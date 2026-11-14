@@ -5,6 +5,8 @@ async function main(): Promise<void> {
   if (!username) {
     throw new Error('usage: salesforceProxyChild.ts <username> [settings-json]');
   }
+  if (process.env.ALV_TEST_PLATFORM)
+    Object.defineProperty(process, 'platform', { value: process.env.ALV_TEST_PLATFORM });
   const core = createApexLogViewerCore();
   if (settings) configureSalesforceProxy(JSON.parse(settings));
   const started = performance.now();
