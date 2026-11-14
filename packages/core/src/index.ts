@@ -10,3 +10,4 @@ export type {
   LogSyncProgress
 } from './runtime.js';
 export { summarizeLogText } from './logTriage.js';
+export { configureSalesforceProxy, type SalesforceProxySettings } from './salesforceProxy.js';

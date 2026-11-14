@@ -2,6 +2,7 @@ import path from 'node:path';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import {
+  applyVsCodeEnvOverrides,
   closeVsCodeApp,
   concealVsCodeWindows,
   createMissingSupportExtensionsError,
@@ -510,6 +511,37 @@ describe('resolveVsCodeCompositingLaunchArgs', () => {
   test('leaves the native compositor on other platforms', () => {
     expect(resolveVsCodeCompositingLaunchArgs('darwin')).toEqual([]);
     expect(resolveVsCodeCompositingLaunchArgs('win32')).toEqual([]);
+  });
+});
+
+describe('VS Code launch environment overrides', () => {
+  const harnessEnv = { HTTPS_PROXY: 'http://proxy:8888', NO_PROXY: 'localhost', LC_ALL: 'C.UTF-8' };
+
+  test('leaves the harness environment to VS Code when ALV_E2E_VSCODE_ENV is unset or blank', () => {
+    expect(applyVsCodeEnvOverrides(harnessEnv, undefined)).toEqual(harnessEnv);
+    expect(applyVsCodeEnvOverrides(harnessEnv, '  ')).toEqual(harnessEnv);
+  });
+
+  test('sets strings and removes nulls for the VS Code process only', () => {
+    const launchEnv = applyVsCodeEnvOverrides(
+      harnessEnv,
+      JSON.stringify({ HTTPS_PROXY: null, NO_PROXY: 'salesforce.com,force.com', HTTP_PROXY: 'http://127.0.0.1:9' })
+    );
+    expect(launchEnv).toEqual({
+      NO_PROXY: 'salesforce.com,force.com',
+      LC_ALL: 'C.UTF-8',
+      HTTP_PROXY: 'http://127.0.0.1:9'
+    });
+    expect(harnessEnv.HTTPS_PROXY).toBe('http://proxy:8888');
+  });
+
+  test('rejects anything but a JSON object of strings or nulls', () => {
+    for (const raw of ['not json', '[]', 'null', '"text"']) {
+      expect(() => applyVsCodeEnvOverrides(harnessEnv, raw)).toThrow('ALV_E2E_VSCODE_ENV must be a JSON object');
+    }
+    expect(() => applyVsCodeEnvOverrides(harnessEnv, '{"HTTPS_PROXY":1}')).toThrow(
+      'ALV_E2E_VSCODE_ENV.HTTPS_PROXY must be a string or null.'
+    );
   });
 });
 

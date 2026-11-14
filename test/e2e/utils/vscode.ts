@@ -269,6 +269,36 @@ export function resolveVsCodeCompositingLaunchArgs(targetPlatform: NodeJS.Platfo
   return targetPlatform === 'linux' ? ['--use-gl=angle', '--use-angle=swiftshader'] : [];
 }
 
+export function applyVsCodeEnvOverrides<T extends NodeJS.ProcessEnv>(
+  launchEnv: T,
+  rawOverrides: string | undefined = process.env.ALV_E2E_VSCODE_ENV
+): T {
+  const raw = (rawOverrides ?? '').trim();
+  if (!raw) {
+    return launchEnv;
+  }
+  let overrides: unknown;
+  try {
+    overrides = JSON.parse(raw);
+  } catch {
+    overrides = undefined;
+  }
+  if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) {
+    throw new Error('ALV_E2E_VSCODE_ENV must be a JSON object of strings or nulls.');
+  }
+  const next: Record<string, string | undefined> = { ...launchEnv };
+  for (const [name, value] of Object.entries(overrides)) {
+    if (value === null) {
+      delete next[name];
+    } else if (typeof value === 'string') {
+      next[name] = value;
+    } else {
+      throw new Error(`ALV_E2E_VSCODE_ENV.${name} must be a string or null.`);
+    }
+  }
+  return next as T;
+}
+
 // E2E keeps VS Code out of sight unless ALV_E2E_SHOW_VSCODE=1. Linux runners provide
 // a private Xvfb display (scripts/e2e-display.js). macOS and Windows have no virtual
 // display, so their native window is concealed instead.
@@ -918,14 +948,14 @@ export async function launchVsCode(options: {
           })
       )
   );
-  const launchEnv = {
+  const launchEnv = applyVsCodeEnvOverrides({
     ...process.env,
     ...options.env,
     ...authLaunch.env,
     LC_ALL: options.env?.LC_ALL || process.env.LC_ALL || 'C.UTF-8',
     DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || '/dev/null',
     NO_AT_BRIDGE: process.env.NO_AT_BRIDGE || '1'
-  };
+  });
   const launchArgs = (userDataDir: string): string[] => {
     const args = [
       options.workspacePath,

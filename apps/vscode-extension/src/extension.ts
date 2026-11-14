@@ -5,6 +5,7 @@ import { WEBVIEW_SESSION_MOUNT_DELAY_MS, WEBVIEW_SESSION_READY_TIMEOUT_MS } from
 import type { OrgItem } from './shared/types';
 import * as path from 'path';
 import { setApiVersion, getApiVersion, clearListCache } from './host/salesforce/http';
+import { registerSalesforceProxy } from './host/salesforce/proxy';
 import {
   logInfo,
   logWarn,
@@ -164,6 +165,11 @@ export function activate(context: vscode.ExtensionContext): ExtensionExports {
   } catch (e) {
     const msg = getErrorMessage(e);
     logWarn('Failed to configure trace logging ->', msg);
+  }
+  try {
+    context.subscriptions.push(registerSalesforceProxy());
+  } catch (e) {
+    logWarn('Failed to apply the proxy settings ->', getErrorMessage(e));
   }
   // Set by project detection below, once registration is done.
   let salesforceProject: SalesforceProjectInfo = undefined;
