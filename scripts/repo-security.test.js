@@ -6,6 +6,7 @@ const shellQuote = require('shell-quote');
 const yaml = require('yaml');
 
 const repoRoot = path.join(__dirname, '..');
+const pinnedSalesforceCliPackage = '@salesforce/cli@2.150.6';
 
 function read(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
@@ -1069,14 +1070,17 @@ test('OpenSSF Scorecard workflow uploads SARIF with pinned actions', () => {
   assert.match(workflowText, /publish_results:\s+false/);
 });
 
-test('devcontainer base image and Salesforce CLI install are pinned', () => {
+test('devcontainer pins its base image and the Salesforce CLI release of the real-org jobs', () => {
   const dockerfile = read('.devcontainer/Dockerfile');
 
   assert.match(
     dockerfile,
     /^FROM mcr\.microsoft\.com\/vscode\/devcontainers\/typescript-node:24@sha256:[0-9a-f]{64}$/m
   );
-  assert.match(dockerfile, /npm install -g @salesforce\/cli@\d+\.\d+\.\d+ --no-audit --no-fund/);
+  assert.equal(
+    dockerfile.match(/npm install -g (@salesforce\/cli@\S+) --no-audit --no-fund/)?.[1],
+    pinnedSalesforceCliPackage
+  );
 });
 
 test('container images install the workspace pnpm release from a hash-checked tarball', () => {
@@ -1142,8 +1146,8 @@ test('Playwright E2E workflow pins the Salesforce CLI release proven for JWT sig
   const setupHelperStep = directSteps.find(step => step.name === 'Setup Salesforce CLI');
 
   assert.equal(helperRuns.length, 2);
-  assert.equal(parsed.jobs.playwright_e2e.env.SALESFORCE_CLI_PACKAGE, '@salesforce/cli@2.150.6');
-  assert.equal(parsed.jobs.playwright_e2e_os_matrix.env.SALESFORCE_CLI_PACKAGE, '@salesforce/cli@2.150.6');
+  assert.equal(parsed.jobs.playwright_e2e.env.SALESFORCE_CLI_PACKAGE, pinnedSalesforceCliPackage);
+  assert.equal(parsed.jobs.playwright_e2e_os_matrix.env.SALESFORCE_CLI_PACKAGE, pinnedSalesforceCliPackage);
   assert.ok(!Object.hasOwn(parsed.jobs.playwright_e2e_telemetry.env, 'SALESFORCE_CLI_PACKAGE'));
   assert.equal(setupHelperStep.run, 'node scripts/setup-salesforce-cli.mjs');
   assert.equal(setupHelperStep.env.SALESFORCE_CLI_CACHE_ROOT, '${{ runner.tool_cache }}');
