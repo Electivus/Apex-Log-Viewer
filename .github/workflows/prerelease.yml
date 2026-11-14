@@ -240,8 +240,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      # `gh release create --target` creates the pre-release and its tag, and the
-      # upload step replaces the VSIX assets of that release.
+      # The `gh release` steps create or edit the pre-release, upload its VSIX files and
+      # publish the draft, which creates the tag.
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
@@ -303,12 +303,13 @@ jobs:
             echo "::error::Tag $TAG already points at $TAG_SHA, but this build is $GITHUB_SHA"
             exit 1
           fi
-          if gh release view "$TAG" >/dev/null 2>&1; then
+          RELEASE_IDS=$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate --jq '.[] | select(.tag_name == env.TAG) | .id')
+          if [ -n "$RELEASE_IDS" ]; then
             echo "Updating existing pre-release $TAG"
-            gh release edit "$TAG" --title "$TITLE" --notes "$BODY" --prerelease
+            gh release edit "$TAG" --target "$GITHUB_SHA" --title "$TITLE" --notes "$BODY" --prerelease
           else
-            echo "Creating pre-release $TAG"
-            gh release create "$TAG" --target "$GITHUB_SHA" --title "$TITLE" --notes "$BODY" --prerelease
+            echo "Creating draft pre-release $TAG"
+            gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "$TITLE" --notes "$BODY" --prerelease
           fi
 
       - name: Upload VSIX to GitHub release
@@ -328,6 +329,10 @@ jobs:
             fi
             gh release upload "$TAG" "$FILE" --clobber
           done
+
+      - name: Publish GitHub pre-release
+        shell: bash
+        run: gh release edit "$TAG" --draft=false
 
   verify_marketplace:
     name: Verify Marketplace identity (no publishing)
@@ -512,7 +517,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      # `gh release delete --cleanup-tag` deletes the release and the tag of a failed assembly.
+      # `gh api -X DELETE` removes every release of the tag, drafts included, and tries to
+      # delete the tag.
       contents: write
     env:
       TAG: ${{ needs.prepare.outputs.tag }}
@@ -522,14 +528,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if gh release view "$TAG" >/dev/null 2>&1; then
+          TAG_REF=$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${TAG}" --jq '.[] | select(.ref == "refs/tags/" + env.TAG) | .ref')
+          if [ -n "$TAG_REF" ]; then
             TAG_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/commits/refs/tags/${TAG}" --jq .sha)
             if [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
               echo "Pre-release $TAG belongs to commit $TAG_SHA, not $GITHUB_SHA; leaving it in place"
               exit 0
             fi
-            echo "Deleting pre-release $TAG due to assembly failure"
-            gh release delete "$TAG" --yes --cleanup-tag
-          else
+          fi
+          RELEASE_IDS=$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate --jq '.[] | select(.tag_name == env.TAG) | .id')
+          if [ -z "$RELEASE_IDS" ] && [ -z "$TAG_REF" ]; then
             echo "Pre-release $TAG does not exist; nothing to delete"
+            exit 0
+          fi
+          for RELEASE_ID in $RELEASE_IDS; do
+            echo "Deleting release $RELEASE_ID of $TAG due to assembly failure"
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}"
+          done
+          if [ -n "$TAG_REF" ]; then
+            echo "Deleting tag $TAG"
+            if ! gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" --silent; then
+              echo "::error::Could not delete tag $TAG, which the published pre-release created. The ruleset \"Release tags - Protect updates and deletes\" blocks this job from deleting release tags. A repository admin must run: git push origin :refs/tags/${TAG}"
+              exit 1
+            fi
           fi
