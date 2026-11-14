@@ -5,9 +5,10 @@
 //
 // `new Date()`, `Date.now()` and `Date()` read the real clock plus the shift. File times move with it, as if the
 // system clock itself had moved: stat results report mtime/atime/ctime/birthtime plus the shift, and `utimes` takes
-// the shifted time and stores the real one. Monotonic clocks and timers (`setTimeout`, `performance.now`) are
-// untouched, so durations stay true. Child processes inherit the shift through NODE_OPTIONS. `FileHandle.stat` and
-// BigInt stats are not shifted.
+// the shifted time and stores the real one. BigInt stats (`stat(path, { bigint: true })`) move too, nanosecond fields
+// included, because @salesforce/core compares their `mtimeNs` with `Date.now()`. Monotonic clocks and timers
+// (`setTimeout`, `performance.now`) are untouched, so durations stay true. Child processes inherit the shift through
+// NODE_OPTIONS. `FileHandle.stat` is not shifted.
 //
 // The preload refuses to run without a shift, so an unshifted run is never mistaken for a shifted one.
 import fs from 'node:fs';
@@ -38,17 +39,25 @@ globalThis.Date = new Proxy(RealDate, {
 
 const TIME_FIELDS = ['atime', 'mtime', 'ctime', 'birthtime'];
 
+const define = (stats, key, value) =>
+  Object.defineProperty(stats, key, { value, writable: true, enumerable: true, configurable: true });
+
 const shiftedStats = stats => {
-  if (!stats || typeof stats.mtimeMs !== 'number') return stats;
+  if (typeof stats?.mtimeMs === 'bigint') {
+    const shift = BigInt(shiftMs);
+    for (const field of TIME_FIELDS) {
+      const ms = stats[`${field}Ms`] + shift;
+      define(stats, `${field}Ms`, ms);
+      define(stats, `${field}Ns`, stats[`${field}Ns`] + shift * 1_000_000n);
+      define(stats, field, new RealDate(Number(ms)));
+    }
+    return stats;
+  }
+  if (typeof stats?.mtimeMs !== 'number') return stats;
   for (const field of TIME_FIELDS) {
     const ms = stats[`${field}Ms`] + shiftMs;
-    Object.defineProperty(stats, `${field}Ms`, { value: ms, writable: true, enumerable: true, configurable: true });
-    Object.defineProperty(stats, field, {
-      value: new RealDate(ms),
-      writable: true,
-      enumerable: true,
-      configurable: true
-    });
+    define(stats, `${field}Ms`, ms);
+    define(stats, field, new RealDate(ms));
   }
   return stats;
 };
