@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { AuthInfo, ConfigAggregator, Connection, OrgConfigProperties, StateAggregator } from '@salesforce/core';
 
-import './salesforceProxy.js';
+import { unwrapSalesforceProxyError } from './salesforceProxy.js';
 import type {
   DebugLevelCreateParams,
   DebugLevelDeleteParams,
@@ -1335,7 +1335,8 @@ async function instrumentedCall<T>(
     throwIfAborted(options?.signal);
     instrumentation?.onCall?.({ method, outcome: 'ok', durationMs: Date.now() - startedAt });
     return result;
-  } catch (error) {
+  } catch (thrown) {
+    const error = unwrapSalesforceProxyError(thrown);
     const cancelled = options?.signal?.aborted || (error instanceof AlvError && error.code === 'ABORTED');
     instrumentation?.onCall?.({
       method,

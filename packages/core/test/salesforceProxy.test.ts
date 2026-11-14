@@ -51,7 +51,7 @@ async function startRecordingProxy(t: test.TestContext, handler: DoubleHandler =
   return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, seen };
 }
 
-type ChildResult = { ok: boolean; users?: number; error?: string; configured?: string; elapsedMs: number };
+type ChildResult = { ok: boolean; users?: number; error?: string; elapsedMs: number };
 
 async function searchUsersInChild(
   username: string,

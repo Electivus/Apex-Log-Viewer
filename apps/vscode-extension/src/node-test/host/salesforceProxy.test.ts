@@ -53,7 +53,6 @@ type ConfigurationEvent = { affectsConfiguration(key: string): boolean };
 
 function loadProxyAdapter(settings: Record<string, unknown>) {
   const listeners: Array<(event: ConfigurationEvent) => void> = [];
-  const warnings: string[] = [];
   const { registerSalesforceProxy } = proxyquireStrict('../../host/salesforce/proxy', {
     vscode: {
       workspace: {
@@ -66,14 +65,13 @@ function loadProxyAdapter(settings: Record<string, unknown>) {
     '../utils/config': {
       getConfig: (name: string, fallback: unknown) => (name in settings ? settings[name] : fallback),
       affectsConfiguration: (event: ConfigurationEvent, name: string) => event.affectsConfiguration(name)
-    },
-    '../utils/logger': { logWarn: (...parts: unknown[]) => warnings.push(parts.join(' ')) }
+    }
   });
   const change = (name: string, value: unknown) => {
     settings[name] = value;
     for (const listener of [...listeners]) listener({ affectsConfiguration: key => key === name });
   };
-  return { registration: registerSalesforceProxy() as { dispose(): void }, change, warnings };
+  return { registration: registerSalesforceProxy() as { dispose(): void }, change };
 }
 
 suite('VS Code proxy settings for Salesforce requests', () => {
