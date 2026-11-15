@@ -14,6 +14,11 @@ export type CacheSection = 'app' | 'cli' | 'orgs';
 export class CacheManager {
   private static store: vscode.Memento | undefined;
   private static readonly KEYS_INDEX = '__cacheKeys';
+  /**
+   * Keys no release reads any more, removed whatever their expiry. `cli:orgAuth:` held org access tokens,
+   * which the extension now keeps in memory only.
+   */
+  private static readonly RETIRED_PREFIXES: readonly string[] = ['cli:orgAuth:'];
 
   static init(store: vscode.Memento): void {
     this.store = store;
@@ -81,17 +86,25 @@ export class CacheManager {
     }
   }
 
+  /** Removes expired entries, and every entry under a retired key even when the index lost it. */
   static async clearExpired(): Promise<void> {
     if (!this.store) return;
     const keys = this.store.get<string[]>(this.KEYS_INDEX) || [];
+    const isRetired = (key: string) => this.RETIRED_PREFIXES.some(prefix => key.startsWith(prefix));
+    for (const k of this.store.keys()) {
+      if (isRetired(k) && !keys.includes(k)) {
+        await this.store.update(k, undefined);
+      }
+    }
     const now = Date.now();
     const validKeys: string[] = [];
     for (const k of keys) {
       const entry = this.store.get<CacheEntry<unknown>>(k);
       if (
-        entry &&
-        typeof (entry as CacheEntry<unknown>).expiresAt === 'number' &&
-        (entry as CacheEntry<unknown>).expiresAt < now
+        isRetired(k) ||
+        (entry &&
+          typeof (entry as CacheEntry<unknown>).expiresAt === 'number' &&
+          (entry as CacheEntry<unknown>).expiresAt < now)
       ) {
         await this.store.update(k, undefined);
       } else {
