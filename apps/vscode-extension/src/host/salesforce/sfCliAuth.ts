@@ -29,6 +29,31 @@ type TokenCommand = 'show-access-token' | 'display';
 
 type SfRun = { kind: 'ok'; result: unknown } | { kind: 'command-missing' };
 
+/** The auth source of the extension, plus what it can say about the installed CLI when a login is lost. */
+export type SfCliAuthSource = OrgAuthSource & {
+  /**
+   * Advice to add to a request for a new login when the installed `sf` cannot keep a renewed login, or
+   * undefined. It runs `sf --version`, so call it only on that failure.
+   */
+  updateHint(signal?: AbortSignal): Promise<string | undefined>;
+};
+
+/** The first `sf` whose `@salesforce/core` (9.2.0) keeps the new refresh token a rotating connected app returns. */
+const KEEPS_ROTATED_LOGIN: readonly number[] = [2, 152, 9];
+
+/** The release in `sf --version` output, `@salesforce/cli/<version> <platform> node-<version>`. */
+function cliVersionOf(text: string): number[] | undefined {
+  const match = /@salesforce\/cli\/(\d+)\.(\d+)\.(\d+)/.exec(stripVTControlCharacters(text));
+  return match ? match.slice(1, 4).map(Number) : undefined;
+}
+
+function isOlder(version: readonly number[], than: readonly number[]): boolean {
+  for (let i = 0; i < than.length; i++) {
+    if (version[i] !== than[i]) return (version[i] ?? 0) < (than[i] ?? 0);
+  }
+  return false;
+}
+
 function hasEnv(env: NodeJS.ProcessEnv, name: string): boolean {
   return Object.keys(env).some(key => key.toUpperCase() === name && env[key] !== undefined);
 }
@@ -105,13 +130,16 @@ export function parseOrgListAuth(result: unknown): SourceOrg[] {
  * Salesforce auth through the `sf` CLI, the only program that reads, refreshes and writes the auth
  * files. Every call starts one `sf` process; core keeps what it returns in memory.
  */
-export function createSfCliAuthSource(options: { projectDir: () => string | undefined }): OrgAuthSource {
+export function createSfCliAuthSource(options: { projectDir: () => string | undefined }): SfCliAuthSource {
   let tokenCommand: TokenCommand | undefined;
 
-  const runSf = async (args: string[], signal?: AbortSignal): Promise<SfRun> => {
+  const invocation = async () => {
     const env = sfEnvironment((await getLoginShellEnv()) ?? process.env, readProxySettings());
-    const program = asString(env.ALV_SF_BIN_PATH) ?? 'sf';
-    const cwd = options.projectDir() ?? os.homedir();
+    return { env, program: asString(env.ALV_SF_BIN_PATH) ?? 'sf', cwd: options.projectDir() ?? os.homedir() };
+  };
+
+  const runSf = async (args: string[], signal?: AbortSignal): Promise<SfRun> => {
+    const { env, program, cwd } = await invocation();
     try {
       const { stdout } = await execCommand(program, [...args, '--json'], env, CLI_TIMEOUT_MS, signal, cwd);
       const parsed = parseJson(stdout);
@@ -193,6 +221,13 @@ export function createSfCliAuthSource(options: { projectDir: () => string | unde
       // Kept out of every error and log line, should a later `sf` echo it.
       holdSecret(`sf:${org.username}`, session.accessToken);
       return session;
+    },
+    async updateHint(signal) {
+      const { env, program, cwd } = await invocation();
+      const { stdout } = await execCommand(program, ['--version'], env, CLI_TIMEOUT_MS, signal, cwd);
+      const version = cliVersionOf(stdout);
+      if (!version || !isOlder(version, KEEPS_ROTATED_LOGIN)) return undefined;
+      return `This Salesforce CLI is ${version.join('.')}. Releases before ${KEEPS_ROTATED_LOGIN.join('.')} lose the login when the org returns a new refresh token, so update it first: run "sf update", or "npm install --global @salesforce/cli" if npm installed it.`;
     }
   };
 }
