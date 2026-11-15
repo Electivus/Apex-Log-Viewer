@@ -159,7 +159,10 @@ function makeExecKey(
 }
 
 function normalizeCliProgramForTelemetry(program: string): 'sf' | 'sfdx' | 'other' {
-  const normalized = String(program || '').trim().replace(/\\/g, '/').toLowerCase();
+  const normalized = String(program || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .toLowerCase();
   if (/(^|\/)sfdx(?:\.cmd|\.exe)?$/.test(normalized)) {
     return 'sfdx';
   }
