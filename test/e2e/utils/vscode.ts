@@ -269,6 +269,12 @@ export function resolveVsCodeCompositingLaunchArgs(targetPlatform: NodeJS.Platfo
   return targetPlatform === 'linux' ? ['--use-gl=angle', '--use-angle=swiftshader'] : [];
 }
 
+// VS Code stores Electron's "Code Safe Storage" key in the login keychain, which on a developer Mac is the user's
+// own. Chromium's mock keychain keeps that key in memory.
+export function resolveVsCodeKeychainLaunchArgs(targetPlatform: NodeJS.Platform = process.platform): string[] {
+  return targetPlatform === 'darwin' ? ['--use-mock-keychain'] : [];
+}
+
 export function applyVsCodeEnvOverrides<T extends NodeJS.ProcessEnv>(
   launchEnv: T,
   rawOverrides: string | undefined = process.env.ALV_E2E_VSCODE_ENV
@@ -869,7 +875,8 @@ async function primeLanguagePack(args: {
       '--skip-release-notes',
       '--disable-updates',
       '--no-sandbox',
-      ...resolveVsCodeCompositingLaunchArgs()
+      ...resolveVsCodeCompositingLaunchArgs(),
+      ...resolveVsCodeKeychainLaunchArgs()
     ],
     env: args.env
   });
@@ -973,6 +980,7 @@ export async function launchVsCode(options: {
       ...(locale ? [`--locale=${locale}`] : [])
     ];
     args.push(...resolveVsCodeCompositingLaunchArgs());
+    args.push(...resolveVsCodeKeychainLaunchArgs());
     args.push(...resolveVsCodeProxyLaunchArgs());
     args.push(...authLaunch.args);
     const windowSizeArg = resolveWindowSizeArg(options.windowSize);

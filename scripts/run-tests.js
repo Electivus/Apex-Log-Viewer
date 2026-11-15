@@ -116,6 +116,12 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// A test host stores Electron's "Code Safe Storage" key in the login keychain, the user's own on a developer Mac.
+// Chromium's mock keychain keeps that key in memory.
+function macKeychainLaunchArgs(hostPlatform = process.platform) {
+  return hostPlatform === 'darwin' ? ['--use-mock-keychain'] : [];
+}
+
 function readEnvValue(name) {
   const value = String(process.env[name] || '').trim();
   return value || undefined;
@@ -979,6 +985,7 @@ async function run() {
         extensionsDir,
         '--skip-welcome',
         '--skip-release-notes',
+        ...macKeychainLaunchArgs(),
         // Use the prepared workspace (set in pretestSetup)
         ...(process.env.VSCODE_TEST_WORKSPACE ? [process.env.VSCODE_TEST_WORKSPACE] : [])
       ];

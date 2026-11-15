@@ -23,6 +23,7 @@ import {
   resolveSupportExtensionIds,
   resolveVsCodeAuthLaunch,
   resolveVsCodeCompositingLaunchArgs,
+  resolveVsCodeKeychainLaunchArgs,
   resolveVsCodeLocale,
   shouldConcealVsCodeWindow,
   waitForExtensionHostStart
@@ -511,6 +512,17 @@ describe('resolveVsCodeCompositingLaunchArgs', () => {
   test('leaves the native compositor on other platforms', () => {
     expect(resolveVsCodeCompositingLaunchArgs('darwin')).toEqual([]);
     expect(resolveVsCodeCompositingLaunchArgs('win32')).toEqual([]);
+  });
+});
+
+describe('resolveVsCodeKeychainLaunchArgs', () => {
+  test('keeps the macOS Safe Storage key off the login keychain', () => {
+    expect(resolveVsCodeKeychainLaunchArgs('darwin')).toEqual(['--use-mock-keychain']);
+  });
+
+  test('adds nothing on other platforms', () => {
+    expect(resolveVsCodeKeychainLaunchArgs('linux')).toEqual([]);
+    expect(resolveVsCodeKeychainLaunchArgs('win32')).toEqual([]);
   });
 });
 
