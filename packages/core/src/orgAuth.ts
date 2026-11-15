@@ -1,52 +1,74 @@
-import { statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
+import { isDeepStrictEqual } from 'node:util';
 
 import { AuthInfo, type AuthFields } from '@salesforce/core';
 
 /**
- * An `AuthInfo` whose saves keep the fields it changed.
+ * An `AuthInfo` whose saves keep the fields it changed, unless the auth file shows a write after the change.
  *
- * `@salesforce/core` stamps every field of the in-memory auth on each update and, when saving, keeps the auth file's
- * value of a field whose stamp is not later than the file's mtime. 9.2 stamps with `performance.timeOrigin +
- * performance.now()`, which starts from the wall clock at process start and then counts on its own. Whenever the wall
- * clock gets ahead of it, a save soon after the file's last write keeps the old values. Windows reads the start from a
- * clock up to 2 ms coarse, and the clock of a long-lived Mac process falls behind by about 0.34 ms a minute. A refresh
- * then hands jsforce the old token and drops a rotated refresh token.
+ * `@salesforce/core` stamps every field of the in-memory auth on each update and, when saving, merges the auth file
+ * under `<file>.lock`, keeping the file's value of a field whose in-memory stamp is earlier than the file's mtime. 9.2
+ * stamps with `performance.timeOrigin + performance.now()`, which starts from the wall clock at process start and then
+ * counts on its own; whenever the wall clock gets ahead of it, a save soon after the file's last write keeps the old
+ * values (#1449). 9.4 stamps in whole milliseconds and loses them on a normal clock. File times cannot order the
+ * writes instead: on NTFS most back-to-back writes share one mtime.
  *
- * An update that gives a field a new value remembers a stamp for it 1 ns after the auth file's mtime at that moment.
- * Each save applies the remembered stamps that are later than the library's, then writes once. The save keeps such a
- * field over every write the file held when it changed, and still loses it to a later write, as a correct clock
- * would. Fields this auth info did not change keep the stamps the library gives them, so the save takes the file's
- * value for them when the file's mtime is later than the library's stamp of this auth info's last update. The library
- * stamps every field anew on each update, so, as with `AuthInfo`, a file written between loading and that update
- * still loses them to the values held in memory unless the library's clock trails. This reads private
- * `@salesforce/core` 9.2 state; if that state has another shape, or the file cannot be read, the auth info behaves as
- * `AuthInfo` does.
+ * So the save checks the file for writes after the change. Just before an update gives a field a new value, this
+ * auth info reads the auth file's mtime and the field's raw value. During its save, inside the library's lock and on
+ * the file contents and mtime the library merges, a changed field is stamped 1 ns after the file's mtime, so the merge
+ * keeps it, only when both are as read. A different mtime shows a write after the read. Within one NTFS tick, where
+ * writes share the mtime, different bytes show a write of the field: encrypted fields get new bytes whenever a write
+ * sets them. Otherwise the library merges the field as for `AuthInfo`, as it merges every field this auth info did
+ * not change. Within the tick of the read, writes that leave the field's bytes as read go unseen: one that carries the
+ * old value along with other changes, one that sets an unencrypted field to the value it had, or two that change and
+ * restore it.
+ *
+ * This reads private `@salesforce/core` state. If a piece of it has another shape, or the file cannot be read or
+ * parsed, the save is `AuthInfo`'s.
  */
 export class PersistentAuthInfo extends AuthInfo {
-  /** The stamp each field this auth info changed since its last save should have. */
-  private readonly ownStamps = new Map<string, bigint>();
+  /** For each field changed since the last save, the auth file as read just before the change. */
+  private readonly readBeforeChange = new Map<string, FieldOnDisk>();
 
   public override update(authData?: AuthFields): AuthInfo {
-    const before = authData ? this.getFields(true) : {};
+    if (!authData) return super.update(authData);
+    const before = this.getFields(true);
+    const candidates = Object.keys(authData).filter(
+      key => !isDeepStrictEqual(before[key as keyof AuthFields], authData[key as keyof AuthFields])
+    );
+    const config = candidates.length > 0 ? authConfigOf(this) : undefined;
+    const onDisk = config ? readAuthFile(config.getPath()) : UNREADABLE;
     super.update(authData);
-    if (!authData) return this;
-    const changed = Object.entries(authData)
-      .filter(([key, value]) => !sameValue(before[key as keyof AuthFields], value))
-      .map(([key]) => key);
-    const mtimeNs = changed.length > 0 ? authFileMtimeNs(authConfigOf(this)) : undefined;
-    if (mtimeNs !== undefined) {
-      for (const key of changed) this.ownStamps.set(key, mtimeNs + 1n);
+    const after = this.getFields(true);
+    for (const key of candidates) {
+      if (onDisk === UNREADABLE) this.readBeforeChange.delete(key);
+      else if (!isDeepStrictEqual(before[key as keyof AuthFields], after[key as keyof AuthFields])) {
+        this.readBeforeChange.set(key, { mtimeNs: onDisk.mtimeNs, raw: fieldOf(onDisk.contents, key) });
+      }
     }
     return this;
   }
 
   public override async save(authData?: AuthFields): Promise<AuthInfo> {
     if (authData) this.update(authData);
-    applyStamps(authConfigOf(this), this.ownStamps);
-    await super.save();
-    this.ownStamps.clear();
+    const config = this.readBeforeChange.size > 0 ? authConfigOf(this) : undefined;
+    const unhook = config ? keepUnchangedFieldsInMerge(config, new Map(this.readBeforeChange)) : undefined;
+    try {
+      await super.save();
+    } finally {
+      unhook?.();
+      this.readBeforeChange.clear();
+    }
     return this;
   }
+}
+
+const ABSENT = Symbol('absent from the auth file');
+const UNREADABLE = Symbol('auth file unreadable');
+
+interface FieldOnDisk {
+  mtimeNs: bigint;
+  raw: unknown;
 }
 
 interface FieldState {
@@ -54,59 +76,101 @@ interface FieldState {
   value: unknown;
 }
 
-interface StampedAuthConfig {
+interface MergingAuthConfig {
   getPath(): string;
+  logAndMergeContents(fileTimestamp: unknown, fileContents: unknown): unknown;
   contents: {
-    state: Record<string, FieldState | undefined>;
+    readonly state: unknown;
     merge(state: Record<string, FieldState>): unknown;
   };
 }
 
-function authFileMtimeNs(config: StampedAuthConfig | undefined): bigint | undefined {
-  if (!config) return undefined;
+// The mtime is read first: a write between the two reads then shows as a later mtime at the save.
+function readAuthFile(file: string): { mtimeNs: bigint; contents: Record<string, unknown> } | typeof UNREADABLE {
   try {
-    return statSync(config.getPath(), { bigint: true }).mtimeNs;
+    const { mtimeNs } = statSync(file, { bigint: true });
+    const contents: unknown = JSON.parse(readFileSync(file, 'utf8'));
+    return isPlainObject(contents) ? { mtimeNs, contents } : UNREADABLE;
   } catch {
-    // No file yet, or none we can stat: the save has nothing to merge these fields against, or fails on its own.
+    // No file to merge with yet, or one the library will fail on as well.
+    return UNREADABLE;
+  }
+}
+
+function fieldOf(contents: Record<string, unknown>, key: string): unknown {
+  return Object.hasOwn(contents, key) ? contents[key] : ABSENT;
+}
+
+/** Wraps this config's merge for the length of one save and returns the function that removes the wrapper. */
+function keepUnchangedFieldsInMerge(
+  config: MergingAuthConfig,
+  readBeforeChange: ReadonlyMap<string, FieldOnDisk>
+): () => void {
+  const own = Object.getOwnPropertyDescriptor(config, 'logAndMergeContents');
+  const merge = config.logAndMergeContents;
+  config.logAndMergeContents = function (this: unknown, fileTimestamp: unknown, fileContents: unknown) {
+    try {
+      stampFieldsUnchangedOnDisk(config, readBeforeChange, fileTimestamp, fileContents);
+    } catch {
+      // Leave the merge to the library, as for AuthInfo.
+    }
+    return merge.call(this, fileTimestamp, fileContents);
+  };
+  return () => {
+    if (own) Object.defineProperty(config, 'logAndMergeContents', own);
+    else delete (config as Partial<MergingAuthConfig>).logAndMergeContents;
+  };
+}
+
+function stampFieldsUnchangedOnDisk(
+  config: MergingAuthConfig,
+  readBeforeChange: ReadonlyMap<string, FieldOnDisk>,
+  fileTimestamp: unknown,
+  fileContents: unknown
+): void {
+  const state = config.contents.state;
+  if (typeof fileTimestamp !== 'bigint' || !isPlainObject(fileContents) || !isPlainObject(state)) return;
+  const later: Record<string, FieldState> = {};
+  for (const [key, read] of readBeforeChange) {
+    if (read.mtimeNs !== fileTimestamp || !isDeepStrictEqual(fieldOf(fileContents, key), read.raw)) continue;
+    const field = state[key];
+    if (isPlainObject(field) && typeof field.timestamp === 'bigint' && field.timestamp <= fileTimestamp) {
+      later[key] = { value: field.value, timestamp: fileTimestamp + 1n };
+    }
+  }
+  if (Object.keys(later).length > 0) config.contents.merge(later);
+}
+
+function authConfigOf(info: AuthInfo): MergingAuthConfig | undefined {
+  try {
+    const username = info.getUsername();
+    const configs = (info as unknown as { stateAggregator?: { orgs?: { configs?: unknown } } }).stateAggregator?.orgs
+      ?.configs;
+    if (!username || typeof configs !== 'object' || configs === null) return undefined;
+    const { get } = configs as { get?: unknown };
+    if (typeof get !== 'function') return undefined;
+    const config: unknown = get.call(configs, username);
+    return isMergingAuthConfig(config) ? config : undefined;
+  } catch {
     return undefined;
   }
 }
 
-function applyStamps(config: StampedAuthConfig | undefined, stamps: ReadonlyMap<string, bigint>): void {
-  if (!config || stamps.size === 0) return;
-  const state = config.contents.state;
-  const later: Record<string, FieldState> = {};
-  for (const [key, timestamp] of stamps) {
-    const field = state[key];
-    // A field read back from a later write of the file already has that write's later stamp.
-    if (field && typeof field.timestamp === 'bigint' && field.timestamp < timestamp) {
-      later[key] = { ...field, timestamp };
-    }
-  }
-  config.contents.merge(later);
-}
-
-function authConfigOf(info: AuthInfo): StampedAuthConfig | undefined {
-  const username = info.getUsername();
-  const configs = (info as unknown as { stateAggregator?: { orgs?: { configs?: unknown } } }).stateAggregator?.orgs
-    ?.configs;
-  if (!username || !(configs instanceof Map)) return undefined;
-  const config: unknown = configs.get(username);
-  return isStampedAuthConfig(config) ? config : undefined;
-}
-
-function isStampedAuthConfig(config: unknown): config is StampedAuthConfig {
+function isMergingAuthConfig(config: unknown): config is MergingAuthConfig {
   if (typeof config !== 'object' || config === null) return false;
-  const { getPath, contents } = config as Partial<StampedAuthConfig>;
+  const { getPath, logAndMergeContents, contents } = config as Partial<MergingAuthConfig>;
   return (
     typeof getPath === 'function' &&
+    typeof logAndMergeContents === 'function' &&
     typeof contents === 'object' &&
     contents !== null &&
     typeof contents.merge === 'function' &&
-    typeof contents.state === 'object'
+    isPlainObject(contents.state)
   );
 }
 
-function sameValue(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null) return false;
+  const prototype: unknown = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
