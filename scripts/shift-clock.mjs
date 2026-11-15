@@ -3,10 +3,11 @@
 //   ALV_TEST_CLOCK_SHIFT_DAYS=45 node --import ./scripts/shift-clock.mjs --import tsx --test test/*.test.ts
 //   ALV_TEST_CLOCK_SHIFT_DAYS=-1 NODE_OPTIONS="--import $PWD/scripts/shift-clock.mjs" pnpm run test:core
 //
-// `new Date()`, `Date.now()` and `Date()` read the real clock plus the shift. File times move with it, as if the
-// system clock itself had moved: stat results report mtime/atime/ctime/birthtime plus the shift, and `utimes` takes
-// the shifted time and stores the real one. BigInt stats (`stat(path, { bigint: true })`) move too, nanosecond fields
-// included, because @salesforce/core compares their `mtimeNs` with `Date.now()`. Monotonic clocks and timers
+// `new Date()`, `Date.now()`, `Date()` and `performance.timeOrigin` read the real clock plus the shift. File times
+// move with it, as if the system clock itself had moved: stat results report mtime/atime/ctime/birthtime plus the
+// shift, BigInt stats (`stat(path, { bigint: true })`) included, and `utimes` takes the shifted time and stores the
+// real one. @salesforce/core compares a BigInt `mtimeNs` with its own wall clock, `Date.now()` from 9.4 and
+// `performance.timeOrigin + performance.now()` before, so all of them move together. Monotonic clocks and timers
 // (`setTimeout`, `performance.now`) are untouched, so durations stay true. Child processes inherit the shift through
 // NODE_OPTIONS. `FileHandle.stat` is not shifted.
 //
@@ -35,6 +36,12 @@ globalThis.Date = new Proxy(RealDate, {
   construct: (target, args, newTarget) =>
     Reflect.construct(target, args.length === 0 ? [shiftedNow()] : args, newTarget),
   apply: () => new RealDate(shiftedNow()).toString()
+});
+
+Object.defineProperty(performance, 'timeOrigin', {
+  value: performance.timeOrigin + shiftMs,
+  enumerable: true,
+  configurable: true
 });
 
 const TIME_FIELDS = ['atime', 'mtime', 'ctime', 'birthtime'];
