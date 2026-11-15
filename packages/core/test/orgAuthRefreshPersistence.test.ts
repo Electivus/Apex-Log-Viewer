@@ -118,21 +118,11 @@ async function saveAsAnotherProcess(username: string, fields: AuthFields): Promi
   await (await PersistentAuthInfo.create({ username })).save(fields);
 }
 
-// NTFS gave 1761 of 2000 back-to-back writes on the lab VM the same mtime, and no file time can order two writes
-// within one tick. Waits until a new write in the auth file's folder gets a later mtime than the auth file.
-async function untilFileTimesPass(username: string): Promise<void> {
+// NTFS gave most back-to-back writes on the lab VM one mtime (1761 and 1857 of 2000). Setting the auth file's mtime to
+// one whole second, inside the 10 s the stamp clock trails by, makes two writes share it on every file system.
+async function setFileTime(username: string, second: number): Promise<void> {
   const file = (await StateAggregator.getInstance()).orgs.getPath(username);
-  const probe = `${file}.clock`;
-  const { mtimeNs } = await fs.stat(file, { bigint: true });
-  try {
-    for (;;) {
-      await fs.writeFile(probe, '');
-      if ((await fs.stat(probe, { bigint: true })).mtimeNs > mtimeNs) return;
-      await new Promise(resolve => setTimeout(resolve, 1));
-    }
-  } finally {
-    await fs.rm(probe, { force: true });
-  }
+  await fs.utimes(file, second, second);
 }
 
 async function persistedAfter(ours: AuthInfo, username: string): Promise<Record<string, unknown>> {
@@ -174,23 +164,78 @@ test('a save that repeats the tokens it holds keeps the token another process sa
   assert.deepEqual(await persistedAfter(ours, username), keptBoth);
 });
 
-test('a change loses to a later write of the same field by another process before the save', async t => {
-  const username = 'written-between-update-and-save@example.com';
-  const ours = await loadedBeforeAnotherProcessSaved(username);
+// Verifier finding B1 on 02cbc59f: stamps taken from the file's mtime beat a later write that shares that mtime.
+test('changes lose to a later write of the same fields by another process in the same file-time tick', async t => {
+  const username = 'written-in-the-same-tick@example.com';
+  const state = await StateAggregator.getInstance();
+  state.orgs.set(username, {
+    username,
+    orgId: ORG_ID,
+    instanceUrl: 'http://127.0.0.1:9',
+    accessToken: 'token-0',
+    refreshToken: 'refresh-token-0',
+    clientId: 'PlatformCLI',
+    instanceApiVersion: '62.0'
+  });
+  await state.orgs.write(username);
+  const ours = await PersistentAuthInfo.create({ username });
 
   trailStampClock(t, 10_000);
+  const tick = Math.floor(Date.now() / 1000);
+  await setFileTime(username, tick);
+  ours.update({ accessToken: 'token-ours', refreshToken: 'refresh-token-ours' });
   ours.update({ instanceApiVersion: '63.0' });
-  await untilFileTimesPass(username);
   await StateAggregator.clearInstanceAsync();
-  await saveAsAnotherProcess(username, { instanceApiVersion: '64.0' });
+  await saveAsAnotherProcess(username, {
+    accessToken: 'token-newer',
+    refreshToken: 'refresh-token-newer',
+    instanceApiVersion: '64.0'
+  });
+  await setFileTime(username, tick);
   await ours.save();
 
   await StateAggregator.clearInstanceAsync();
   const persisted = await (await StateAggregator.getInstance()).orgs.peek(username, true);
   assert.deepEqual(
-    { accessToken: persisted?.accessToken, instanceApiVersion: persisted?.instanceApiVersion },
-    { accessToken: 'token-other', instanceApiVersion: '64.0' }
+    {
+      accessToken: persisted?.accessToken,
+      refreshToken: persisted?.refreshToken,
+      instanceApiVersion: persisted?.instanceApiVersion
+    },
+    { accessToken: 'token-newer', refreshToken: 'refresh-token-newer', instanceApiVersion: '64.0' }
   );
+});
+
+// Content alone cannot show this write: the field's value is back to the one the auth info read before its change.
+test('a change loses to later writes by other processes that restore the value it replaced', async t => {
+  const username = 'restored-by-others@example.com';
+  const state = await StateAggregator.getInstance();
+  state.orgs.set(username, {
+    username,
+    orgId: ORG_ID,
+    instanceUrl: 'http://127.0.0.1:9',
+    accessToken: 'token-0',
+    refreshToken: 'refresh-token-0',
+    clientId: 'PlatformCLI',
+    instanceApiVersion: '62.0'
+  });
+  await state.orgs.write(username);
+  const ours = await PersistentAuthInfo.create({ username });
+
+  trailStampClock(t, 10_000);
+  const second = Math.floor(Date.now() / 1000);
+  await setFileTime(username, second - 2);
+  ours.update({ instanceApiVersion: '63.0' });
+  await StateAggregator.clearInstanceAsync();
+  await saveAsAnotherProcess(username, { instanceApiVersion: '64.0' });
+  await StateAggregator.clearInstanceAsync();
+  await saveAsAnotherProcess(username, { instanceApiVersion: '62.0' });
+  await setFileTime(username, second - 1);
+  await ours.save();
+
+  await StateAggregator.clearInstanceAsync();
+  const persisted = await (await StateAggregator.getInstance()).orgs.peek(username, true);
+  assert.equal(persisted?.instanceApiVersion, '62.0');
 });
 
 // The library sets every field again on each update, so a change of an earlier update needs keeping too.
