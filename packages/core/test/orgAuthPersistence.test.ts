@@ -13,7 +13,7 @@ isolateSalesforceHome();
 // Token refreshes persist through AuthInfo.save, and both surfaces read the token back through core.org.getAuth.
 // 9.2.0 loses some of these saves too, on some systems (#1449). Measured on 9.2.0: a Windows Server 2025 VM with
 // NTFS lost 1 to 36 of 100 tokens in 15 of 30 runs; macOS CI runners lost 35 and 27 in 2 of 9 runs, for a cause
-// not yet measured; Linux lost none, in CI and in a container, where 9.4.6 lost 28 to 34 in all 5 runs. So the
+// not yet measured; Linux lost none, in CI and in a container, where 9.4.6 lost 15 to 34 in all 8 runs. So the
 // test is a todo on Windows and macOS, where node:test still runs it and prints the lost tokens without failing the
 // run, and it is enforced on Linux, where it tells 9.2.0 from 9.4.6.
 const lossOn9_2 =
