@@ -3,11 +3,13 @@
 //   ALV_TEST_CLOCK_SHIFT_DAYS=45 node --import ./scripts/shift-clock.mjs --import tsx --test test/*.test.ts
 //   ALV_TEST_CLOCK_SHIFT_DAYS=-1 NODE_OPTIONS="--import $PWD/scripts/shift-clock.mjs" pnpm run test:core
 //
-// `new Date()`, `Date.now()` and `Date()` read the real clock plus the shift. File times move with it, as if the
-// system clock itself had moved: stat results report mtime/atime/ctime/birthtime plus the shift, and `utimes` takes
-// the shifted time and stores the real one. Monotonic clocks and timers (`setTimeout`, `performance.now`) are
-// untouched, so durations stay true. Child processes inherit the shift through NODE_OPTIONS. `FileHandle.stat` and
-// BigInt stats are not shifted.
+// `new Date()`, `Date.now()`, `Date()` and `performance.timeOrigin` read the real clock plus the shift. File times
+// move with it, as if the system clock itself had moved: stat results report mtime/atime/ctime/birthtime plus the
+// shift, BigInt stats (`stat(path, { bigint: true })`) included, and `utimes` takes the shifted time and stores the
+// real one. @salesforce/core compares a BigInt `mtimeNs` with its own wall clock, `Date.now()` from 9.4 and
+// `performance.timeOrigin + performance.now()` before, so all of them move together. Monotonic clocks and timers
+// (`setTimeout`, `performance.now`) are untouched, so durations stay true. Child processes inherit the shift through
+// NODE_OPTIONS. `FileHandle.stat` is not shifted.
 //
 // The preload refuses to run without a shift, so an unshifted run is never mistaken for a shifted one.
 import fs from 'node:fs';
@@ -36,19 +38,33 @@ globalThis.Date = new Proxy(RealDate, {
   apply: () => new RealDate(shiftedNow()).toString()
 });
 
+Object.defineProperty(performance, 'timeOrigin', {
+  value: performance.timeOrigin + shiftMs,
+  enumerable: true,
+  configurable: true
+});
+
 const TIME_FIELDS = ['atime', 'mtime', 'ctime', 'birthtime'];
 
+const define = (stats, key, value) =>
+  Object.defineProperty(stats, key, { value, writable: true, enumerable: true, configurable: true });
+
 const shiftedStats = stats => {
-  if (!stats || typeof stats.mtimeMs !== 'number') return stats;
+  if (typeof stats?.mtimeMs === 'bigint') {
+    const shift = BigInt(shiftMs);
+    for (const field of TIME_FIELDS) {
+      const ms = stats[`${field}Ms`] + shift;
+      define(stats, `${field}Ms`, ms);
+      define(stats, `${field}Ns`, stats[`${field}Ns`] + shift * 1_000_000n);
+      define(stats, field, new RealDate(Number(ms)));
+    }
+    return stats;
+  }
+  if (typeof stats?.mtimeMs !== 'number') return stats;
   for (const field of TIME_FIELDS) {
     const ms = stats[`${field}Ms`] + shiftMs;
-    Object.defineProperty(stats, `${field}Ms`, { value: ms, writable: true, enumerable: true, configurable: true });
-    Object.defineProperty(stats, field, {
-      value: new RealDate(ms),
-      writable: true,
-      enumerable: true,
-      configurable: true
-    });
+    define(stats, `${field}Ms`, ms);
+    define(stats, field, new RealDate(ms));
   }
   return stats;
 };
