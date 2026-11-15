@@ -8,16 +8,14 @@ import { AlvError, createApexLogViewerCore } from '../src/index.ts';
 import { NEBULA_PRESET } from '../src/customLogs/presets.ts';
 import { page, startNebulaOrg, type NebulaOrg } from './support/nebulaDouble.ts';
 import { appLogSource, projectWith, type Json } from './support/customLogsFixtures.ts';
-import { isolateSalesforceHome, saveOrgAuth, salesforceError } from './support/salesforceDouble.ts';
-
-isolateSalesforceHome();
+import { authSourceDouble, salesforceError, saveOrgAuth } from './support/salesforceDouble.ts';
 
 const UNLOCKED = ['Log__c', 'LogEntry__c'];
 const MANAGED = ['Nebula__Log__c', 'Nebula__LogEntry__c'];
 
 async function coreFor(t: test.TestContext, org: NebulaOrg, username: string) {
-  await saveOrgAuth(username, org.instanceUrl);
-  const core = createApexLogViewerCore();
+  saveOrgAuth(username, org.instanceUrl);
+  const core = createApexLogViewerCore({ auth: authSourceDouble() });
   t.after(() => core.dispose());
   return { core, username };
 }

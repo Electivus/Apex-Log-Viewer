@@ -112,7 +112,7 @@ export async function debugLevelOrg(t: test.TestContext, username: string) {
     }
     return salesforceError('NOT_FOUND', `${request.method} ${request.path}`, 404);
   });
-  await saveOrgAuth(username, salesforce.instanceUrl);
+  saveOrgAuth(username, salesforce.instanceUrl);
   return {
     salesforce,
     levels,

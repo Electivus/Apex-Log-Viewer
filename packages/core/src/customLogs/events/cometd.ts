@@ -1,8 +1,7 @@
 /**
- * CometD long-polling through the Faye client that core's `@salesforce/core` Connection already
- * exposes (`connection.streaming.createClient(extensions)`, inherited from jsforce). No new
- * dependency; jsforce's StreamingExtension classes are not imported (core does not declare
- * `@jsforce/jsforce-node`), so the extensions are inline `{ incoming, outgoing }` objects.
+ * CometD long-polling through the Faye client that the jsforce Connection already exposes
+ * (`connection.streaming.createClient(extensions)`). No new dependency; jsforce's StreamingExtension
+ * classes are not imported, so the extensions are inline `{ incoming, outgoing }` objects.
  *
  * Not `@salesforce/core`'s StreamingClient: it completes only when a processor says so, times out
  * after 3 min by default, cannot drop its replay extension, and hides `disconnect`.

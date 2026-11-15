@@ -37,7 +37,13 @@ The TypeScript runner enters through `createApexLogViewerCore` and consumes the 
 
 The entry point is `apps/vscode-extension/src/extension.ts`. Extension-only Salesforce/UI adapters live under `apps/vscode-extension/src/host/`; providers and panels live beside them under `provider/` and `panel/`.
 
-The client in `apps/vscode-extension/src/runtime/runtimeClient.ts` preserves the extension-facing method surface while calling `@alv/core` in process. It supplies the workspace root, deduplicates concurrent org/auth reads, translates core log DTOs to the existing webview shape, maps cancellation to `AbortError`, and emits `core.request` telemetry.
+The client in `apps/vscode-extension/src/runtime/runtimeClient.ts` preserves the extension-facing method surface while calling `@alv/core` in process. It supplies the workspace root and the `sf` CLI auth source, deduplicates concurrent org list reads, translates core log DTOs to the existing webview shape, maps cancellation to `AbortError`, and emits `core.request` telemetry.
+
+### Salesforce auth
+
+Only the `sf` CLI reads, refreshes and writes Salesforce auth files. Core takes an `OrgAuthSource` (`packages/core/src/orgSessions.ts`) and keeps each org's access token in memory, in one session per username that every caller shares. It asks the source at the first use of an org, and again only after Salesforce rejects the token, then retries the request once. A renewed token that Salesforce rejects again ends with `AUTH_REQUIRED`.
+
+The extension's source (`apps/vscode-extension/src/host/salesforce/sfCliAuth.ts`) runs `sf org list auth`, then `sf org auth show-access-token`, or `sf org display` on a CLI that lacks that command. Because only `sf` refreshes, an org whose connected app rotates refresh tokens needs a CLI that keeps the new token: 2.152.9 or newer, which bundles `@salesforce/core` 9.2.0 or later. The plugin's source (`packages/sf-plugin/src/sfCoreAuth.ts`) runs inside `sf` and reads auth with `@salesforce/core`. Its only write is the refresh after a rejected session, as any `sf` command makes. ESLint rejects `@salesforce/core` imports in the core and extension sources.
 
 Extension Open, Replay, Tail body reads, full-log search preparation, triage, sync, status, and local purge all cross `ApexLogLifecycle`. The extension retains presentation, Tail's streaming subscription, Replay commands, ripgrep execution, and Apex log retention-policy selection; it does not construct cache paths, write Apex log bodies, or open event files. Custom Logs event capture (the subscription, the checkpoint, and the store) is the core operation `customLog.capture`, which the extension and the CLI both call.
 

@@ -1,4 +1,5 @@
 import { configureSalesforceProxy, createApexLogViewerCore } from '../../src/index.ts';
+import { authSourceDouble, loadSavedOrgs } from './salesforceDouble.ts';
 
 const PROXY_VARIABLES = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'NO_PROXY', 'no_proxy'];
 
@@ -41,7 +42,8 @@ async function main(): Promise<void> {
   }
   if (process.env.ALV_TEST_PLATFORM)
     Object.defineProperty(process, 'platform', { value: process.env.ALV_TEST_PLATFORM });
-  const core = createApexLogViewerCore();
+  loadSavedOrgs();
+  const core = createApexLogViewerCore({ auth: authSourceDouble() });
   try {
     if (username === '--batch') return await batch(core);
     if (settings) configureSalesforceProxy(JSON.parse(settings));

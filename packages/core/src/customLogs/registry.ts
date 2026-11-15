@@ -5,7 +5,7 @@
  * and a rejected one is evicted. Nothing else caches schema facts.
  */
 
-import type { Connection } from '@salesforce/core';
+import type { Connection } from '@jsforce/jsforce-node';
 
 import { awaitWithAbort, errorCodeOf, throwIfAborted } from '../errors.js';
 import type { ParsedCustomLogsConfig } from './config.js';
@@ -20,8 +20,8 @@ import {
   type SchemaMemo
 } from './schema.js';
 
-/** `orgCall`'s context. The cursor's org binding reads `connection.getAuthInfoFields().orgId`. */
-export type CustomLogContext = { connection: Connection; username: string };
+/** `orgCall`'s context. The cursor's org binding reads `orgId`, which the auth source reports. */
+export type CustomLogContext = { connection: Connection; username: string; orgId?: string };
 
 export type SourceRegistry = {
   /**

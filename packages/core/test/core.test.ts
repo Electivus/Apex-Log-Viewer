@@ -8,6 +8,7 @@ import { AlvError, ApexLogLifecycleError, createApexLogViewerCore, parseApexLogI
 import type { ApexLogRemote } from '../src/logLifecycle.ts';
 import type { LogSyncProgress } from '../src/index.ts';
 import { awaitWithAbort, deleteApexLogIds, runLimited } from '../src/runtime.ts';
+import { authSourceDouble } from './support/salesforceDouble.ts';
 
 function unavailableApexLogRemote(): ApexLogRemote {
   return {
@@ -33,6 +34,7 @@ test('sync exposes searchable paths and payload-free failures, then recovers inc
   let fail = true;
   let offline = false;
   const core = createApexLogViewerCore({
+    auth: authSourceDouble(),
     apexLogRemote: {
       async resolveOrg() {
         assert.equal(offline, false);
@@ -83,7 +85,7 @@ test('sync exposes searchable paths and payload-free failures, then recovers inc
 test('status does not invent a canonical search directory for an unresolved local org', async t => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-no-org-'));
   t.after(() => fs.rm(workspaceRoot, { recursive: true, force: true }));
-  const core = createApexLogViewerCore({ apexLogRemote: unavailableApexLogRemote() });
+  const core = createApexLogViewerCore({ auth: authSourceDouble(), apexLogRemote: unavailableApexLogRemote() });
   t.after(() => core.dispose());
   const result = await core.log.status({ targetOrg: 'unknown-alias', workspaceRoot });
   assert.equal(result.orgLogsRoot, undefined);
@@ -98,7 +100,7 @@ test('core log resolve finds legacy cached paths without Salesforce auth', async
   await fs.mkdir(path.dirname(legacyPath), { recursive: true });
   await fs.writeFile(legacyPath, 'legacy body');
 
-  const core = createApexLogViewerCore();
+  const core = createApexLogViewerCore({ auth: authSourceDouble() });
   const result = await core.log.resolve({ logId, targetOrg: 'demo@example.com', workspaceRoot });
 
   assert.equal(result.path, legacyPath);
@@ -112,7 +114,7 @@ test('core triages locally cached logs without requiring the CLI plugin', async 
   await fs.mkdir(path.dirname(logPath), { recursive: true });
   await fs.writeFile(logPath, '12:00:00.0|FATAL_ERROR|System.NullPointerException: boom');
 
-  const core = createApexLogViewerCore({ apexLogRemote: unavailableApexLogRemote() });
+  const core = createApexLogViewerCore({ auth: authSourceDouble(), apexLogRemote: unavailableApexLogRemote() });
   const result = await core.log.triage({ logIds: [logId], username: 'demo@example.com', workspaceRoot });
 
   assert.equal(result[0]?.summary.hasErrors, true);
@@ -125,6 +127,7 @@ test('core reports cancellation through its stable error and instrumentation con
   const controller = new AbortController();
   controller.abort();
   const core = createApexLogViewerCore({
+    auth: authSourceDouble(),
     apexLogRemote: unavailableApexLogRemote(),
     instrumentation: { onCall: event => events.push({ method: event.method, outcome: event.outcome }) }
   });
@@ -145,6 +148,7 @@ test('core instruments the public Apex Log Lifecycle seam', async () => {
   await fs.writeFile(localPath, 'instrumented body', 'utf8');
   const events: Array<{ method: string; outcome: string }> = [];
   const core = createApexLogViewerCore({
+    auth: authSourceDouble(),
     apexLogRemote: unavailableApexLogRemote(),
     instrumentation: { onCall: event => events.push({ method: event.method, outcome: event.outcome }) }
   });
@@ -169,6 +173,7 @@ test('core lifecycle instrumentation preserves its stable cancellation error', a
   const controller = new AbortController();
   controller.abort();
   const core = createApexLogViewerCore({
+    auth: authSourceDouble(),
     instrumentation: { onCall: event => events.push({ method: event.method, outcome: event.outcome }) }
   });
 
@@ -351,7 +356,7 @@ test('core log read uses the shared Apex Log Lifecycle seam', async () => {
       return 'core lifecycle body';
     }
   };
-  const core = createApexLogViewerCore({ apexLogRemote: remote });
+  const core = createApexLogViewerCore({ auth: authSourceDouble(), apexLogRemote: remote });
 
   try {
     const result = await core.log.read({ logId, targetOrg: username, workspaceRoot });
@@ -378,7 +383,7 @@ test('core log sync preserves its public result while using the shared lifecycle
       return 'sync core body';
     }
   };
-  const core = createApexLogViewerCore({ apexLogRemote: remote });
+  const core = createApexLogViewerCore({ auth: authSourceDouble(), apexLogRemote: remote });
 
   try {
     const result = await core.log.sync({ targetOrg: username, workspaceRoot });
@@ -418,7 +423,7 @@ test('core log sync reports the listing and each saved log through onProgress', 
       return `body of ${logId}`;
     }
   };
-  const core = createApexLogViewerCore({ apexLogRemote: remote });
+  const core = createApexLogViewerCore({ auth: authSourceDouble(), apexLogRemote: remote });
   const events: LogSyncProgress[] = [];
 
   try {
@@ -474,7 +479,7 @@ test('core log sync progress does not count downloads that were cancelled', asyn
       });
     }
   };
-  const core = createApexLogViewerCore({ apexLogRemote: remote });
+  const core = createApexLogViewerCore({ auth: authSourceDouble(), apexLogRemote: remote });
   const events: LogSyncProgress[] = [];
 
   try {
@@ -512,7 +517,7 @@ test('core log status maps lifecycle state to the compatibility DTO', async () =
       return 'status core body';
     }
   };
-  const core = createApexLogViewerCore({ apexLogRemote: remote });
+  const core = createApexLogViewerCore({ auth: authSourceDouble(), apexLogRemote: remote });
 
   try {
     await core.log.sync({ targetOrg: username, workspaceRoot });
@@ -543,7 +548,7 @@ test('core log status preserves state existence after a successful empty sync', 
       throw new Error('readBody is not used by an empty sync');
     }
   };
-  const core = createApexLogViewerCore({ apexLogRemote: remote });
+  const core = createApexLogViewerCore({ auth: authSourceDouble(), apexLogRemote: remote });
 
   try {
     const sync = await core.log.sync({ targetOrg: username, workspaceRoot });
@@ -575,7 +580,7 @@ test('core log triage preserves its DTO while using lifecycle acquisition', asyn
       return '12:00:00.0|FATAL_ERROR|System.NullPointerException: lifecycle';
     }
   };
-  const core = createApexLogViewerCore({ apexLogRemote: remote });
+  const core = createApexLogViewerCore({ auth: authSourceDouble(), apexLogRemote: remote });
 
   try {
     const result = await core.log.triage({ username, logIds: [logId], workspaceRoot });

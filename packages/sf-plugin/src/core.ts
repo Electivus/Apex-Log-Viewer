@@ -1,3 +1,5 @@
 import { createApexLogViewerCore } from '@alv/core';
 
-export const core = createApexLogViewerCore();
+import { createSfCoreAuthSource } from './sfCoreAuth.js';
+
+export const core = createApexLogViewerCore({ auth: createSfCoreAuthSource() });

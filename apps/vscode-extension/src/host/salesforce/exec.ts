@@ -30,6 +30,7 @@ export let execFileImpl: ExecFileFn = ((
   const argv = Array.isArray(args) ? args.slice() : [];
   const spawnOpts: cp.SpawnOptions = {
     env: options.env,
+    cwd: options.cwd,
     stdio: ['ignore', 'pipe', 'pipe']
   };
   try {
@@ -146,9 +147,15 @@ function wrapWithAbort<T>(underlying: Promise<T>, signal?: AbortSignal): Promise
   });
 }
 
-function makeExecKey(program: string, args: string[], envOverride?: NodeJS.ProcessEnv, timeoutMs?: number): string {
+function makeExecKey(
+  program: string,
+  args: string[],
+  envOverride?: NodeJS.ProcessEnv,
+  timeoutMs?: number,
+  cwd?: string
+): string {
   const hasAltPath = !!(envOverride && envOverride.PATH && envOverride.PATH !== process.env.PATH);
-  return [program, ...args, hasAltPath ? 'loginPATH' : '', String(timeoutMs || '')].join('\u0000');
+  return [program, ...args, hasAltPath ? 'loginPATH' : '', String(timeoutMs || ''), cwd ?? ''].join('\u0000');
 }
 
 function normalizeCliProgramForTelemetry(program: string): 'sf' | 'sfdx' | 'other' {
@@ -186,9 +193,10 @@ export function execCommand(
   args: string[],
   envOverride?: NodeJS.ProcessEnv,
   timeoutMs: number = CLI_TIMEOUT_MS,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  cwd?: string
 ): Promise<{ stdout: string; stderr: string }> {
-  const key = makeExecKey(program, args, envOverride, timeoutMs);
+  const key = makeExecKey(program, args, envOverride, timeoutMs, cwd);
   const existing = inFlightExecs.get(key);
   if (existing) {
     // Return a per-caller wrapper that can be cancelled without aborting the shared process
@@ -202,6 +210,9 @@ export function execCommand(
     };
     if (envOverride) {
       opts.env = envOverride;
+    }
+    if (cwd) {
+      opts.cwd = cwd;
     }
     try {
       logTrace('execCommand:', program, args.join(' '), envOverride?.PATH ? '(login PATH)' : '');

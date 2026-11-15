@@ -719,8 +719,8 @@ export async function resolveVsCodeAuthLaunch(
   } catch {
     throw new Error('Invalid macOS CI authentication homes');
   }
-  // Native @salesforce/core reads auth inside the Extension Host without spawning
-  // the CLI. VS Code's launch contract isolates that process before SDK loading.
+  // The `sf` children of the Extension Host read auth under its HOME. VS Code's
+  // launch contract gives that HOME to the Extension Host alone.
   return {
     env: { HOME: desktopHome },
     args: [`--extensionEnvironment=${JSON.stringify({ HOME: authHome })}`]

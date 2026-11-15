@@ -4,15 +4,13 @@ import test from 'node:test';
 import { AlvError, createApexLogViewerCore } from '../src/index.ts';
 import { queryData } from '../src/dataQuery.ts';
 import {
-  isolateSalesforceHome,
+  authSourceDouble,
   openConnection,
+  salesforceError,
   saveOrgAuth,
   startSalesforceDouble,
-  salesforceError,
   type DoubleHandler
 } from './support/salesforceDouble.ts';
-
-isolateSalesforceHome();
 
 const records = (from: number, to: number) =>
   Array.from({ length: to - from + 1 }, (_, index) => ({ Id: `005${String(from + index).padStart(12, '0')}AAA` }));
@@ -45,8 +43,8 @@ const batchedUsers: DoubleHandler = request => {
 
 async function connect(t: test.TestContext, username: string, handler: DoubleHandler) {
   const salesforce = await startSalesforceDouble(t, handler);
-  await saveOrgAuth(username, salesforce.instanceUrl);
-  return { salesforce, connection: await openConnection(username) };
+  saveOrgAuth(username, salesforce.instanceUrl);
+  return { salesforce, connection: openConnection(username) };
 }
 
 test('queryData follows queryMore until Salesforce is done', async t => {
@@ -132,8 +130,8 @@ test('queryData lets Salesforce errors through unchanged', async t => {
 test('user.search returns every user Salesforce splits across batches', async t => {
   const username = 'search@example.com';
   const salesforce = await startSalesforceDouble(t, batchedUsers);
-  await saveOrgAuth(username, salesforce.instanceUrl);
-  const core = createApexLogViewerCore();
+  saveOrgAuth(username, salesforce.instanceUrl);
+  const core = createApexLogViewerCore({ auth: authSourceDouble() });
   t.after(() => core.dispose());
 
   const result = await core.user.search({ targetOrg: username, limit: 200 });
@@ -145,8 +143,8 @@ test('user.search returns every user Salesforce splits across batches', async t 
 test('user.search rejects a query SOQL cannot spell before it reaches Salesforce', async t => {
   const username = 'control@example.com';
   const salesforce = await startSalesforceDouble(t, batchedUsers);
-  await saveOrgAuth(username, salesforce.instanceUrl);
-  const core = createApexLogViewerCore();
+  saveOrgAuth(username, salesforce.instanceUrl);
+  const core = createApexLogViewerCore({ auth: authSourceDouble() });
   t.after(() => core.dispose());
 
   await assert.rejects(
