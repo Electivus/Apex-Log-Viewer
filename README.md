@@ -98,6 +98,8 @@ sf electivus log status --target-org my-org
 
 `log sync` resolves org auth through Salesforce Core, lists `ApexLog` rows, and downloads raw log bodies over the Salesforce Tooling REST API. It materializes those bodies under `apexlogs/`, keeps incremental state in `apexlogs/.alv/sync-state.json`, writes the canonical org-first layout at `apexlogs/orgs/<safe-target-org>/logs/YYYY-MM-DD/<logId>.log`, and removes legacy SQLite search index files. Use `--concurrency` to tune parallel body downloads.
 
+The plugin runs inside `sf` with its own copy of `@salesforce/core`. It reads org auth in-process and, after Salesforce rejects a session, refreshes the token and saves it itself, as any `sf` command does. The VS Code extension instead asks `sf` for tokens and writes no auth file.
+
 `sf electivus custom-log` reads the same application logs as the Custom Logs panel, for example `sf electivus custom-log list --target-org my-org --min-level ERROR --since 24h --json`. A logging framework that only publishes platform events, such as `nebula-events`, needs `sf electivus custom-log capture --source nebula-events --target-org my-org` first. It stores the events under `apexlogs/`, and `list` then reads them offline. See [Custom Logs commands](docs/CUSTOM_LOGS.md#commands) and [Event sources](docs/CUSTOM_LOGS.md#event-sources).
 
 The VS Code extension and plugin are independent adapters over the private shared `@alv/core`. The extension bundles the core directly and never packages or spawns the plugin, so extension users do not install the plugin. The published plugin provides the same camelCase JSON operations for terminal and agent workflows.
@@ -237,7 +239,7 @@ See [docs/SETTINGS.md](docs/SETTINGS.md) for the full configuration reference.
 - **No orgs detected**
   Authenticate with `sf org login web` and verify with `sf org list`; the extension lists orgs and gets their access tokens through `sf`, and never reads the auth files itself.
 - **Asked to log in again after a session renewal**
-  In orgs whose connected app rotates refresh tokens, update the Salesforce CLI to 2.152.9 or newer. Older CLIs drop the new refresh token after a refresh, so the next refresh fails with `invalid_grant`.
+  In orgs whose connected app rotates refresh tokens, update the Salesforce CLI to 2.152.9 or newer. Older CLIs drop the new refresh token after a refresh, so the next refresh fails with `invalid_grant`. When the extension asks for a new login with such a CLI, its message names the installed release and how to update it.
 - **Replay Debugger does not launch**
   Install the Salesforce Extension Pack or the standalone Apex Replay Debugger extension.
 - **Behind a corporate proxy**
