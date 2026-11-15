@@ -9,14 +9,30 @@ const PRELOAD = pathToFileURL(path.resolve(__dirname, '../../../scripts/shift-cl
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
 
-/** What a process under the preload sees; `performance.timeOrigin` is the one wall clock the preload leaves alone. */
+/** What a process under the preload sees; `FileHandle.stat` is the one wall clock the preload leaves alone. */
 const PROBE = `
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const realNow = () => performance.timeOrigin + performance.now();
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-shift-'));
+const realNow = async () => {
+  const handle = await fs.promises.open(path.join(dir, 'clock'), 'w');
+  try {
+    await handle.write('x');
+    return (await handle.stat()).mtimeMs;
+  } finally {
+    await handle.close();
+  }
+};
+const shiftOf = async read => {
+  const real = await realNow();
+  return read() - real;
+};
+const nowShift = await shiftOf(() => Date.now());
+const constructedShift = await shiftOf(() => new Date().getTime());
+const calledShift = await shiftOf(() => Date.parse(Date()));
+const timeOriginShift = await shiftOf(() => performance.timeOrigin + performance.now());
 const file = path.join(dir, 'f');
 fs.writeFileSync(file, 'x');
 const written = fs.statSync(file);
@@ -35,9 +51,10 @@ const stubbed = Date.now();
 Date.now = original;
 fs.rmSync(dir, { recursive: true });
 console.log(JSON.stringify({
-  nowShift: Date.now() - realNow(),
-  constructedShift: new Date().getTime() - realNow(),
-  calledShift: Date.parse(Date()) - realNow(),
+  nowShift,
+  constructedShift,
+  calledShift,
+  timeOriginShift,
   fixedInstant: new Date('2026-01-01T00:00:00.000Z').getTime(),
   isDate: new Date() instanceof Date,
   mtimeLagMs: Date.now() - written.mtimeMs,
@@ -82,6 +99,7 @@ for (const days of [45, -1, 0.5]) {
     near(seen.nowShift, days * DAY, 100, 'Date.now()');
     near(seen.constructedShift, days * DAY, 100, 'new Date()');
     near(seen.calledShift, days * DAY, 1_100, 'Date()');
+    near(seen.timeOriginShift, days * DAY, 100, 'performance.timeOrigin + performance.now()');
     assert.equal(seen.fixedInstant, Date.UTC(2026, 0, 1), 'a date given explicitly is not shifted');
     assert.equal(seen.isDate, true);
     near(seen.mtimeLagMs, 0, 1_100, 'a file written now has mtime close to Date.now()');
