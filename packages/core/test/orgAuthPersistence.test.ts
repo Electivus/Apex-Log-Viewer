@@ -11,13 +11,19 @@ isolateSalesforceHome();
 // @salesforce/core 9.4 stamps an in-memory auth change in whole milliseconds and merges it with the auth file
 // by the file's nanosecond mtime, so a save soon after the previous one can lose to it and leave the old token.
 // Token refreshes persist through AuthInfo.save, and both surfaces read the token back through core.org.getAuth.
-// On a Windows Server 2025 VM with NTFS, 9.2.0 lost 1 to 36 of 100 tokens in 15 of 30 runs (#1449). There the test
-// is a todo: node:test still runs it and prints the lost tokens, but a failure does not fail the run.
-const windowsLoss = process.platform === 'win32' ? '9.2.0 also loses back-to-back saves on Windows (#1449)' : false;
+// 9.2.0 loses some of these saves too, on some systems (#1449). Measured on 9.2.0: a Windows Server 2025 VM with
+// NTFS lost 1 to 36 of 100 tokens in 15 of 30 runs; macOS CI runners lost 35 and 27 in 2 of 9 runs, for a cause
+// not yet measured; Linux lost none, in CI and in a container, where 9.4.6 lost 28 to 34 in all 5 runs. So the
+// test is a todo on Windows and macOS, where node:test still runs it and prints the lost tokens without failing the
+// run, and it is enforced on Linux, where it tells 9.2.0 from 9.4.6.
+const lossOn9_2 =
+  process.platform === 'win32' || process.platform === 'darwin'
+    ? `9.2.0 also loses back-to-back saves on ${process.platform} (#1449)`
+    : false;
 
 test(
   'each of 100 back-to-back auth saves leaves its own access token for core.org.getAuth',
-  { todo: windowsLoss },
+  { todo: lossOn9_2 },
   async t => {
     const username = 'saved-in-a-row@example.com';
     const state = await StateAggregator.getInstance();
