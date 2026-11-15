@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Breaking Changes
+
+- Salesforce CLI: the extension needs the `sf` command. The deprecated `sfdx-cli` package, which installs only `sfdx` and has had no update since July 2023, no longer works with it. Install the current Salesforce CLI (`npm install --global @salesforce/cli`, or its installer), which installs both commands. When only `sfdx` is on the PATH, the extension's error now says so.
+
 ### Fixes
 
 - Salesforce auth: the extension no longer reads or writes the Salesforce CLI's auth files. It gets an org's access token from `sf` when it first uses the org, and again only when Salesforce rejects the token, then retries the request once. The token stays in memory. Only `sf` refreshes and saves tokens, so the extension can no longer save a rotated-out refresh token over the one that a terminal `sf` command or another VS Code window saved, which made the next refresh fail with `invalid_grant` (#1449, #1451, #1453). It works with CLIs that have `sf org auth show-access-token` and with older ones that print the token in `sf org display`. In orgs whose connected app rotates refresh tokens, use `sf` 2.152.9 or newer: older CLIs bundle a `@salesforce/core` that drops the new refresh token after a refresh, so their next refresh fails, and the extension now renews sessions through `sf`. The org list comes from `sf org list auth` and is kept until the list is refreshed; an org that a view asks for by name and the list lacks is looked up again at once. The first use of each org and each renewal now run one `sf` command, which takes about a second; requests in between are as fast as before. These `sf` commands use the `http.proxy` setting when it is set.

@@ -1,4 +1,6 @@
+import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 
 import {
@@ -55,7 +57,7 @@ function isOlder(version: readonly number[], than: readonly number[]): boolean {
 }
 
 function hasEnv(env: NodeJS.ProcessEnv, name: string): boolean {
-  return Object.keys(env).some(key => key.toUpperCase() === name && env[key] !== undefined);
+  return envValue(env, name) !== undefined;
 }
 
 function replaceEnv(env: NodeJS.ProcessEnv, name: string, value: string): void {
@@ -78,6 +80,31 @@ export function sfEnvironment(base: NodeJS.ProcessEnv, proxy: SalesforceProxySet
     if (proxy.noProxy?.length) replaceEnv(env, 'NO_PROXY', proxy.noProxy.join(','));
   }
   return env;
+}
+
+function envValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const key = Object.keys(env).find(candidate => candidate.toUpperCase() === name && env[candidate] !== undefined);
+  return key === undefined ? undefined : env[key];
+}
+
+/** Whether `command` is a file in a folder of the PATH in `env`, with Windows' executable extensions. */
+function isOnPath(env: NodeJS.ProcessEnv, command: string): boolean {
+  const extensions =
+    process.platform === 'win32'
+      ? ['', ...(envValue(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)]
+      : [''];
+  return (envValue(env, 'PATH') ?? '')
+    .split(path.delimiter)
+    .filter(Boolean)
+    .some(folder =>
+      extensions.some(extension => {
+        try {
+          return fs.statSync(path.join(folder, command + extension)).isFile();
+        } catch {
+          return false;
+        }
+      })
+    );
 }
 
 function asString(value: unknown): string | undefined {
@@ -149,9 +176,13 @@ export function createSfCliAuthSource(options: { projectDir: () => string | unde
       if (error instanceof AlvError) throw error;
       const failure = error as { code?: unknown; stdout?: string; stderr?: string; message?: string };
       if (failure.code === 'ENOENT') {
+        // sfdx-cli 7, deprecated since 2023, installs `sfdx` and no `sf`; the current CLI installs both.
+        const legacyOnly = program === 'sf' && isOnPath(env, 'sfdx');
         throw new AlvError(
           'SF_CLI_NOT_FOUND',
-          'The Salesforce CLI (sf) was not found. Install it, or set ALV_SF_BIN_PATH to its path, then reload VS Code.',
+          legacyOnly
+            ? 'Only the deprecated sfdx command was found, and Apex Log Viewer needs sf. Install the current Salesforce CLI (npm install --global @salesforce/cli, or its installer), then reload VS Code.'
+            : 'The Salesforce CLI (sf) was not found. Install it, or set ALV_SF_BIN_PATH to its path, then reload VS Code.',
           { cause: error }
         );
       }

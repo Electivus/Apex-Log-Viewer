@@ -69,7 +69,7 @@ Search in the **Apex Logs** panel is optimized for locally saved log bodies, so 
 
 ## Requirements
 
-- Salesforce CLI installed and authenticated. `sf` is recommended, but legacy `sfdx` also works.
+- Salesforce CLI installed and authenticated, with its `sf` command. The deprecated `sfdx-cli` package, which installs only `sfdx`, does not work; the current Salesforce CLI installs both commands.
 - VS Code 1.105+.
 - Standalone Salesforce CLI plugin: Node.js 22.19+.
 - Recommended for Replay Debugger: Salesforce Extension Pack (`salesforce.salesforcedx-vscode`).
