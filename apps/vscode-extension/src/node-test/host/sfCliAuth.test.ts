@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 import proxyquire from 'proxyquire';
 
 import type { SalesforceProxySettings, SourceOrg } from '@alv/core';
@@ -158,6 +160,36 @@ suite('sf CLI auth source', () => {
 
     await assert.rejects(source.listOrgs(), { code: 'SF_CLI_NOT_FOUND' });
     await assert.rejects(source.session(ORG, 'first-use'), { code: 'SF_CLI_NOT_FOUND' });
+  });
+
+  test('with only the deprecated sfdx on the PATH, the missing sf says to install the current Salesforce CLI', async () => {
+    const withSfdx = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-sfdx-only-'));
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-no-cli-'));
+    try {
+      // sfdx-cli 7 installs `sfdx` and no `sf`; Windows finds it through its .cmd shim.
+      for (const name of ['sfdx', 'sfdx.cmd']) fs.writeFileSync(path.join(withSfdx, name), '', { mode: 0o755 });
+      const missing = () => {
+        throw Object.assign(new Error('CLI not found: sf org list auth --json'), { code: 'ENOENT' });
+      };
+      const legacyOnly = loadSource(missing, { loginEnv: { PATH: [empty, withSfdx].join(path.delimiter) } });
+      const neither = loadSource(missing, { loginEnv: { PATH: empty } });
+
+      await assert.rejects(legacyOnly.source.listOrgs(), (error: { code?: string; message: string }) => {
+        assert.equal(error.code, 'SF_CLI_NOT_FOUND');
+        assert.match(error.message, /sfdx/);
+        assert.match(error.message, /install the current Salesforce CLI/i);
+        assert.match(error.message, /npm install --global @salesforce\/cli/);
+        return true;
+      });
+      await assert.rejects(neither.source.listOrgs(), (error: { code?: string; message: string }) => {
+        assert.equal(error.code, 'SF_CLI_NOT_FOUND');
+        assert.doesNotMatch(error.message, /sfdx/, 'no sfdx, no word about it');
+        return true;
+      });
+    } finally {
+      fs.rmSync(withSfdx, { recursive: true, force: true });
+      fs.rmSync(empty, { recursive: true, force: true });
+    }
   });
 
   test('a failing sf reports the message of its JSON error', async () => {
