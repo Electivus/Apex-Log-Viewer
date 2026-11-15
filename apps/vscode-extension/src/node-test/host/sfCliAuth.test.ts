@@ -256,6 +256,7 @@ suite('sf CLI auth source', () => {
       {
         username: 'dev@example.com',
         alias: 'dev',
+        aliases: ['dev', 'dev-old'],
         orgId: ORG.orgId,
         instanceUrl: ORG.instanceUrl,
         isScratchOrg: false,
@@ -265,6 +266,7 @@ suite('sf CLI auth source', () => {
       {
         username: 'hub@example.com',
         alias: undefined,
+        aliases: [],
         orgId: undefined,
         instanceUrl: undefined,
         isScratchOrg: false,
@@ -274,6 +276,7 @@ suite('sf CLI auth source', () => {
       {
         username: 'legacy@example.com',
         alias: undefined,
+        aliases: [],
         orgId: undefined,
         instanceUrl: undefined,
         isScratchOrg: false,

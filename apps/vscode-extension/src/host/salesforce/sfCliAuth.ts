@@ -81,13 +81,15 @@ export function parseOrgListAuth(result: unknown): SourceOrg[] {
     const username = asString(entry?.username);
     if (!username) continue;
     const configs = Array.isArray(entry.configs) ? entry.configs.map(String) : [];
-    const alias = asString(entry.alias)
-      ?.split(',')
+    // sf joins every alias of the org with commas.
+    const aliases = (asString(entry.alias) ?? '')
+      .split(',')
       .map(value => value.trim())
-      .find(Boolean);
+      .filter(Boolean);
     orgs.push({
       username,
-      alias,
+      alias: aliases[0],
+      aliases,
       orgId: asString(entry.orgId),
       instanceUrl: asString(entry.instanceUrl),
       isScratchOrg: entry.isScratchOrg === true,

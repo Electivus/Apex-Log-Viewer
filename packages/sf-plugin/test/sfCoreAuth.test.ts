@@ -5,6 +5,8 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import test from 'node:test';
 
+import { StateAggregator } from '@salesforce/core';
+
 import { createSfCoreAuthSource } from '../src/sfCoreAuth.ts';
 import { ORG_ID } from '../../core/test/support/salesforceDouble.ts';
 import { isolateSalesforceHome, saveSfOrgAuth } from './support/salesforceHome.ts';
@@ -60,6 +62,7 @@ test('the source lists every saved org with its alias and flags, and no token', 
   assert.deepEqual(byName.get(PROJECT_ORG), {
     username: PROJECT_ORG,
     alias: PROJECT_ALIAS,
+    aliases: [PROJECT_ALIAS],
     orgId: ORG_ID,
     instanceUrl: UNREACHABLE,
     isScratchOrg: true,
@@ -83,6 +86,20 @@ test("inside a project, anywhere in it, the project's target-org is the default,
     PROJECT_ORG
   ]);
   assert.deepEqual(defaults(await source.listOrgs()), [GLOBAL_ORG], 'each call reads the working directory anew');
+});
+
+test('an org with two aliases lists both, and a target-org naming the second finds it', async () => {
+  const username = 'renamed@example.com';
+  await saveSfOrgAuth(username, UNREACHABLE, { accessToken: 'token-renamed', alias: 'renamed' });
+  await (await StateAggregator.getInstance()).aliases.setAndSave('renamed-old', username);
+  const root = project({ 'target-org': 'renamed-old' });
+
+  const orgs = await inDirectory(root, () => createSfCoreAuthSource().listOrgs());
+  const renamed = orgs.find(org => org.username === username);
+
+  assert.equal(renamed?.alias, 'renamed');
+  assert.deepEqual(renamed?.aliases, ['renamed', 'renamed-old']);
+  assert.deepEqual(defaults(orgs), [username]);
 });
 
 test('a project with no target-org falls back to the global one', async () => {

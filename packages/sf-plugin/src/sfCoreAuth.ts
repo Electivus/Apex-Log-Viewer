@@ -36,12 +36,13 @@ export function createSfCoreAuthSource(): OrgAuthSource {
       return orgs.flatMap(fields => {
         const username = asString(fields.username);
         if (!username) return [];
-        const alias = asString(state.aliases.get(username));
-        const names = [username, alias];
+        const aliases = state.aliases.getAll(username);
+        const names = [username, ...aliases];
         return [
           {
             username,
-            alias,
+            alias: aliases[0],
+            aliases,
             orgId: asString(fields.orgId),
             instanceUrl: asString(fields.instanceUrl),
             isScratchOrg: Boolean(fields.isScratch),

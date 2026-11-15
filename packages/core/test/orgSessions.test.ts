@@ -166,6 +166,16 @@ test('resolve finds an org by username in any case, by alias, or as the default'
   assert.equal(scripted.lists(), 1, 'names the list holds resolve from memory');
 });
 
+test('resolve finds an org by any of its aliases, as sf does', async () => {
+  const renamed: SourceOrg = { username: 'renamed@example.com', alias: 'dev', aliases: ['dev', 'dev-old'] };
+  const scripted = scriptedSource([org, renamed]);
+  const sessions = createOrgSessions(scripted.source);
+
+  assert.deepEqual(await sessions.resolve('dev-old'), { requested: 'dev-old', org: renamed, source: 'alias' });
+  assert.deepEqual(await sessions.resolve('dev'), { requested: 'dev', org: renamed, source: 'alias' });
+  assert.equal(scripted.lists(), 1, 'a second alias resolves from memory too');
+});
+
 test('a name the list misses is looked up in one new list, then reported', async () => {
   const late: SourceOrg = { username: 'late@example.com' };
   const scripted = scriptedSource([org]);

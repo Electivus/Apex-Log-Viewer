@@ -3,8 +3,11 @@ import { Connection } from '@jsforce/jsforce-node';
 import type { OrgListItem } from './contracts.js';
 import { AlvError, awaitWithAbort, throwIfAborted } from './errors.js';
 
-/** An org with stored Salesforce CLI auth, as its auth source lists it. Carries no secret. */
-export type SourceOrg = OrgListItem & { orgId?: string };
+/**
+ * An org with stored Salesforce CLI auth, as its auth source lists it. Carries no secret. `aliases` holds
+ * every alias `sf` knows for it; `alias`, the first, is the one views show.
+ */
+export type SourceOrg = OrgListItem & { orgId?: string; aliases?: readonly string[] };
 
 /** What requests to one org need. It lives in memory only and is never written anywhere. */
 export type OrgSession = { accessToken: string; instanceUrl: string; orgId?: string };
@@ -49,7 +52,7 @@ export function resolveTargetOrg(orgs: readonly SourceOrg[], targetOrg: string |
   }
   const byUsername = orgs.find(org => org.username.toLowerCase() === requested.toLowerCase());
   if (byUsername) return { requested, org: byUsername, source: 'username' };
-  const byAlias = orgs.find(org => org.alias === requested);
+  const byAlias = orgs.find(org => org.alias === requested || org.aliases?.includes(requested));
   return byAlias && { requested, org: byAlias, source: 'alias' };
 }
 
