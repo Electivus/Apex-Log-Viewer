@@ -5,6 +5,7 @@ import path from 'node:path';
 import { AuthInfo, ConfigAggregator, Connection, OrgConfigProperties, StateAggregator } from '@salesforce/core';
 
 import { unwrapSalesforceProxyError } from './salesforceProxy.js';
+import { PersistentAuthInfo } from './orgAuth.js';
 import type {
   DebugLevelCreateParams,
   DebugLevelDeleteParams,
@@ -313,7 +314,7 @@ async function resolveUsername(
 }
 
 async function connectOrg(username: string): Promise<OrgConnection> {
-  const authInfo = await AuthInfo.create({ username });
+  const authInfo = await PersistentAuthInfo.create({ username });
   const connection = await Connection.create({ authInfo });
   await alignConnectionApiVersion(connection);
   const fields = authInfo.getFields(true);
