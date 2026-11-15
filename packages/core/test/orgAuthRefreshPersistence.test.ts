@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { StateAggregator } from '@salesforce/core';
+import { AuthInfo, StateAggregator } from '@salesforce/core';
 
 import { createApexLogViewerCore } from '../src/index.ts';
+import { PersistentAuthInfo } from '../src/orgAuth.ts';
 import { ORG_ID, isolateSalesforceHome, startSalesforceDouble } from './support/salesforceDouble.ts';
 
 isolateSalesforceHome();
@@ -87,5 +88,45 @@ test('each token refresh keeps its new tokens while the auth stamp clock trails 
       persisted: `token-${i}`,
       persistedRefreshToken: `refresh-token-${i}`
     }))
+  );
+});
+
+test('a save while the stamp clock trails keeps its own change and the token another process saved since', async t => {
+  const username = 'two-writers@example.com';
+  const state = await StateAggregator.getInstance();
+  state.orgs.set(username, {
+    username,
+    orgId: ORG_ID,
+    instanceUrl: 'http://127.0.0.1:9',
+    accessToken: 'token-0',
+    refreshToken: 'refresh-token-0',
+    clientId: 'PlatformCLI',
+    instanceApiVersion: '62.0'
+  });
+  await state.orgs.write(username);
+  const ours = await PersistentAuthInfo.create({ username });
+
+  // A second StateAggregator reads and writes the auth file on its own, as another process would.
+  await StateAggregator.clearInstanceAsync();
+  const other = await AuthInfo.create({ username });
+  await other.save({ accessToken: 'token-other', refreshToken: 'refresh-token-other' });
+
+  trailStampClock(t, 10_000);
+  await ours.save({ instanceApiVersion: '63.0' });
+
+  const persisted = await (await StateAggregator.getInstance()).orgs.peek(username, true);
+  assert.deepEqual(
+    {
+      accessToken: ours.getFields(true).accessToken,
+      persistedAccessToken: persisted?.accessToken,
+      persistedRefreshToken: persisted?.refreshToken,
+      persistedApiVersion: persisted?.instanceApiVersion
+    },
+    {
+      accessToken: 'token-other',
+      persistedAccessToken: 'token-other',
+      persistedRefreshToken: 'refresh-token-other',
+      persistedApiVersion: '63.0'
+    }
   );
 });
