@@ -11,7 +11,8 @@ isolateSalesforceHome();
 // @salesforce/core 9.4 stamps an in-memory auth change in whole milliseconds and merges it with the auth file
 // by the file's nanosecond mtime, so a save soon after the previous one can lose to it and leave the old token.
 // Token refreshes persist through AuthInfo.save, and both surfaces read the token back through core.org.getAuth.
-// node:test still runs and reports a todo test, but its failure does not fail the run.
+// On a Windows Server 2025 VM with NTFS, 9.2.0 lost 1 to 36 of 100 tokens in 15 of 30 runs (#1449). There the test
+// is a todo: node:test still runs it and prints the lost tokens, but a failure does not fail the run.
 const windowsLoss = process.platform === 'win32' ? '9.2.0 also loses back-to-back saves on Windows (#1449)' : false;
 
 test(
