@@ -1,6 +1,7 @@
 import * as cp from 'child_process';
 import { logTrace, logWarn } from '../utils/logger';
 import { localize } from '../utils/localize';
+import { redactSecrets } from '../utils/redact';
 import { safeSendEvent, safeSendException } from '../../shared/telemetry';
 import { classifyCliExecTelemetryCode } from './cliTelemetry';
 const crossSpawn = require('cross-spawn');
@@ -244,15 +245,18 @@ export function execCommand(
           reject(e);
           return;
         }
+        // What sf printed can echo a token: the Error, its streams and the trace get it redacted.
+        const printed = redactSecrets(String(stdout ?? ''));
+        const printedErr = redactSecrets(String(stderr ?? ''));
+        const detail = printedErr || redactSecrets(String(err.message ?? ''));
         try {
-          logTrace('execCommand error for', program, '->', (stderr || err.message || '').split('\n')[0]);
+          logTrace('execCommand error for', program, '->', detail.split('\n')[0]);
         } catch {}
         const telemetryCode = classifyCliExecTelemetryCode(err.code, stderr, stdout, err.message);
         sendCliCommandTelemetry(program, 'error', t0);
         safeSendException('cli.exec', { code: telemetryCode, command: program });
         const code = typeof err.code === 'number' || typeof err.code === 'string' ? err.code : undefined;
         const cmdStr2 = [program, ...args].join(' ').trim();
-        const detail = stderr || err.message;
         const msg =
           code !== undefined
             ? `Command "${cmdStr2}" exited with code ${code}: ${detail}`
@@ -262,8 +266,8 @@ export function execCommand(
           (e as any).code = code;
         }
         e.telemetryCode = telemetryCode;
-        e.stdout = stdout;
-        e.stderr = stderr;
+        e.stdout = printed;
+        e.stderr = printedErr;
         reject(e);
         return;
       }

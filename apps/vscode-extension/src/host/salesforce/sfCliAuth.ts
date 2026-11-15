@@ -10,6 +10,7 @@ import {
   type SourceOrg
 } from '@alv/core';
 
+import { holdSecret } from '../utils/redact';
 import { CLI_TIMEOUT_MS, execCommand } from './exec';
 import { getLoginShellEnv } from './path';
 import { readProxySettings } from './proxy';
@@ -156,6 +157,31 @@ export function createSfCliAuthSource(options: { projectDir: () => string | unde
     return { accessToken, instanceUrl, orgId: asString(result?.id) ?? org.orgId };
   };
 
+  /** The session `sf` hands out now, from whichever command of this CLI prints a usable token. */
+  const sessionFromSf = async (org: SourceOrg, signal?: AbortSignal): Promise<OrgSession> => {
+    if (tokenCommand !== 'display') {
+      const session = await tokenFromShowAccessToken(org, signal);
+      if (session) {
+        tokenCommand = 'show-access-token';
+        return session;
+      }
+    }
+    const learned = tokenCommand === 'display';
+    tokenCommand = 'display';
+    const session = await tokenFromDisplay(org, signal);
+    if (session !== 'redacted') return session;
+    // A placeholder after an earlier missing command means the CLI was updated since: ask the new command.
+    const updated = learned ? await tokenFromShowAccessToken(org, signal) : undefined;
+    if (updated) {
+      tokenCommand = 'show-access-token';
+      return updated;
+    }
+    throw new AlvError(
+      'SF_CLI_UNSUPPORTED',
+      'This Salesforce CLI hides the access token in "sf org display" and has no "sf org auth show-access-token". Update the Salesforce CLI.'
+    );
+  };
+
   return {
     async listOrgs(signal) {
       const run = await runSf(['org', 'list', 'auth'], signal);
@@ -163,27 +189,10 @@ export function createSfCliAuthSource(options: { projectDir: () => string | unde
     },
     async session(org, _reason, signal) {
       // Both reasons run the same command: `sf` checks the stored token and refreshes it only when the org refuses it.
-      if (tokenCommand !== 'display') {
-        const session = await tokenFromShowAccessToken(org, signal);
-        if (session) {
-          tokenCommand = 'show-access-token';
-          return session;
-        }
-      }
-      const learned = tokenCommand === 'display';
-      tokenCommand = 'display';
-      const session = await tokenFromDisplay(org, signal);
-      if (session !== 'redacted') return session;
-      // A placeholder after an earlier missing command means the CLI was updated since: ask the new command.
-      const updated = learned ? await tokenFromShowAccessToken(org, signal) : undefined;
-      if (updated) {
-        tokenCommand = 'show-access-token';
-        return updated;
-      }
-      throw new AlvError(
-        'SF_CLI_UNSUPPORTED',
-        'This Salesforce CLI hides the access token in "sf org display" and has no "sf org auth show-access-token". Update the Salesforce CLI.'
-      );
+      const session = await sessionFromSf(org, signal);
+      // Kept out of every error and log line, should a later `sf` echo it.
+      holdSecret(`sf:${org.username}`, session.accessToken);
+      return session;
     }
   };
 }
