@@ -227,6 +227,46 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     }
   });
 
+  test('a token in the JSON of a failing sf is held before its error is built, so no copy of it reaches the error', async () => {
+    const token = 'FAKE-opaque-in-failing-json-0123';
+    const { source, traced } = load(() => ({
+      code: 1,
+      stdout: JSON.stringify({
+        status: 1,
+        name: 'SfError',
+        message: `Request with ${token} failed`,
+        result: { accessToken: token }
+      }),
+      stderr: `Warning: retried with ${token}\n`
+    }));
+
+    const shown = textOf(await rejectionOf(source.listOrgs()));
+
+    assert.match(shown, /request with .* failed/i, 'the error still says what sf reported');
+    assert.ok(!shown.includes(token), 'the error carries no copy of the token');
+    assert.ok(!traced.join('\n').includes(token), 'the trace carries no copy of the token');
+  });
+
+  test('a token sf org list auth prints on an older CLI is held, so a later failing sf cannot show it', async () => {
+    const token = 'FAKE-opaque-from-org-list-4567';
+    let failing = false;
+    const { source, traced } = load(() =>
+      failing
+        ? failingWith('stderr', `Request failed with ${token}`)
+        : ok([{ username: ORG.username, accessToken: token, instanceUrl: ORG.instanceUrl }])
+    );
+
+    assert.deepEqual(
+      (await source.listOrgs()).map(org => org.username),
+      [ORG.username]
+    );
+    failing = true;
+    const shown = textOf(await rejectionOf(source.listOrgs()));
+
+    assert.ok(!shown.includes(token), 'the error carries no token from the earlier list');
+    assert.ok(!traced.join('\n').includes(token), 'the trace carries no token from the earlier list');
+  });
+
   test('the token a successful sf prints still reaches the auth source', async () => {
     const { source, traced } = load(() => ({
       code: 0,
