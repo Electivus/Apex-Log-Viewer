@@ -31,7 +31,11 @@ function load(options: { version: string | typeof HANGS; failure?: unknown }) {
       }
     },
     './path': { getLoginShellEnv: async () => ({ PATH: '/usr/bin' }) },
-    './proxy': { readProxySettings: () => ({}) }
+    './proxy': { readProxySettings: () => ({}) },
+    '../utils/localize': {
+      localize: (_key: string, message: string, ...args: unknown[]) =>
+        message.replace(/\{(\d+)\}/g, (_m, i) => String(args[Number(i)]))
+    }
   });
   const { CoreClient } = proxyquireStrict('../../runtime/runtimeClient', {
     '../host/salesforce/sfCliAuth': sfCliAuth,

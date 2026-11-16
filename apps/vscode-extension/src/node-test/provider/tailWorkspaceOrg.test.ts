@@ -57,7 +57,11 @@ function sfCli(workspace: string) {
   const sfCliAuth = proxyquireStrict('../../host/salesforce/sfCliAuth', {
     './exec': { CLI_TIMEOUT_MS: 120_000, execCommand },
     './path': { getLoginShellEnv: async () => ({ ...process.env }) },
-    './proxy': { readProxySettings: () => ({}) }
+    './proxy': { readProxySettings: () => ({}) },
+    '../utils/localize': {
+      localize: (_key: string, message: string, ...args: unknown[]) =>
+        message.replace(/\{(\d+)\}/g, (_m, i) => String(args[Number(i)]))
+    }
   });
   return { runs, sfCliAuth };
 }

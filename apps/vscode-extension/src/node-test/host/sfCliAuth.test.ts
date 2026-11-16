@@ -39,9 +39,16 @@ function commandOf(run: SfRun): string {
 /** The auth source over a scripted `sf`: every run is recorded and `answer` plays the CLI. */
 function loadSource(
   answer: SfAnswer,
-  options: { projectDir?: string; loginEnv?: NodeJS.ProcessEnv; proxy?: SalesforceProxySettings } = {}
+  options: {
+    projectDir?: string;
+    loginEnv?: NodeJS.ProcessEnv;
+    proxy?: SalesforceProxySettings;
+    /** The VS Code display language's bundle, English message to translation; none is English. */
+    translations?: Record<string, string>;
+  } = {}
 ) {
   const runs: SfRun[] = [];
+  const translations = options.translations ?? {};
   const module = proxyquireStrict('../../host/salesforce/sfCliAuth', {
     './exec': {
       CLI_TIMEOUT_MS: 120_000,
@@ -59,7 +66,11 @@ function loadSource(
       }
     },
     './path': { getLoginShellEnv: async () => options.loginEnv ?? { PATH: '/usr/bin' } },
-    './proxy': { readProxySettings: () => options.proxy ?? {} }
+    './proxy': { readProxySettings: () => options.proxy ?? {} },
+    '../utils/localize': {
+      localize: (_key: string, message: string, ...args: Array<string | number>) =>
+        (translations[message] ?? message).replace(/\{(\d+)\}/g, (_m, i) => String(args[Number(i)]))
+    }
   }) as typeof import('../../host/salesforce/sfCliAuth');
   const source = module.createSfCliAuthSource({ projectDir: () => options.projectDir });
   return { module, source, runs, commands: () => runs.map(commandOf) };
@@ -347,5 +358,71 @@ suite('sf CLI auth source', () => {
       [ORG.username]
     );
     assert.equal(session.accessToken, 'token-colored');
+  });
+});
+
+suite('sf CLI auth source in the VS Code display language', () => {
+  const extensionRoot = path.resolve(__dirname, '..', '..', '..');
+  const ptBr: Record<string, string> = JSON.parse(
+    fs.readFileSync(path.join(extensionRoot, 'l10n', 'bundle.l10n.pt-br.json'), 'utf8')
+  );
+  const missing = () => {
+    throw Object.assign(new Error('CLI not found: sf org list auth --json'), { code: 'ENOENT' });
+  };
+  const orgWithoutUrl: SourceOrg = { username: ORG.username, orgId: ORG.orgId } as SourceOrg;
+
+  /** What the auth source tells a user in each of its failures and in the update hint, with `translations`. */
+  async function messagesIn(translations: Record<string, string>): Promise<Record<string, string>> {
+    const withSfdx = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-l10n-sfdx-'));
+    fs.writeFileSync(path.join(withSfdx, 'sfdx'), '', { mode: 0o755 });
+    const failureOf = async (pending: Promise<unknown>) =>
+      pending.then(
+        () => assert.fail('the call should fail'),
+        (error: Error) => error.message
+      );
+    try {
+      return {
+        'only sfdx': await failureOf(
+          loadSource(missing, { translations, loginEnv: { PATH: withSfdx } }).source.listOrgs()
+        ),
+        'no sf': await failureOf(
+          loadSource(missing, { translations, loginEnv: { PATH: '/nonexistent' } }).source.listOrgs()
+        ),
+        'no JSON': await failureOf(loadSource(() => ({ stdout: 'not json' }), { translations }).source.listOrgs()),
+        'no token': await failureOf(loadSource(() => ok({}), { translations }).source.session(ORG, 'first-use')),
+        'no instance URL': await failureOf(
+          loadSource(() => ok({ accessToken: 'token-no-url' }), { translations }).source.session(
+            orgWithoutUrl,
+            'first-use'
+          )
+        ),
+        'token hidden': await failureOf(
+          loadSource(
+            run => (commandOf(run) === 'org auth show-access-token' ? commandMissing() : ok({ accessToken: '' })),
+            {
+              translations
+            }
+          ).source.session(ORG, 'first-use')
+        ),
+        'update hint':
+          (await loadSource(() => ({ stdout: '@salesforce/cli/2.152.8 darwin-arm64 node-v24.22.2\n' }), {
+            translations
+          }).source.updateHint()) ?? 'no hint'
+      };
+    } finally {
+      fs.rmSync(withSfdx, { recursive: true, force: true });
+    }
+  }
+
+  test('in Portuguese, every message it shows a user comes from the pt-BR bundle', async () => {
+    const english = await messagesIn({});
+    const portuguese = await messagesIn(ptBr);
+
+    for (const [failure, message] of Object.entries(english)) {
+      assert.notEqual(portuguese[failure], message, `${failure}: "${message}" has a pt-BR translation`);
+    }
+    const hint = portuguese['update hint'] ?? '';
+    assert.match(hint, /2\.152\.8/, 'the hint still names the installed release');
+    assert.match(hint, /2\.152\.9/, 'and the release that keeps the login');
   });
 });

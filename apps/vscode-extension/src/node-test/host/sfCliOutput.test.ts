@@ -56,7 +56,11 @@ function load(answer: (args: string[]) => Exit) {
   const module = proxyquireStrict('../../host/salesforce/sfCliAuth', {
     './exec': exec,
     './path': { getLoginShellEnv: async () => ({ PATH: '/usr/bin' }) },
-    './proxy': { readProxySettings: () => ({}) }
+    './proxy': { readProxySettings: () => ({}) },
+    '../utils/localize': {
+      localize: (_key: string, fallback: string, ...args: unknown[]) =>
+        fallback.replace(/\{(\d+)\}/g, (_m, i) => String(args[Number(i)]))
+    }
   }) as typeof import('../../host/salesforce/sfCliAuth');
   return { module, source: module.createSfCliAuthSource({ projectDir: () => undefined }), traced };
 }
