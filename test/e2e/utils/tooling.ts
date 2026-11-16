@@ -62,7 +62,7 @@ const ensuredTraceFlagCache = new Map<string, number>();
 const jsforceConnectionCache = new Map<string, Promise<ToolingConnectionLike>>();
 let orgAuthContexts = new WeakMap<OrgAuth, { targetOrg: string; env?: NodeJS.ProcessEnv }>();
 
-type ToolingConnectionLike = Pick<Connection, 'request' | 'tooling'>;
+type ToolingConnectionLike = Pick<Connection, 'request'> & { tooling: Pick<Connection['tooling'], 'query'> };
 type ToolingConnectionFactory = (auth: OrgAuth) => Promise<ToolingConnectionLike> | ToolingConnectionLike;
 type ToolingQueryResponse<TRecord = any> = {
   records?: TRecord[];
@@ -492,7 +492,7 @@ async function findActiveUsersBySearchToken(
     `SELECT Id, Name, Username FROM User WHERE ${clauses.join(' AND ')} ORDER BY Name NULLS LAST LIMIT ${safeLimit}`
   );
   const response = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/query?q=${soql}`);
-  const records = Array.isArray(response?.records) ? response.records : [];
+  const records: unknown[] = Array.isArray(response?.records) ? response.records : [];
   const needle = trimmed.toLowerCase();
 
   return records
@@ -514,7 +514,7 @@ async function findActiveUsersByType(auth: OrgAuth, userType: string): Promise<A
   const userTypeEsc = escapeSoqlLiteral(userType);
   const soql = encodeURIComponent(`SELECT Id, Name FROM User WHERE UserType = '${userTypeEsc}' AND IsActive = true ORDER BY Id LIMIT 200`);
   const response = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/query?q=${soql}`);
-  const records = Array.isArray(response?.records) ? response.records : [];
+  const records: unknown[] = Array.isArray(response?.records) ? response.records : [];
   const seen = new Set<string>();
   return records
     .filter((record: any) => isSfId(record?.Id))
