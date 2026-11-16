@@ -130,6 +130,8 @@ export function redactSecrets(text: string): string {
     `$1${REDACTED}$3`
   );
   redacted = redacted.replace(new RegExp(`(\\b(?:${SECRET_KEY_NAMES})\\b\\s*=\\s*)([^\\s,;]+)`, 'gi'), `$1${REDACTED}`);
+  // An SFDX auth URL: client id, secret and refresh token sit between "force://" and "@", whatever they look like.
+  redacted = redacted.replace(/\bforce:\/\/[^\s"'`<>@]+@/gi, `force://${REDACTED}@`);
   for (const shape of TOKEN_SHAPES) {
     redacted = redacted.replace(shape, REDACTED);
   }
