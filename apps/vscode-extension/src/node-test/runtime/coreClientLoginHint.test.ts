@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { mock } from 'node:test';
 import proxyquire from 'proxyquire';
 
 import { AlvError, type ApexLogViewerCore } from '@alv/core';
@@ -8,18 +9,24 @@ const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 const LOGIN_REQUIRED =
   'Salesforce rejected the session of dev@example.com and the Salesforce CLI has no other. Run "sf org login web" to log in again.';
 
+/** A `--version` that never answers: the scripted exec then rejects when its timeout passes, as the real one does. */
+const HANGS = Symbol('hangs');
+
 /**
  * The extension's core client over a core that fails as `failure` says, with the real `sf` auth source over a
  * scripted `sf` whose `--version` prints `version`. Every `sf` run is recorded.
  */
-function load(options: { version: string; failure?: unknown }) {
+function load(options: { version: string | typeof HANGS; failure?: unknown }) {
   const runs: string[][] = [];
   const sfCliAuth = proxyquireStrict('../../host/salesforce/sfCliAuth', {
     './exec': {
       CLI_TIMEOUT_MS: 120_000,
-      execCommand: async (_program: string, args: string[]) => {
+      execCommand: async (_program: string, args: string[], _env: unknown, timeoutMs: number) => {
         runs.push(args);
-        if (args[0] === '--version') return { stdout: `${options.version}\n`, stderr: '' };
+        if (args[0] === '--version' && options.version === HANGS) {
+          return new Promise((_resolve, reject) => setTimeout(() => reject(new Error('sf timed out')), timeoutMs));
+        }
+        if (args[0] === '--version') return { stdout: `${String(options.version)}\n`, stderr: '' };
         throw new Error(`unexpected sf ${args.join(' ')}`);
       }
     },
@@ -81,6 +88,30 @@ suite('core client: a new login with an sf older than 2.152.9', () => {
       });
     });
   }
+
+  test('a sf --version that never answers holds the login request back no more than 10 seconds', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      const { client } = load({ version: HANGS, failure: loginRequired() });
+      let settled: unknown;
+      void client.logsList().then(
+        () => (settled = 'resolved'),
+        (rejection: unknown) => (settled = rejection)
+      );
+      for (let elapsed = 0; elapsed < 10_000 && settled === undefined; elapsed += 250) {
+        await new Promise(resolve => setImmediate(resolve));
+        mock.timers.tick(250);
+      }
+      await new Promise(resolve => setImmediate(resolve));
+
+      assert.notEqual(settled, undefined, 'the login request has arrived within 10 seconds');
+      const error = settled as AlvError;
+      assert.equal(error.code, 'AUTH_REQUIRED');
+      assert.equal(error.message, LOGIN_REQUIRED, 'without the hint the CLI never gave');
+    } finally {
+      mock.timers.reset();
+    }
+  });
 
   test('a success or another failure never runs sf --version', async () => {
     const success = load({ version: '@salesforce/cli/2.136.5 darwin-arm64 node-v24.22.2' });
