@@ -1,7 +1,7 @@
 import * as cp from 'child_process';
 import { logTrace, logWarn } from '../utils/logger';
 import { localize } from '../utils/localize';
-import { redactSecrets, stripControlSequences } from '../utils/redact';
+import { holdSecretsInOutput, redactSecrets, stripControlSequences } from '../utils/redact';
 import { safeSendEvent, safeSendException } from '../../shared/telemetry';
 import { classifyCliExecTelemetryCode } from './cliTelemetry';
 const crossSpawn = require('cross-spawn');
@@ -250,6 +250,9 @@ export function execCommand(
         const out = stripControlSequences(String(stdout ?? ''));
         const errOut = stripControlSequences(String(stderr ?? ''));
         const message = stripControlSequences(String(err.message ?? ''));
+        // A token the output itself carries is held before any text is built from that output.
+        holdSecretsInOutput(out);
+        holdSecretsInOutput(errOut);
         const printed = redactSecrets(out);
         const printedErr = redactSecrets(errOut);
         const detail = printedErr || redactSecrets(message);

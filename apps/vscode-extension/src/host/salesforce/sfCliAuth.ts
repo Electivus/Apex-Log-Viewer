@@ -12,7 +12,7 @@ import {
   type SourceOrg
 } from '@alv/core';
 
-import { holdSecret, redactSecrets } from '../utils/redact';
+import { holdSecretsIn, redactSecrets } from '../utils/redact';
 import { CLI_TIMEOUT_MS, execCommand } from './exec';
 import { getLoginShellEnv } from './path';
 import { readProxySettings } from './proxy';
@@ -171,6 +171,8 @@ export function createSfCliAuthSource(options: { projectDir: () => string | unde
       const { stdout } = await execCommand(program, [...args, '--json'], env, CLI_TIMEOUT_MS, signal, cwd);
       const parsed = parseJson(stdout);
       if (!parsed) throw new AlvError('SF_CLI_FAILED', `sf ${args.slice(0, 3).join(' ')} printed no JSON.`);
+      // Every token sf prints, such as the one an older `org list auth` lists, stays out of later errors and logs.
+      holdSecretsIn(parsed);
       return { kind: 'ok', result: parsed.result };
     } catch (error) {
       if (error instanceof AlvError) throw error;
@@ -249,10 +251,7 @@ export function createSfCliAuthSource(options: { projectDir: () => string | unde
     },
     async session(org, _reason, signal) {
       // Both reasons run the same command: `sf` checks the stored token and refreshes it only when the org refuses it.
-      const session = await sessionFromSf(org, signal);
-      // Kept out of every error and log line, should a later `sf` echo it.
-      holdSecret(session.accessToken);
-      return session;
+      return sessionFromSf(org, signal);
     },
     async updateHint(signal) {
       const { env, program, cwd } = await invocation();

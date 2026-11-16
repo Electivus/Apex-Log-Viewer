@@ -36,8 +36,11 @@ const SECRET_KEY_NAMES = [
   'authorization',
   'authToken',
   'auth_token',
-  'password'
+  'password',
+  'sfdxAuthUrl'
 ].join('|');
+
+const SECRET_KEYS = new Set(SECRET_KEY_NAMES.toLowerCase().split('|'));
 
 /** Text shaped like a Salesforce credential, whoever printed it. */
 const TOKEN_SHAPES: readonly RegExp[] = [
@@ -63,6 +66,35 @@ export function holdSecret(value: unknown): void {
   held.delete(secret);
   held.add(secret);
   if (held.size > MAX_HELD) held.delete(held.values().next().value as string);
+}
+
+/** Holds every string under a secret-named key anywhere in `value`, such as a parsed `sf --json` answer. */
+export function holdSecretsIn(value: unknown, depth = 0): void {
+  if (!value || typeof value !== 'object' || depth > 10) return;
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof entry === 'string') {
+      if (SECRET_KEYS.has(key.toLowerCase())) holdSecret(entry);
+    } else {
+      holdSecretsIn(entry, depth + 1);
+    }
+  }
+}
+
+/** Holds the secrets of every JSON value in `text`: the whole text, its outermost braces, and each JSON line. */
+export function holdSecretsInOutput(text: string): void {
+  const stripped = stripControlSequences(text).trim();
+  const candidates = new Set([stripped, stripped.slice(stripped.indexOf('{'), stripped.lastIndexOf('}') + 1)]);
+  for (const line of stripped.split(/\r?\n/)) {
+    if (/^\s*[[{]/.test(line)) candidates.add(line.trim());
+  }
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      holdSecretsIn(JSON.parse(candidate));
+    } catch {
+      // Not JSON: what it may carry is left to the patterns.
+    }
+  }
 }
 
 /**
