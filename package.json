@@ -12,7 +12,7 @@
     "prebuild": "pnpm run clean",
     "vscode:prepublish": "pnpm run build && pnpm run l10n:write",
     "check-types": "pnpm run build:shared && pnpm run check-types:all",
-    "check-types:all": "tsc --noEmit -p tsconfig.extension.json && tsc --noEmit -p tsconfig.webview-tests.json && pnpm --filter @alv/core run check-types:test && pnpm --filter @electivus/plugin-electivus run check-types && pnpm --filter @electivus/plugin-electivus run check-types:test",
+    "check-types:all": "tsc --noEmit -p tsconfig.extension.json && tsc --noEmit -p tsconfig.webview-tests.json && tsc --noEmit -p tsconfig.e2e-utils-tests.json && pnpm --filter @alv/core run check-types:test && pnpm --filter @electivus/plugin-electivus run check-types && pnpm --filter @electivus/plugin-electivus run check-types:test",
     "compile": "pnpm run build:shared && pnpm run lint && pnpm run check-types:all",
     "watch": "pnpm run build:shared && pnpm run build:ripgrep-runtime && pnpm run build:package-metadata && pnpm -r --parallel --stream --if-present run watch",
     "watch:extension": "node apps/vscode-extension/esbuild.extension.mjs --watch",

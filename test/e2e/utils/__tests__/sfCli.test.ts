@@ -1,3 +1,5 @@
+import type { ExecFileException } from 'node:child_process';
+
 const execFileMock = jest.fn();
 const path = require('node:path');
 
@@ -48,12 +50,12 @@ describe('runSfJson failure diagnostics', () => {
     const promise = runSfJson(['org', 'display', '-o', 'ConfiguredDevHub']);
 
     await waitForExecCallCount(1);
-    const resolveError = new Error('command not found') as NodeJS.ErrnoException;
+    const resolveError = new Error('command not found') as ExecFileException;
     resolveError.code = 1;
     failCommand(resolveError);
 
     await waitForExecCallCount(2);
-    const missingError = new Error('spawn sf ENOENT') as NodeJS.ErrnoException;
+    const missingError = new Error('spawn sf ENOENT') as ExecFileException;
     missingError.code = 'ENOENT';
     failCommand(missingError);
 
@@ -70,7 +72,7 @@ describe('runSfJson failure diagnostics', () => {
     passCommand('/usr/local/bin/sf\n');
 
     await waitForExecCallCount(2);
-    const exitError = new Error('Command failed') as NodeJS.ErrnoException;
+    const exitError = new Error('Command failed') as ExecFileException;
     exitError.code = 127;
     failCommand(exitError);
 
@@ -85,7 +87,7 @@ describe('runSfJson failure diagnostics', () => {
     passCommand('/usr/local/bin/sf\n');
 
     await waitForExecCallCount(2);
-    const signalError = new Error('Command terminated') as NodeJS.ErrnoException & { signal?: string };
+    const signalError = new Error('Command terminated') as ExecFileException;
     signalError.signal = 'SIGTERM';
     failCommand(signalError);
 
@@ -100,7 +102,7 @@ describe('runSfJson failure diagnostics', () => {
     passCommand('/usr/local/bin/sf\n');
 
     await waitForExecCallCount(2);
-    const exitError = new Error('Command failed') as NodeJS.ErrnoException;
+    const exitError = new Error('Command failed') as ExecFileException;
     exitError.code = 1;
     failCommand(exitError, '{"name":"NamedOrgNotFoundError","message":"No authorization information found."}\n');
 

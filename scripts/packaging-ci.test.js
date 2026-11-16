@@ -48,6 +48,12 @@ test('extension type-check scripts bootstrap generated shared package declaratio
   assert.match(String(scripts.compile || ''), /^pnpm run build:shared && /);
 });
 
+test('the aggregate type-check includes E2E utilities and their tests', () => {
+  const scripts = JSON.parse(readFile('package.json')).scripts || {};
+
+  assert.match(String(scripts['check-types:all'] || ''), /\btsc --noEmit -p tsconfig\.e2e-utils-tests\.json\b/);
+});
+
 test('standalone webview tests bootstrap generated protocol artifacts', () => {
   const scripts = JSON.parse(readFile('package.json')).scripts || {};
 

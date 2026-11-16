@@ -1321,6 +1321,7 @@ describe('ensureScratchOrg', () => {
 
     const error = await ensureScratchOrg().catch(caught => caught as Error);
     expect(error).toBeInstanceOf(Error);
+    if (!(error instanceof Error)) throw new Error('Expected scratch creation to fail');
     expect(error.message).toContain('response body redacted');
     expect(error.message).not.toContain('force://PlatformCLI::secret-slot-auth@scratch.example.com');
   });
