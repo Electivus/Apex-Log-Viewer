@@ -277,11 +277,11 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
       .map(c => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`)
       .join('');
     const encoded = [
-      token.replace('!', '%21'),
+      token.replaceAll('!', '%21'),
       token.replaceAll('.', '%2E'),
-      token.replaceAll('.', '%2e').replace('!', '%21'),
+      token.replaceAll('.', '%2e').replaceAll('!', '%21'),
       everyCharacter,
-      `https://example.my.salesforce.com/secur/frontdoor.jsp?sid=${token.replace('!', '%21')}&retURL=%2Flightning`
+      `https://example.my.salesforce.com/secur/frontdoor.jsp?sid=${token.replaceAll('!', '%21')}&retURL=%2Flightning`
     ];
     let failure: Exit = { code: 1 };
     const { source, traced } = load(args =>
