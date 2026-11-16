@@ -7,8 +7,14 @@
 import { CUSTOM_LOG_LEVELS, type CustomLogLevel } from './customLogsTypes.js';
 
 const SINCE_DURATION = /^([1-9]\d{0,8})([mhd])$/;
-const SINCE_INSTANT = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2}))?$/;
+const SINCE_INSTANT = /^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2}))?$/;
 const SINCE_UNIT_MS = { m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
+
+function dayExists([, year, month, day]: RegExpExecArray): boolean {
+  const date = new Date(0);
+  date.setUTCFullYear(Number(year), Number(month) - 1, Number(day));
+  return date.getUTCMonth() === Number(month) - 1;
+}
 
 /** Case-insensitive like core, and returns the canonical upper-case level. */
 export function parseCustomLogLevel(value: unknown): CustomLogLevel | undefined {
@@ -26,9 +32,10 @@ export function parseSinceValue(value: unknown, now: number = Date.now()): strin
   }
   const text = value.trim();
   const duration = SINCE_DURATION.exec(text);
+  const iso = SINCE_INSTANT.exec(text);
   const instant = duration
     ? now - Number(duration[1]) * SINCE_UNIT_MS[duration[2] as keyof typeof SINCE_UNIT_MS]
-    : SINCE_INSTANT.test(text)
+    : iso && dayExists(iso)
       ? Date.parse(text)
       : Number.NaN;
   return Number.isFinite(instant) && !Number.isNaN(new Date(instant).getTime()) ? text : undefined;
