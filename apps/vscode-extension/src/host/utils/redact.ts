@@ -55,17 +55,33 @@ const TOKEN_SHAPES: readonly RegExp[] = [
 /** How many secrets stay held; past it the oldest goes. Renewals are rare, so this spans many hours of them. */
 const MAX_HELD = 256;
 
-/** Every secret the extension received in this session, oldest first. A token stays held after its renewal. */
-const held = new Set<string>();
+/** Every secret the extension received in this session, oldest first, with the pattern of its encoded forms. */
+const held = new Map<string, RegExp>();
+
+/** One hex digit of a percent-encoding, in either case. */
+const hexDigit = (digit: string): string =>
+  /[a-f]/i.test(digit) ? `[${digit.toUpperCase()}${digit.toLowerCase()}]` : digit;
+
+/** `secret` with any of its characters percent-encoded, in either hex case: every way a URL can carry it. */
+function percentEncodedForms(secret: string): RegExp {
+  const characters = [...secret].map(character => {
+    const bytes = [...Buffer.from(character, 'utf8')].map(
+      byte => `%${[...byte.toString(16).padStart(2, '0')].map(hexDigit).join('')}`
+    );
+    return `(?:${character.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}|${bytes.join('')})`;
+  });
+  return new RegExp(characters.join(''), 'g');
+}
 
 /** Holds `value`, a secret the extension received, so that no later text shows it. Text with a space is no secret. */
 export function holdSecret(value: unknown): void {
   if (typeof value !== 'string') return;
   const secret = stripControlSequences(value).trim();
   if (secret.length < MIN_HELD_LENGTH || /\s/.test(secret)) return;
+  const encoded = held.get(secret) ?? percentEncodedForms(secret);
   held.delete(secret);
-  held.add(secret);
-  if (held.size > MAX_HELD) held.delete(held.values().next().value as string);
+  held.set(secret, encoded);
+  if (held.size > MAX_HELD) held.delete(held.keys().next().value as string);
 }
 
 /** Holds every string under a secret-named key anywhere in `value`, such as a parsed `sf --json` answer. */
@@ -103,8 +119,9 @@ export function holdSecretsInOutput(text: string): void {
  */
 export function redactSecrets(text: string): string {
   let redacted = stripControlSequences(text);
-  for (const value of held.values()) {
-    redacted = redacted.split(value).join(REDACTED);
+  for (const [secret, encoded] of held) {
+    redacted = redacted.split(secret).join(REDACTED);
+    if (redacted.includes('%')) redacted = redacted.replace(encoded, REDACTED);
   }
   redacted = redacted.replace(/(Authorization\s*[:=]\s*Bearer\s+)[^\s,;]+/gi, `$1${REDACTED}`);
   redacted = redacted.replace(/\bBearer\s+[A-Za-z0-9._~+/=!-]{12,}/gi, `Bearer ${REDACTED}`);
