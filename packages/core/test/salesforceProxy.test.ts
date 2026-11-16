@@ -58,7 +58,7 @@ type ChildResult = { ok: boolean; users?: number; error?: string; elapsedMs: num
 
 function childEnvironment(variables: Record<string, string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
-  for (const name of [...PROXY_VARIABLES, 'HTTP_TIMEOUT']) delete env[name];
+  for (const name of [...PROXY_VARIABLES, 'HTTP_TIMEOUT', 'NODE_USE_ENV_PROXY']) delete env[name];
   return Object.assign(env, savedOrgsEnv(), variables);
 }
 

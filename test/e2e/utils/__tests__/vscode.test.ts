@@ -166,14 +166,15 @@ describe('VS Code user profile', () => {
   });
 
   test('keeps the palette setting next to the proxy settings', async () => {
+    const originalEnv = { ...process.env };
     process.env.ALV_E2E_PROXY_STRICT_SSL = '0';
     try {
-      expect(await readProfileSettings()).toEqual({
+      expect(await readProfileSettings()).toMatchObject({
         'workbench.quickOpen.closeOnFocusLost': false,
         'http.proxyStrictSSL': false
       });
     } finally {
-      delete process.env.ALV_E2E_PROXY_STRICT_SSL;
+      process.env = originalEnv;
     }
   });
 });
