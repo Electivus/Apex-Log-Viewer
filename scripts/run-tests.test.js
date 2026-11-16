@@ -6,7 +6,14 @@ const path = require('node:path');
 const { downloadDirToExecutablePath } = require('@vscode/test-electron/out/util');
 const { ensureDevHub, pretestSetup, resolveMissingExtensionIds, resolveRequiredDevHubConfig } = require('./run-tests');
 
-const originalEnv = { ...process.env };
+const callerEnv = { ...process.env };
+const originalEnv = { ...callerEnv };
+for (const field of ['CLIENT_ID', 'USERNAME', 'LOGIN_URL', 'PRIVATE_KEY', 'PRIVATE_KEY_FILE']) {
+  delete originalEnv[`SF_DEVHUB_${field}`];
+}
+test.after(() => {
+  process.env = callerEnv;
+});
 const testPrivateKey = require('node:crypto').generateKeyPairSync('rsa', {
   modulusLength: 2048,
   privateKeyEncoding: { type: 'pkcs8', format: 'pem' },

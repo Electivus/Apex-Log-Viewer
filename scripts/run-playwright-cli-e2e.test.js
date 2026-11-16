@@ -196,7 +196,7 @@ test('resolvePlaywrightInvocation includes --pass-with-no-tests when the CLI sui
   const repoRoot = createTempRepo();
   try {
     const runner = loadRunner();
-    const invocation = runner.resolvePlaywrightInvocation(['--grep', 'smoke'], { repoRoot });
+    const invocation = runner.resolvePlaywrightInvocation(['--grep', 'smoke'], { repoRoot, env: {} });
 
     assert.deepEqual(invocation.args.slice(0, 5), [
       require.resolve('@playwright/test/cli'),
@@ -216,7 +216,7 @@ test('resolvePlaywrightInvocation omits --pass-with-no-tests when the CLI suite 
   try {
     const runner = loadRunner();
     fs.mkdirSync(path.join(repoRoot, 'test', 'e2e', 'cli'), { recursive: true });
-    const invocation = runner.resolvePlaywrightInvocation(['--grep', 'smoke'], { repoRoot });
+    const invocation = runner.resolvePlaywrightInvocation(['--grep', 'smoke'], { repoRoot, env: {} });
 
     assert.deepEqual(invocation.args.slice(0, 4), [
       require.resolve('@playwright/test/cli'),

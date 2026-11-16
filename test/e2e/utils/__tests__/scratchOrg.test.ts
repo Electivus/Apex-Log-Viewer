@@ -261,6 +261,9 @@ describe('ensureScratchOrg', () => {
       SF_TEST_KEEP_ORG: '1'
     };
 
+    for (const field of ['CLIENT_ID', 'USERNAME', 'LOGIN_URL', 'PRIVATE_KEY', 'PRIVATE_KEY_FILE']) {
+      delete process.env[`SF_DEVHUB_${field}`];
+    }
     delete process.env.SF_DEVHUB_ALIAS;
     delete process.env.SF_DEVHUB_AUTH_URL;
 
