@@ -51,6 +51,25 @@ export default [
       'no-throw-literal': 'warn'
     }
   },
+  {
+    files: ['packages/core/src/**/*.ts', 'apps/vscode-extension/src/**/*.ts'],
+    ignores: ['apps/vscode-extension/src/test/**', 'apps/vscode-extension/src/node-test/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@salesforce/core',
+              message:
+                'Only the sf CLI reads and writes Salesforce auth. Get sessions through the OrgAuthSource of @alv/core.'
+            }
+          ],
+          patterns: [{ group: ['@salesforce/core/*'], message: 'Only the sf CLI reads and writes Salesforce auth.' }]
+        }
+      ]
+    }
+  },
   // Disable rules that conflict with Prettier formatting
   eslintConfigPrettier
 ];

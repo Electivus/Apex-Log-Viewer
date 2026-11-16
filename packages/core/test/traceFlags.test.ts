@@ -3,14 +3,12 @@ import test from 'node:test';
 
 import { AlvError, createApexLogViewerCore, type TraceFlagLogType } from '../src/index.ts';
 import {
-  isolateSalesforceHome,
-  saveOrgAuth,
+  authSourceDouble,
   salesforceError,
+  saveOrgAuth,
   startSalesforceDouble,
   type DoubleRequest
 } from './support/salesforceDouble.ts';
-
-isolateSalesforceHome();
 
 const USER_ID = '005000000000001AAA';
 const target = { type: 'user', userId: USER_ID } as const;
@@ -56,8 +54,8 @@ async function traceFlagOrg(
     }
     return salesforceError('NOT_FOUND', `${request.method} ${request.path}`, 404);
   });
-  await saveOrgAuth(username, salesforce.instanceUrl);
-  const core = createApexLogViewerCore();
+  saveOrgAuth(username, salesforce.instanceUrl);
+  const core = createApexLogViewerCore({ auth: authSourceDouble() });
   t.after(() => core.dispose());
   return { core, salesforce };
 }

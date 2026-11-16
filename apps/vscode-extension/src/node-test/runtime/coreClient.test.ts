@@ -3,7 +3,18 @@ import proxyquire from 'proxyquire';
 
 import type { ApexLogViewerCore } from '@alv/core';
 
+/** No `sf` to run: the real auth source loads the extension's logger, which needs VS Code. */
+const noSfCli = {
+  createSfCliAuthSource: () => ({
+    listOrgs: async () => [],
+    session: async () => {
+      throw new Error('no sf in this test');
+    }
+  })
+};
+
 const { CoreClient } = proxyquire.noCallThru().noPreserveCache()('../../runtime/runtimeClient', {
+  '../host/salesforce/sfCliAuth': noSfCli,
   '../host/utils/workspace': { getWorkspaceRoot: () => undefined },
   '../shared/telemetry': { safeSendEvent: () => undefined },
   '../shared/telemetryErrorCodes': { getTelemetryErrorCode: () => 'TEST' }
@@ -192,6 +203,7 @@ suite('shared core client', () => {
             return fakeCore();
           }
         },
+        '../host/salesforce/sfCliAuth': noSfCli,
         '../host/utils/workspace': { getWorkspaceRoot: () => undefined },
         '../shared/telemetry': {
           safeSendEvent: (name: string, properties?: Record<string, string>, measurements?: Record<string, number>) =>

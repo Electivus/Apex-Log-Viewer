@@ -12,9 +12,8 @@ import { within } from './support/captureHarness.ts';
 import { recordedEvents, startBayeuxDouble } from './support/cometdDouble.ts';
 import { alvTestLogDescribe } from './support/describeFixtures.ts';
 import { nebulaHandler } from './support/nebulaDouble.ts';
-import { isolateSalesforceHome } from './support/salesforceDouble.ts';
+import { authSourceDouble } from './support/salesforceDouble.ts';
 
-isolateSalesforceHome();
 // Faye reads http_proxy and ignores NO_PROXY, so a proxied machine would send the loopback double's traffic away.
 delete process.env.http_proxy;
 delete process.env.HTTP_PROXY;
@@ -99,7 +98,11 @@ async function world(
   } = {}
 ) {
   // Hooks run in the order they are registered: the core ends its runs first, then the double and the directory go.
-  const core = createApexLogViewerCore({ instrumentation: options.instrumentation, surface: 'vscode' });
+  const core = createApexLogViewerCore({
+    auth: authSourceDouble(),
+    instrumentation: options.instrumentation,
+    surface: 'vscode'
+  });
   t.after(() => core.dispose());
   const double = await startBayeuxDouble(
     t,

@@ -7,8 +7,8 @@ import type test from 'node:test';
 import { answerRest, saveOrgAuth, type DoubleHandler, type DoubleRequest } from './salesforceDouble.ts';
 
 /**
- * A local HTTP Bayeux long-poll server that the real Faye client inside `@salesforce/core`'s
- * Connection talks to. It answers `/meta/handshake`, `/meta/subscribe`, `/meta/connect` (long polls
+ * A local HTTP Bayeux long-poll server that the real Faye client inside the jsforce Connection
+ * talks to. It answers `/meta/handshake`, `/meta/subscribe`, `/meta/connect` (long polls
  * that return scripted events), `/meta/unsubscribe` and `/meta/disconnect` the way Salesforce does,
  * including the batching Faye uses (a `/meta/connect` sent with other messages carries
  * `advice.timeout: 0` and returns at once).
@@ -50,17 +50,24 @@ export type DoubleScript = {
   resubscribe?: { ok: true } | ({ ok: false } & DoubleFailure);
   /** Each long poll takes the next item; once they run out a poll is held until the client disconnects. */
   connects?: readonly DoubleConnect[];
+  /**
+   * Whether handshake number `handshake` (from 1) sent with access token `token` succeeds. A refused
+   * one gets the reply Salesforce gives an expired session. Default: every token succeeds.
+   */
+  acceptsHandshake?: (token: string, handshake: number) => boolean;
 };
 
 export type BayeuxDouble = {
   readonly instanceUrl: string;
   /** Stops listening and drops every connection, as an unreachable server does. Also runs when the test ends. */
   close(): Promise<void>;
-  /** An org saved for this double in the isolated Salesforce home: `openConnection(username)` reaches it. */
+  /** An org saved for this double with `saveOrgAuth`: `openConnection(username)` and every auth source double reach it. */
   readonly username: string;
   /** `ext.replay` of every `/meta/subscribe` received, oldest first. */
   readonly replays: readonly unknown[];
   readonly handshakes: number;
+  /** The access token of every `/meta/handshake`, oldest first. */
+  readonly handshakeTokens: readonly string[];
   readonly disconnects: number;
   /** Long polls the double has not answered yet. */
   readonly heldPolls: number;
@@ -82,6 +89,11 @@ type BayeuxMessage = {
 type Session = { id: string; index: number; channel: string | undefined };
 
 const ADVICE = { reconnect: 'retry', interval: 0, timeout: 110_000 };
+const EXPIRED_SESSION: DoubleFailure = {
+  error: '403::Handshake denied',
+  advice: { reconnect: 'none' },
+  failureReason: '401::Authentication invalid'
+};
 const UNKNOWN_CLIENT = {
   successful: false,
   error: '403::Unknown client',
@@ -103,6 +115,7 @@ export async function startBayeuxDouble(
   const held = new Map<string, Set<() => void>>();
   const connects = [...(script.connects ?? [])];
   const replays: unknown[] = [];
+  const handshakeTokens: string[] = [];
   const state = { handshakes: 0, disconnects: 0, heldPolls: 0 };
 
   const failure = (reply: DoubleFailure) => ({
@@ -127,15 +140,23 @@ export async function startBayeuxDouble(
 
   const release = (clientId: string) => [...(held.get(clientId) ?? [])].forEach(resolve => resolve());
 
-  async function answer(message: BayeuxMessage, response: http.ServerResponse): Promise<Record<string, unknown>[]> {
+  async function answer(
+    message: BayeuxMessage,
+    response: http.ServerResponse,
+    token: string
+  ): Promise<Record<string, unknown>[]> {
     const base = { id: message.id, channel: message.channel, clientId: message.clientId };
     const session = message.clientId ? sessions.get(message.clientId) : undefined;
     switch (message.channel) {
       case '/meta/handshake': {
         state.handshakes += 1;
+        handshakeTokens.push(token);
         const plan = script.handshake;
         if (plan && 'delayMs' in plan && plan.delayMs) await new Promise(resolve => setTimeout(resolve, plan.delayMs));
         if (plan && 'error' in plan) return [{ id: message.id, channel: message.channel, ...failure(plan) }];
+        if (script.acceptsHandshake && !script.acceptsHandshake(token, state.handshakes)) {
+          return [{ id: message.id, channel: message.channel, ...failure(EXPIRED_SESSION) }];
+        }
         const created: Session = { id: `client-${state.handshakes}`, index: state.handshakes - 1, channel: undefined };
         sessions.set(created.id, created);
         return [
@@ -202,13 +223,14 @@ export async function startBayeuxDouble(
       answerRest(request, response, rest, requests);
       return;
     }
+    const token = String(request.headers.authorization ?? '').replace(/^(OAuth|Bearer) /, '');
     const chunks: Buffer[] = [];
     request.on('data', chunk => chunks.push(chunk as Buffer));
     request.on('end', () => {
       void (async () => {
         const replies: Record<string, unknown>[] = [];
         for (const message of JSON.parse(Buffer.concat(chunks).toString('utf8')) as BayeuxMessage[]) {
-          replies.push(...(await answer(message, response)));
+          replies.push(...(await answer(message, response, token)));
         }
         if (response.destroyed) return;
         response.writeHead(200, { 'content-type': 'application/json' });
@@ -228,7 +250,7 @@ export async function startBayeuxDouble(
   const { port } = server.address() as AddressInfo;
   const instanceUrl = `http://127.0.0.1:${port}`;
   const username = `bayeux-${port}@example.com`;
-  await saveOrgAuth(username, instanceUrl);
+  saveOrgAuth(username, instanceUrl);
 
   return {
     instanceUrl,
@@ -238,6 +260,7 @@ export async function startBayeuxDouble(
     get handshakes() {
       return state.handshakes;
     },
+    handshakeTokens,
     get disconnects() {
       return state.disconnects;
     },

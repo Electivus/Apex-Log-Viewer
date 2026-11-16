@@ -3,11 +3,9 @@ import test from 'node:test';
 
 import { createApexLogViewerCore } from '../src/index.ts';
 import { debugLevelOrg, EXISTING_LEVEL, LEVEL_ID } from './support/debugLevelDouble.ts';
-import { isolateSalesforceHome } from './support/salesforceDouble.ts';
+import { authSourceDouble } from './support/salesforceDouble.ts';
 
-isolateSalesforceHome();
-
-const core = createApexLogViewerCore();
+const core = createApexLogViewerCore({ auth: authSourceDouble() });
 test.after(() => core.dispose());
 
 const fullRecord = {

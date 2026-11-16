@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import proxyquire from 'proxyquire';
@@ -10,33 +9,10 @@ import { FakeHost, formatLocalized, vscodeStub } from '../customLogsTestSupport'
 import { FakeClock, createWebviewSessionForTest, settle } from '../webviewSessionTestSupport';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
-const coreRequire = createRequire(path.resolve(__dirname, '../../../../../packages/core/package.json'));
-const { StateAggregator } = coreRequire('@salesforce/core');
 
 const GLOBAL_ORG = 'global@example.com';
 const WORKSPACE_ORG = 'workspace@example.com';
 const WORKSPACE_ALIAS = 'workspace-scratch';
-
-async function saveOrgs(): Promise<void> {
-  await StateAggregator.clearInstanceAsync();
-  const state = await StateAggregator.getInstance();
-  for (const username of [GLOBAL_ORG, WORKSPACE_ORG]) {
-    state.orgs.set(username, {
-      username,
-      orgId: '00D000000000001AAA',
-      instanceUrl: 'https://example.test',
-      loginUrl: 'https://example.test',
-      accessToken: `token-${username}`
-    });
-    await state.orgs.write(username);
-  }
-  await state.aliases.setAndSave(WORKSPACE_ALIAS, WORKSPACE_ORG);
-}
-
-function writeTargetOrg(root: string, targetOrg: string): void {
-  fs.mkdirSync(path.join(root, '.sf'), { recursive: true });
-  fs.writeFileSync(path.join(root, '.sf', 'config.json'), JSON.stringify({ 'target-org': targetOrg }));
-}
 
 async function until(condition: () => boolean): Promise<void> {
   const deadline = Date.now() + 10_000;
@@ -46,44 +22,61 @@ async function until(condition: () => boolean): Promise<void> {
   }
 }
 
-suite('Tail opened before Logs', () => {
-  const saved = {
-    home: process.env.HOME,
-    userProfile: process.env.USERPROFILE,
-    keychain: process.env.SF_USE_GENERIC_UNIX_KEYCHAIN,
-    disableLogFile: process.env.SF_DISABLE_LOG_FILE
+/**
+ * The `sf` CLI as a workspace sees it: run inside the project folder, `sf org list auth` marks the
+ * project's target-org as the default; run anywhere else, the global one.
+ */
+function sfCli(workspace: string) {
+  const runs: Array<{ command: string; cwd?: string }> = [];
+  const execCommand = async (
+    _program: string,
+    args: string[],
+    _env?: NodeJS.ProcessEnv,
+    _timeoutMs?: number,
+    _signal?: AbortSignal,
+    cwd?: string
+  ) => {
+    const firstFlag = args.findIndex(arg => arg.startsWith('-'));
+    const command = args.slice(0, firstFlag).join(' ');
+    runs.push({ command, cwd });
+    const reply = (result: unknown) => ({ stdout: JSON.stringify({ status: 0, result }), stderr: '' });
+    if (command === 'org list auth') {
+      const defaultOrg = cwd === workspace ? WORKSPACE_ORG : GLOBAL_ORG;
+      return reply(
+        [GLOBAL_ORG, WORKSPACE_ORG].map(username => ({
+          username,
+          alias: username === WORKSPACE_ORG ? WORKSPACE_ALIAS : '',
+          instanceUrl: 'https://example.test',
+          configs: username === defaultOrg ? ['target-org'] : []
+        }))
+      );
+    }
+    if (command === 'org auth show-access-token') return reply({ accessToken: 'token-tail' });
+    throw new Error(`unexpected sf ${args.join(' ')}`);
   };
+  const sfCliAuth = proxyquireStrict('../../host/salesforce/sfCliAuth', {
+    './exec': { CLI_TIMEOUT_MS: 120_000, execCommand },
+    './path': { getLoginShellEnv: async () => ({ ...process.env }) },
+    './proxy': { readProxySettings: () => ({}) },
+    '../utils/localize': {
+      localize: (_key: string, message: string, ...args: unknown[]) =>
+        message.replace(/\{(\d+)\}/g, (_m, i) => String(args[Number(i)]))
+    }
+  });
+  return { runs, sfCliAuth };
+}
+
+suite('Tail opened before Logs', () => {
   let home: string;
   let workspace: string;
 
-  setup(async () => {
+  setup(() => {
     home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'alv-tail-org-')));
     workspace = path.join(home, 'project');
-    process.env.HOME = home;
-    process.env.USERPROFILE = home;
-    process.env.SF_USE_GENERIC_UNIX_KEYCHAIN = 'true';
-    // The extension sets this at activation. Without it, @salesforce/core's logger starts a worker thread that creates
-    // .sf/sf-<date>.log under this temporary home whenever it gets to it, which can be while teardown deletes the home.
-    process.env.SF_DISABLE_LOG_FILE = 'true';
-    await saveOrgs();
-    writeTargetOrg(home, GLOBAL_ORG);
-    writeTargetOrg(workspace, WORKSPACE_ALIAS);
+    fs.mkdirSync(workspace);
   });
 
-  teardown(async () => {
-    await StateAggregator.clearInstanceAsync();
-    process.env.HOME = saved.home;
-    process.env.USERPROFILE = saved.userProfile;
-    if (saved.keychain === undefined) {
-      delete process.env.SF_USE_GENERIC_UNIX_KEYCHAIN;
-    } else {
-      process.env.SF_USE_GENERIC_UNIX_KEYCHAIN = saved.keychain;
-    }
-    if (saved.disableLogFile === undefined) {
-      delete process.env.SF_DISABLE_LOG_FILE;
-    } else {
-      process.env.SF_DISABLE_LOG_FILE = saved.disableLogFile;
-    }
+  teardown(() => {
     fs.rmSync(home, { recursive: true, force: true });
   });
 
@@ -94,7 +87,9 @@ suite('Tail opened before Logs', () => {
     const tailOrgs: Array<string | undefined> = [];
     const noEvent = () => ({ dispose: () => undefined });
 
+    const sf = sfCli(workspace);
     const { runtimeClient } = proxyquireStrict('../../runtime/runtimeClient', {
+      '../host/salesforce/sfCliAuth': sf.sfCliAuth,
       '../host/utils/workspace': { getWorkspaceRoot: () => workspace },
       '../shared/telemetry': { safeSendEvent: () => undefined },
       '../shared/telemetryErrorCodes': { getTelemetryErrorCode: () => 'TEST' }
@@ -175,6 +170,11 @@ suite('Tail opened before Logs', () => {
     await host.emit({ type: 'openDebugFlags' });
 
     assert.deepEqual(debugFlagsShown, [{ selectedOrg: WORKSPACE_ORG, sourceView: 'tail' }]);
+    assert.ok(sf.runs.length > 0);
+    assert.ok(
+      sf.runs.every(run => run.cwd === workspace),
+      'every sf run starts in the workspace folder'
+    );
     provider.dispose();
     await runtimeClient.dispose();
   });

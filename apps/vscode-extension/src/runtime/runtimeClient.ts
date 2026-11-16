@@ -1,6 +1,7 @@
 import os from 'node:os';
 
 import {
+  AlvError,
   createApexLogViewerCore,
   type ApexLogLifecycleEvent,
   type ApexLogLocalFile,
@@ -63,6 +64,7 @@ import type {
 import type * as ui from '@alv/protocol/customLogsTypes';
 import type { ApexLogRow } from '@alv/protocol/types';
 
+import { createSfCliAuthSource } from '../host/salesforce/sfCliAuth';
 import { getWorkspaceRoot } from '../host/utils/workspace';
 import { safeSendEvent } from '../shared/telemetry';
 import { getTelemetryErrorCode } from '../shared/telemetryErrorCodes';
@@ -259,16 +261,18 @@ function normalizeCoreError(error: unknown, signal?: AbortSignal): unknown {
 export class CoreClient {
   private readonly core: ApexLogViewerCore;
   private readonly workspaceRoot: () => string | undefined;
+  private readonly updateHint: (signal?: AbortSignal) => Promise<string | undefined>;
   private readonly inFlightOrgLists = new Map<string, PendingInFlight<OrgListItem[]>>();
-  private readonly inFlightOrgAuth = new Map<string, PendingInFlight<OrgAuth>>();
 
   public constructor(options: CoreClientOptions = {}) {
     this.workspaceRoot = options.workspaceRoot ?? (() => undefined);
+    const auth = createSfCliAuthSource({ projectDir: this.workspaceRoot });
+    this.updateHint = signal => auth.updateHint(signal);
     this.core =
       options.core ??
       createApexLogViewerCore({
         surface: 'vscode',
-        projectPath: this.workspaceRoot,
+        auth,
         instrumentation: {
           onCall: event => {
             const properties: Record<string, string> = {
@@ -303,16 +307,9 @@ export class CoreClient {
     return this.call(signal, () => this.core.org.resolve(params, { signal }));
   }
 
+  /** The org's session in memory. `rejected` names a token Salesforce refused, so the session is renewed through `sf`. */
   public getOrgAuth(params: OrgAuthParams = {}, signal?: AbortSignal): Promise<OrgAuth> {
-    const key = JSON.stringify({ username: params.username?.trim() ?? '' });
-    const pending = this.inFlightOrgAuth.get(key);
-    if (pending) return this.observeInFlightRequest(pending, signal);
-    return this.observeInFlightRequest(
-      this.createInFlightRequest(this.inFlightOrgAuth, key, requestSignal =>
-        this.core.org.getAuth(params, { signal: requestSignal })
-      ),
-      signal
-    );
+    return this.call(signal, () => this.core.org.getAuth(params, { signal }));
   }
 
   public async logsList(params: LogsListParams = {}, signal?: AbortSignal): Promise<ApexLogRow[]> {
@@ -548,8 +545,15 @@ export class CoreClient {
     try {
       return await run();
     } catch (error) {
-      throw normalizeCoreError(error, signal);
+      throw await this.explainFailure(normalizeCoreError(error, signal), signal);
     }
+  }
+
+  /** A request for a new login also says when the installed `sf` cannot keep one. The CLI is asked only then. */
+  private async explainFailure(error: unknown, signal?: AbortSignal): Promise<unknown> {
+    if (!(error instanceof Error) || (error as { code?: unknown }).code !== 'AUTH_REQUIRED') return error;
+    const hint = await this.updateHint(signal).catch(() => undefined);
+    return hint ? new AlvError('AUTH_REQUIRED', `${error.message} ${hint}`, { cause: error }) : error;
   }
 
   private createInFlightRequest<TResult>(
