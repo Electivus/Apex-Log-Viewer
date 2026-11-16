@@ -43,6 +43,9 @@ export type SfCliAuthSource = OrgAuthSource & {
 /** The first `sf` whose `@salesforce/core` (9.2.0) keeps the new refresh token a rotating connected app returns. */
 const KEEPS_ROTATED_LOGIN: readonly number[] = [2, 152, 9];
 
+/** `sf --version` answers in under a second; past this the login request goes out without the update hint. */
+const VERSION_TIMEOUT_MS = 5_000;
+
 /** The release in `sf --version` output, `@salesforce/cli/<version> <platform> node-<version>`. */
 function cliVersionOf(text: string): number[] | undefined {
   const match = /@salesforce\/cli\/(\d+)\.(\d+)\.(\d+)/.exec(stripVTControlCharacters(text));
@@ -255,7 +258,7 @@ export function createSfCliAuthSource(options: { projectDir: () => string | unde
     },
     async updateHint(signal) {
       const { env, program, cwd } = await invocation();
-      const { stdout } = await execCommand(program, ['--version'], env, CLI_TIMEOUT_MS, signal, cwd);
+      const { stdout } = await execCommand(program, ['--version'], env, VERSION_TIMEOUT_MS, signal, cwd);
       const version = cliVersionOf(stdout);
       if (!version || !isOlder(version, KEEPS_ROTATED_LOGIN)) return undefined;
       return `This Salesforce CLI is ${version.join('.')}. Releases before ${KEEPS_ROTATED_LOGIN.join('.')} lose the login when the org returns a new refresh token, so update it first: run "sf update", or "npm install --global @salesforce/cli" if npm installed it.`;
