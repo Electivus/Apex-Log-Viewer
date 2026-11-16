@@ -12,7 +12,7 @@ import {
   type SourceOrg
 } from '@alv/core';
 
-import { holdSecret } from '../utils/redact';
+import { holdSecret, redactSecrets } from '../utils/redact';
 import { CLI_TIMEOUT_MS, execCommand } from './exec';
 import { getLoginShellEnv } from './path';
 import { readProxySettings } from './proxy';
@@ -191,7 +191,8 @@ export function createSfCliAuthSource(options: { projectDir: () => string | unde
       }
       const reported = parseJson(String(failure.stdout ?? '')) ?? parseJson(String(failure.stderr ?? ''));
       const message = asString(reported?.message) ?? asString(failure.message) ?? 'unknown error';
-      throw new AlvError('SF_CLI_FAILED', message, { cause: error });
+      // A JSON error carries color codes as \u001b escapes, so the parsed message is redacted again.
+      throw new AlvError('SF_CLI_FAILED', redactSecrets(message), { cause: error });
     }
   };
 

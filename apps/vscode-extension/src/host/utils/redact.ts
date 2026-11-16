@@ -3,6 +3,19 @@
  * printed, and every log line. Free of `vscode`, so the host and its node tests share it.
  */
 
+import { stripVTControlCharacters } from 'node:util';
+
+/** A terminal control sequence as `sf --json` writes it inside a JSON string, such as `\u001b[31m`. */
+const JSON_ESCAPED_CONTROL_SEQUENCE = /\\u001b\[[0-?]*[ -/]*[@-~]/gi;
+
+/**
+ * `text` without terminal control sequences, both as a terminal receives them and JSON-escaped, so that no
+ * color code splits a secret or hides where it starts. Colors mean nothing in an error or the Output channel.
+ */
+export function stripControlSequences(text: string): string {
+  return stripVTControlCharacters(text.replace(JSON_ESCAPED_CONTROL_SEQUENCE, ''));
+}
+
 const REDACTED = '[redacted]';
 
 /** Shorter values are too likely to be ordinary words to replace everywhere. */
@@ -48,9 +61,12 @@ export function holdSecret(owner: string, value: string | undefined): void {
   }
 }
 
-/** `text` with every held secret, every token-shaped string and every secret-named value replaced. */
+/**
+ * `text` with every held secret, every token-shaped string and every secret-named value replaced, after its
+ * control sequences are removed.
+ */
 export function redactSecrets(text: string): string {
-  let redacted = text;
+  let redacted = stripControlSequences(text);
   for (const value of held.values()) {
     redacted = redacted.split(value).join(REDACTED);
   }

@@ -1,7 +1,7 @@
 import * as cp from 'child_process';
 import { logTrace, logWarn } from '../utils/logger';
 import { localize } from '../utils/localize';
-import { redactSecrets } from '../utils/redact';
+import { redactSecrets, stripControlSequences } from '../utils/redact';
 import { safeSendEvent, safeSendException } from '../../shared/telemetry';
 import { classifyCliExecTelemetryCode } from './cliTelemetry';
 const crossSpawn = require('cross-spawn');
@@ -245,14 +245,18 @@ export function execCommand(
           reject(e);
           return;
         }
-        // What sf printed can echo a token: the Error, its streams and the trace get it redacted.
-        const printed = redactSecrets(String(stdout ?? ''));
-        const printedErr = redactSecrets(String(stderr ?? ''));
-        const detail = printedErr || redactSecrets(String(err.message ?? ''));
+        // What sf printed can echo a token. Control sequences go first, so that no color code hides one from the
+        // redactor, the parsers or the trace; then the Error, its streams and the trace get it redacted.
+        const out = stripControlSequences(String(stdout ?? ''));
+        const errOut = stripControlSequences(String(stderr ?? ''));
+        const message = stripControlSequences(String(err.message ?? ''));
+        const printed = redactSecrets(out);
+        const printedErr = redactSecrets(errOut);
+        const detail = printedErr || redactSecrets(message);
         try {
           logTrace('execCommand error for', program, '->', detail.split('\n')[0]);
         } catch {}
-        const telemetryCode = classifyCliExecTelemetryCode(err.code, stderr, stdout, err.message);
+        const telemetryCode = classifyCliExecTelemetryCode(err.code, errOut, out, message);
         sendCliCommandTelemetry(program, 'error', t0);
         safeSendException('cli.exec', { code: telemetryCode, command: program });
         const code = typeof err.code === 'number' || typeof err.code === 'string' ? err.code : undefined;
