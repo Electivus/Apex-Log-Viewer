@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { stripVTControlCharacters } from 'node:util';
 import proxyquire from 'proxyquire';
 
 import type { SourceOrg } from '@alv/core';
@@ -84,6 +85,32 @@ function textOf(error: unknown): string {
 
 const secrets = [HELD_TOKEN, SHAPED_TOKEN, SHAPED_REFRESH];
 
+const ESC = '\u001b';
+
+/** Where a failing `sf` prints `body`: in its JSON error, on stderr, or on a warning line before the JSON. */
+type Place = 'json' | 'stderr' | 'outer';
+const PLACES: readonly Place[] = ['json', 'stderr', 'outer'];
+
+function failingWith(place: Place, body: string): Exit {
+  if (place === 'json') return { code: 1, stdout: JSON.stringify({ status: 1, name: 'SfError', message: body }) };
+  if (place === 'stderr') return { code: 1, stderr: `${body}\n` };
+  return { code: 1, stdout: `WARN ${body}\n${JSON.stringify({ status: 1, message: 'test error' })}` };
+}
+
+async function rejectionOf(pending: Promise<unknown>): Promise<unknown> {
+  return pending.then(
+    () => assert.fail('the call should fail'),
+    (rejection: unknown) => rejection
+  );
+}
+
+/** Every string a caller or the trace receives from a failing `listOrgs` whose `sf` prints `body` at `place`. */
+async function shownFor(place: Place, body: string): Promise<{ shown: string; trace: string }> {
+  const { source, traced } = load(() => failingWith(place, body));
+  const shown = textOf(await rejectionOf(source.listOrgs()));
+  return { shown, trace: traced.join('\n') };
+}
+
 suite('sf CLI output that reaches errors and the trace channel', () => {
   const failures: Array<{ name: string; failure: Exit }> = [
     {
@@ -126,6 +153,25 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
       assert.match(shown, /\[redacted\]/, 'the error marks where a token was');
     });
   }
+
+  test('a session id that color codes surround or split reaches neither the error nor the trace', async () => {
+    // A session id the extension does not hold, shaped like one: what sf prints, colored as FORCE_COLOR makes it.
+    const session = ['00D000000000001AAA', 'FAKEColoredSession0123456789'].join('!');
+    const colored = [`${ESC}[31m${session}${ESC}[39m`, `${session.slice(0, 10)}${ESC}[1m${session.slice(10)}`];
+    for (const place of PLACES) {
+      for (const token of colored) {
+        const { shown, trace } = await shownFor(place, `Request failed for ${token}`);
+
+        assert.match(shown, /request failed for/i, `${place}: the error still says what sf reported`);
+        assert.ok(!stripVTControlCharacters(shown).includes(session), `${place}: the error carries no session id`);
+        assert.ok(!stripVTControlCharacters(trace).includes(session), `${place}: the trace carries no session id`);
+        assert.ok(
+          !shown.includes(ESC) && !trace.includes(ESC),
+          `${place}: no control sequence reaches the error or the trace`
+        );
+      }
+    }
+  });
 
   test('the token a successful sf prints still reaches the auth source', async () => {
     const { source, traced } = load(() => ({
