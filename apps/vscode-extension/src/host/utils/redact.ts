@@ -49,16 +49,20 @@ const TOKEN_SHAPES: readonly RegExp[] = [
   /\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}/g
 ];
 
-/** The secret each owner holds in memory, such as the access token of one org's session. */
-const held = new Map<string, string>();
+/** How many secrets stay held; past it the oldest goes. Renewals are rare, so this spans many hours of them. */
+const MAX_HELD = 256;
 
-/** Records `value` as the secret `owner` holds now, in place of the one it held before. `undefined` forgets it. */
-export function holdSecret(owner: string, value: string | undefined): void {
-  if (value && value.length >= MIN_HELD_LENGTH) {
-    held.set(owner, value);
-  } else {
-    held.delete(owner);
-  }
+/** Every secret the extension received in this session, oldest first. A token stays held after its renewal. */
+const held = new Set<string>();
+
+/** Holds `value`, a secret the extension received, so that no later text shows it. Text with a space is no secret. */
+export function holdSecret(value: unknown): void {
+  if (typeof value !== 'string') return;
+  const secret = stripControlSequences(value).trim();
+  if (secret.length < MIN_HELD_LENGTH || /\s/.test(secret)) return;
+  held.delete(secret);
+  held.add(secret);
+  if (held.size > MAX_HELD) held.delete(held.values().next().value as string);
 }
 
 /**

@@ -251,7 +251,7 @@ export function createSfCliAuthSource(options: { projectDir: () => string | unde
       // Both reasons run the same command: `sf` checks the stored token and refreshes it only when the org refuses it.
       const session = await sessionFromSf(org, signal);
       // Kept out of every error and log line, should a later `sf` echo it.
-      holdSecret(`sf:${org.username}`, session.accessToken);
+      holdSecret(session.accessToken);
       return session;
     },
     async updateHint(signal) {
