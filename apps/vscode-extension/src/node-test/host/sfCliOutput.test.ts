@@ -58,8 +58,22 @@ function load(answer: (args: string[]) => Exit) {
     './path': { getLoginShellEnv: async () => ({ PATH: '/usr/bin' }) },
     './proxy': { readProxySettings: () => ({}) }
   }) as typeof import('../../host/salesforce/sfCliAuth');
-  return { source: module.createSfCliAuthSource({ projectDir: () => undefined }), traced };
+  return { module, source: module.createSfCliAuthSource({ projectDir: () => undefined }), traced };
 }
+
+/** The extension's core client, with the real core, over the same scripted `sf`. */
+function loadClient(answer: (args: string[]) => Exit) {
+  const { module, traced } = load(answer);
+  const { CoreClient } = proxyquireStrict('../../runtime/runtimeClient', {
+    '../host/salesforce/sfCliAuth': module,
+    '../host/utils/workspace': { getWorkspaceRoot: () => undefined },
+    '../shared/telemetry': { safeSendEvent: () => undefined },
+    '../shared/telemetryErrorCodes': { getTelemetryErrorCode: () => 'TEST' }
+  }) as typeof import('../../runtime/runtimeClient');
+  return { client: new CoreClient(), traced };
+}
+
+const ok = (result: unknown): Exit => ({ code: 0, stdout: JSON.stringify({ status: 0, result }) });
 
 const isCommand = (args: string[], command: string) => args.join(' ').startsWith(command);
 
@@ -170,6 +184,46 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
           `${place}: no control sequence reaches the error or the trace`
         );
       }
+    }
+  });
+
+  test('every token sf handed out stays held: two orgs, one asked for by its second alias, and its token from before a renewal', async () => {
+    // Tokens shaped like nothing, so that only holding them can keep them out.
+    const handedOut: Record<string, string[]> = {
+      'a@example.com': ['FAKE-held-org-a-first-0123', 'FAKE-held-org-a-renewed-4567'],
+      'b@example.com': ['FAKE-held-org-b-only-89ab']
+    };
+    const asked = new Map<string, number>();
+    let listFails = false;
+    const { client, traced } = loadClient(args => {
+      if (isCommand(args, 'org list auth')) {
+        if (listFails) return failingWith('stderr', `Request failed with ${Object.values(handedOut).flat().join(' ')}`);
+        return ok([
+          { username: 'a@example.com', alias: 'a-one,a-two', instanceUrl: ORG.instanceUrl, orgId: ORG.orgId },
+          { username: 'b@example.com', alias: 'b-one', instanceUrl: ORG.instanceUrl, orgId: '00D000000000002AAA' }
+        ]);
+      }
+      const username = args[args.indexOf('--target-org') + 1] ?? '';
+      const tokens = handedOut[username] ?? [];
+      const count = asked.get(username) ?? 0;
+      asked.set(username, count + 1);
+      return ok({ accessToken: tokens[Math.min(count, tokens.length - 1)] });
+    });
+
+    const first = await client.getOrgAuth({ username: 'a-two' });
+    await client.getOrgAuth({ username: 'b-one' });
+    const renewed = await client.getOrgAuth({ username: 'a-two', rejected: first.accessToken });
+    assert.deepEqual(
+      [first.accessToken, renewed.accessToken],
+      handedOut['a@example.com'],
+      'the second alias reaches org a, and its renewal a new token'
+    );
+
+    listFails = true;
+    const shown = textOf(await rejectionOf(client.orgList({ forceRefresh: true })));
+    for (const token of Object.values(handedOut).flat()) {
+      assert.ok(!shown.includes(token), `the error carries no ${token}`);
+      assert.ok(!traced.join('\n').includes(token), `the trace carries no ${token}`);
     }
   });
 
