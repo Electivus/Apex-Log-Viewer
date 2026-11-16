@@ -12,6 +12,7 @@ import {
   type SourceOrg
 } from '@alv/core';
 
+import { localize } from '../utils/localize';
 import { holdSecretsIn, redactSecrets } from '../utils/redact';
 import { CLI_TIMEOUT_MS, execCommand } from './exec';
 import { getLoginShellEnv } from './path';
@@ -173,7 +174,11 @@ export function createSfCliAuthSource(options: { projectDir: () => string | unde
     try {
       const { stdout } = await execCommand(program, [...args, '--json'], env, CLI_TIMEOUT_MS, signal, cwd);
       const parsed = parseJson(stdout);
-      if (!parsed) throw new AlvError('SF_CLI_FAILED', `sf ${args.slice(0, 3).join(' ')} printed no JSON.`);
+      if (!parsed)
+        throw new AlvError(
+          'SF_CLI_FAILED',
+          localize('sfCli.noJson', 'sf {0} printed no JSON.', args.slice(0, 3).join(' '))
+        );
       // Every token sf prints, such as the one an older `org list auth` lists, stays out of later errors and logs.
       holdSecretsIn(parsed);
       return { kind: 'ok', result: parsed.result };
@@ -186,8 +191,14 @@ export function createSfCliAuthSource(options: { projectDir: () => string | unde
         throw new AlvError(
           'SF_CLI_NOT_FOUND',
           legacyOnly
-            ? 'Only the deprecated sfdx command was found, and Apex Log Viewer needs sf. Install the current Salesforce CLI (npm install --global @salesforce/cli, or its installer), then reload VS Code.'
-            : 'The Salesforce CLI (sf) was not found. Install it, or set ALV_SF_BIN_PATH to its path, then reload VS Code.',
+            ? localize(
+                'sfCli.legacyOnly',
+                'Only the deprecated sfdx command was found, and Apex Log Viewer needs sf. Install the current Salesforce CLI (npm install --global @salesforce/cli, or its installer), then reload VS Code.'
+              )
+            : localize(
+                'sfCli.notFound',
+                'The Salesforce CLI (sf) was not found. Install it, or set ALV_SF_BIN_PATH to its path, then reload VS Code.'
+              ),
           { cause: error }
         );
       }
@@ -205,9 +216,14 @@ export function createSfCliAuthSource(options: { projectDir: () => string | unde
     const run = await runSf(['org', 'auth', 'show-access-token', '--target-org', org.username, '--no-prompt'], signal);
     if (run.kind === 'command-missing') return undefined;
     const accessToken = usableAccessToken((run.result as JsonObject | undefined)?.accessToken);
-    if (!accessToken) throw new AlvError('SF_CLI_FAILED', 'sf org auth show-access-token printed no token.');
+    if (!accessToken) {
+      throw new AlvError('SF_CLI_FAILED', localize('sfCli.noToken', 'sf org auth show-access-token printed no token.'));
+    }
     if (!org.instanceUrl) {
-      throw new AlvError('SF_CLI_FAILED', `The Salesforce CLI lists no instance URL for ${org.username}.`);
+      throw new AlvError(
+        'SF_CLI_FAILED',
+        localize('sfCli.noInstanceUrl', 'The Salesforce CLI lists no instance URL for {0}.', org.username)
+      );
     }
     return { accessToken, instanceUrl: org.instanceUrl, orgId: org.orgId };
   };
@@ -243,7 +259,10 @@ export function createSfCliAuthSource(options: { projectDir: () => string | unde
     }
     throw new AlvError(
       'SF_CLI_UNSUPPORTED',
-      'This Salesforce CLI hides the access token in "sf org display" and has no "sf org auth show-access-token". Update the Salesforce CLI.'
+      localize(
+        'sfCli.tokenHidden',
+        'This Salesforce CLI hides the access token in "sf org display" and has no "sf org auth show-access-token". Update the Salesforce CLI.'
+      )
     );
   };
 
@@ -261,7 +280,12 @@ export function createSfCliAuthSource(options: { projectDir: () => string | unde
       const { stdout } = await execCommand(program, ['--version'], env, VERSION_TIMEOUT_MS, signal, cwd);
       const version = cliVersionOf(stdout);
       if (!version || !isOlder(version, KEEPS_ROTATED_LOGIN)) return undefined;
-      return `This Salesforce CLI is ${version.join('.')}. Releases before ${KEEPS_ROTATED_LOGIN.join('.')} lose the login when the org returns a new refresh token, so update it first: run "sf update", or "npm install --global @salesforce/cli" if npm installed it.`;
+      return localize(
+        'sfCli.updateHint',
+        'This Salesforce CLI is {0}. Releases before {1} lose the login when the org returns a new refresh token, so update it first: run "sf update", or "npm install --global @salesforce/cli" if npm installed it.',
+        version.join('.'),
+        KEEPS_ROTATED_LOGIN.join('.')
+      );
     }
   };
 }
