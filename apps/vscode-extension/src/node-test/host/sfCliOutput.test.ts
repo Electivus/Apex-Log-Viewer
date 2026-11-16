@@ -300,6 +300,33 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     }
   });
 
+  test('an SFDX auth URL reaches neither the error nor the trace, whatever its refresh token looks like', async () => {
+    const refresh = ['FAKE', 'RefreshTokenOtherPrefix0123456789'].join('');
+    const urls = [
+      ['force:/', '/PlatformCLI::', refresh, '@example.my.salesforce.com'].join(''),
+      ['force:/', '/PlatformCLI:', 'FAKEclientSecret0123', ':', refresh, '@example.my.salesforce.com'].join('')
+    ];
+    for (const place of PLACES) {
+      for (const url of urls) {
+        const { shown, trace } = await shownFor(place, `Could not use ${url} to log in`);
+
+        assert.match(
+          shown,
+          /could not use force:\/\/.*@example\.my\.salesforce\.com to log in/i,
+          `${place}: the error keeps the instance`
+        );
+        assert.ok(
+          !shown.includes(refresh) && !trace.includes(refresh),
+          `${place}: no refresh token in the error or the trace`
+        );
+        assert.ok(
+          !shown.includes('FAKEclientSecret') && !trace.includes('FAKEclientSecret'),
+          `${place}: no client secret either`
+        );
+      }
+    }
+  });
+
   test('the token a successful sf prints still reaches the auth source', async () => {
     const { source, traced } = load(() => ({
       code: 0,
