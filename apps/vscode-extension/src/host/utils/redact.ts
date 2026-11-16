@@ -52,10 +52,13 @@ const TOKEN_SHAPES: readonly RegExp[] = [
   /\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}/g
 ];
 
-/** How many secrets stay held; past it the oldest goes. Renewals are rare, so this spans many hours of them. */
+/** How many secrets stay held; past it the oldest goes. */
 const MAX_HELD = 256;
 
-/** Every secret the extension received in this session, oldest first, with the pattern of its encoded forms. */
+/**
+ * The secrets the extension received in this session, oldest first and at most MAX_HELD, each with the pattern of
+ * its encoded forms.
+ */
 const held = new Map<string, RegExp>();
 
 /** One hex digit of a percent-encoding, in either case. */
@@ -73,7 +76,10 @@ function percentEncodedForms(secret: string): RegExp {
   return new RegExp(characters.join(''), 'g');
 }
 
-/** Holds `value`, a secret the extension received, so that no later text shows it. Text with a space is no secret. */
+/**
+ * Holds `value`, a secret the extension received, so that `redactSecrets` replaces it while it stays held. Text with
+ * a space is no secret.
+ */
 export function holdSecret(value: unknown): void {
   if (typeof value !== 'string') return;
   const secret = stripControlSequences(value).trim();
@@ -115,7 +121,8 @@ export function holdSecretsInOutput(text: string): void {
 
 /**
  * `text` with every held secret, every token-shaped string and every secret-named value replaced, after its
- * control sequences are removed.
+ * control sequences are removed. Held secrets are replaced one at a time, in the order they were received, so when
+ * one contains another the rest of the longer can stay.
  */
 export function redactSecrets(text: string): string {
   let redacted = stripControlSequences(text);

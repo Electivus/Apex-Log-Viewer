@@ -4,7 +4,7 @@ Thanks for taking the time to contribute! This guide covers local setup, coding 
 
 ## Quick Start
 
-- Requirements: Node.js 24.22.2+ (use `nvm use` to respect `.nvmrc`), VS Code 1.90+, Salesforce CLI (`sf` recommended or legacy `sfdx`).
+- Requirements: Node.js 24.22.2+ (use `nvm use` to respect `.nvmrc`), VS Code 1.90+, Salesforce CLI (`sf`).
 - Clone and install: `pnpm install --frozen-lockfile`
 - Build once: `pnpm run build`
 - Dev mode: `pnpm run watch` then press `F5` in VS Code to launch the Extension Development Host.
@@ -70,7 +70,7 @@ Manual packaging (rare):
 - Requires Salesforce CLI with an authenticated org (`sf org login web`).
 - Never log or commit tokens or org-sensitive data.
 - When `electivus.apexLogViewer.logging.trace` is enabled, review output before sharing externally.
- - Telemetry: respect the user's VS Code `telemetry.telemetryLevel`. Never include source code, Apex log content, access tokens, usernames, org IDs, or instance URLs in telemetry. Keep events minimal (counts/flags), prefer bounded enums over free-form strings, and consider sampling to avoid high-frequency spam.
+- Telemetry: respect the user's VS Code `telemetry.telemetryLevel`. Never include source code, Apex log content, access tokens, usernames, org IDs, or instance URLs in telemetry. Keep events minimal (counts/flags), prefer bounded enums over free-form strings, and consider sampling to avoid high-frequency spam.
 
 ## Sensitive Files Guardrails
 
