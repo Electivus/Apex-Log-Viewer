@@ -28,13 +28,13 @@ function decideGate({ author, headSha, review }) {
     return { state: 'success', description: 'Codex does not review Dependabot pull requests' };
   }
   if (!review) {
-    return { state: 'pending', description: 'Waiting for Codex. Comment @codex review if it does not start' };
+    return { state: 'pending', description: 'Optional Codex review has not run; do not wait or request it' };
   }
   if (review.commitSha !== headSha) {
-    return { state: 'pending', description: `Codex has not reviewed ${head} yet` };
+    return { state: 'pending', description: `Optional Codex review is not current for ${head}` };
   }
   if (review.status !== 'completed') {
-    return { state: 'pending', description: `Codex review is ${review.status ?? 'not started'}` };
+    return { state: 'pending', description: `Optional Codex review is ${review.status ?? 'not started'}` };
   }
   if (review.hasUnresolvedFindings !== false) {
     return { state: 'failure', description: `Codex reported findings on ${head}` };
