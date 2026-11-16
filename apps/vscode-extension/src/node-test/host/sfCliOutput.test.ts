@@ -267,6 +267,39 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     assert.ok(!traced.join('\n').includes(token), 'the trace carries no token from the earlier list');
   });
 
+  test('a held token reaches neither the error nor the trace percent-encoded, in either hex case or in a URL', async () => {
+    const token = 'FAKE.held!opaque.token-0123456789';
+    const everyCharacter = [...token]
+      .map(c => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`)
+      .join('');
+    const encoded = [
+      token.replace('!', '%21'),
+      token.replaceAll('.', '%2E'),
+      token.replaceAll('.', '%2e').replace('!', '%21'),
+      everyCharacter,
+      `https://example.my.salesforce.com/secur/frontdoor.jsp?sid=${token.replace('!', '%21')}&retURL=%2Flightning`
+    ];
+    let failure: Exit = { code: 1 };
+    const { source, traced } = load(args =>
+      isCommand(args, 'org auth show-access-token') ? ok({ accessToken: token }) : failure
+    );
+    assert.equal((await source.session(ORG, 'first-use')).accessToken, token);
+
+    for (const place of PLACES) {
+      for (const form of encoded) {
+        failure = failingWith(place, `Request failed with ${form}`);
+        traced.length = 0;
+        const shown = textOf(await rejectionOf(source.listOrgs()));
+        const trace = traced.join('\n');
+        const leaked = form.includes('sid=') ? form.slice(form.indexOf('sid=') + 4, form.indexOf('&')) : form;
+
+        assert.match(shown, /request failed with/i, `${place}: the error still says what sf reported`);
+        assert.ok(!shown.includes(leaked), `${place}: the error carries no ${form.slice(0, 24)}…`);
+        assert.ok(!trace.includes(leaked), `${place}: the trace carries no ${form.slice(0, 24)}…`);
+      }
+    }
+  });
+
   test('the token a successful sf prints still reaches the auth source', async () => {
     const { source, traced } = load(() => ({
       code: 0,
