@@ -1,4 +1,4 @@
-import type { Connection } from '@salesforce/core';
+import type { Connection } from '@jsforce/jsforce-node';
 
 import { awaitWithAbort, throwIfAborted } from './errors.js';
 

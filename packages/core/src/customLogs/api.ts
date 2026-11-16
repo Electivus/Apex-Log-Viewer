@@ -205,7 +205,7 @@ function sourceRef(source: ResolvedSource): CustomLogSourceRef {
   return { id: source.id, label: source.label, shape: source.shape.kind };
 }
 
-const authOrgId = (ctx: CustomLogContext): string | undefined => ctx.connection.getAuthInfoFields().orgId;
+const authOrgId = (ctx: CustomLogContext): string | undefined => ctx.orgId;
 
 function orgIdOf(ctx: CustomLogContext): string {
   const orgId = authOrgId(ctx);

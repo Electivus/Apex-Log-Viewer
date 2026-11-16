@@ -39,6 +39,8 @@ function createExtensionHarness(options: {
   logsViewResolved?: boolean;
   findSalesforceProjectInfo?: () => Promise<unknown>;
   clearExpiredCache?: () => Promise<void>;
+  /** The real cache module, in place of the stub, to observe what activation leaves in `globalState`. */
+  cacheManagerModule?: unknown;
 }) {
   const commands = new Map<string, RegisteredCommand>();
   const events: Array<{ name: string; props?: Record<string, string>; measurements?: Record<string, number> }> = [];
@@ -301,7 +303,7 @@ function createExtensionHarness(options: {
       safeSendException: () => undefined,
       disposeTelemetry: () => undefined
     },
-    './host/utils/cacheManager': {
+    './host/utils/cacheManager': options.cacheManagerModule ?? {
       CacheManager: {
         init: () => undefined,
         clearExpired: options.clearExpiredCache ?? (async () => undefined),
@@ -457,6 +459,81 @@ suite('extension activation gating', () => {
     assert.equal(harness.logsStatusBars[0]?.shown, true, 'a Salesforce project shows the Logs status item');
 
     assert.deepEqual(harness.orgListCalls, []);
+  });
+
+  test('activation forgets the org access tokens earlier releases kept in global state, expired or not', async () => {
+    const stored = new Map<string, unknown>();
+    const globalState = {
+      get: (key: string, fallback?: unknown) => (stored.has(key) ? stored.get(key) : fallback),
+      update: async (key: string, value: unknown) => {
+        if (value === undefined) stored.delete(key);
+        else stored.set(key, value);
+      },
+      keys: () => [...stored.keys()]
+    };
+    const hourFromNow = Date.now() + 3_600_000;
+    const auth = {
+      accessToken: 'token-stored-by-an-earlier-release',
+      instanceUrl: 'https://example.my.salesforce.com'
+    };
+    stored.set('cli:orgAuth:live@example.com', { value: auth, expiresAt: hourFromNow });
+    stored.set('cli:orgAuth:expired@example.com', { value: auth, expiresAt: Date.now() - 1 });
+    stored.set('cli:orgAuth:unindexed@example.com', { value: auth, expiresAt: hourFromNow });
+    stored.set('cli:debugLevels:live@example.com', { value: ['ALV_DEBUG'], expiresAt: hourFromNow });
+    stored.set('__cacheKeys', [
+      'cli:orgAuth:live@example.com',
+      'cli:orgAuth:expired@example.com',
+      'cli:debugLevels:live@example.com'
+    ]);
+    const harness = createExtensionHarness({
+      cacheManagerModule: require('../host/utils/cacheManager')
+    });
+
+    const exports = await harness.extension.activate({ subscriptions: [], globalState } as any);
+    await exports.whenProjectReady();
+
+    assert.deepEqual(
+      [...stored.keys()].filter(key => key.startsWith('cli:orgAuth:')),
+      [],
+      'no stored org token survives activation'
+    );
+    assert.ok(stored.has('cli:debugLevels:live@example.com'), 'other live cache entries stay');
+    assert.deepEqual(stored.get('__cacheKeys'), ['cli:debugLevels:live@example.com']);
+  });
+
+  test('activation goes on when global state refuses to remove a stored org token', async () => {
+    const stored = new Map<string, unknown>([
+      [
+        'cli:orgAuth:live@example.com',
+        { value: { accessToken: 'token-stored-earlier' }, expiresAt: Date.now() + 3_600_000 }
+      ],
+      ['__cacheKeys', ['cli:orgAuth:live@example.com']]
+    ]);
+    const refused: string[] = [];
+    const globalState = {
+      get: (key: string, fallback?: unknown) => (stored.has(key) ? stored.get(key) : fallback),
+      update: async (key: string, value: unknown) => {
+        if (key.startsWith('cli:orgAuth:')) {
+          refused.push(key);
+          throw new Error('global state storage is unavailable');
+        }
+        if (value === undefined) stored.delete(key);
+        else stored.set(key, value);
+      },
+      keys: () => [...stored.keys()]
+    };
+    const harness = createExtensionHarness({ cacheManagerModule: require('../host/utils/cacheManager') });
+
+    const exports = await harness.extension.activate({ subscriptions: [], globalState } as any);
+    await exports.whenProjectReady();
+
+    assert.deepEqual(refused, ['cli:orgAuth:live@example.com'], 'the purge tried to remove the stored token');
+    assert.ok(harness.commands.has('electivus.apexLogViewer.logs.refresh'), 'commands are registered');
+    assert.deepEqual(
+      harness.webviewProviderRegistrations.map(registration => registration.viewId),
+      ['electivus.apexLogViewer.logsView', 'electivus.apexLogViewer.tailView']
+    );
+    assert.equal(harness.events.find(event => event.name === 'extension.activate')?.props?.outcome, 'ok');
   });
 
   test('registers views and commands before project detection and the cache cleanup finish', async () => {

@@ -3,14 +3,12 @@ import test from 'node:test';
 
 import { createApexLogViewerCore } from '../src/index.ts';
 import {
-  isolateSalesforceHome,
-  saveOrgAuth,
+  authSourceDouble,
   salesforceError,
+  saveOrgAuth,
   startSalesforceDouble,
   type DoubleHandler
 } from './support/salesforceDouble.ts';
-
-isolateSalesforceHome();
 
 const logId = '07L000000000001AAA';
 const apexLog = { attributes: { type: 'ApexLog' }, Id: logId, LogLength: 2048 };
@@ -23,8 +21,8 @@ const toolingApi: DoubleHandler = request => {
 
 async function toolingGet(t: test.TestContext, username: string, path: (instanceUrl: string) => string) {
   const salesforce = await startSalesforceDouble(t, toolingApi);
-  await saveOrgAuth(username, salesforce.instanceUrl);
-  const core = createApexLogViewerCore();
+  saveOrgAuth(username, salesforce.instanceUrl);
+  const core = createApexLogViewerCore({ auth: authSourceDouble() });
   t.after(() => core.dispose());
   const result = core.tooling.get({ targetOrg: username, path: path(salesforce.instanceUrl) });
   return { salesforce, result };

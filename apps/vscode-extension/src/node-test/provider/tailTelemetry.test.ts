@@ -100,8 +100,7 @@ async function openTail(telemetry: RealTelemetry, behavior: Behavior = {}) {
         ...vscodeStub.window,
         state: { active: true },
         onDidChangeWindowState: noEvent,
-        withProgress: async (_options: unknown, task: (progress: unknown, token: unknown) => unknown) =>
-          task({}, token)
+        withProgress: async (_options: unknown, task: (progress: unknown, token: unknown) => unknown) => task({}, token)
       }
     },
     '../host/utils/localize': localize,

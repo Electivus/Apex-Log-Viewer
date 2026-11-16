@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const semver = require('semver');
 const shellQuote = require('shell-quote');
 const yaml = require('yaml');
 
@@ -1190,6 +1191,47 @@ test('pnpm workspace owns the dependency security overrides', () => {
       `serialize-javascript@${version} is older than 7.1.3`
     );
   }
+});
+
+function splitSpecifier(specifier) {
+  const [, name, version] = specifier.match(/^(@?[^@]+)(?:@(.+))?$/);
+  return { name, version };
+}
+
+function parseOverrideSelector(selector) {
+  // Mirrors pnpm 11's override parser, which splits at the first match of its DELIMITER_REGEX.
+  const delimiter = selector.search(/[^ |@]>/) + 1;
+  return delimiter === 0
+    ? { target: splitSpecifier(selector) }
+    : { parent: splitSpecifier(selector.slice(0, delimiter)), target: splitSpecifier(selector.slice(delimiter + 1)) };
+}
+
+test('every pnpm override matches a package in the lockfile', () => {
+  const workspace = yaml.parse(read('pnpm-workspace.yaml'));
+  const lockfile = yaml.parse(read('pnpm-lock.yaml'));
+  const locked = Object.entries(lockfile.snapshots).map(([key, snapshot]) => ({
+    ...splitSpecifier(key.replace(/\(.*$/, '')),
+    dependencies: { ...snapshot.dependencies, ...snapshot.optionalDependencies }
+  }));
+  const lockedAs = ({ name, version }) =>
+    locked.filter(pkg => pkg.name === name && (!version || semver.satisfies(pkg.version, version)));
+
+  const unmatched = Object.keys(workspace.overrides).filter(selector => {
+    const { parent, target } = parseOverrideSelector(selector);
+    // Name only: pnpm matches the target version against the dependent's declared range, which pnpm-lock.yaml does not keep.
+    return parent
+      ? !lockedAs(parent).some(pkg => target.name in pkg.dependencies)
+      : lockedAs({ name: target.name }).length === 0;
+  });
+  assert.deepEqual(unmatched, [], 'these overrides match no package in pnpm-lock.yaml; remove them');
+});
+
+test('every pnpm override has a comment above it', () => {
+  const overrides = yaml.parseDocument(read('pnpm-workspace.yaml')).get('overrides', true);
+  const uncommented = overrides.items
+    .filter((pair, index) => !(pair.key.commentBefore || (index === 0 && overrides.commentBefore)))
+    .map(pair => String(pair.key.value));
+  assert.deepEqual(uncommented, [], 'say above each override why it exists and when to remove it');
 });
 
 test('pnpm workspace enforces native supply-chain security policies', () => {

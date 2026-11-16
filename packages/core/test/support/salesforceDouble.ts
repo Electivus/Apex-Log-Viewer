@@ -1,33 +1,12 @@
-import fs from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import os from 'node:os';
-import path from 'node:path';
-import test, { after } from 'node:test';
+import type test from 'node:test';
 
-import { AuthInfo, Connection, StateAggregator } from '@salesforce/core';
+import { Connection } from '@jsforce/jsforce-node';
+
+import type { OrgAuthSource, OrgSession, SourceOrg } from '../../src/index.ts';
 
 export const ORG_ID = '00D000000000001AAA';
-
-/**
- * Points the Salesforce SDK at a throwaway home so saved auth never touches the developer's. Call it
- * once at the top of a test file, before the first SDK call: `node --test` runs each file in its own process.
- */
-export function isolateSalesforceHome(): void {
-  const originalCwd = process.cwd();
-  const sfHome = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-sf-home-'));
-  process.env.HOME = sfHome;
-  process.env.USERPROFILE = sfHome;
-  process.env.SF_USE_GENERIC_UNIX_KEYCHAIN = 'true';
-  process.env.SF_DISABLE_LOG_FILE = 'true';
-  process.env.SF_DISABLE_DNS_CHECK = 'true';
-  process.env.SFDX_IGNORE_API_VERSION_CACHE = 'true';
-  process.chdir(sfHome);
-  after(() => {
-    process.chdir(originalCwd);
-    fs.rmSync(sfHome, { recursive: true, force: true });
-  });
-}
 
 export type DoubleRequest = {
   method: string;
@@ -35,6 +14,8 @@ export type DoubleRequest = {
   path: string;
   query: URLSearchParams;
   body: string;
+  /** The access token the request carried, without its `Bearer ` prefix. */
+  token: string;
 };
 
 export type DoubleResponse = { status?: number; body: unknown };
@@ -71,7 +52,8 @@ export function answerRest(
       method: request.method ?? 'GET',
       path: url.pathname.replace(/^\/services\/data\/v[\d.]+/, ''),
       query: url.searchParams,
-      body: Buffer.concat(chunks).toString('utf8')
+      body: Buffer.concat(chunks).toString('utf8'),
+      token: String(request.headers.authorization ?? '').replace(/^Bearer /, '')
     };
     requests.push(seen);
     Promise.resolve(handler(seen)).then(
@@ -106,22 +88,98 @@ export async function startSalesforceDouble(t: test.TestContext, handler: Double
   };
 }
 
-export async function saveOrgAuth(username: string, instanceUrl: string, accessToken = 'token-double'): Promise<void> {
-  const state = await StateAggregator.getInstance();
-  state.orgs.set(username, {
-    username,
-    orgId: ORG_ID,
-    orgEdition: 'Developer Edition',
-    namespacePrefix: null,
-    instanceUrl,
-    loginUrl: instanceUrl,
-    accessToken
-  });
-  await state.orgs.write(username);
+/** What the Salesforce CLI has stored for an org, as a test describes it to `saveOrgAuth`. */
+export type SavedOrgAuth = {
+  accessToken?: string;
+  /** The CLI holds a refresh token: asked for a session after a rejection, it stores and hands out this one. */
+  refreshesTo?: string;
+  alias?: string;
+  isDefaultUsername?: boolean;
+  isDefaultDevHubUsername?: boolean;
+  isScratchOrg?: boolean;
+  orgId?: string;
+};
+
+type SavedOrg = SourceOrg & { instanceUrl: string; accessToken: string; refreshesTo?: string };
+
+/** The orgs this test process has saved, by username: the CLI's auth store, in memory. */
+const savedOrgs = new Map<string, SavedOrg>();
+
+/**
+ * Saves `username` the way `sf org login` would: every auth source double lists it and hands out its
+ * token. Saving it again replaces what is stored, as a new login or a refresh by the CLI does.
+ */
+export function saveOrgAuth(username: string, instanceUrl: string, auth: string | SavedOrgAuth = {}): void {
+  const {
+    accessToken = 'token-double',
+    orgId = ORG_ID,
+    ...listed
+  } = typeof auth === 'string' ? { accessToken: auth } : auth;
+  savedOrgs.set(username, { ...listed, username, instanceUrl, orgId, accessToken });
 }
 
-export async function openConnection(username: string): Promise<Connection> {
-  return Connection.create({ authInfo: await AuthInfo.create({ username }) });
+/** Forgets `username`, as `sf org logout` does. */
+export function removeOrgAuth(username: string): void {
+  savedOrgs.delete(username);
+}
+
+/** The environment variable that hands the saved orgs to a child process. */
+const SAVED_ORGS_VARIABLE = 'ALV_TEST_SAVED_ORGS';
+
+/** Variables for a child process that runs core against the orgs saved so far; the child calls `loadSavedOrgs`. */
+export function savedOrgsEnv(): Record<string, string> {
+  return { [SAVED_ORGS_VARIABLE]: JSON.stringify([...savedOrgs.values()]) };
+}
+
+export function loadSavedOrgs(env: NodeJS.ProcessEnv = process.env): void {
+  for (const org of JSON.parse(env[SAVED_ORGS_VARIABLE] ?? '[]') as SavedOrg[]) savedOrgs.set(org.username, org);
+}
+
+export type AuthSourceCall =
+  { method: 'listOrgs' } | { method: 'session'; username: string; reason: 'first-use' | 'rejected' };
+
+export type AuthSourceDouble = OrgAuthSource & {
+  /** Every question core asked, oldest first. */
+  readonly calls: readonly AuthSourceCall[];
+  /** The reason of every session asked for `username`, oldest first. */
+  sessionReasons(username: string): Array<'first-use' | 'rejected'>;
+};
+
+/**
+ * The auth source a surface would hand core, over the orgs saved with `saveOrgAuth`. It answers
+ * from what is stored when it is asked, the way the `sf` CLI reads its auth files on every call.
+ */
+export function authSourceDouble(): AuthSourceDouble {
+  const calls: AuthSourceCall[] = [];
+  return {
+    calls,
+    sessionReasons: username =>
+      calls.flatMap(call => (call.method === 'session' && call.username === username ? [call.reason] : [])),
+    async listOrgs() {
+      calls.push({ method: 'listOrgs' });
+      return [...savedOrgs.values()].map(({ accessToken: _token, refreshesTo: _refreshed, ...org }) => org);
+    },
+    async session(org, reason): Promise<OrgSession> {
+      calls.push({ method: 'session', username: org.username, reason });
+      // A real renewal runs `sf`, about a second. jsforce retries without a new renewal a request sent
+      // before the last renewal finished, comparing whole milliseconds, so an instant one would not.
+      if (reason === 'rejected') await new Promise(resolve => setTimeout(resolve, 5));
+      let saved = savedOrgs.get(org.username);
+      if (!saved) throw new Error(`No authorization information found for ${org.username}.`);
+      if (reason === 'rejected' && saved.refreshesTo) {
+        saved = { ...saved, accessToken: saved.refreshesTo, refreshesTo: undefined };
+        savedOrgs.set(org.username, saved);
+      }
+      return { accessToken: saved.accessToken, instanceUrl: saved.instanceUrl, orgId: saved.orgId };
+    }
+  };
+}
+
+/** A jsforce connection with the saved token of `username`, as core opens one. */
+export function openConnection(username: string): Connection {
+  const saved = savedOrgs.get(username);
+  if (!saved) throw new Error(`saveOrgAuth(${username}) first`);
+  return new Connection({ instanceUrl: saved.instanceUrl, accessToken: saved.accessToken, version: '63.0' });
 }
 
 /** The JSON body of a Salesforce error, as REST returns it. */

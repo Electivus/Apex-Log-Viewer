@@ -2,8 +2,9 @@ import { constants as fsConstants, promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { AuthInfo, ConfigAggregator, Connection, OrgConfigProperties, StateAggregator } from '@salesforce/core';
+import { Connection } from '@jsforce/jsforce-node';
 
+import { unwrapSalesforceProxyError } from './salesforceProxy.js';
 import type {
   DebugLevelCreateParams,
   DebugLevelDeleteParams,
@@ -71,6 +72,15 @@ import {
   type ReadApexLogResult,
   type StoredApexLogBody
 } from './logLifecycle.js';
+import {
+  createOrgSessions,
+  createSessionConnection,
+  renewalFailureOf,
+  resolveTargetOrg,
+  type OrgAuthSource,
+  type OrgSessions,
+  type SourceOrg
+} from './orgSessions.js';
 import { escapeSoqlLikeLiteral, escapeSoqlLiteral, isSalesforceId, normalizeSoqlDateTimeLiteral } from './soql.js';
 
 export { AlvError, awaitWithAbort };
@@ -168,6 +178,7 @@ type OrgConnection = {
   connection: Connection;
   username: string;
   instanceUrl?: string;
+  orgId?: string;
 };
 
 type ConnectionContext = OrgConnection & {
@@ -260,186 +271,21 @@ export async function resolveLogDeleteIds(params: {
   return Array.from(new Set([...inlineIds, ...fileIds]));
 }
 
-/** The project whose `.sf/config.json` can name the default org. Without one, the process working directory decides. */
-type ProjectPath = () => string | undefined;
-
-async function projectConfig(projectPath: ProjectPath | undefined): Promise<ConfigAggregator> {
-  const path = projectPath?.();
-  return ConfigAggregator.create(path ? { projectPath: path } : undefined);
-}
-
-async function getDefaultTargetOrg(projectPath: ProjectPath | undefined): Promise<string | undefined> {
-  const aggregator = await projectConfig(projectPath);
-  return asString(aggregator.getPropertyValue<string>(OrgConfigProperties.TARGET_ORG));
-}
-
-async function stateAggregator(forceRefresh?: boolean): Promise<StateAggregator> {
-  if (forceRefresh) {
-    const aggregatorType = StateAggregator as typeof StateAggregator & {
-      clearInstanceAsync?: () => Promise<void>;
-    };
-    if (aggregatorType.clearInstanceAsync) {
-      await aggregatorType.clearInstanceAsync();
-    } else {
-      aggregatorType.clearInstance();
-    }
-  }
-  return StateAggregator.getInstance();
-}
-
-async function findAliasForUsername(username: string): Promise<string | undefined> {
-  const state = await stateAggregator();
-  return asString(state.aliases.get(username));
-}
-
-async function resolveUsername(
-  usernameOrAlias: string | undefined,
-  projectPath: ProjectPath | undefined
-): Promise<{ requested: string; username: string; alias?: string; source: string }> {
-  const requested = asString(usernameOrAlias) ?? (await getDefaultTargetOrg(projectPath)) ?? '';
-  if (!requested) {
-    throw new Error('No default Salesforce org is configured. Select an org or run "sf org login web".');
-  }
-  const state = await stateAggregator();
-  const username = state.aliases.resolveUsername(requested);
-  const alias = state.aliases.resolveAlias(requested) ?? state.aliases.get(username) ?? undefined;
+function orgListItem(org: SourceOrg): OrgListItem {
   return {
-    requested,
-    username,
-    alias: asString(alias),
-    source: requested === username ? 'username' : 'alias'
+    username: org.username,
+    alias: org.alias,
+    isDefaultUsername: Boolean(org.isDefaultUsername),
+    isDefaultDevHubUsername: Boolean(org.isDefaultDevHubUsername),
+    isScratchOrg: Boolean(org.isScratchOrg),
+    instanceUrl: org.instanceUrl
   };
 }
 
-async function connectOrg(username: string): Promise<OrgConnection> {
-  const authInfo = await AuthInfo.create({ username });
-  const connection = await Connection.create({ authInfo });
-  await alignConnectionApiVersion(connection);
-  const fields = authInfo.getFields(true);
-  return {
-    connection,
-    username: asString(connection.getUsername()) ?? asString(fields.username) ?? username,
-    instanceUrl:
-      asString(fields.instanceUrl) ?? asString((connection as unknown as { instanceUrl?: string }).instanceUrl)
-  };
-}
-
-function isSessionRejected(error: unknown): boolean {
-  return (
-    (error as { errorCode?: unknown } | undefined)?.errorCode === 'INVALID_SESSION_ID' ||
-    (error instanceof Error &&
-      (error.message.startsWith('Unable to refresh session due to:') ||
-        // jsforce wraps a failed refresh only for the request that started it; requests awaiting it get the SDK error.
-        error.name === 'RefreshTokenAuthError' ||
-        error.name === 'JwtAuthError'))
-  );
-}
-
-type OrgConnections = {
-  use<T>(
-    targetOrg: string | undefined,
-    signal: AbortSignal | undefined,
-    run: (ctx: ConnectionContext) => Promise<T>
-  ): Promise<T>;
-  /** The cached connection of a resolved username. `fresh` drops the cached one first, so the next one re-authenticates. */
-  connect(username: string, options: { fresh?: boolean; signal?: AbortSignal }): Promise<ConnectionContext>;
-  clear(): void;
-};
-
-function createOrgConnections(projectPath: ProjectPath | undefined): OrgConnections {
-  const byUsername = new Map<string, Promise<OrgConnection>>();
-  const evict = (username: string, pending: Promise<OrgConnection>): void => {
-    if (byUsername.get(username) === pending) byUsername.delete(username);
-  };
-  const cachedConnection = (username: string): Promise<OrgConnection> => {
-    const existing = byUsername.get(username);
-    if (existing) return existing;
-    const pending = connectOrg(username);
-    byUsername.set(username, pending);
-    pending.catch(() => evict(username, pending));
-    return pending;
-  };
-  return {
-    async use(targetOrg, signal, run) {
-      throwIfAborted(signal);
-      const resolved = await awaitWithAbort(resolveUsername(targetOrg, projectPath), signal);
-      const cached = cachedConnection(resolved.username);
-      const ctx = { ...(await awaitWithAbort(cached, signal)), alias: resolved.alias };
-      try {
-        return await run(ctx);
-      } catch (error) {
-        if (!isSessionRejected(error)) throw error;
-        evict(resolved.username, cached);
-        return run({ ...(await awaitWithAbort(cachedConnection(resolved.username), signal)), alias: resolved.alias });
-      }
-    },
-    async connect(username, { fresh, signal }) {
-      throwIfAborted(signal);
-      if (fresh) byUsername.delete(username);
-      const alias = await awaitWithAbort(findAliasForUsername(username), signal);
-      const ctx = await awaitWithAbort(cachedConnection(username), signal);
-      // `fresh` follows a rejected session. The stored access token is the rejected one, and a streaming
-      // client sends it as is, so refresh it. When the refresh fails, the next handshake is rejected again
-      // and capture asks the user to log in.
-      if (fresh) {
-        try {
-          await awaitWithAbort(ctx.connection.refreshAuth(), signal);
-        } catch {
-          throwIfAborted(signal);
-        }
-      }
-      return { ...ctx, alias };
-    },
-    clear: () => byUsername.clear()
-  };
-}
-
-function toOrgAuth(token: unknown, url: unknown, username: string): OrgAuth {
-  const accessToken = asString(token);
-  const instanceUrl = asString(url);
-  if (!accessToken || !instanceUrl) {
-    throw new Error('Unable to retrieve Salesforce org authentication from @salesforce/core.');
-  }
-  return { accessToken, instanceUrl, username };
-}
-
-async function getOrgAuthFromCore(params: OrgAuthParams, projectPath: ProjectPath | undefined): Promise<OrgAuth> {
-  const resolved = await resolveUsername(params.username, projectPath);
-  const authInfo = await AuthInfo.create({ username: resolved.username });
-  const fields = authInfo.getFields(true);
-  return toOrgAuth(fields.accessToken, fields.instanceUrl, asString(authInfo.getUsername()) ?? resolved.username);
-}
-
-async function refreshOrgAuth(ctx: ConnectionContext): Promise<OrgAuth> {
-  await ctx.connection.refreshAuth();
-  return toOrgAuth(ctx.connection.accessToken, ctx.connection.instanceUrl, ctx.username);
-}
-
-async function listOrgsNative(params: OrgListParams, projectPath: ProjectPath | undefined): Promise<OrgListItem[]> {
-  const state = await stateAggregator(params.forceRefresh);
-  const orgs = await state.orgs.readAll(false);
-  const config = await projectConfig(projectPath);
-  const defaultOrg = asString(config.getPropertyValue<string>(OrgConfigProperties.TARGET_ORG));
-  const defaultDevHub = asString(config.getPropertyValue<string>(OrgConfigProperties.TARGET_DEV_HUB));
-  const mapped = orgs
-    .map(fields => {
-      const username = asString(fields.username);
-      if (!username) return undefined;
-      const alias = asString(state.aliases.get(username));
-      const item: OrgListItem = {
-        username,
-        alias,
-        isDefaultUsername: Boolean(defaultOrg && (defaultOrg === username || defaultOrg === alias)),
-        isDefaultDevHubUsername: Boolean(defaultDevHub && (defaultDevHub === username || defaultDevHub === alias)),
-        isScratchOrg: Boolean(fields.isScratch),
-        instanceUrl: asString(fields.instanceUrl)
-      };
-      return item;
-    })
-    .filter((item): item is OrgListItem => item !== undefined);
+function sortedOrgList(orgs: readonly SourceOrg[]): OrgListItem[] {
   const dedup = new Map<string, OrgListItem>();
-  for (const org of mapped) {
-    dedup.set(org.username, org);
+  for (const org of orgs) {
+    dedup.set(org.username, orgListItem(org));
   }
   return Array.from(dedup.values()).sort((left, right) => {
     if (left.isDefaultUsername && !right.isDefaultUsername) return -1;
@@ -448,52 +294,151 @@ async function listOrgsNative(params: OrgListParams, projectPath: ProjectPath | 
   });
 }
 
+type OrgConnections = {
+  use<T>(
+    targetOrg: string | undefined,
+    signal: AbortSignal | undefined,
+    run: (ctx: ConnectionContext) => Promise<T>
+  ): Promise<T>;
+  /** The cached connection of a resolved username. `fresh` follows a rejected session: it renews the token in place. */
+  connect(username: string, options: { fresh?: boolean; signal?: AbortSignal }): Promise<ConnectionContext>;
+  clear(): void;
+};
+
+/** The highest API version the org serves. `/services/data` answers without a session. */
+async function orgMaxApiVersion(instanceUrl: string): Promise<string | undefined> {
+  const listing = new Connection({ instanceUrl, version: DEFAULT_API_VERSION });
+  const versions = await listing.request<unknown>(`${stripTrailingSlash(instanceUrl)}/services/data`);
+  if (!Array.isArray(versions)) return undefined;
+  let best: { value: string; numeric: number } | undefined;
+  for (const entry of versions) {
+    const value = asString((entry as { version?: unknown } | undefined)?.version);
+    const numeric = Number(value);
+    if (value && Number.isFinite(numeric) && (!best || numeric > best.numeric)) best = { value, numeric };
+  }
+  return best?.value;
+}
+
+function createOrgConnections(sessions: OrgSessions): OrgConnections {
+  const byUsername = new Map<string, Promise<OrgConnection>>();
+  const versionByInstance = new Map<string, Promise<string>>();
+  const versionOf = (instanceUrl: string): Promise<string> => {
+    const existing = versionByInstance.get(instanceUrl);
+    if (existing) return existing;
+    const pending = orgMaxApiVersion(instanceUrl).then(
+      version => version ?? DEFAULT_API_VERSION,
+      () => {
+        versionByInstance.delete(instanceUrl);
+        return DEFAULT_API_VERSION;
+      }
+    );
+    versionByInstance.set(instanceUrl, pending);
+    return pending;
+  };
+  const connectOrg = async (org: SourceOrg): Promise<OrgConnection> => {
+    const [session, listedVersion] = await Promise.all([
+      sessions.current(org),
+      org.instanceUrl ? versionOf(org.instanceUrl) : undefined
+    ]);
+    const version =
+      session.instanceUrl === org.instanceUrl && listedVersion ? listedVersion : await versionOf(session.instanceUrl);
+    return {
+      connection: createSessionConnection({
+        username: org.username,
+        session,
+        version,
+        renew: rejected => sessions.renew(org, rejected)
+      }),
+      username: org.username,
+      instanceUrl: session.instanceUrl,
+      orgId: session.orgId ?? org.orgId
+    };
+  };
+  const evict = (username: string, pending: Promise<OrgConnection>): void => {
+    if (byUsername.get(username) === pending) byUsername.delete(username);
+  };
+  const cachedConnection = (org: SourceOrg): Promise<OrgConnection> => {
+    const existing = byUsername.get(org.username);
+    if (existing) return existing;
+    const pending = connectOrg(org);
+    byUsername.set(org.username, pending);
+    pending.catch(() => evict(org.username, pending));
+    return pending;
+  };
+  return {
+    async use(targetOrg, signal, run) {
+      throwIfAborted(signal);
+      const { org } = await sessions.resolve(targetOrg, signal);
+      const cached = cachedConnection(org);
+      const ctx = { ...(await awaitWithAbort(cached, signal)), alias: org.alias };
+      try {
+        return await run(ctx);
+      } catch (error) {
+        const failure = renewalFailureOf(ctx.connection, error);
+        // A connection whose renewal failed refuses to renew again, so a later login would never reach it.
+        if (failure !== error || (failure instanceof AlvError && failure.code === 'AUTH_REQUIRED')) {
+          evict(org.username, cached);
+        }
+        throw failure;
+      }
+    },
+    async connect(username, { fresh, signal }) {
+      throwIfAborted(signal);
+      const { org } = await sessions.resolve(username, signal);
+      const ctx = await awaitWithAbort(cachedConnection(org), signal);
+      // `fresh` follows a rejected handshake. A streaming client sends the connection's token as is, so
+      // renew it. When renewing fails, the next handshake is rejected again and capture asks the user to log in.
+      if (fresh) {
+        try {
+          const next = await awaitWithAbort(sessions.renew(org, String(ctx.connection.accessToken ?? '')), signal);
+          ctx.connection.accessToken = next.accessToken;
+          ctx.connection.instanceUrl = next.instanceUrl;
+        } catch {
+          throwIfAborted(signal);
+        }
+      }
+      return { ...ctx, alias: org.alias };
+    },
+    clear: () => byUsername.clear()
+  };
+}
+
+async function getOrgAuthFromSessions(
+  sessions: OrgSessions,
+  params: OrgAuthParams,
+  signal?: AbortSignal
+): Promise<OrgAuth> {
+  const { org } = await sessions.resolve(params.username, signal);
+  const rejected = asString(params.rejected);
+  const session = rejected ? await sessions.renew(org, rejected, signal) : await sessions.current(org, signal);
+  return { accessToken: session.accessToken, instanceUrl: session.instanceUrl, username: org.username };
+}
+
 async function resolveOrgNative(
-  connections: OrgConnections,
+  sessions: OrgSessions,
   params: OrgResolveParams,
-  projectPath: ProjectPath | undefined,
   signal?: AbortSignal
 ): Promise<OrgResolveResult> {
-  const resolved = await resolveUsername(params.targetOrg, projectPath);
-  return connections.use(resolved.username, signal, async ctx => ({
+  const resolved = await sessions.resolve(params.targetOrg, signal);
+  return {
     requested: resolved.requested,
-    username: ctx.username,
-    alias: resolved.alias,
-    instanceUrl: ctx.instanceUrl,
+    username: resolved.org.username,
+    alias: resolved.org.alias,
+    instanceUrl: resolved.org.instanceUrl,
     source: resolved.source
-  }));
+  };
 }
 
 function apiVersion(connection: Connection): string {
-  return connection.getApiVersion?.() || DEFAULT_API_VERSION;
+  return connection.version || DEFAULT_API_VERSION;
 }
 
-function numericApiVersion(value: string | undefined): number | undefined {
-  const match = String(value || '').match(/^\d+(?:\.\d+)?/);
-  if (!match) return undefined;
-  const numeric = Number(match[0]);
-  return Number.isFinite(numeric) ? numeric : undefined;
-}
-
-export function shouldUseOrgMaxApiVersion(
-  configuredVersion: string | undefined,
-  orgMaxVersion: string | undefined
-): boolean {
-  const configured = numericApiVersion(configuredVersion);
-  const orgMax = numericApiVersion(orgMaxVersion);
-  return configured !== undefined && orgMax !== undefined && configured > orgMax;
-}
-
-export async function alignConnectionApiVersion(
-  connection: Pick<Connection, 'getApiVersion' | 'setApiVersion' | 'retrieveMaxApiVersion'>
-): Promise<string> {
-  const configuredVersion = connection.getApiVersion?.() || DEFAULT_API_VERSION;
-  const orgMaxVersion = await connection.retrieveMaxApiVersion();
-  if (shouldUseOrgMaxApiVersion(configuredVersion, orgMaxVersion)) {
-    connection.setApiVersion(orgMaxVersion);
-    return orgMaxVersion;
-  }
-  return configuredVersion;
+/** Salesforce refused the session, or renewing it failed: jsforce reports the latter with this prefix. */
+function isSessionRejected(error: unknown): boolean {
+  return (
+    (error as { errorCode?: unknown } | undefined)?.errorCode === 'INVALID_SESSION_ID' ||
+    (error instanceof Error && error.message.startsWith('Unable to refresh session due to:'))
+  );
 }
 
 async function connectionRequest<T = unknown>(
@@ -1279,7 +1224,7 @@ async function checkCacheLayout(apexlogsRoot: string): Promise<DoctorCheck> {
   }
 }
 
-async function doctorNative(params: DoctorParams, projectPath: ProjectPath | undefined): Promise<DoctorResult> {
+async function doctorNative(params: DoctorParams, sessions: OrgSessions): Promise<DoctorResult> {
   const workspaceRoot = path.resolve(asString(params.workspaceRoot) ?? process.cwd());
   const apexlogsRoot = resolveApexlogsRoot(workspaceRoot);
   const result: DoctorResult = {
@@ -1295,17 +1240,17 @@ async function doctorNative(params: DoctorParams, projectPath: ProjectPath | und
   };
   if (!result.writableApexlogs.ok || !result.cacheLayout.ok) result.status = 'error';
   try {
-    const orgs = await listOrgsNative({}, projectPath);
+    const orgs = await sessions.orgs({ fresh: true });
     result.sf =
       orgs.length > 0
-        ? { ok: true, message: `the Salesforce CLI auth store lists ${orgs.length} org(s)` }
-        : { ok: false, message: 'the Salesforce CLI auth store lists no org; run sf org login web' };
+        ? { ok: true, message: `the Salesforce CLI lists ${orgs.length} org(s)` }
+        : { ok: false, message: 'the Salesforce CLI lists no org; run sf org login web' };
   } catch (error) {
-    result.sf = { ok: false, message: `the Salesforce CLI auth store could not be read: ${errorMessageOf(error)}` };
+    result.sf = { ok: false, message: `the Salesforce CLI could not list orgs: ${errorMessageOf(error)}` };
   }
   if (!result.sf.ok && result.status === 'ok') result.status = 'warning';
   try {
-    const auth = await getOrgAuthFromCore({ username: params.targetOrg }, projectPath);
+    const auth = await getOrgAuthFromSessions(sessions, { username: params.targetOrg });
     result.orgAuth = { ok: true, message: `authenticated as ${auth.username || '(unknown)'}` };
   } catch (error) {
     result.status = result.status === 'error' ? 'error' : 'warning';
@@ -1334,7 +1279,8 @@ async function instrumentedCall<T>(
     throwIfAborted(options?.signal);
     instrumentation?.onCall?.({ method, outcome: 'ok', durationMs: Date.now() - startedAt });
     return result;
-  } catch (error) {
+  } catch (thrown) {
+    const error = unwrapSalesforceProxyError(thrown);
     const cancelled = options?.signal?.aborted || (error instanceof AlvError && error.code === 'ABORTED');
     instrumentation?.onCall?.({
       method,
@@ -1349,14 +1295,11 @@ async function instrumentedCall<T>(
 
 export type ApexLogViewerCore = ReturnType<typeof createApexLogViewerCore>;
 
-function createRuntimeApexLogRemote(connections: OrgConnections): ApexLogRemote {
+function createRuntimeApexLogRemote(sessions: OrgSessions, connections: OrgConnections): ApexLogRemote {
   return {
-    resolveOrg(targetOrg, signal) {
-      return connections.use(targetOrg, signal, async ctx => ({
-        username: ctx.username,
-        alias: ctx.alias,
-        instanceUrl: ctx.instanceUrl
-      }));
+    async resolveOrg(targetOrg, signal) {
+      const { org } = await sessions.resolve(targetOrg, signal);
+      return { username: org.username, alias: org.alias, instanceUrl: org.instanceUrl };
     },
     async listLogs(request, signal) {
       const rows = await connections.use(request.org.username, signal, ctx =>
@@ -1377,21 +1320,20 @@ function createRuntimeApexLogRemote(connections: OrgConnections): ApexLogRemote 
   };
 }
 
-export function createApexLogViewerCore(
-  options: {
-    instrumentation?: CoreInstrumentation;
-    apexLogRemote?: ApexLogRemote;
-    surface?: CustomLogEnv['surface'];
-    projectPath?: ProjectPath;
-  } = {}
-) {
+export function createApexLogViewerCore(options: {
+  /** The single owner of Salesforce auth. Core holds its sessions in memory and never writes auth files. */
+  auth: OrgAuthSource;
+  instrumentation?: CoreInstrumentation;
+  apexLogRemote?: ApexLogRemote;
+  surface?: CustomLogEnv['surface'];
+}) {
   const call = <T>(
     method: string,
     callOptions: CoreCallOptions | undefined,
     run: (signal?: AbortSignal) => Promise<T>
   ) => instrumentedCall(options.instrumentation, method, callOptions, run);
-  const { projectPath } = options;
-  const connections = createOrgConnections(projectPath);
+  const sessions = createOrgSessions(options.auth);
+  const connections = createOrgConnections(sessions);
   const orgCall = <T>(
     method: string,
     targetOrg: string | undefined,
@@ -1414,7 +1356,15 @@ export function createApexLogViewerCore(
     targetOrg: string | undefined,
     signal: AbortSignal | undefined
   ): Promise<CustomLogEnv> => {
-    const { username } = await awaitWithAbort(resolveUsername(targetOrg, projectPath), signal);
+    const username = await sessions.resolve(targetOrg, signal).then(
+      resolved => resolved.org.username,
+      async (error: unknown) => {
+        const requested = asString(targetOrg);
+        // A name the CLI lists no auth for still keys the events stored for it, which list, get and entry read offline.
+        if (!requested || resolveTargetOrg(await sessions.orgs({ signal }), requested)) throw error;
+        return requested;
+      }
+    );
     return {
       username,
       surface: options.surface ?? 'cli',
@@ -1429,7 +1379,7 @@ export function createApexLogViewerCore(
     callOptions: CoreCallOptions | undefined,
     run: (env: CustomLogEnv, signal?: AbortSignal) => Promise<T>
   ) => call(method, callOptions, async signal => run(await customLogEnv(targetOrg, signal), signal));
-  const apexLogRemote = options.apexLogRemote ?? createRuntimeApexLogRemote(connections);
+  const apexLogRemote = options.apexLogRemote ?? createRuntimeApexLogRemote(sessions, connections);
   const rawLogLifecycle = createApexLogLifecycle({ remote: apexLogRemote });
   const lifecycleCall = <T>(
     method: string,
@@ -1505,19 +1455,18 @@ export function createApexLogViewerCore(
   return {
     logLifecycle,
     doctor: (params: DoctorParams = {}, callOptions?: CoreCallOptions) =>
-      call('doctor', callOptions, () => doctorNative(params, projectPath)),
+      call('doctor', callOptions, () => doctorNative(params, sessions)),
     org: {
+      /** The orgs `sf` listed, memoized for the runtime's life. `forceRefresh` asks `sf` again. */
       list: (params: OrgListParams = {}, callOptions?: CoreCallOptions) =>
-        call('org.list', callOptions, () => {
-          if (params.forceRefresh) connections.clear();
-          return listOrgsNative(params, projectPath);
-        }),
+        call('org.list', callOptions, async signal =>
+          sortedOrgList(await sessions.orgs({ fresh: params.forceRefresh === true, signal }))
+        ),
       resolve: (params: OrgResolveParams = {}, callOptions?: CoreCallOptions) =>
-        call('org.resolve', callOptions, signal => resolveOrgNative(connections, params, projectPath, signal)),
+        call('org.resolve', callOptions, signal => resolveOrgNative(sessions, params, signal)),
+      /** The session in memory, asked of the auth source at first use. `rejected` names a token Salesforce refused. */
       getAuth: (params: OrgAuthParams = {}, callOptions?: CoreCallOptions) =>
-        params.refresh
-          ? orgCall('org.getAuth', params.username, callOptions, refreshOrgAuth)
-          : call('org.getAuth', callOptions, () => getOrgAuthFromCore(params, projectPath))
+        call('org.getAuth', callOptions, signal => getOrgAuthFromSessions(sessions, params, signal))
     },
     log: {
       list: (params: LogsListParams = {}, callOptions?: CoreCallOptions) =>
@@ -1596,9 +1545,13 @@ export function createApexLogViewerCore(
       status: (params: LogsStatusParams = {}, callOptions?: CoreCallOptions) =>
         call('log.status', callOptions, async signal => {
           const workspaceRoot = asString(params.workspaceRoot) ?? process.cwd();
-          // Without a target, the org `log sync` would use. The Salesforce CLI's config and aliases are local files.
-          const defaultOrg = asString(params.targetOrg) ? undefined : await getDefaultTargetOrg(projectPath);
-          const requested = defaultOrg ? (await resolveUsername(defaultOrg, projectPath)).username : params.targetOrg;
+          // Without a target, the org `log sync` would use; without a default org, the local status alone.
+          const requested =
+            asString(params.targetOrg) ??
+            (await sessions.resolve(undefined, signal).then(
+              resolved => resolved.org.username,
+              () => undefined
+            ));
           const result = await rawLogLifecycle.status({ workspaceRoot, targetOrg: requested }, { signal });
           const targetOrg = result.resolvedUsername ?? asString(requested) ?? 'default';
           return {
@@ -1759,10 +1712,11 @@ export function createApexLogViewerCore(
           connectionRequest(ctx.connection, 'GET', resolveOrgRequestPath(ctx, params.path))
         )
     },
-    /** Ends the capture runs and releases their leases before the connections are cleared. */
+    /** Ends the capture runs and releases their leases before the connections and sessions are cleared. */
     dispose: async (): Promise<void> => {
       await customLogs.dispose();
       connections.clear();
+      sessions.clear();
       rawLogLifecycle.dispose();
     }
   };

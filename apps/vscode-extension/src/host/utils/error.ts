@@ -1,3 +1,5 @@
+import { unwrapSalesforceProxyError } from '@alv/core';
+
 export function stringifyUnknown(value: unknown): string {
   if (value instanceof Error) {
     return value.message;
@@ -24,6 +26,6 @@ export function stringifyUnknown(value: unknown): string {
 }
 
 export function getErrorMessage(err: unknown): string {
-  const message = stringifyUnknown(err);
+  const message = stringifyUnknown(unwrapSalesforceProxyError(err));
   return message || 'Unknown error';
 }

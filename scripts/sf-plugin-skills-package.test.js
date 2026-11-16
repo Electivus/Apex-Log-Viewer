@@ -78,17 +78,22 @@ test(
     }
     // Resolve external runtime dependencies from the frozen workspace install, not a registry.
     // The plugin code, manifest, core bundle and skills themselves must come from the tarball.
+    // The staged plugin also declares the core's dependencies, which only the core workspace installs.
+    const pluginSource = path.join(repoRoot, 'packages/sf-plugin');
+    const coreSource = path.join(repoRoot, 'packages/core');
+    const pluginOwn = JSON.parse(await fs.readFile(path.join(pluginSource, 'package.json'), 'utf8')).dependencies;
     for (const [target, source] of [
-      [extracted, path.join(repoRoot, 'packages/sf-plugin')],
-      [path.join(extracted, 'node_modules/@alv/core'), path.join(repoRoot, 'packages/core')]
+      [extracted, pluginSource],
+      [path.join(extracted, 'node_modules/@alv/core'), coreSource]
     ]) {
       const pkg = JSON.parse(await fs.readFile(path.join(target, 'package.json'), 'utf8'));
       for (const name of Object.keys(pkg.dependencies ?? {})) {
         if (name === '@alv/core') continue;
+        const from = source === pluginSource && !(name in pluginOwn) ? coreSource : source;
         const link = path.join(target, 'node_modules', name);
         await fs.mkdir(path.dirname(link), { recursive: true });
         await fs.symlink(
-          await fs.realpath(path.join(source, 'node_modules', name)),
+          await fs.realpath(path.join(from, 'node_modules', name)),
           link,
           process.platform === 'win32' ? 'junction' : 'dir'
         );

@@ -69,7 +69,7 @@ Search in the **Apex Logs** panel is optimized for locally saved log bodies, so 
 
 ## Requirements
 
-- Salesforce CLI installed and authenticated. `sf` is recommended, but legacy `sfdx` also works.
+- Salesforce CLI installed and authenticated, with its `sf` command. The deprecated `sfdx-cli` package, which installs only `sfdx`, does not work; the current Salesforce CLI installs both commands.
 - VS Code 1.105+.
 - Standalone Salesforce CLI plugin: Node.js 22.19+.
 - Recommended for Replay Debugger: Salesforce Extension Pack (`salesforce.salesforcedx-vscode`).
@@ -97,6 +97,8 @@ sf electivus log status --target-org my-org
 ```
 
 `log sync` resolves org auth through Salesforce Core, lists `ApexLog` rows, and downloads raw log bodies over the Salesforce Tooling REST API. It materializes those bodies under `apexlogs/`, keeps incremental state in `apexlogs/.alv/sync-state.json`, writes the canonical org-first layout at `apexlogs/orgs/<safe-target-org>/logs/YYYY-MM-DD/<logId>.log`, and removes legacy SQLite search index files. Use `--concurrency` to tune parallel body downloads.
+
+The plugin runs inside `sf` with its own copy of `@salesforce/core`. It reads org auth in-process and, after Salesforce rejects a session, refreshes the token and saves it itself, as any `sf` command does. The VS Code extension instead asks `sf` for tokens and writes no auth file.
 
 `sf electivus custom-log` reads the same application logs as the Custom Logs panel, for example `sf electivus custom-log list --target-org my-org --min-level ERROR --since 24h --json`. A logging framework that only publishes platform events, such as `nebula-events`, needs `sf electivus custom-log capture --source nebula-events --target-org my-org` first. It stores the events under `apexlogs/`, and `list` then reads them offline. See [Custom Logs commands](docs/CUSTOM_LOGS.md#commands) and [Event sources](docs/CUSTOM_LOGS.md#event-sources).
 
@@ -235,9 +237,13 @@ See [docs/SETTINGS.md](docs/SETTINGS.md) for the full configuration reference.
 - **Search is not finding the text I know is in the log**
   Run **Refresh Logs** first, then scroll to load more rows if needed. If the log still is not in the current local set, use **Download all logs** to bring the rest of the org backlog into the workspace search cache.
 - **No orgs detected**
-  Authenticate with `sf org login web` and verify with `sf org list`; the extension reads the resulting Salesforce auth state directly.
+  Authenticate with `sf org login web` and verify with `sf org list`; the extension lists orgs and gets their access tokens through `sf`, and never reads the auth files itself.
+- **Asked to log in again after a session renewal**
+  In orgs whose connected app rotates refresh tokens, update the Salesforce CLI to 2.152.9 or newer. Older CLIs drop the new refresh token after a refresh, so the next refresh fails with `invalid_grant`. When the extension asks for a new login with such a CLI, its message names the installed release and how to update it.
 - **Replay Debugger does not launch**
   Install the Salesforce Extension Pack or the standalone Apex Replay Debugger extension.
+- **Behind a corporate proxy**
+  Salesforce requests use the `http.proxy` user setting (credentials go in the URL, as `http://user:password@proxy.company.com:8080`), and skip the hosts in `http.noProxy`. With `http.proxy` empty, they use the `HTTPS_PROXY` or `HTTP_PROXY` variable VS Code started with; with `http.noProxy` empty, they skip the hosts in `NO_PROXY`. With `http.proxySupport` set to `off`, only the variables apply. Each proxy must be an `http://`, `https://`, `socks://` or `socks5://` URL with a host, such as `http://proxy.company.com:8080`, and no port 0. An `http://` or `https://` proxy URL takes no path; a SOCKS URL's path, query and fragment are ignored. When the proxy for a protocol is anything else, such as `proxy.company.com:8080` or a `socks://` with no host, Salesforce requests over that protocol fail with an error that names `http.proxy` or the variable, and they are never sent direct. A valid `HTTPS_PROXY` still carries https requests when `HTTP_PROXY` is not a full URL. System proxy settings, PAC files, `http.proxyStrictSSL`, `http.proxyAuthorization` and the proxy sign-in prompt do not reach these requests. The `sf electivus` plugin uses `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`. The `sf` commands that the extension runs to list orgs and get access tokens receive `http.proxy` and `http.noProxy` as `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`; with `http.proxy` empty, they keep the variables VS Code started with. Apex Tail and Custom Logs capture stream through a separate client that these settings do not change.
 
 ## Contributing
 

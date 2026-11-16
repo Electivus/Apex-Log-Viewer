@@ -1,15 +1,12 @@
 import assert from 'node:assert/strict';
 import proxyquire from 'proxyquire';
 
-const { presentLogsStatus } = proxyquire.noCallThru().noPreserveCache()(
-  '../../host/logsStatusPresentation',
-  {
-    './utils/localize': {
-      localize: (_key: string, message: string, ...args: Array<string | number>) =>
-        message.replace(/\{(\d+)\}/g, (_m, i) => String(args[Number(i)]))
-    }
+const { presentLogsStatus } = proxyquire.noCallThru().noPreserveCache()('../../host/logsStatusPresentation', {
+  './utils/localize': {
+    localize: (_key: string, message: string, ...args: Array<string | number>) =>
+      message.replace(/\{(\d+)\}/g, (_m, i) => String(args[Number(i)]))
   }
-) as typeof import('../../host/logsStatusPresentation');
+}) as typeof import('../../host/logsStatusPresentation');
 
 suite('logs status bar presentation', () => {
   test('shows the product name alone until an org is known', () => {

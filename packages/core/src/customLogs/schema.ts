@@ -9,7 +9,7 @@
  * A refused metadata query makes the affected sources `unavailable: metadataQueryRefused`.
  */
 
-import type { Connection } from '@salesforce/core';
+import type { Connection } from '@jsforce/jsforce-node';
 
 import { errorCodeOf } from '../errors.js';
 import { toolingQuery } from '../dataQuery.js';

@@ -147,7 +147,7 @@ See also: `docs/PUBLISHING.md` and `docs/CI.md`.
 
 ## Security and Configuration Tips
 
-- Salesforce CLI (`sf`/`sfdx`) is required for runtime usage.
+- Salesforce CLI (`sf`) is required for runtime usage.
 - Never commit tokens or org-sensitive data.
 - Run dependency/provenance checks with `pnpm run security:dependency-sources` and `pnpm run security:pnpm-signatures`.
 - Keep logs under `apexlogs/`.

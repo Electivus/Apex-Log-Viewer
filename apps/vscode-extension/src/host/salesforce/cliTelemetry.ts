@@ -1,5 +1,3 @@
-type CliTelemetryError = Error & { code?: string; telemetryCode?: string };
-
 const DEFAULT_ORG_PATTERNS = [
   /no default username/i,
   /no default target org/i,
@@ -77,22 +75,4 @@ export function classifyCliExecTelemetryCode(
     return classifiedFromText;
   }
   return normalizeCliTelemetryCode(rawCode);
-}
-
-export function createCliTelemetryError(code: string, message: string): CliTelemetryError {
-  const error = new Error(message) as CliTelemetryError;
-  error.code = code;
-  error.telemetryCode = code;
-  return error;
-}
-
-export function getCliTelemetryCode(error: unknown): string {
-  const candidate = error as CliTelemetryError | undefined;
-  if (candidate?.telemetryCode) {
-    return normalizeCliTelemetryCode(candidate.telemetryCode);
-  }
-  if (candidate?.code) {
-    return normalizeCliTelemetryCode(candidate.code);
-  }
-  return 'UNKNOWN';
 }
