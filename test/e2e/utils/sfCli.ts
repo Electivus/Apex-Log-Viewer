@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { execFile } from 'node:child_process';
+import { execFile, type ExecFileException } from 'node:child_process';
 import fs from 'node:fs';
 import { isUsableSfdxAuthUrl, safeSfFailureMessage, salesforceChildEnv } from '../../../scripts/devhub-auth.js';
 
@@ -67,7 +67,7 @@ function getWrappedSfExecutable(file: string, args: string[]): string | undefine
 }
 
 function formatProcessFailureDetails(file: string, args: string[], error: unknown): string | undefined {
-  const err = error as NodeJS.ErrnoException | undefined;
+  const err = error as ExecFileException | undefined;
   const code = err?.code;
   const signal = err?.signal;
 

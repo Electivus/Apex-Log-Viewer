@@ -4,7 +4,7 @@ import { affectsConfiguration, getConfig } from '../utils/config';
 
 const PROXY_SETTINGS = ['http.proxy', 'http.noProxy', 'http.proxySupport'];
 
-function readProxySettings(): SalesforceProxySettings {
+export function readProxySettings(): SalesforceProxySettings {
   if (getConfig<unknown>('http.proxySupport', 'override') === 'off') {
     return {};
   }

@@ -9,6 +9,7 @@ import Ajv2020 from 'ajv/dist/2020.js';
 import { AlvError, ApexLogLifecycleError, createApexLogViewerCore } from '../../src/index.ts';
 import type { CustomLogEntryParams, CustomLogGetParams, CustomLogListParams } from '../../src/customLogs/contracts.ts';
 import type { ApexLogRemote } from '../../src/logLifecycle.ts';
+import { authSourceDouble } from './salesforceDouble.ts';
 
 type JsonObject = Record<string, unknown>;
 
@@ -272,7 +273,10 @@ async function executeScenario(scenario: ConformanceScenario, workspaceRoot: str
   const doubles = replaceWorkspaceToken(scenario.doubles, workspaceRoot) as ConformanceScenario['doubles'];
   const processDouble = new ScriptedProcessDouble(doubles.process);
   const httpDouble = new ScriptedHttpDouble(doubles.http);
-  const core = createApexLogViewerCore({ apexLogRemote: strictRemote(processDouble, httpDouble, workspaceRoot) });
+  const core = createApexLogViewerCore({
+    auth: authSourceDouble(),
+    apexLogRemote: strictRemote(processDouble, httpDouble, workspaceRoot)
+  });
   const request = replaceWorkspaceToken(scenario.request, workspaceRoot) as JsonObject;
 
   try {

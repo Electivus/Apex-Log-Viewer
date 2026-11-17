@@ -7,13 +7,11 @@ import test from 'node:test';
 
 import {
   answerRest,
-  isolateSalesforceHome,
+  savedOrgsEnv,
   saveOrgAuth,
   startSalesforceDouble,
   type DoubleHandler
 } from './support/salesforceDouble.ts';
-
-isolateSalesforceHome();
 
 const PROXY_VARIABLES = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'NO_PROXY', 'no_proxy'];
 
@@ -60,8 +58,8 @@ type ChildResult = { ok: boolean; users?: number; error?: string; elapsedMs: num
 
 function childEnvironment(variables: Record<string, string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
-  for (const name of [...PROXY_VARIABLES, 'HTTP_TIMEOUT']) delete env[name];
-  return Object.assign(env, variables);
+  for (const name of [...PROXY_VARIABLES, 'HTTP_TIMEOUT', 'NODE_USE_ENV_PROXY']) delete env[name];
+  return Object.assign(env, savedOrgsEnv(), variables);
 }
 
 async function runChild(args: string[], env: NodeJS.ProcessEnv, input?: string): Promise<string> {
@@ -113,7 +111,7 @@ async function searchUsersInOneChild(searches: Search[]): Promise<ChildResult[]>
 
 async function orgBehind(t: test.TestContext, username: string, handler: DoubleHandler = oneUser) {
   const salesforce = await startSalesforceDouble(t, handler);
-  await saveOrgAuth(username, salesforce.instanceUrl);
+  saveOrgAuth(username, salesforce.instanceUrl);
   return salesforce;
 }
 
@@ -405,7 +403,7 @@ test('a valid HTTP_PROXY carries http requests when HTTPS_PROXY is unusable', as
 test('a valid HTTPS_PROXY carries https requests when HTTP_PROXY is unusable', async t => {
   const salesforce = await startSalesforceDouble(t, oneUser);
   const httpsInstance = salesforce.instanceUrl.replace(/^http:/, 'https:');
-  await saveOrgAuth('bad-http-variable@example.com', httpsInstance);
+  saveOrgAuth('bad-http-variable@example.com', httpsInstance);
   const proxy = await startRecordingProxy(t);
 
   await searchUsersInChild('bad-http-variable@example.com', {

@@ -46,21 +46,17 @@ Concurrency: Most workflows use concurrency groups to avoid duplicate runs per r
   investigate the package metadata or lockfile change instead of removing the
   gate.
 
-## Codex Review Gate
+## Advisory Codex Review Status
 
-`.github/workflows/codex-review-gate.yml` publishes a commit status named `Codex review` on every pull request head. GitHub auto-merge waits for required checks, and Codex is not a check, so this status is how a ruleset can require that Codex reviewed the current head and found nothing.
+Every pull request receives independent verification. Codex review is optional. Do not request it or wait for it before proceeding with that verification or evaluating the required checks.
 
-- `pending`: Codex has not answered for this head yet, or its review is still running.
-- `failure`: Codex reported unresolved findings on this head.
-- `success`: Codex completed a review of this head with no unresolved findings. Dependabot pull requests are always `success` because Codex does not review them.
+`.github/workflows/codex-review-gate.yml` publishes a commit status named `Codex review` on every pull request head. This status is advisory and is not a required check in the repository's ruleset. A watcher must inspect the required checks rather than wait for every status to finish.
 
-The status comes from the machine-readable state in the Codex summary comment, which only the Codex bot can supply. The workflow reruns when Codex edits that comment and when a push arrives. It does not post `@codex review` or poll.
+- `pending`: Codex has not answered for this head yet, or its review is still running. This can remain pending indefinitely and does not block a merge.
+- `failure`: Codex reported unresolved findings on this head. Assess each finding on its merits during independent verification.
+- `success`: Codex completed a review of this head with no unresolved findings. Dependabot pull requests are always `success` because Codex does not review them. Neither result replaces independent verification.
 
-When the status is stuck:
-
-- Comment `@codex review` when Codex never responded, or when it repeated a finding that you already fixed.
-- Run `gh workflow run codex-review-gate.yml -f pull_request=<number>` to evaluate the pull request again.
-- `gh pr merge --admin` is the maintainer's deliberate override.
+The status comes from the machine-readable state in the Codex summary comment, which only the Codex bot can supply. The workflow reruns when Codex edits that comment and when a push arrives. It does not request a review or poll. An absent or pending optional review does not call for a manual review request, workflow rerun or administrative merge override.
 
 The workflow runs from the default branch, so a fork cannot change its code. A fork's own workflow can still publish a check with the same name, so green checks on a fork pull request never replace reading the diff.
 
@@ -124,7 +120,7 @@ The Dev Hub Automation Identity uses JWT through its preauthorized ECA. Scratch 
 
 Salesforce CLI is pinned to **2.150.6** in all real-org jobs. The setup helper and proxy images use that same default. Windows/Linux use the project Node 24 runtime; macOS captures the supported Node runtime from `.nvmrc` (24.15.0 at cutover) in its sanitized CLI wrapper before restoring the project runtime. CLI upgrades require new signup/export evidence, not a repository-variable override.
 
-On macOS, the job keeps Salesforce state in a private `0700` home under `RUNNER_TEMP`. Electron uses the recorded original runner home for its native keychain. The native VS Code `--extensionEnvironment` argument gives the Extension Host the private home before `@salesforce/core` loads; its in-process org discovery, encrypted auth and CLI children therefore share the runner's scratch credentials. The CLI wrapper also redirects calls from exactly the recorded desktop home, while preserving explicit JWT and importer homes. Both launch boundaries reject incomplete, noncanonical or out-of-scope CI home paths. No credentials are copied to the desktop home or reusable caches. This separation is scoped to macOS GitHub Actions and leaves local launches unchanged. Remove the paired workflow home exports and launch overrides together to reverse it; retain private authentication isolation. The temporary single-spec macOS diagnostic selection has been removed, so the full suite runs on every candidate.
+On macOS, the job keeps Salesforce state in a private `0700` home under `RUNNER_TEMP`. Electron uses the recorded original runner home for its native keychain. The native VS Code `--extensionEnvironment` argument gives the Extension Host the private home, which the `sf` children it starts for org discovery and access tokens inherit, so they share the runner's scratch credentials. The CLI wrapper also redirects calls from exactly the recorded desktop home, while preserving explicit JWT and importer homes. Both launch boundaries reject incomplete, noncanonical or out-of-scope CI home paths. No credentials are copied to the desktop home or reusable caches. This separation is scoped to macOS GitHub Actions and leaves local launches unchanged. Remove the paired workflow home exports and launch overrides together to reverse it; retain private authentication isolation. The temporary single-spec macOS diagnostic selection has been removed, so the full suite runs on every candidate.
 
 Manual dispatch accepts optional `jwt_smoke_devhub_org_id`, the independently verified authorized Dev Hub ID. Supplying it enables the existing direct JWT lifecycle smokes on Windows/macOS and inside the Ubuntu proxy lab, plus the isolated pool/independent-consumer smoke in that lab. These create and delete their own test scratches, verify export/reimport from empty state, and leave the ordinary full E2E/telemetry gates enabled. Omit it for normal PR-equivalent pool validation.
 

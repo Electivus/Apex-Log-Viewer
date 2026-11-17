@@ -15,12 +15,12 @@ import { openEventStore } from '../../core/src/customLogs/events/store.ts';
 import { recordedEvents, startBayeuxDouble } from '../../core/test/support/cometdDouble.ts';
 import { alvTestLogDescribe } from '../../core/test/support/describeFixtures.ts';
 import { nebulaHandler } from '../../core/test/support/nebulaDouble.ts';
-import { isolateSalesforceHome } from '../../core/test/support/salesforceDouble.ts';
+import { isolateSalesforceHome, saveSfOrgAuth } from './support/salesforceHome.ts';
 import { until, withStreams } from './support/streams.ts';
 
 /**
  * The commands over the real core: `capture` talks CometD to the Bayeux double that unit 7 built (the
- * real Faye client inside `@salesforce/core` against a local long-poll server), and `list` reads what
+ * real Faye client inside jsforce against a local long-poll server), and `list` reads what
  * `capture` stored. The command tests with a fake core cover flags and signals; this file covers the
  * join between the two commands, which no fake can.
  */
@@ -74,6 +74,7 @@ async function world(t: test.TestContext) {
           : undefined
     })
   );
+  await saveSfOrgAuth(double.username, double.instanceUrl);
   const home = process.cwd();
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-cli-capture-'));
   // Windows will not remove a process's working directory, so the cwd moves back before the directory goes.

@@ -4,10 +4,6 @@ import * as path from 'path';
 import proxyquire from 'proxyquire';
 import { MAX_TAIL_BUFFER_LINES, TailService } from '../host/utils/tailService';
 import { SfLogTailViewProvider } from '../provider/SfLogTailViewProvider';
-import * as cli from '../host/salesforce/cli';
-import * as jsforce from '../host/salesforce/jsforce';
-import * as streaming from '../host/salesforce/streaming';
-import * as traceflags from '../host/salesforce/traceflags';
 import {
   __resetApiVersionFallbackStateForTests,
   recordApiVersionFallback,
@@ -20,7 +16,7 @@ import { TestClock } from './testClock';
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 
 function loadTailService(stubs?: {
-  cli?: Record<string, unknown>;
+  org?: Record<string, unknown>;
   http?: Record<string, unknown>;
   traceflags?: Record<string, unknown>;
   streaming?: Record<string, unknown>;
@@ -30,7 +26,6 @@ function loadTailService(stubs?: {
 }) {
   return proxyquireStrict('../host/utils/tailService', {
     ...(stubs?.logger ? { './logger': stubs.logger } : {}),
-    '../salesforce/cli': stubs?.cli ?? {},
     '../salesforce/http': stubs?.http ?? {},
     '../salesforce/traceflags': stubs?.traceflags ?? {},
     '../salesforce/streaming': stubs?.streaming ?? {},
@@ -38,7 +33,7 @@ function loadTailService(stubs?: {
     '../../runtime/runtimeClient': stubs?.runtime ?? {
       runtimeClient: {
         getOrgAuth:
-          stubs?.cli?.getOrgAuth ??
+          stubs?.org?.getOrgAuth ??
           (async ({ username }: { username?: string } = {}) => ({
             username,
             instanceUrl: 'https://example.com',
@@ -67,7 +62,7 @@ function loadTailService(stubs?: {
   }) as typeof import('../host/utils/tailService');
 }
 
-function loadTailProvider(stubs?: { cli?: Record<string, unknown>; traceflags?: Record<string, unknown> }) {
+function loadTailProvider(stubs?: { org?: Record<string, unknown>; traceflags?: Record<string, unknown> }) {
   class TailServiceStub {
     setOrg(_username?: string): void {}
     setWindowActive(_active: boolean): void {}
@@ -89,9 +84,9 @@ function loadTailProvider(stubs?: { cli?: Record<string, unknown>; traceflags?: 
   return proxyquireStrict('../provider/SfLogTailViewProvider', {
     '../runtime/runtimeClient': {
       runtimeClient: {
-        orgList: stubs?.cli?.listOrgs ?? (async () => []),
+        orgList: stubs?.org?.listOrgs ?? (async () => []),
         getOrgAuth:
-          stubs?.cli?.getOrgAuth ??
+          stubs?.org?.getOrgAuth ??
           (async () => ({
             username: undefined,
             instanceUrl: 'https://example.com',
@@ -243,71 +238,70 @@ suite('TailService', () => {
 
   teardown(() => {
     (DebugFlagsPanel as any).show = originalDebugFlagsShow;
-    streaming.__resetStreamingClientFactoryForTests();
-    jsforce.__resetConnectionFactoryForTests();
     __resetApiVersionFallbackStateForTests();
     setApiVersion('64.0');
   });
 
+  /** A Tail service whose org, trace flag and stream are all at hand, as `start` needs them. */
+  function startableTailService(getOrgAuth: (params?: { username?: string }) => Promise<unknown>) {
+    const connection = {
+      version: '64.0',
+      instanceUrl: 'https://example.com',
+      accessToken: 'token',
+      request: async () => '',
+      query: async () => ({ records: [] }),
+      queryMore: async () => ({ records: [] }),
+      tooling: {
+        query: async () => ({ records: [] }),
+        create: async () => ({ success: true, id: '1', errors: [] }),
+        update: async () => ({ success: true, id: '1', errors: [] }),
+        destroy: async () => ({ success: true, id: '1', errors: [] })
+      },
+      streaming: {} as any
+    };
+    return loadTailService({
+      runtime: { runtimeClient: { getOrgAuth, logsList: async () => [] } },
+      traceflags: { ensureUserTraceFlag: async () => false },
+      http: { getEffectiveApiVersion: () => '64.0' },
+      streaming: {
+        createConnectionFromAuth: async () => connection,
+        createLoggingStreamingClient: async () => ({
+          handshake: async () => {},
+          replay: () => {},
+          subscribeAndAwaitAck: async () => {},
+          disconnect: () => {}
+        })
+      }
+    });
+  }
+
   test('requires debug level', async () => {
     const posted: any[] = [];
-    const service = new TailService(m => posted.push(m));
-    const original = cli.getOrgAuth;
-    (cli as any).getOrgAuth = async () => {
+    const { TailService } = startableTailService(async () => {
       throw new Error('getOrgAuth should not be called');
-    };
+    });
+    const service = new TailService(m => posted.push(m));
     await service.start(undefined);
     assert.equal(posted[0]?.type, 'error');
-    (cli as any).getOrgAuth = original;
   });
 
   test('start clears stale caches', async () => {
+    const { TailService } = startableTailService(async () => ({
+      username: 'u',
+      instanceUrl: 'https://example.com',
+      accessToken: 't'
+    }));
     const service = new TailService(() => {});
     (service as any).seenLogIds.add('old');
     (service as any).logIdToPath.set('old', '/tmp/old');
-    const origGetAuth = cli.getOrgAuth;
-    const origEnsure = traceflags.ensureUserTraceFlag;
-    (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-    (traceflags as any).ensureUserTraceFlag = async () => false;
-    jsforce.__setConnectionFactoryForTests(
-      async () =>
-        ({
-          version: '64.0',
-          instanceUrl: 'i',
-          accessToken: 't',
-          request: async () => '',
-          query: async () => ({ records: [] }),
-          queryMore: async () => ({ records: [] }),
-          tooling: {
-            query: async () => ({ records: [] }),
-            create: async () => ({ success: true, id: '1', errors: [] }),
-            update: async () => ({ success: true, id: '1', errors: [] }),
-            destroy: async () => ({ success: true, id: '1', errors: [] })
-          },
-          streaming: {} as any
-        }) as any
-    );
-    streaming.__setStreamingClientFactoryForTests(async () => ({
-      handshake: async () => {},
-      replay: () => {},
-      subscribeAndAwaitAck: async () => {},
-      disconnect: () => {}
-    }));
     await service.start('DEBUG');
     assert.equal((service as any).seenLogIds.size, 0);
     assert.equal((service as any).logIdToPath.size, 0);
-    (cli as any).getOrgAuth = origGetAuth;
-    (traceflags as any).ensureUserTraceFlag = origEnsure;
     service.stop();
   });
 
-  test('start resolves auth through runtime client instead of salesforce cli', async () => {
+  test('start resolves auth through the runtime client', async () => {
     const { TailService } = loadTailService({
-      cli: {
-        getOrgAuth: async () => {
-          throw new Error('should not call cli getOrgAuth');
-        }
-      },
       runtime: {
         runtimeClient: {
           getOrgAuth: async ({ username }: { username?: string } = {}) => ({
@@ -362,7 +356,7 @@ suite('TailService', () => {
     const auth = { username: 'legacy-user', instanceUrl: 'https://legacy.example.com', accessToken: 't' };
     const requestedVersions: string[] = [];
     const { TailService } = loadTailService({
-      cli: {
+      org: {
         getOrgAuth: async () => auth
       },
       traceflags: {
@@ -830,7 +824,7 @@ suite('TailService', () => {
 
   test('sendDebugLevels selects the first available level when no active trace flag exists', async () => {
     const { SfLogTailViewProvider } = loadTailProvider({
-      cli: {
+      org: {
         getOrgAuth: async () => ({ username: 'u', instanceUrl: 'https://example.com', accessToken: 't' })
       },
       traceflags: {
@@ -858,7 +852,7 @@ suite('TailService', () => {
 
   test('sendDebugLevels creates a fallback debug level when the org has none', async () => {
     const { SfLogTailViewProvider } = loadTailProvider({
-      cli: {
+      org: {
         getOrgAuth: async () => ({ username: 'u', instanceUrl: 'https://example.com', accessToken: 't' })
       },
       traceflags: {
@@ -889,7 +883,7 @@ suite('TailService', () => {
   test('sendDebugLevels does not create a fallback debug level when listing levels fails', async () => {
     let ensureCalls = 0;
     const { SfLogTailViewProvider } = loadTailProvider({
-      cli: {
+      org: {
         getOrgAuth: async () => ({ username: 'u', instanceUrl: 'https://example.com', accessToken: 't' })
       },
       traceflags: {

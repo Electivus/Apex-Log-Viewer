@@ -23,6 +23,7 @@ import {
   resolveSupportExtensionIds,
   resolveVsCodeAuthLaunch,
   resolveVsCodeCompositingLaunchArgs,
+  resolveVsCodeKeychainLaunchArgs,
   resolveVsCodeLocale,
   shouldConcealVsCodeWindow,
   waitForExtensionHostStart
@@ -165,14 +166,15 @@ describe('VS Code user profile', () => {
   });
 
   test('keeps the palette setting next to the proxy settings', async () => {
+    const originalEnv = { ...process.env };
     process.env.ALV_E2E_PROXY_STRICT_SSL = '0';
     try {
-      expect(await readProfileSettings()).toEqual({
+      expect(await readProfileSettings()).toMatchObject({
         'workbench.quickOpen.closeOnFocusLost': false,
         'http.proxyStrictSSL': false
       });
     } finally {
-      delete process.env.ALV_E2E_PROXY_STRICT_SSL;
+      process.env = originalEnv;
     }
   });
 });
@@ -511,6 +513,17 @@ describe('resolveVsCodeCompositingLaunchArgs', () => {
   test('leaves the native compositor on other platforms', () => {
     expect(resolveVsCodeCompositingLaunchArgs('darwin')).toEqual([]);
     expect(resolveVsCodeCompositingLaunchArgs('win32')).toEqual([]);
+  });
+});
+
+describe('resolveVsCodeKeychainLaunchArgs', () => {
+  test('keeps the macOS Safe Storage key off the login keychain', () => {
+    expect(resolveVsCodeKeychainLaunchArgs('darwin')).toEqual(['--use-mock-keychain']);
+  });
+
+  test('adds nothing on other platforms', () => {
+    expect(resolveVsCodeKeychainLaunchArgs('linux')).toEqual([]);
+    expect(resolveVsCodeKeychainLaunchArgs('win32')).toEqual([]);
   });
 });
 

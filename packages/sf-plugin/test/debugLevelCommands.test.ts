@@ -8,8 +8,12 @@ import { Config } from '@oclif/core';
 import DebugLevelCreate from '../src/commands/electivus/debug-level/create.ts';
 import DebugLevelUpdate from '../src/commands/electivus/debug-level/update.ts';
 import { core } from '../src/core.ts';
-import { debugLevelOrg, EXISTING_LEVEL, LEVEL_ID } from '../../core/test/support/debugLevelDouble.ts';
-import { isolateSalesforceHome } from '../../core/test/support/salesforceDouble.ts';
+import {
+  debugLevelOrg as debugLevelDouble,
+  EXISTING_LEVEL,
+  LEVEL_ID
+} from '../../core/test/support/debugLevelDouble.ts';
+import { isolateSalesforceHome, saveSfOrgAuth } from './support/salesforceHome.ts';
 
 isolateSalesforceHome();
 
@@ -17,6 +21,13 @@ const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const config = await Config.load({ root: pluginRoot });
 
 test.after(() => core.dispose());
+
+/** The debug level double, saved where the plugin reads auth: the `sf` CLI's home. */
+async function debugLevelOrg(t: test.TestContext, username: string) {
+  const org = await debugLevelDouble(t, username);
+  await saveSfOrgAuth(username, org.salesforce.instanceUrl);
+  return org;
+}
 
 const create = (org: string, ...argv: string[]) =>
   new DebugLevelCreate(['--target-org', org, '--json', ...argv], config).run();

@@ -11,6 +11,13 @@ export type {
 } from './runtime.js';
 export { summarizeLogText } from './logTriage.js';
 export {
+  createSessionConnection,
+  usableAccessToken,
+  type OrgAuthSource,
+  type OrgSession,
+  type SourceOrg
+} from './orgSessions.js';
+export {
   configureSalesforceProxy,
   unwrapSalesforceProxyError,
   type SalesforceProxySettings

@@ -261,6 +261,9 @@ describe('ensureScratchOrg', () => {
       SF_TEST_KEEP_ORG: '1'
     };
 
+    for (const field of ['CLIENT_ID', 'USERNAME', 'LOGIN_URL', 'PRIVATE_KEY', 'PRIVATE_KEY_FILE']) {
+      delete process.env[`SF_DEVHUB_${field}`];
+    }
     delete process.env.SF_DEVHUB_ALIAS;
     delete process.env.SF_DEVHUB_AUTH_URL;
 
@@ -1321,6 +1324,7 @@ describe('ensureScratchOrg', () => {
 
     const error = await ensureScratchOrg().catch(caught => caught as Error);
     expect(error).toBeInstanceOf(Error);
+    if (!(error instanceof Error)) throw new Error('Expected scratch creation to fail');
     expect(error.message).toContain('response body redacted');
     expect(error.message).not.toContain('force://PlatformCLI::secret-slot-auth@scratch.example.com');
   });

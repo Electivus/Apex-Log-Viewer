@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { stringifyUnknown } from './error';
+import { redactSecrets } from './redact';
 
 // Centralized LogOutputChannel for the extension
 const channel: vscode.LogOutputChannel = vscode.window.createOutputChannel('Electivus Apex Log Viewer', { log: true });
@@ -22,34 +23,6 @@ function fmt(parts: unknown[]): string {
     return stringifyUnknown(p);
   });
   return mapped.join(' ');
-}
-
-function redactSensitiveText(message: string): string {
-  const secretKeyNames = [
-    'accessToken',
-    'access_token',
-    'refreshToken',
-    'refresh_token',
-    'idToken',
-    'id_token',
-    'sessionId',
-    'session_id',
-    'sid',
-    'clientSecret',
-    'client_secret',
-    'authorization',
-    'authToken',
-    'auth_token',
-    'password'
-  ].join('|');
-  let redacted = message.replace(/(Authorization\s*[:=]\s*Bearer\s+)[^\s,;]+/gi, '$1[redacted]');
-  redacted = redacted.replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/gi, 'Bearer [redacted]');
-  redacted = redacted.replace(
-    new RegExp(`(["']?(?:${secretKeyNames})["']?\\s*:\\s*["'])([^"']+)(["'])`, 'gi'),
-    '$1[redacted]$3'
-  );
-  redacted = redacted.replace(new RegExp(`(\\b(?:${secretKeyNames})\\b\\s*=\\s*)([^\\s,;]+)`, 'gi'), '$1[redacted]');
-  return redacted;
 }
 
 export function logInfo(...parts: unknown[]): void {
@@ -93,7 +66,7 @@ export function getRecentLogEntries(): LogEntry[] {
 }
 
 function writeLog(level: LogEntry['level'], parts: unknown[]): void {
-  const message = redactSensitiveText(level === 'trace' ? `[trace] ${fmt(parts)}` : fmt(parts));
+  const message = redactSecrets(level === 'trace' ? `[trace] ${fmt(parts)}` : fmt(parts));
   recentLogEntries.push({
     timestamp: new Date().toISOString(),
     level,

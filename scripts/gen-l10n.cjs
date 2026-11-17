@@ -21,10 +21,18 @@ const ptBrByLegacyKey = {
   tailHardStop: 'Tail parado após 30 minutos.',
   tailSavedTo: 'Salvo em {0}',
   tailSaveFailed: 'Tail: falha ao salvar log no workspace (melhor esforço).',
-  cliNotFound: 'Salesforce CLI não encontrada. Instale o Salesforce CLI (sf).',
   cliTimeout: 'Comando do Salesforce CLI expirou após {0} segundos: {1}',
-  cliAuthFailed:
-    'Não foi possível obter credenciais via Salesforce CLI. Verifique a autenticação e tente: sf org auth show-access-token --json --no-prompt',
+  'sfCli.notFound':
+    'O Salesforce CLI (sf) não foi encontrado. Instale-o ou defina ALV_SF_BIN_PATH com o caminho dele e recarregue o VS Code.',
+  'sfCli.legacyOnly':
+    'Só foi encontrado o comando sfdx, que está descontinuado, e o Apex Log Viewer precisa do sf. Instale o Salesforce CLI atual (npm install --global @salesforce/cli, ou o instalador dele) e recarregue o VS Code.',
+  'sfCli.noJson': 'O sf {0} não imprimiu JSON.',
+  'sfCli.noToken': 'O sf org auth show-access-token não imprimiu um token.',
+  'sfCli.noInstanceUrl': 'O Salesforce CLI não lista uma URL de instância para {0}.',
+  'sfCli.tokenHidden':
+    'Este Salesforce CLI oculta o token de acesso em "sf org display" e não tem "sf org auth show-access-token". Atualize o Salesforce CLI.',
+  'sfCli.updateHint':
+    'Este Salesforce CLI é a versão {0}. As versões anteriores à {1} perdem o login quando a org devolve um novo refresh token, então atualize-o antes: execute "sf update", ou "npm install --global @salesforce/cli" se ele foi instalado pelo npm.',
   selectOrgPlaceholder: 'Selecione uma org autenticada',
   selectOrgDefault: 'Padrão',
   selectOrgError: 'Electivus Apex Logs: falha ao listar orgs',
@@ -71,10 +79,6 @@ const ptBrByLegacyKey = {
   'openLogInViewer.codeLensTitle': 'Abrir no Apex Log Viewer',
   'diagnostics.copied': 'Electivus Apex Logs: pacote de diagnóstico copiado para a área de transferência.',
   'diagnostics.copyFailed': 'Electivus Apex Logs: falha ao copiar o diagnóstico: {0}',
-  cliDefaultOrgMissing:
-    'Nenhuma org padrão do Salesforce está configurada. Selecione uma org na extensão ou execute "sf org login web" e defina uma org padrão.',
-  cliAuthRequired: 'O Salesforce CLI não está autenticado. Execute "sf org login web" para autenticar.',
-  listOrgsFailed: 'Falha ao listar as orgs Salesforce.',
   sendOrgsFailed: 'Falha ao listar as orgs Salesforce: {0}',
   openingApexLog: 'Abrindo log Apex…',
   startReplayFailed: 'Falha ao iniciar o Apex Replay Debugger: {0}',
