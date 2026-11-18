@@ -2,6 +2,7 @@ type ScheduledCallback = (...args: any[]) => void;
 
 interface ScheduledTimer {
   id: number;
+  delay: number;
   runAt: number;
   callback: ScheduledCallback;
   args: unknown[];
@@ -20,16 +21,15 @@ export class TestClock {
         throw new Error('TestClock only supports function callbacks.');
       }
 
-      const id = this.nextId++;
-      const runAt = this.currentTime + Math.max(0, Number(delay ?? 0));
-      this.timers.set(id, {
-        id,
-        runAt,
+      const timer: ScheduledTimer = {
+        id: this.nextId++,
+        delay: Math.max(0, Number(delay ?? 0)),
+        runAt: 0,
         callback: handler as ScheduledCallback,
         args
-      });
-
-      return id as unknown as ReturnType<typeof setTimeout>;
+      };
+      this.arm(timer);
+      return this.handleFor(timer);
     }) as typeof setTimeout;
 
     globalThis.clearTimeout = ((handle?: ReturnType<typeof setTimeout>) => {
@@ -69,6 +69,33 @@ export class TestClock {
     this.timers.clear();
     globalThis.setTimeout = this.originalSetTimeout;
     globalThis.clearTimeout = this.originalClearTimeout;
+  }
+
+  private arm(timer: ScheduledTimer): void {
+    timer.runAt = this.currentTime + timer.delay;
+    this.timers.set(timer.id, timer);
+  }
+
+  // Code outside the test, such as undici, calls unref and refresh on the timers it schedules.
+  private handleFor(timer: ScheduledTimer): ReturnType<typeof setTimeout> {
+    let refed = true;
+    const handle = {
+      ref: () => {
+        refed = true;
+        return handle;
+      },
+      unref: () => {
+        refed = false;
+        return handle;
+      },
+      hasRef: () => refed,
+      refresh: () => {
+        this.arm(timer);
+        return handle;
+      },
+      [Symbol.toPrimitive]: () => timer.id
+    };
+    return handle as unknown as ReturnType<typeof setTimeout>;
   }
 
   private getNextTimer(targetTime: number): ScheduledTimer | undefined {
