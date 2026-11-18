@@ -87,7 +87,7 @@ for (const runner of ['typescript', 'javascript'] as const) {
         delete process.env[name];
       }
       const version = await shortCommand('version', ['version']);
-      expect(version.cliVersion).toBe('@salesforce/cli/2.150.6');
+      expect(version.cliVersion).toBe('@salesforce/cli/2.159.7');
       const initial = await shortCommand('empty-org-list', ['org', 'list'], { cwd: primaryHome });
       expect(Object.values(initial.result).filter(Array.isArray).flat().length).toBe(0);
 

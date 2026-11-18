@@ -22,7 +22,7 @@ function silentStdout() {
 
 test('default Salesforce CLI cache selects the JWT signup and export validated release', async () => {
   const mod = await loadModule();
-  assert.equal(mod.resolveSalesforceCliCacheConfig({ env: {} }).packageName, '@salesforce/cli@2.150.6');
+  assert.equal(mod.resolveSalesforceCliCacheConfig({ env: {} }).packageName, '@salesforce/cli@2.159.7');
 });
 
 test('normalizeSalesforceCliPackage accepts exact and nightly official package specs only', async () => {
