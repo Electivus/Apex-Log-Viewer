@@ -42,6 +42,10 @@ Concurrency: Most workflows use concurrency groups to avoid duplicate runs per r
   lockfile, but CI independently reapplies the policy. A patch newer than 24
   hours must use a reviewed, exact-version `minimumReleaseAgeExclude`; CI never
   trusts every Dependabot-authored lockfile merely based on its author.
+- The official analyzer MCP smoke test starts the pinned package through
+  `npx`, which resolves its dependencies from the registry outside pnpm. The
+  test sets npm's `before` to now minus `minimumReleaseAge`, so that tree
+  waits the same 24 hours.
 - If `pnpm audit signatures` fails in CI, treat it as a provenance problem:
   investigate the package metadata or lockfile change instead of removing the
   gate.
