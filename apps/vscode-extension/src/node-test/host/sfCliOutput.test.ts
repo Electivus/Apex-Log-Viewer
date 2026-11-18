@@ -331,6 +331,114 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     }
   });
 
+  /**
+   * What a failing `sf` that prints `body` shows, after `sf org list auth` on an older CLI printed `tokens`, in
+   * order, so that the extension holds each of them.
+   */
+  async function shownAfterHolding(tokens: readonly string[], body: string): Promise<{ shown: string; trace: string }> {
+    let failing = false;
+    const { source, traced } = load(() =>
+      failing
+        ? failingWith('stderr', body)
+        : ok(
+            tokens.map((accessToken, index) => ({
+              username: `user${index}@example.com`,
+              accessToken,
+              instanceUrl: ORG.instanceUrl
+            }))
+          )
+    );
+    assert.equal((await source.listOrgs()).length, tokens.length);
+    failing = true;
+    const shown = textOf(await rejectionOf(source.listOrgs()));
+    return { shown, trace: traced.join('\n') };
+  }
+
+  test('the first token sf handed out stays held after hundreds more', async () => {
+    const first = 'FAKE-held-first-of-many-0123';
+    const later = Array.from({ length: 300 }, (_, index) => `FAKE-held-later-${String(index).padStart(4, '0')}-89ab`);
+
+    const { shown, trace } = await shownAfterHolding([first, ...later], `Request failed with ${first}`);
+
+    assert.match(shown, /request failed with/i, 'the error still says what sf reported');
+    assert.ok(!shown.includes(first), 'the error carries no first token');
+    assert.ok(!trace.includes(first), 'the trace carries no first token');
+  });
+
+  test('a held token that begins another held token leaves no part of the longer one', async () => {
+    const shorter = 'FAKE-held-prefix-0123';
+    const longer = `${shorter}-and-its-rest-4567`;
+
+    const { shown, trace } = await shownAfterHolding([shorter, longer], `Request failed with ${longer}`);
+
+    assert.match(shown, /request failed with/i, 'the error still says what sf reported');
+    assert.ok(!shown.includes('-and-its-rest-4567'), 'the error carries no rest of the longer token');
+    assert.ok(!trace.includes('-and-its-rest-4567'), 'the trace carries no rest of the longer token');
+  });
+
+  test('two held tokens that partly overlap in the text leave no part of either', async () => {
+    const left = 'FAKE-left-token-shared-0123';
+    const right = 'shared-0123-right-token-FAKE';
+    const joined = 'FAKE-left-token-shared-0123-right-token-FAKE';
+
+    for (const order of [
+      [left, right],
+      [right, left]
+    ]) {
+      const { shown, trace } = await shownAfterHolding(order, `Request failed with ${joined}`);
+
+      assert.match(shown, /request failed with/i, 'the error still says what sf reported');
+      for (const part of ['FAKE-left-token', '-right-token-FAKE']) {
+        assert.ok(!shown.includes(part), `held as ${order.join(', ')}: the error carries no ${part}`);
+        assert.ok(!trace.includes(part), `held as ${order.join(', ')}: the trace carries no ${part}`);
+      }
+    }
+  });
+
+  test('a held token that ends in a percent sign leaves no part of its percent-encoded form', async () => {
+    for (const [token, carried] of [
+      ['FAKE-ends-in-percent-0123%', 'FAKE-ends-in-percent-0123%25'],
+      ['FAKE-ends-in-percent-0123%2', 'FAKE-ends-in-percent-0123%252']
+    ] as const) {
+      const { shown, trace } = await shownAfterHolding([token], `Request failed with ?pw=${carried}&x=1`);
+
+      assert.match(shown, /request failed with \?pw=\[redacted\]&x=1/i, `${carried}: the error replaces all of it`);
+      assert.match(trace, /request failed with \?pw=\[redacted\]&x=1/i, `${carried}: the trace replaces all of it`);
+    }
+  });
+
+  test('percent-encoded bytes that are not well-formed UTF-8 stay as written, and match no held token', async () => {
+    const three = 'FAKE-utf8-\uFFFD\uFFFD\uFFFD-0123';
+    const four = 'FAKE-utf8-\uFFFD\uFFFD\uFFFD\uFFFD-4567';
+    const two = 'FAKE-utf8-\uFFFD\uFFFD-89ab';
+    for (const [carried, replaced] of [
+      ['FAKE-utf8-%EF%BF%BD%ef%bf%bd%EF%BF%BD-0123', true],
+      ['FAKE-utf8-%ED%A0%80-0123', false],
+      ['FAKE-utf8-%E0%80%80-0123', false],
+      ['FAKE-utf8-%F0%80%80%80-4567', false],
+      ['FAKE-utf8-%F4%90%80%80-4567', false],
+      ['FAKE-utf8-%C0%80-89ab', false],
+      ['FAKE-utf8-%E2%82-89ab', false],
+      ['FAKE-utf8-%E%2-89ab', false]
+    ] as const) {
+      const { shown, trace } = await shownAfterHolding([three, four, two], `Request failed with ?pw=${carried}&x=1`);
+      const expected = `?pw=${replaced ? '[redacted]' : carried}&x=1`;
+
+      assert.ok(shown.includes(expected), `${carried}: the error shows ${expected}`);
+      assert.ok(trace.includes(expected), `${carried}: the trace shows ${expected}`);
+    }
+  });
+
+  test('a held token with a percent sign is looked for in time that grows with the text, not its square', async () => {
+    const body = `${'a'.repeat(31_999)}%`;
+    const started = performance.now();
+    const { shown } = await shownAfterHolding([`${'a'.repeat(2000)}%q`], `Request failed with ${body}`);
+    const elapsed = performance.now() - started;
+
+    assert.ok(shown.includes(body), 'the text, which holds no token, stays as written');
+    assert.ok(elapsed < 1000, `redacting 32 kB took ${Math.round(elapsed)} ms`);
+  });
+
   test('the token a successful sf prints still reaches the auth source', async () => {
     const { source, traced } = load(() => ({
       code: 0,
