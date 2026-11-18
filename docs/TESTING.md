@@ -86,8 +86,9 @@ Se você preferir rodar e depurar via UI, instale a extensão “Extension Test 
 
 - `pnpm run test:clean`: cleans temp test dirs (user data, legacy temp extension dirs) but preserves `.vscode-test/` (VS Code download cache) by default.
 - `pnpm run test:clean:all`: fully removes `.vscode-test/` too (forces a re-download on the next run).
-- `CLEAN_VSCODE_TEST_CACHE=1`: removes `.vscode-test/` (same effect as `test:clean:all`).
+- `CLEAN_VSCODE_TEST_CACHE=1`: makes `pnpm run test:clean` remove `.vscode-test/` too (same effect as `test:clean:all`). A test run with it set downloads VS Code into its own temporary profile and leaves `.vscode-test/` to other runs.
 - `KEEP_VSCODE_TEST_CACHE=1`: preserves `.vscode-test/` (default behavior; useful to override `CLEAN_*`).
+- Ctrl+C during a test run starts no further step. The first Ctrl+C sends SIGINT to the child the runner started for the current step, such as VSIX packaging or the VS Code CLI, and waits for that child to exit. Work that runs inside the runner, such as the VS Code download and its extraction, does not stop, so the first Ctrl+C waits for it to finish. The runner then tries to remove its temporary profile and its workspace. The profile holds the smoke VSIX, the `run-vsce.js` staging copy and, on macOS, the downloaded VS Code archive. A second Ctrl+C sends SIGKILL to that child, or stops waiting for the download, and makes the same attempt. Processes the child started, such as `vsce`, can outlive it and keep writing. An abandoned download that had not yet saved its archive can still save it in the system temp directory before the runner exits. A removal can fail while a process still holds a file, for example with `EBUSY` on Windows ([#1484](https://github.com/Electivus/Apex-Log-Viewer/issues/1484)); the runner then prints a warning and leaves the directory. The runner signals no other process.
 
 ### Salesforce CLI and scratch org (optional)
 

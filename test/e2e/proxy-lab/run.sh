@@ -16,7 +16,6 @@ HOST_GENERATED_PATHS=(
   "apps/vscode-extension/LICENSE"
   "apps/vscode-extension/THIRD_PARTY_NOTICES.md"
   "apps/vscode-extension/telemetry.json"
-  "apex-log-viewer-smoke.vsix"
   "apexlogs"
   "coverage"
   "dist"

@@ -1,4 +1,5 @@
 const { spawnSync } = require('child_process');
+const crossSpawn = require('cross-spawn');
 const { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } = require('fs');
 const { tmpdir } = require('os');
 const { join, resolve } = require('path');
@@ -6,10 +7,10 @@ const { join, resolve } = require('path');
 const repoRoot = resolve(__dirname, '..');
 const extensionPackageDir = join(repoRoot, 'apps', 'vscode-extension');
 
-function resolveVsceInvocation(platformValue = process.platform) {
-  const localBinary = join(repoRoot, 'node_modules', '.bin', platformValue === 'win32' ? 'vsce.cmd' : 'vsce');
-  if (existsSync(localBinary)) {
-    return { command: localBinary, baseArgs: [] };
+function resolveVsceInvocation() {
+  const localEntry = join(repoRoot, 'node_modules', '@vscode', 'vsce', 'vsce');
+  if (existsSync(localEntry)) {
+    return { command: process.execPath, baseArgs: [localEntry] };
   }
   return { command: 'pnpm', baseArgs: ['dlx', '@vscode/vsce@4.1.0'] };
 }
@@ -24,14 +25,18 @@ function addRepoLocalBinToPath(env = process.env) {
   return `${localBin}${delimiter}${currentPath}`;
 }
 
+// Node starts directly, so no shell parses the arguments. pnpm can be a Windows .cmd shim, which needs
+// cmd.exe; cross-spawn quotes each argument for it.
 function runCommand(command, args, options = {}) {
-  const result = spawnSync(command, args, {
-    stdio: 'inherit',
-    shell: process.platform === 'win32',
-    ...options
-  });
+  const spawn = command === process.execPath ? spawnSync : crossSpawn.sync;
+  const result = spawn(command, args, { stdio: 'inherit', ...options });
+  if (result.error) {
+    throw result.error;
+  }
   if (result.status !== 0) {
-    process.exit(result.status ?? 1);
+    throw Object.assign(new Error(`${command} exited with ${result.signal ?? result.status}`), {
+      exitCode: result.status ?? 1
+    });
   }
 }
 
@@ -115,11 +120,15 @@ function runVsce(rawArgs, options = {}) {
 }
 
 if (require.main === module) {
+  // On Ctrl+C, wait for vsce to return so the stage is still removed, then exit with 130.
+  process.on('SIGINT', () => {
+    process.exitCode = 130;
+  });
   try {
     runVsce(process.argv.slice(2));
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
+    process.exit(error.exitCode ?? 1);
   }
 }
 
