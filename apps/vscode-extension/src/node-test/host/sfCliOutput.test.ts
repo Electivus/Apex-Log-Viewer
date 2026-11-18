@@ -331,6 +331,70 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     }
   });
 
+  /**
+   * What a failing `sf` that prints `body` shows, after `sf org list auth` on an older CLI printed `tokens`, in
+   * order, so that the extension holds each of them.
+   */
+  async function shownAfterHolding(tokens: readonly string[], body: string): Promise<{ shown: string; trace: string }> {
+    let failing = false;
+    const { source, traced } = load(() =>
+      failing
+        ? failingWith('stderr', body)
+        : ok(
+            tokens.map((accessToken, index) => ({
+              username: `user${index}@example.com`,
+              accessToken,
+              instanceUrl: ORG.instanceUrl
+            }))
+          )
+    );
+    assert.equal((await source.listOrgs()).length, tokens.length);
+    failing = true;
+    const shown = textOf(await rejectionOf(source.listOrgs()));
+    return { shown, trace: traced.join('\n') };
+  }
+
+  test('the first token sf handed out stays held after hundreds more', async () => {
+    const first = 'FAKE-held-first-of-many-0123';
+    const later = Array.from({ length: 300 }, (_, index) => `FAKE-held-later-${String(index).padStart(4, '0')}-89ab`);
+
+    const { shown, trace } = await shownAfterHolding([first, ...later], `Request failed with ${first}`);
+
+    assert.match(shown, /request failed with/i, 'the error still says what sf reported');
+    assert.ok(!shown.includes(first), 'the error carries no first token');
+    assert.ok(!trace.includes(first), 'the trace carries no first token');
+  });
+
+  test('a held token that begins another held token leaves no part of the longer one', async () => {
+    const shorter = 'FAKE-held-prefix-0123';
+    const longer = `${shorter}-and-its-rest-4567`;
+
+    const { shown, trace } = await shownAfterHolding([shorter, longer], `Request failed with ${longer}`);
+
+    assert.match(shown, /request failed with/i, 'the error still says what sf reported');
+    assert.ok(!shown.includes('-and-its-rest-4567'), 'the error carries no rest of the longer token');
+    assert.ok(!trace.includes('-and-its-rest-4567'), 'the trace carries no rest of the longer token');
+  });
+
+  test('two held tokens that partly overlap in the text leave no part of either', async () => {
+    const left = 'FAKE-left-token-shared-0123';
+    const right = 'shared-0123-right-token-FAKE';
+    const joined = 'FAKE-left-token-shared-0123-right-token-FAKE';
+
+    for (const order of [
+      [left, right],
+      [right, left]
+    ]) {
+      const { shown, trace } = await shownAfterHolding(order, `Request failed with ${joined}`);
+
+      assert.match(shown, /request failed with/i, 'the error still says what sf reported');
+      for (const part of ['FAKE-left-token', '-right-token-FAKE']) {
+        assert.ok(!shown.includes(part), `held as ${order.join(', ')}: the error carries no ${part}`);
+        assert.ok(!trace.includes(part), `held as ${order.join(', ')}: the trace carries no ${part}`);
+      }
+    }
+  });
+
   test('the token a successful sf prints still reaches the auth source', async () => {
     const { source, traced } = load(() => ({
       code: 0,
