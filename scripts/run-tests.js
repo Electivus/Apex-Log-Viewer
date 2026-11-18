@@ -142,9 +142,9 @@ function watchInterrupts() {
   };
 
   return {
-    settle(work) {
+    settle(startWork) {
       assertNotInterrupted();
-      return Promise.race([work, abandoned]);
+      return Promise.race([startWork(), abandoned]);
     },
     start(file, args, { label = file, input, capture = false, allowFailure = false, env } = {}) {
       assertNotInterrupted();
@@ -698,7 +698,7 @@ async function run() {
     // The archive goes in the profile so that removing the profile removes it, even when a second Ctrl+C
     // abandons the download.
     const vscodeExecutablePath = await withTempDir(profileDir, () =>
-      interrupts.settle(downloadAndUnzipVSCode({ version: vsVer, cachePath: vscodeCachePath }))
+      interrupts.settle(() => downloadAndUnzipVSCode({ version: vsVer, cachePath: vscodeCachePath }))
     );
     const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, {
       reuseMachineInstall: true
@@ -774,7 +774,7 @@ async function run() {
     let extensionTestsPath = resolve(__dirname, '..', 'apps', 'vscode-extension', 'out', 'test', 'runner.js');
 
     if (!args.smokeVsix) {
-      await interrupts.settle(buildExtensionTestRunner(repoRoot));
+      await interrupts.settle(() => buildExtensionTestRunner(repoRoot));
     }
     const extensionsDir = shouldInstall && !args.smokeVsix ? cachedExtensionsDir : localExtensionsDir;
 
