@@ -1,6 +1,15 @@
 const assert = require('node:assert/strict');
-const { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } = require('node:fs');
-const { homedir } = require('node:os');
+const { spawnSync } = require('node:child_process');
+const {
+  mkdtempSync,
+  rmSync,
+  existsSync,
+  readFileSync,
+  mkdirSync,
+  writeFileSync,
+  realpathSync
+} = require('node:fs');
+const { homedir, tmpdir } = require('node:os');
 const path = require('node:path');
 const { X509Certificate, createPrivateKey } = require('node:crypto');
 const { main } = require('./devhub-identity');
@@ -184,8 +193,49 @@ function discoveryFixture() {
   return { records, sf };
 }
 
-function stateDirectory(t) {
-  const directory = mkdtempSync(path.join(homedir(), 'alv-identity-test-'));
+function acceptsOperatorState(home, env) {
+  let probe;
+  try {
+    probe = mkdtempSync(path.join(home, 'alv-policy-probe-'));
+  } catch {
+    return false;
+  }
+  try {
+    const check = `require(${JSON.stringify(require.resolve('./devhub-operator-state'))})
+      .durablePath(process.argv[1]).then(() => {}, () => process.exit(1));`;
+    return spawnSync(process.execPath, ['-e', check, probe], { env, windowsHide: true }).status === 0;
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
+}
+
+let selectedHome;
+
+// Operator state must live in a writable home outside temporary and cache folders.
+// When the caller's home is read-only or under such a folder, this test process gets
+// an owned home that the unmodified policy accepts.
+function fixtureHome() {
+  if (selectedHome) return selectedHome;
+  if (acceptsOperatorState(homedir(), process.env)) return (selectedHome = homedir());
+  // The policy rejects every path under /tmp, so Linux falls back to shared memory.
+  for (const parent of [realpathSync(tmpdir()), '/dev/shm'].filter(existsSync)) {
+    const root = mkdtempSync(path.join(parent, 'alv-fixture-home-'));
+    process.on('exit', () => rmSync(root, { recursive: true, force: true }));
+    const home = path.join(root, 'home');
+    const temp = path.join(root, 'temp');
+    mkdirSync(home);
+    mkdirSync(temp);
+    const env = { HOME: home, USERPROFILE: home, TMPDIR: temp, TEMP: temp, TMP: temp };
+    if (acceptsOperatorState(home, { ...process.env, ...env })) {
+      Object.assign(process.env, env);
+      return (selectedHome = home);
+    }
+  }
+  throw new Error(`Operator state fixtures need a writable durable home, and ${homedir()} is rejected.`);
+}
+
+function stateDirectory(t, prefix = 'alv-identity-test-') {
+  const directory = mkdtempSync(path.join(fixtureHome(), prefix));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   return directory;
 }
