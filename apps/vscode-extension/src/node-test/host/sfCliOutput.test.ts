@@ -407,6 +407,38 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     }
   });
 
+  test('percent-encoded bytes that are not well-formed UTF-8 stay as written, and match no held token', async () => {
+    const three = 'FAKE-utf8-\uFFFD\uFFFD\uFFFD-0123';
+    const four = 'FAKE-utf8-\uFFFD\uFFFD\uFFFD\uFFFD-4567';
+    const two = 'FAKE-utf8-\uFFFD\uFFFD-89ab';
+    for (const [carried, replaced] of [
+      ['FAKE-utf8-%EF%BF%BD%ef%bf%bd%EF%BF%BD-0123', true],
+      ['FAKE-utf8-%ED%A0%80-0123', false],
+      ['FAKE-utf8-%E0%80%80-0123', false],
+      ['FAKE-utf8-%F0%80%80%80-4567', false],
+      ['FAKE-utf8-%F4%90%80%80-4567', false],
+      ['FAKE-utf8-%C0%80-89ab', false],
+      ['FAKE-utf8-%E2%82-89ab', false],
+      ['FAKE-utf8-%E%2-89ab', false]
+    ] as const) {
+      const { shown, trace } = await shownAfterHolding([three, four, two], `Request failed with ?pw=${carried}&x=1`);
+      const expected = `?pw=${replaced ? '[redacted]' : carried}&x=1`;
+
+      assert.ok(shown.includes(expected), `${carried}: the error shows ${expected}`);
+      assert.ok(trace.includes(expected), `${carried}: the trace shows ${expected}`);
+    }
+  });
+
+  test('a held token with a percent sign is looked for in time that grows with the text, not its square', async () => {
+    const body = `${'a'.repeat(31_999)}%`;
+    const started = performance.now();
+    const { shown } = await shownAfterHolding([`${'a'.repeat(2000)}%q`], `Request failed with ${body}`);
+    const elapsed = performance.now() - started;
+
+    assert.ok(shown.includes(body), 'the text, which holds no token, stays as written');
+    assert.ok(elapsed < 1000, `redacting 32 kB took ${Math.round(elapsed)} ms`);
+  });
+
   test('the token a successful sf prints still reaches the auth source', async () => {
     const { source, traced } = load(() => ({
       code: 0,
