@@ -52,8 +52,11 @@ const TOKEN_SHAPES: readonly RegExp[] = [
   /\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}/g
 ];
 
-/** Every secret the extension received in this session. */
+/** Every secret the extension received in this session. The process keeps it until it exits. */
 const held = new Set<string>();
+
+/** The finder for `held`, built again on the first redaction after a new secret is held. */
+let finder: Finder | undefined;
 
 /**
  * Holds `value`, a secret the extension received, so that `redactSecrets` replaces it for the rest of the session.
@@ -62,7 +65,9 @@ const held = new Set<string>();
 export function holdSecret(value: unknown): void {
   if (typeof value !== 'string') return;
   const secret = stripControlSequences(value).trim();
-  if (secret.length >= MIN_HELD_LENGTH && !/\s/.test(secret)) held.add(secret);
+  if (secret.length < MIN_HELD_LENGTH || /\s/.test(secret) || held.has(secret)) return;
+  held.add(secret);
+  finder = undefined;
 }
 
 /** Holds every string under a secret-named key anywhere in `value`, such as a parsed `sf --json` answer. */
@@ -94,130 +99,239 @@ export function holdSecretsInOutput(text: string): void {
   }
 }
 
-/** `text` with each lone surrogate as U+FFFD, the character its UTF-8 encoding decodes to. */
-const wellFormed = (text: string): string =>
-  text.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '\uFFFD');
+/**
+ * The well-formed UTF-8 sequences of Unicode's table 3-7, by lead byte: how many continuation bytes follow it and the
+ * range of the first one. Every later continuation byte is 80..BF. No row starts at a continuation byte, C0, C1 or
+ * past F4, so an overlong form, an encoded surrogate or a value past U+10FFFF decodes to nothing.
+ */
+const UTF8_SEQUENCES: ReadonlyArray<{ leads: [number, number]; following: number; second: [number, number] }> = [
+  { leads: [0xc2, 0xdf], following: 1, second: [0x80, 0xbf] },
+  { leads: [0xe0, 0xe0], following: 2, second: [0xa0, 0xbf] },
+  { leads: [0xe1, 0xec], following: 2, second: [0x80, 0xbf] },
+  { leads: [0xed, 0xed], following: 2, second: [0x80, 0x9f] },
+  { leads: [0xee, 0xef], following: 2, second: [0x80, 0xbf] },
+  { leads: [0xf0, 0xf0], following: 3, second: [0x90, 0xbf] },
+  { leads: [0xf1, 0xf3], following: 3, second: [0x80, 0xbf] },
+  { leads: [0xf4, 0xf4], following: 3, second: [0x80, 0x8f] }
+];
 
-/** The length of the UTF-8 character that starts with `byte`, or 0 when no character starts with it. */
-function utf8Length(byte: number): number {
-  if (byte < 0x80) return 1;
-  if (byte >= 0xc2 && byte <= 0xdf) return 2;
-  if (byte >= 0xe0 && byte <= 0xef) return 3;
-  if (byte >= 0xf0 && byte <= 0xf4) return 4;
-  return 0;
+const hexValue = (code: number): number => {
+  if (code >= 0x30 && code <= 0x39) return code - 0x30;
+  const lower = code | 0x20;
+  return lower >= 0x61 && lower <= 0x66 ? lower - 0x57 : -1;
+};
+
+/** The byte that a `%XX` at `index` of `text` encodes, in either hex case, or -1. */
+function percentByteAt(text: string, index: number): number {
+  if (text.charCodeAt(index) !== 0x25) return -1;
+  const high = hexValue(text.charCodeAt(index + 1));
+  const low = hexValue(text.charCodeAt(index + 2));
+  return high < 0 || low < 0 ? -1 : high * 16 + low;
 }
 
-/** The byte that a `%XX` at `index` of `text` encodes, in either hex case. */
-function percentByteAt(text: string, index: number): number | undefined {
-  const hex = text.slice(index, index + 3);
-  return /^%[0-9a-f]{2}$/i.test(hex) ? parseInt(hex.slice(1), 16) : undefined;
-}
-
-/** The character that percent-encoded UTF-8 bytes at `index` of `text` encode, and where they end. */
-function percentCharacterAt(text: string, index: number): { character: string; end: number } | undefined {
-  const first = percentByteAt(text, index);
-  const length = first === undefined ? 0 : utf8Length(first);
-  if (length === 0) return undefined;
-  const bytes: number[] = [];
-  for (let offset = 0; offset < length; offset++) {
+/** The code point that well-formed percent-encoded UTF-8 at `index` of `text` encodes, or -1. */
+function encodedPointAt(text: string, index: number): number {
+  const lead = percentByteAt(text, index);
+  if (lead < 0x80) return lead;
+  const sequence = UTF8_SEQUENCES.find(({ leads }) => lead >= leads[0] && lead <= leads[1]);
+  if (!sequence) return -1;
+  let point = lead & (0x3f >> sequence.following);
+  for (let offset = 1; offset <= sequence.following; offset++) {
     const byte = percentByteAt(text, index + offset * 3);
-    if (byte === undefined || (offset > 0 && byte >> 6 !== 0b10)) return undefined;
-    bytes.push(byte);
+    const [low, high] = offset === 1 ? sequence.second : [0x80, 0xbf];
+    if (byte < low || byte > high) return -1;
+    point = (point << 6) | (byte & 0x3f);
   }
-  return { character: Buffer.from(bytes).toString('utf8'), end: index + length * 3 };
+  return point;
 }
 
-/** A text with every percent-encoded character decoded, and for each unit where it starts and ends in the text. */
-type Decoded = { text: string; starts: number[]; ends: number[] };
+/** How long the percent-encoding of `point` is, in characters: three for each of its UTF-8 bytes. */
+const encodedWidth = (point: number): number => 3 * (point < 0x80 ? 1 : point < 0x800 ? 2 : point < 0x10000 ? 3 : 4);
 
-function percentDecoded(text: string): Decoded {
-  let decoded = '';
-  const starts: number[] = [];
-  const ends: number[] = [];
-  for (let index = 0; index < text.length;) {
-    const { character, end } = percentCharacterAt(text, index) ?? { character: text.charAt(index), end: index + 1 };
-    for (const unit of character.split('')) {
-      decoded += unit;
-      starts.push(index);
-      ends.push(end);
+/**
+ * A text read one code point at a time, with the stretch `[start, end)` of the text each one came from. Read as
+ * written, each code point is its own stretch. Read decoded, from the first character on, each well-formed
+ * percent-encoded character is one code point, and every other `%` is itself.
+ */
+type Reading = { points: Int32Array; starts: Int32Array; ends: Int32Array; length: number };
+
+function readingOf(text: string, decoded: boolean): Reading {
+  const points = new Int32Array(text.length);
+  const starts = new Int32Array(text.length);
+  const ends = new Int32Array(text.length);
+  let length = 0;
+  for (let index = 0; index < text.length; length++) {
+    let point = decoded ? encodedPointAt(text, index) : -1;
+    let end: number;
+    if (point >= 0) {
+      end = index + encodedWidth(point);
+    } else {
+      point = text.codePointAt(index) ?? 0;
+      end = index + (point > 0xffff ? 2 : 1);
     }
+    points[length] = point;
+    starts[length] = index;
+    ends[length] = end;
     index = end;
   }
-  return { text: decoded, starts, ends };
-}
-
-/** Where each occurrence of `secret` in `text` starts, overlapping ones included. */
-function startsOf(text: string, secret: string): number[] {
-  const starts: number[] = [];
-  for (let start = text.indexOf(secret); start !== -1; start = text.indexOf(secret, start + 1)) starts.push(start);
-  return starts;
+  return { points, starts, ends, length };
 }
 
 /**
- * Where `secret`, which has no `%` and no lone surrogate, occurs in `text` with some of its characters
- * percent-encoded. Decoding reads a `%` with the next two hex digits as one character, so when a `%` just before the
- * secret takes its first one or two characters, those are matched as written in `text` and the rest in `decoded`.
+ * An Aho-Corasick automaton over every held secret written backwards. Fed a reading from its end, the node it reaches
+ * at a code point names, in `longest`, how many code points the longest held secret that starts there has. An edge
+ * goes on the code point's symbol, its index among the code points that held secrets use.
  */
-function encodedSpansOf(text: string, decoded: Decoded, secret: string): Array<[number, number]> {
-  const spans: Array<[number, number]> = [];
-  for (let taken = 0; taken <= 2 && taken < secret.length; taken++) {
-    const written = secret.slice(0, taken);
-    if (!/^[0-9a-f]*$/i.test(written)) break;
-    const rest = secret.slice(taken);
-    for (const start of startsOf(decoded.text, rest)) {
-      const from = decoded.starts[start] ?? 0;
-      if (text.slice(from - taken, from) !== written) continue;
-      spans.push([from - taken, decoded.ends[start + rest.length - 1] ?? text.length]);
+type Finder = {
+  symbols: Map<number, number>;
+  /**
+   * For each node, the symbol of its edge to the node numbered right after it, or -1. The nodes that only one secret
+   * reaches are numbered in a row, so most edges need no entry in `edges`.
+   */
+  chain: Int32Array;
+  /** Every other edge, keyed by node and symbol. */
+  edges: Map<number, number>;
+  fail: Int32Array;
+  longest: Int32Array;
+  /** Remembered moves on the characters of an encoding's tail from nodes without that edge. */
+  jumps: Map<number, number>;
+};
+
+function finderOf(secrets: ReadonlySet<string>): Finder {
+  const backwards = [...secrets].map(secret =>
+    Array.from(secret, character => character.codePointAt(0) ?? 0).reverse()
+  );
+  const size = backwards.reduce((total, points) => total + points.length, 1);
+  const symbols = new Map<number, number>();
+  for (const point of backwards.flat()) if (!symbols.has(point)) symbols.set(point, symbols.size);
+  const finder: Finder = {
+    symbols,
+    chain: new Int32Array(size).fill(-1),
+    edges: new Map(),
+    fail: new Int32Array(size),
+    longest: new Int32Array(size),
+    jumps: new Map()
+  };
+  const parent = new Int32Array(size);
+  const via = new Int32Array(size);
+  const depth = new Int32Array(size);
+  let nodes = 1;
+  for (const points of backwards) {
+    let node = 0;
+    for (const point of points) {
+      const symbol = symbols.get(point) ?? 0;
+      let next = childOf(finder, node, symbol);
+      if (next === 0) {
+        next = nodes++;
+        if (next === node + 1) finder.chain[node] = symbol;
+        else finder.edges.set(edgeKey(finder, node, symbol), next);
+        parent[next] = node;
+        via[next] = symbol;
+        depth[next] = valueAt(depth, node) + 1;
+      }
+      node = next;
+    }
+    finder.longest[node] = valueAt(depth, node);
+  }
+  const byDepth: number[][] = [];
+  for (let node = 1; node < nodes; node++) (byDepth[valueAt(depth, node)] ??= []).push(node);
+  for (const level of byDepth) {
+    for (const node of level ?? []) {
+      const from = valueAt(parent, node);
+      if (from !== 0) finder.fail[node] = step(finder, valueAt(finder.fail, from), valueAt(via, node));
+      if (finder.longest[node] === 0) finder.longest[node] = valueAt(finder.longest, valueAt(finder.fail, node));
     }
   }
-  return spans;
+  finder.chain = finder.chain.slice(0, nodes);
+  finder.fail = finder.fail.slice(0, nodes);
+  finder.longest = finder.longest.slice(0, nodes);
+  return finder;
+}
+
+/** `values[index]`, for an index that its caller keeps in bounds. */
+const valueAt = (values: Int32Array, index: number): number => values[index] ?? 0;
+
+const edgeKey = (finder: Finder, node: number, symbol: number): number => node * finder.symbols.size + symbol;
+
+/** The node an edge on `symbol` leads to from `node`, or 0, the root, which no edge leads to. */
+const childOf = (finder: Finder, node: number, symbol: number): number =>
+  valueAt(finder.chain, node) === symbol ? node + 1 : (finder.edges.get(edgeKey(finder, node, symbol)) ?? 0);
+
+/** The node `finder` reaches from `node` on `symbol`, which is -1 for a code point that no held secret has. */
+function step(finder: Finder, node: number, symbol: number): number {
+  if (symbol < 0) return 0;
+  for (;;) {
+    const next = childOf(finder, node, symbol);
+    if (next !== 0 || node === 0) return next;
+    node = valueAt(finder.fail, node);
+  }
 }
 
 /**
- * Where `secret` ends at its farthest if it starts at `index` of `text` with any of its characters percent-encoded.
- * A `%` in `text` can be the secret's own `%` or start an encoding, so every reading is followed.
+ * `step` on a character of an encoding's tail, remembered for every node it passes. A tail is read from a node it
+ * does not move the main feed to, so without the memory each one could walk the whole failure chain again.
  */
-function farthestEndAt(text: string, index: number, secret: string): number | undefined {
-  let reached = new Set([index]);
-  for (const character of secret) {
-    const next = new Set<number>();
-    for (const at of reached) {
-      if (text.startsWith(character, at)) next.add(at + character.length);
-      const encoded = percentCharacterAt(text, at);
-      if (encoded?.character === wellFormed(character)) next.add(encoded.end);
-    }
-    if (next.size === 0) return undefined;
-    reached = next;
+function jump(finder: Finder, node: number, symbol: number): number {
+  if (symbol < 0) return 0;
+  const passed: number[] = [];
+  let next: number | undefined;
+  for (;;) {
+    const key = edgeKey(finder, node, symbol);
+    const child = childOf(finder, node, symbol);
+    next = child !== 0 ? child : finder.jumps.get(key);
+    if (next !== undefined || node === 0) break;
+    passed.push(key);
+    node = valueAt(finder.fail, node);
   }
-  return Math.max(...reached);
-}
-
-/** Where `secret` occurs in `text`, verbatim or, when `text` has a `%`, with any of its characters percent-encoded. */
-function spansOf(text: string, decoded: Decoded | undefined, secret: string): Array<[number, number]> {
-  const spans = startsOf(text, secret).map((start): [number, number] => [start, start + secret.length]);
-  if (!decoded) return spans;
-  const decodesAlike = !secret.includes('%') && secret === wellFormed(secret);
-  if (decodesAlike) return [...spans, ...encodedSpansOf(text, decoded, secret)];
-  for (let start = 0; start < text.length; start++) {
-    if (text[start] !== secret[0] && text[start] !== '%') continue;
-    const end = farthestEndAt(text, start, secret);
-    if (end !== undefined) spans.push([start, end]);
-  }
-  return spans;
+  for (const key of passed) finder.jumps.set(key, next ?? 0);
+  return next ?? 0;
 }
 
 /**
- * `text` with every place a held secret occurs replaced, verbatim or with any of its characters percent-encoded. The
- * spans of every held secret are found on the same text and their union is masked at once, so a secret that begins
- * or overlaps another leaves no part of either.
+ * Records in `reach`, for each place of `text` where a held secret starts in `reading`, where the longest one ends. A
+ * reader that starts inside a percent-encoding takes the rest of it as written and decodes from the next character,
+ * so the tail of each encoding is also read as the start of a secret.
+ */
+function reachSecrets(finder: Finder, text: string, reading: Reading, reach: Int32Array): void {
+  const startOf = (index: number) => valueAt(reading.starts, index);
+  const endOf = (index: number) => valueAt(reading.ends, index);
+  const extend = (start: number, end: number) => {
+    if (end > valueAt(reach, start)) reach[start] = end;
+  };
+  let node = 0;
+  for (let index = reading.length - 1; index >= 0; index--) {
+    node = step(finder, node, finder.symbols.get(valueAt(reading.points, index)) ?? -1);
+    const found = valueAt(finder.longest, node);
+    if (found > 0) extend(startOf(index), endOf(index + found - 1));
+    const before = index - 1;
+    if (before < 0 || endOf(before) - startOf(before) < 3) continue;
+    let tail = node;
+    for (let at = endOf(before) - 1; at > startOf(before); at--) {
+      tail = jump(finder, tail, finder.symbols.get(text.charCodeAt(at)) ?? -1);
+      const length = valueAt(finder.longest, tail);
+      const written = endOf(before) - at;
+      if (length > 0) extend(at, length <= written ? at + length : endOf(index + length - written - 1));
+    }
+  }
+}
+
+/**
+ * `text` with every place a held secret occurs replaced: as written, or as a reader that decodes the well-formed
+ * percent-encodings from any place of the text reads it. The places of every held secret are found in one pass over
+ * each reading, and their union is replaced at once, so a secret that begins or overlaps another leaves no part of
+ * either.
  */
 function maskHeld(text: string): string {
-  const decoded = text.includes('%') ? percentDecoded(text) : undefined;
-  const spans = [...held].flatMap(secret => spansOf(text, decoded, secret));
-  spans.sort((a, b) => a[0] - b[0]);
+  if (held.size === 0) return text;
+  finder ??= finderOf(held);
+  const reach = new Int32Array(text.length);
+  reachSecrets(finder, text, readingOf(text, false), reach);
+  if (text.includes('%')) reachSecrets(finder, text, readingOf(text, true), reach);
   let masked = '';
   let end = 0;
-  for (const [start, stop] of spans) {
+  for (let start = 0; start < text.length; start++) {
+    const stop = valueAt(reach, start);
+    if (stop === 0) continue;
     if (start >= end) masked += text.slice(end, start) + REDACTED;
     end = Math.max(end, stop);
   }
