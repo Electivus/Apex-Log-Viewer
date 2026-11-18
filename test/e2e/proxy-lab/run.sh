@@ -49,7 +49,7 @@ fail() {
 validate_salesforce_cli_package() {
   local package_name="$1"
   if [[ ! "${package_name}" =~ ^@salesforce/cli@([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|nightly)$ ]]; then
-    fail "ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE must be @salesforce/cli pinned to an exact version, for example @salesforce/cli@2.150.6."
+    fail "ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE must be @salesforce/cli pinned to an exact version, for example @salesforce/cli@2.159.7."
   fi
 }
 

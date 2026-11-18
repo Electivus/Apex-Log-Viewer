@@ -35,7 +35,7 @@ jobs:
           - runner: windows-latest
           - runner: macos-latest
     env:
-      SALESFORCE_CLI_PACKAGE: '@salesforce/cli@2.150.6'
+      SALESFORCE_CLI_PACKAGE: '@salesforce/cli@2.159.7'
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
