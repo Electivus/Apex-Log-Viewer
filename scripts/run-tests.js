@@ -162,12 +162,12 @@ function watchInterrupts() {
         }
       };
       stopChild = stop;
-      let output = '';
+      const captured = { stdout: '', stderr: '' };
       if (capture) {
-        for (const stream of [child.stdout, child.stderr]) {
-          stream.setEncoding('utf8');
-          stream.on('data', chunk => {
-            output += chunk;
+        for (const name of ['stdout', 'stderr']) {
+          child[name].setEncoding('utf8');
+          child[name].on('data', chunk => {
+            captured[name] += chunk;
           });
         }
       }
@@ -183,7 +183,7 @@ function watchInterrupts() {
         });
         child.once(capture ? 'close' : 'exit', (code, signal) => {
           running = false;
-          const text = output.trim();
+          const text = [captured.stdout, captured.stderr].filter(Boolean).join('\n').trim();
           if (!presses && (code === 0 || allowFailure)) resolve({ status: code, output: text });
           else reject(new Error(`${label} exited with ${signal ?? code}${text && !presses ? `:\n${text}` : ''}`));
         });
@@ -196,6 +196,23 @@ function watchInterrupts() {
       process.removeListener('SIGINT', onInterrupt);
     }
   };
+}
+
+// os.tmpdir() reads TMPDIR on macOS and Linux and TEMP or TMP on Windows.
+const tempDirEnv = dir => ({ TMPDIR: dir, TEMP: dir, TMP: dir });
+
+// @vscode/test-electron saves the VS Code archive under os.tmpdir() while it extracts it on macOS.
+async function withTempDir(dir, work) {
+  const saved = Object.keys(tempDirEnv(dir)).map(name => [name, process.env[name]]);
+  Object.assign(process.env, tempDirEnv(dir));
+  try {
+    return await work();
+  } finally {
+    for (const [name, value] of saved) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
 }
 
 function resolveMissingExtensionIds(requiredExtensionIds, listOutput) {
@@ -678,8 +695,10 @@ async function run() {
     profileDir = mkdtempSync(join(tmpdir(), 'alv-vscode-'));
     // Other runs may be using the shared cache, so a clean request downloads into this run's profile instead.
     const vscodeCachePath = cacheCleanRequested() ? join(profileDir, 'vscode-test') : join(repoRoot, '.vscode-test');
-    const vscodeExecutablePath = await interrupts.settle(
-      downloadAndUnzipVSCode({ version: vsVer, cachePath: vscodeCachePath })
+    // The archive goes in the profile so that removing the profile removes it, even when a second Ctrl+C
+    // abandons the download.
+    const vscodeExecutablePath = await withTempDir(profileDir, () =>
+      interrupts.settle(downloadAndUnzipVSCode({ version: vsVer, cachePath: vscodeCachePath }))
     );
     const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, {
       reuseMachineInstall: true
@@ -779,7 +798,8 @@ async function run() {
           '--out',
           smokeVsixPath
         ],
-        { label: 'VSIX packaging' }
+        // Its staging copy goes in the profile too, so a SIGKILL that skips its own cleanup leaves no stage.
+        { label: 'VSIX packaging', env: { ...process.env, ...tempDirEnv(profileDir) } }
       ).finished;
       if (!existsSync(smokeVsixPath)) throw new Error('[smoke] VSIX not found');
       // Install into test profile
