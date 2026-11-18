@@ -395,6 +395,21 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     }
   });
 
+  test('a held token inside a JSON Web Token leaves no part of the JSON Web Token', async () => {
+    // Synthetic segments, joined at run time so that secret scanners do not take the source for a real token.
+    const [header, payload, signature] = [
+      'eyJhbGciOiJSUzI1NiJ9',
+      'eyJzdWIiOiJGQUtFLXN1YmplY3QifQ',
+      'FAKEsignatureFAKEsignature0123'
+    ];
+    const jwt = [header, payload, signature].join('.');
+
+    const { shown, trace } = await shownAfterHolding([payload], `Request failed with token ${jwt} end`);
+
+    assert.match(shown, /request failed with token \[redacted\] end/i, 'the error replaces the whole token');
+    assert.match(trace, /request failed with token \[redacted\] end/i, 'the trace replaces the whole token');
+  });
+
   test('a held token that ends in a percent sign leaves no part of its percent-encoded form', async () => {
     for (const [token, carried] of [
       ['FAKE-ends-in-percent-0123%', 'FAKE-ends-in-percent-0123%25'],
