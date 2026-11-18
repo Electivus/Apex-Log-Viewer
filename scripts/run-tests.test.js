@@ -41,6 +41,7 @@ for (const scenario of ['pending', 'success', 'reject', 'normal']) {
       const timer = setTimeout;
       const clear = clearTimeout;
       const cleanupTimers = new Set();
+      process.kill = () => { throw Error('Unexpected global process signal'); };
       global.setTimeout = (callback, ms, ...args) => {
         if (ms === 30000) record('cleanup-deadline-armed');
         const handle = timer(callback, ms === 30000 ? 50 : ms, ...args);
@@ -56,7 +57,15 @@ for (const scenario of ['pending', 'success', 'reject', 'normal']) {
         if (name === 'esbuild') return { build: async () => {} };
         if (name === 'cross-spawn') return Object.assign(() => { throw Error('Unexpected spawn'); },
           { sync: () => ({ status: 0, stdout: '' }) });
-        if (name === 'child_process') return { ...load.apply(this, arguments),
+        if (name === 'child_process') return {
+          spawn(file) {
+            if (file !== ${JSON.stringify(path.join(directory, 'code'))}) throw Error('Unexpected spawn');
+            const child = new (require('node:events').EventEmitter)();
+            child.pid = 42;
+            child.kill = signal => child.emit('exit', null, signal);
+            if (scenario === 'normal') setImmediate(() => child.emit('exit', 0, null));
+            return child;
+          },
           execFile(file, args, options, callback) {
             if (args[0] === 'org' && args[1] === 'display') return callback(Error('fixture missing scratch'), '', '');
             callback(null, '', '');
@@ -64,12 +73,7 @@ for (const scenario of ['pending', 'success', 'reject', 'normal']) {
         };
         if (name === '@vscode/test-electron') return {
           downloadAndUnzipVSCode: async () => ${JSON.stringify(path.join(directory, 'code'))},
-          resolveCliArgsFromVSCodeExecutablePath: () => ['fixture-code'],
-          runTests: async () => {
-            if (scenario === 'normal') return;
-            setInterval(() => {}, 1000);
-            await new Promise(() => {});
-          }
+          resolveCliArgsFromVSCodeExecutablePath: () => ['fixture-code']
         };
         if (name === './devhub-auth.js') return { ...load.apply(this, arguments),
           authenticateDevHub: async () => ({ targetOrg: 'FixtureHub', env: process.env,

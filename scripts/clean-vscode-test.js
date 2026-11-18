@@ -21,7 +21,7 @@ function safeRm(p, { quiet } = {}) {
   }
 }
 
-function cleanVsCodeTest({ quiet = false, force = false } = {}) {
+function cleanVsCodeTest({ quiet = false, force = false, cleanProfiles = true } = {}) {
   const cwd = process.cwd();
   const requestedCleanCache = /^1|true$/i.test(
     String(process.env.CLEAN_VSCODE_TEST_CACHE || process.env.CLEAN_VSCODE_CACHE || '')
@@ -40,7 +40,8 @@ function cleanVsCodeTest({ quiet = false, force = false } = {}) {
     console.log('[test-clean] Preserving .vscode-test cache.');
   }
 
-  // Always start from a clean user-data-dir to avoid state leakage between runs.
+  if (!cleanProfiles) return;
+
   safeRm(join(tmpdir(), 'alv-user-data'), { quiet });
 
   // Keep extensions cache by default (integration tests reuse it).
