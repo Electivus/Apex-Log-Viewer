@@ -46,7 +46,7 @@ describe('runSfJson failure diagnostics', () => {
   });
 
   test('reports missing Salesforce CLI executable with PATH guidance', async () => {
-    const { runSfJson } = await importSfCli();
+    const { runSfJson, getSfBinPath } = await importSfCli();
     const promise = runSfJson(['org', 'display', '-o', 'ConfiguredDevHub']);
 
     await waitForExecCallCount(1);
@@ -60,7 +60,7 @@ describe('runSfJson failure diagnostics', () => {
     failCommand(missingError);
 
     await expect(promise).rejects.toThrow(
-      /Salesforce CLI executable 'sf' was not found\. Check PATH or install Salesforce CLI for the Node\/test environment\./
+      `Salesforce CLI executable '${getSfBinPath()}' was not found. Check PATH or install Salesforce CLI for the Node/test environment.`
     );
   });
 
