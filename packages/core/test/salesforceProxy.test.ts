@@ -440,6 +440,38 @@ test('on Windows a proxy variable in any letter case carries the requests and na
   assert.equal(salesforce.received, 0);
 });
 
+/** A loopback port nothing listens on, so a connection to it is refused at once. */
+async function deadPort(): Promise<number> {
+  const server = net.createServer();
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  await new Promise(resolve => server.close(resolve));
+  return port;
+}
+
+test('a proxy that refuses the connection fails at once with an error naming its source', async t => {
+  const salesforce = await startSalesforceDouble(t, oneUser);
+  saveOrgAuth('dead-proxy@example.com', salesforce.instanceUrl.replace(/^http:/, 'https:'));
+  const proxy = `http://user:secret@127.0.0.1:${await deadPort()}`;
+
+  const [variable, setting] = await Promise.all([
+    searchUsersInChild('dead-proxy@example.com', { HTTPS_PROXY: proxy, HTTP_TIMEOUT: '15000' }),
+    searchUsersInChild('dead-proxy@example.com', { HTTP_TIMEOUT: '15000' }, { proxyUrl: proxy })
+  ]);
+
+  for (const [result, source] of [
+    [variable, /HTTPS_PROXY/],
+    [setting, /http\.proxy/]
+  ] as const) {
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? '', /could not connect to the proxy/);
+    assert.match(result.error ?? '', source);
+    assert.doesNotMatch(result.error ?? '', /30 minutes|secret/);
+    assert.ok(result.elapsedMs < 5_000, `the refused proxy took ${result.elapsedMs} ms to report`);
+  }
+  assert.equal(salesforce.received, 0);
+});
+
 test('HTTP_TIMEOUT still bounds each Salesforce request', async t => {
   await orgBehind(t, 'timeout@example.com', async request => {
     if (request.path === '/query') await new Promise(resolve => setTimeout(resolve, 20_000).unref());
