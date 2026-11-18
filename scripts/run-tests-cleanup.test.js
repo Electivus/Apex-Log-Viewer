@@ -231,7 +231,7 @@ function createCheckout() {
   // interrupt: { at, presses, stubborn }. SIGINT reaches only the runner, the way `kill -INT <pid>` does,
   // so the runner must stop its own child. A process with no SIGINT listener dies at once and runs no finally.
   function start(id, { argv, env = {}, interrupt = {}, platform = 'linux', listing = [] }) {
-    const run = { id, childSignals: [], foreignSignals: [], stubborn: !!interrupt.stubborn, onSigint: [] };
+    const run = { id, childSignals: [], foreignSignals: [], stubborn: !!interrupt.stubborn, onSigint: [], builds: 0 };
     const signals = {};
     for (const name of ['packaged', 'launched', 'died']) {
       run[name] = new Promise(resolve => {
@@ -390,7 +390,11 @@ function createCheckout() {
             resolveCliArgsFromVSCodeExecutablePath: () => ['code-cli']
           };
         case 'esbuild':
-          return { build: async () => {} };
+          return {
+            build: async () => {
+              run.builds += 1;
+            }
+          };
         case './clean-vscode-test.js': {
           const cleanModule = { exports: {} };
           runInNewContext(
@@ -487,6 +491,7 @@ test('a diagnostic on stderr does not hide an extension ID listed on stdout', as
     ]
   });
   await run.launched;
+  assert.equal(run.builds, 1);
   run.finish();
   assert.equal((await run.ended).exitCode, 0);
 });
@@ -531,5 +536,6 @@ for (const { step, argv, env, platform, presses = 1, stubborn = false, childSign
     assert.deepEqual(run.childSignals, childSignals, 'Only the child the run started receives SIGINT, then SIGKILL');
     assert.deepEqual(run.foreignSignals, []);
     assert.equal(run.host, undefined, 'An interrupted run never launches VS Code');
+    assert.equal(run.builds, 0, 'An interrupted run starts no build');
   });
 }
