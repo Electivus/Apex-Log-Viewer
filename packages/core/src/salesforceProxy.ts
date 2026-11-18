@@ -40,7 +40,7 @@ const unusableProxy = (source: ProxySource) =>
 const unreachableProxy = (source: ProxySource, error: Error) =>
   new SalesforceProxyError(
     'PROXY_CONNECTION',
-    `Salesforce requests could not connect to the proxy that ${source} names (${(error as NodeJS.ErrnoException).code ?? error.message}). Check that the proxy is running at that address, or change or remove ${source}.`
+    `Salesforce requests could not connect to the proxy that ${source} names (${(error as NodeJS.ErrnoException).code ?? error.message}). Check the proxy at that address, or change or remove ${source}.`
   );
 
 /** undici reports a request its dispatcher refused as `TypeError: fetch failed`, with the reason as its cause. */
@@ -54,8 +54,8 @@ export function unwrapSalesforceProxyError(error: unknown): unknown {
  * that honors NO_PROXY; jsforce's own per-request proxy agent ignores it. CometD streaming runs on Faye and is not
  * covered. Calling it again replaces the route for the next request. Each protocol keeps its own proxy. When undici
  * rejects a protocol's proxy URL, every request over that protocol, bypass hosts included, fails with a
- * `SalesforceProxyError` and is never sent direct. A request that cannot connect to its http or https proxy fails at once
- * with a `SalesforceProxyError` naming that proxy's source.
+ * `SalesforceProxyError` and is never sent direct. An https request whose http or https proxy cannot be connected to
+ * fails at once with a `SalesforceProxyError` naming that proxy's source.
  */
 export function configureSalesforceProxy(settings: SalesforceProxySettings = {}): void {
   const proxyUrl = settings.proxyUrl?.trim();
