@@ -1,7 +1,6 @@
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const { readFileSync } = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const { runInNewContext } = require('node:vm');
