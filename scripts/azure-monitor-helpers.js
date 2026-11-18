@@ -1,7 +1,6 @@
 'use strict';
 
 const { execFile } = require('child_process');
-const crossSpawn = require('cross-spawn');
 const path = require('path');
 
 const REPO_ROOT = path.join(__dirname, '..');
@@ -23,9 +22,13 @@ function execFileAsync(file, args, options = {}) {
   });
 }
 
-// az is a .cmd program on Windows, so it runs inside cmd.exe; cross-spawn escapes each argument for it.
 function execCommandAsync(command, args, options = {}) {
-  const parsed = crossSpawn._parse(command, args, options);
+  if (process.platform !== 'win32') {
+    return execFileAsync(command, args, options);
+  }
+  // az is a .cmd program on Windows, so it runs inside cmd.exe; cross-spawn escapes each argument for it.
+  // Required here because the E2E workflow runs this module on Linux before it installs dependencies.
+  const parsed = require('cross-spawn')._parse(command, args, options);
   return execFileAsync(parsed.command, parsed.args, parsed.options);
 }
 

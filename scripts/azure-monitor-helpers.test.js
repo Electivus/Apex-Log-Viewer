@@ -39,6 +39,24 @@ test('azJson quotes az arguments with spaces and cmd.exe metacharacters for cmd.
   ]);
 });
 
+test('azure-monitor-helpers loads without installed dependencies', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-azure-helpers-'));
+  try {
+    fs.copyFileSync(require.resolve('./azure-monitor-helpers'), path.join(directory, 'azure-monitor-helpers.js'));
+    const result = require('node:child_process').spawnSync(
+      process.execPath,
+      ['-e', 'require(process.argv[1])', path.join(directory, 'azure-monitor-helpers.js')],
+      { encoding: 'utf8', env: { PATH: process.env.PATH } }
+    );
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('buildWindowsQueryCommand keeps the KQL in environment variables instead of the shell command', () => {
   const plan = buildWindowsQueryCommand('workspace-123', "AppEvents | where Name == 'x'");
 
