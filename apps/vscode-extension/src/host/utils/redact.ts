@@ -319,7 +319,8 @@ function reachSecrets(finder: Finder, text: string, reading: Reading, reach: Int
  * `text` with every place a held secret occurs replaced: as written, or as a reader that decodes the well-formed
  * percent-encodings from any place of the text reads it. The places of every held secret are found in one pass over
  * each reading, and their union is replaced at once, so a secret that begins or overlaps another leaves no part of
- * either.
+ * either. A token shape that a held secret falls in is replaced with it, since the shape no longer matches once the
+ * secret inside it is replaced.
  */
 function maskHeld(text: string): string {
   if (held.size === 0) return text;
@@ -327,6 +328,18 @@ function maskHeld(text: string): string {
   const reach = new Int32Array(text.length);
   reachSecrets(finder, text, readingOf(text, false), reach);
   if (text.includes('%')) reachSecrets(finder, text, readingOf(text, true), reach);
+  /** How many characters before each place of `text` a held secret covers. */
+  const covered = new Int32Array(text.length + 1);
+  for (let index = 0, end = 0; index < text.length; index++) {
+    end = Math.max(end, valueAt(reach, index));
+    covered[index + 1] = valueAt(covered, index) + (index < end ? 1 : 0);
+  }
+  for (const shape of TOKEN_SHAPES) {
+    for (const { index, 0: match } of text.matchAll(shape)) {
+      const end = index + match.length;
+      if (valueAt(covered, end) > valueAt(covered, index) && end > valueAt(reach, index)) reach[index] = end;
+    }
+  }
   let masked = '';
   let end = 0;
   for (let start = 0; start < text.length; start++) {
