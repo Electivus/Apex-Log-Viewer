@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -32,6 +34,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
 
       - name: Enforce dependency source policy
         run: node scripts/check-dependency-sources.mjs
@@ -81,6 +84,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -89,6 +94,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
 
       - name: Enforce dependency source policy
         run: node scripts/check-dependency-sources.mjs
@@ -187,6 +193,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -195,6 +203,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
 
       - name: Verify tag matches extension package version
         shell: bash
@@ -267,9 +276,9 @@ jobs:
           echo "Setting prerelease=${PRE_RELEASE} for ${TAG_NAME}"
           RID=$(gh release view "${TAG_NAME}" --json databaseId -q .databaseId)
           if [ "${PRE_RELEASE}" = "true" ]; then
-            gh api -X PATCH repos/${{ github.repository }}/releases/$RID -f prerelease=true
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${RID}" -f prerelease=true
           else
-            gh api -X PATCH repos/${{ github.repository }}/releases/$RID -f prerelease=false
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${RID}" -f prerelease=false
           fi
 
       - name: Download packaged VSIX artifacts
@@ -350,6 +359,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -358,6 +369,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
 
       - name: Enforce dependency source policy
         run: node scripts/check-dependency-sources.mjs
@@ -425,6 +437,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -433,6 +447,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
 
       - name: Enforce dependency source policy
         run: node scripts/check-dependency-sources.mjs
