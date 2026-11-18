@@ -118,3 +118,62 @@ test('runVsce preserves packaged VSIX artifacts when package runs in a temp stag
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+
+test('runVsce hands a Windows --out path with spaces and cmd.exe metacharacters to vsce as one argument', () => {
+  const out = 'D:\\Temp Files\\R&D 100% ^!\\alv-vscode-1\\apex-log-viewer-smoke.vsix';
+  const probe = `
+    const path = require('node:path');
+    const { readFileSync } = require('node:fs');
+    const { runInNewContext } = require('node:vm');
+    const calls = [];
+    process.binding('spawn_sync').spawn = options => {
+      calls.push({ file: options.file, args: options.args, verbatim: !!options.windowsVerbatimArguments });
+      return { status: 0, signal: null, pid: 1, output: [] };
+    };
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    Object.defineProperty(process, 'execPath', { value: 'C:\\\\Program Files\\\\nodejs\\\\node.exe' });
+    process.env.ComSpec = 'C:\\\\Windows\\\\System32\\\\cmd.exe';
+    const module = { exports: {} };
+    runInNewContext(readFileSync(${JSON.stringify(path.join(__dirname, 'run-vsce.js'))}, 'utf8'), {
+      module,
+      process,
+      __dirname: 'C:\\\\checkout\\\\scripts',
+      require(name) {
+        if (name === 'path') return path.win32;
+        if (name === 'fs') return { existsSync: () => true };
+        if (name === 'os') return { tmpdir: () => 'D:\\\\Temp Files' };
+        return require(require.resolve(name, { paths: [${JSON.stringify(path.resolve(__dirname, '..'))}] }));
+      }
+    });
+    module.exports.runVsce(['package', '--no-dependencies', '--skip-prepublish', '--no-yarn', '--out', process.argv[1]], {
+      createPackagingStage: () => 'D:\\\\Temp Files\\\\alv-vsce-stage-1',
+      removeDir() {}
+    });
+    process.stdout.write(JSON.stringify(calls));
+  `;
+  const result = require('node:child_process').spawnSync(process.execPath, ['-e', probe, out], {
+    encoding: 'utf8',
+    env: { PATH: process.env.PATH }
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const calls = JSON.parse(result.stdout);
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(
+    calls[0],
+    {
+      file: 'C:\\Program Files\\nodejs\\node.exe',
+      args: [
+        'C:\\Program Files\\nodejs\\node.exe',
+        'C:\\checkout\\node_modules\\@vscode\\vsce\\vsce',
+        'package',
+        '--no-dependencies',
+        '--no-yarn',
+        '--out',
+        out
+      ],
+      verbatim: false
+    },
+    'Node starts vsce without cmd.exe, so the path cannot be split or expanded'
+  );
+});

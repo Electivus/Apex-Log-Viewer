@@ -124,7 +124,7 @@ for (const platform of ['darwin', 'linux', 'win32']) {
           case './run-playwright-cli-e2e.js':
             return {};
           case 'cross-spawn':
-            return {};
+            return (file, args, options) => stubRequire('child_process').spawn(file, args, options);
           default:
             throw new Error(`Unexpected module: ${name}`);
         }
@@ -200,15 +200,37 @@ const cleanSource = readFileSync(cleanFilename, 'utf8');
 const repoRoot = path.resolve(__dirname, '..');
 const sharedExecutable = path.join(repoRoot, '.vscode-test', 'vscode-linux-x64-stable', 'code');
 
+const fixtureTmp = '/fixture/tmp';
+
+function fakeChild(kind, run) {
+  const child = Object.assign(new EventEmitter(), { pid: 1 });
+  child.stdin = Object.assign(new EventEmitter(), { end() {} });
+  child.stdout = Object.assign(new EventEmitter(), { setEncoding() {} });
+  child.stderr = Object.assign(new EventEmitter(), { setEncoding() {} });
+  child.finish = (code, signal = null) => {
+    child.emit('exit', code, signal);
+    child.emit('close', code, signal);
+  };
+  child.kill = signal => {
+    run.childSignals.push([kind, signal]);
+    if (signal === 'SIGKILL' || !run.stubborn) setImmediate(() => child.finish(null, signal));
+    return true;
+  };
+  return child;
+}
+
 function createCheckout() {
   const files = new Map([[sharedExecutable, 'cached VS Code']]);
   const removed = [];
   const quiet = { log() {}, warn() {}, error() {} };
+  const filesUnder = dir => [...files.keys()].filter(file => file === dir || file.startsWith(dir + path.sep));
 
-  function start(id, { argv, env = {} }) {
-    const run = { id };
+  // interrupt: { at, presses, stubborn }. SIGINT reaches only the runner, the way `kill -INT <pid>` does,
+  // so the runner must stop its own child. A process with no SIGINT listener dies at once and runs no finally.
+  function start(id, { argv, env = {}, interrupt = {} }) {
+    const run = { id, childSignals: [], foreignSignals: [], stubborn: !!interrupt.stubborn, onSigint: [] };
     const signals = {};
-    for (const name of ['packaged', 'launched']) {
+    for (const name of ['packaged', 'launched', 'died']) {
       run[name] = new Promise(resolve => {
         signals[name] = resolve;
       });
@@ -220,10 +242,38 @@ function createCheckout() {
       platform: 'linux',
       cwd: () => repoRoot,
       chdir() {},
+      kill(target, signal) {
+        run.foreignSignals.push([target, signal]);
+      },
       exit(code) {
         process.exitCode = code;
       }
     });
+    const pressCtrlC = () => {
+      if (process.listenerCount('SIGINT') === 0) {
+        signals.died({ exitCode: 130, leftover: filesUnder(fixtureTmp) });
+        return;
+      }
+      process.emit('SIGINT');
+      for (const hook of run.onSigint) hook();
+    };
+    const reached = step => {
+      if (interrupt.at !== step) return;
+      if (process.listenerCount('SIGINT') === 0) return pressCtrlC();
+      let presses = interrupt.presses || 1;
+      const press = () => {
+        pressCtrlC();
+        if (--presses > 0) setImmediate(press);
+      };
+      setImmediate(press);
+    };
+    const codeCli = args => {
+      const index = args.indexOf('--install-extension');
+      if (index < 0) return false;
+      run.installed = files.get(args[index + 1]);
+      reached('installing');
+      return true;
+    };
     const fs = {
       existsSync: file => files.has(file),
       mkdirSync: dir => files.set(dir, 'directory'),
@@ -233,44 +283,55 @@ function createCheckout() {
         return `${prefix}${id}`;
       },
       rmSync: target => {
+        run.extractLate?.();
         removed.push(target);
-        for (const file of [...files.keys()]) {
-          if (file === target || file.startsWith(target + path.sep)) files.delete(file);
-        }
+        for (const file of filesUnder(target)) files.delete(file);
       }
+    };
+    const spawn = (file, args) => {
+      if (file === 'node') {
+        const child = fakeChild('packaging', run);
+        files.set(args[args.indexOf('--out') + 1], `VSIX built by ${id}`);
+        run.finishPackaging = () => child.finish(0);
+        signals.packaged();
+        reached('packaging');
+        if (interrupt.at && interrupt.at !== 'packaging') setImmediate(run.finishPackaging);
+        return child;
+      }
+      if (file === 'pnpm') {
+        const child = fakeChild('pnpm', run);
+        setImmediate(() => child.finish(0));
+        return child;
+      }
+      if (file === 'code-cli') {
+        const child = fakeChild('code-cli', run);
+        if (!codeCli(args) || interrupt.at !== 'installing') setImmediate(() => child.finish(0));
+        return child;
+      }
+      assert.equal(file, run.executable, 'Only the build this run downloaded can launch');
+      run.host = fakeChild('host', run);
+      signals.launched();
+      return run.host;
     };
     const stubRequire = name => {
       switch (name) {
         case 'child_process':
           return {
-            spawn(file, args) {
-              const child = Object.assign(new EventEmitter(), { pid: 1, kill: () => true });
-              if (file === 'node') {
-                files.set(args[args.indexOf('--out') + 1], `VSIX built by ${id}`);
-                run.finishPackaging = () => child.emit('exit', 0);
-                signals.packaged();
-              } else {
-                assert.equal(file, run.executable, 'Only the build this run downloaded can launch');
-                run.host = child;
-                signals.launched();
-              }
-              return child;
-            },
+            spawn,
             execFile(file, args, options, callback) {
               assert.equal(file, 'pnpm', 'Only the synthetic build can run');
               callback(null, '', '');
             }
           };
         case 'cross-spawn':
-          return Object.assign(() => assert.fail('No Windows shim is expected'), {
+          return Object.assign(spawn, {
             sync(file, args) {
-              const index = args.indexOf('--install-extension');
-              if (index >= 0) run.installed = files.get(args[index + 1]);
+              codeCli(args);
               return { status: 0, stdout: '', stderr: '' };
             }
           });
         case 'os':
-          return { platform: () => 'linux', tmpdir: () => '/fixture/tmp' };
+          return { platform: () => 'linux', tmpdir: () => fixtureTmp };
         case 'fs':
           return fs;
         case 'path':
@@ -280,10 +341,27 @@ function createCheckout() {
         case '@vscode/test-electron':
           return {
             downloadAndUnzipVSCode: async ({ cachePath }) => {
-              run.executable = path.join(cachePath, 'vscode-linux-x64-stable', 'code');
-              run.downloaded = !files.has(run.executable);
-              files.set(run.executable, 'downloaded VS Code');
-              return run.executable;
+              const executable = path.join(cachePath, 'vscode-linux-x64-stable', 'code');
+              const downloaded = () => {
+                run.executable = executable;
+                run.downloaded = !files.has(executable);
+                files.set(executable, 'downloaded VS Code');
+                return executable;
+              };
+              if (interrupt.at !== 'downloading') return downloaded();
+              files.set(path.join(cachePath, 'partial.zip'), 'partial download');
+              reached('downloading');
+              // One press lets the download finish. A second press abandons it, and its extraction keeps
+              // writing while the run cleans up, until the process exits.
+              return new Promise(resolve => {
+                let presses = 0;
+                run.onSigint.push(() => {
+                  presses += 1;
+                  if (presses === 1 && interrupt.presses === 1) setImmediate(() => resolve(downloaded()));
+                  if (presses === 2)
+                    run.extractLate = () => files.set(path.join(cachePath, 'late-extract'), 'extracted');
+                });
+              });
             },
             resolveCliArgsFromVSCodeExecutablePath: () => ['code-cli']
           };
@@ -320,12 +398,21 @@ function createCheckout() {
       },
       { filename }
     );
+    run.ended = Promise.race([
+      run.died,
+      run.run
+        .then(
+          () => 0,
+          () => 1
+        )
+        .then(code => ({ exitCode: process.exitCode ?? code, leftover: filesUnder(fixtureTmp) }))
+    ]);
     for (const name of ['packaged', 'launched']) {
       run[name] = Promise.race([run[name], run.run.then(() => assert.fail(`Run ${id} ended before it ${name}`))]);
       run[name].catch(() => {});
     }
     run.finish = () => {
-      run.host.emit('exit', 0, null);
+      run.host.finish(0);
       return run.run;
     };
     return run;
@@ -363,3 +450,40 @@ test('a run that asks for a clean cache leaves the VS Code build another run use
   assert.ok(checkout.files.has(first.executable));
   await first.finish();
 });
+
+const smoke = ['--scope=unit', '--smoke-vsix'];
+for (const { step, argv, env, presses = 1, stubborn = false, childSignals } of [
+  { step: 'packaging', argv: smoke, childSignals: [['packaging', 'SIGINT']] },
+  {
+    step: 'packaging',
+    argv: smoke,
+    presses: 2,
+    stubborn: true,
+    childSignals: [
+      ['packaging', 'SIGINT'],
+      ['packaging', 'SIGKILL']
+    ]
+  },
+  { step: 'installing', argv: smoke, childSignals: [['code-cli', 'SIGINT']] },
+  {
+    step: 'installing',
+    argv: ['--scope=unit', '--install-deps'],
+    env: { VSCODE_TEST_EXTENSIONS: 'fixture.dependency' },
+    childSignals: [['code-cli', 'SIGINT']]
+  },
+  { step: 'downloading', argv: ['--scope=unit'], env: { CLEAN_VSCODE_TEST_CACHE: '1' }, childSignals: [] },
+  { step: 'downloading', argv: ['--scope=unit'], env: { CLEAN_VSCODE_TEST_CACHE: '1' }, presses: 2, childSignals: [] }
+]) {
+  const label = `${step} (${[...argv.slice(1), ...Object.keys(env || {})].join(' ')}, pressed ${presses}x)`;
+  test(`Ctrl+C while ${label} leaves no file of the run behind`, async () => {
+    const checkout = createCheckout();
+    const run = checkout.start('first', { argv, env, interrupt: { at: step, presses, stubborn } });
+    const { exitCode, leftover } = await run.ended;
+
+    assert.deepEqual(leftover, [], 'The run removes its workspace and profile, the VSIX included');
+    assert.equal(exitCode, 1);
+    assert.deepEqual(run.childSignals, childSignals, 'Only the child the run started receives SIGINT, then SIGKILL');
+    assert.deepEqual(run.foreignSignals, []);
+    assert.equal(run.host, undefined, 'An interrupted run never launches VS Code');
+  });
+}

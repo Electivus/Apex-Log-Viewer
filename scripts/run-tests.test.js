@@ -31,6 +31,7 @@ for (const scenario of ['pending', 'success', 'reject', 'normal']) {
       preload,
       `
       const fs = require('node:fs');
+      const { EventEmitter } = require('node:events');
       const Module = require('node:module');
       const load = Module._load;
       const scenario = ${JSON.stringify(scenario)};
@@ -55,17 +56,24 @@ for (const scenario of ['pending', 'success', 'reject', 'normal']) {
       Module._load = function(name) {
         if (name === './clean-vscode-test.js') return { cacheCleanRequested: () => false };
         if (name === 'esbuild') return { build: async () => {} };
-        if (name === 'cross-spawn') return Object.assign(() => { throw Error('Unexpected spawn'); },
-          { sync: () => ({ status: 0, stdout: '' }) });
-        if (name === 'child_process') return {
-          spawn(file) {
-            if (file !== ${JSON.stringify(path.join(directory, 'code'))}) throw Error('Unexpected spawn');
-            const child = new (require('node:events').EventEmitter)();
-            child.pid = 42;
-            child.kill = signal => child.emit('exit', null, signal);
-            if (scenario === 'normal') setImmediate(() => child.emit('exit', 0, null));
+        const spawn = file => {
+          const child = Object.assign(new EventEmitter(), { pid: 42 });
+          const finish = (code, signal) => { child.emit('exit', code, signal); child.emit('close', code, signal); };
+          if (file === 'fixture-code') {
+            child.stdin = Object.assign(new EventEmitter(), { end() {} });
+            child.stdout = Object.assign(new EventEmitter(), { setEncoding() {} });
+            child.stderr = Object.assign(new EventEmitter(), { setEncoding() {} });
+            setImmediate(() => finish(0, null));
             return child;
-          },
+          }
+          if (file !== ${JSON.stringify(path.join(directory, 'code'))}) throw Error('Unexpected spawn');
+          child.kill = signal => finish(null, signal);
+          if (scenario === 'normal') setImmediate(() => finish(0, null));
+          return child;
+        };
+        if (name === 'cross-spawn') return Object.assign(spawn, { sync: () => ({ status: 0, stdout: '' }) });
+        if (name === 'child_process') return {
+          spawn,
           execFile(file, args, options, callback) {
             if (args[0] === 'org' && args[1] === 'display') return callback(Error('fixture missing scratch'), '', '');
             callback(null, '', '');
