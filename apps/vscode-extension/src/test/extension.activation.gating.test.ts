@@ -364,6 +364,13 @@ function createExtensionHarness(options: {
   };
 }
 
+function stubSetTimeout(harness: { timeoutCallbacks: Array<() => Promise<void> | void> }): void {
+  (globalThis as any).setTimeout = (callback: () => Promise<void> | void) => {
+    harness.timeoutCallbacks.push(callback);
+    return 1;
+  };
+}
+
 suite('extension activation gating', () => {
   let originalSetTimeout: typeof globalThis.setTimeout;
 
@@ -373,6 +380,14 @@ suite('extension activation gating', () => {
 
   teardown(() => {
     globalThis.setTimeout = originalSetTimeout;
+  });
+
+  test('the setTimeout stub hands back a timer that host code can unref', () => {
+    stubSetTimeout({ timeoutCallbacks: [] });
+
+    const timer = setTimeout(() => undefined, 0);
+
+    assert.doesNotThrow(() => timer.unref().ref().hasRef());
   });
 
   test('keeps on-demand commands available without a Salesforce project and skips project preload', async () => {
@@ -386,10 +401,7 @@ suite('extension activation gating', () => {
       activeDocument,
       logId: '07L000000000123'
     });
-    (globalThis as any).setTimeout = (callback: () => Promise<void> | void) => {
-      harness.timeoutCallbacks.push(callback);
-      return 1;
-    };
+    stubSetTimeout(harness);
 
     const exports = await harness.extension.activate(createContext());
     await exports.whenProjectReady();
@@ -443,10 +455,7 @@ suite('extension activation gating', () => {
       },
       orgs: [{ username: 'first@example.com' }, { username: 'default@example.com', isDefaultUsername: true }]
     });
-    (globalThis as any).setTimeout = (callback: () => Promise<void> | void) => {
-      harness.timeoutCallbacks.push(callback);
-      return 1;
-    };
+    stubSetTimeout(harness);
 
     const exports = await harness.extension.activate(createContext());
     await exports.whenProjectReady();
