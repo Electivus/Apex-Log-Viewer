@@ -432,6 +432,21 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     }
   });
 
+  test('a held session right before a named secret leaves the named secret replaced', async () => {
+    const session = 'FAKEsession0123456789';
+    const shaped = ['00D000000000001AAA', session].join('!');
+
+    for (const [named, secret] of [
+      ['Bearer FAKEbearerToken0123', 'FAKEbearerToken0123'],
+      ['sid=FAKEplainSession0123', 'FAKEplainSession0123']
+    ] as const) {
+      const { shown, trace } = await shownAfterHolding([session], `Request failed with ${shaped}${named} end`);
+
+      assert.ok(!shown.includes(secret), `${named}: the error carries no ${secret}`);
+      assert.ok(!trace.includes(secret), `${named}: the trace carries no ${secret}`);
+    }
+  });
+
   test('a held session inside an SFDX auth URL leaves the client secret of the URL replaced', async () => {
     const session = 'FAKEsession0123456789';
     const url = `force://PlatformCLI:FAKEclientSecret0123:${['00D000000000001AAA', session].join('!')}@example.my.salesforce.com`;

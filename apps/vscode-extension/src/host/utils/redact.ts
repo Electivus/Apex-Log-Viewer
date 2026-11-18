@@ -352,12 +352,20 @@ function maskHeld(text: string): string {
     const extend = (start: number, end: number) => {
       if (end > valueAt(reach, start)) reach[start] = end;
     };
+    // Named secrets are looked for in the text as written and with each held secret filled with "]", which, as the
+    // end of its replacement does, gives the name after it a boundary.
+    let filled = '';
+    for (let index = 0; index < text.length; index++) {
+      filled += valueAt(covered, index + 1) > valueAt(covered, index) ? ']' : text[index];
+    }
     const secrets: Array<[number, number]> = [];
     for (const named of NAMED_SECRETS) {
-      for (const { index, 1: name = '', 2: secret = '' } of text.matchAll(named)) {
-        const start = index + name.length;
-        extend(start, start + secret.length);
-        secrets.push([start, start + secret.length]);
+      for (const read of [text, filled]) {
+        for (const { index, 1: name = '', 2: secret = '' } of read.matchAll(named)) {
+          const start = index + name.length;
+          extend(start, start + secret.length);
+          secrets.push([start, start + secret.length]);
+        }
       }
     }
     // The named secrets are replaced already: blanked, they keep a shape from being looked for in them, which a long
