@@ -1,7 +1,7 @@
 // jsforce sets its request defaults when its transport module loads. Loading it first makes ours the ones that stay.
 import '@jsforce/jsforce-node/lib/transport';
 import { setDefaults, setDispatcher } from '@jsforce/jsforce-node/lib/request';
-import { Agent, EnvHttpProxyAgent, ProxyAgent, type Dispatcher } from 'undici';
+import { Agent, EnvHttpProxyAgent, Pool, ProxyAgent, type buildConnector, type Dispatcher } from 'undici';
 
 import { AlvError } from './errors.js';
 
@@ -17,17 +17,31 @@ type Protocol = 'http:' | 'https:';
 /** `http.proxy`, or a proxy variable as the environment spells it. */
 type ProxySource = string;
 
-type ProxyRoute = { kind: 'direct' } | { kind: 'proxy'; url: string } | { kind: 'unusable'; source: ProxySource };
+type ProxyRoute =
+  { kind: 'direct' } | { kind: 'proxy'; url: string; source: ProxySource } | { kind: 'unusable'; source: ProxySource };
 
 class SalesforceProxyError extends AlvError {
-  public constructor(source: ProxySource) {
-    super(
-      'PROXY_CONFIGURATION',
-      `Salesforce requests were not sent because ${source} is not a proxy URL they can use. Set it to a full URL, such as http://proxy.example.com:8080, or remove it.`
-    );
+  public constructor(code: 'PROXY_CONFIGURATION' | 'PROXY_CONNECTION', message: string) {
+    super(code, message);
     this.name = 'SalesforceProxyError';
   }
 }
+
+const unusableProxy = (source: ProxySource) =>
+  new SalesforceProxyError(
+    'PROXY_CONFIGURATION',
+    `Salesforce requests were not sent because ${source} is not a proxy URL they can use. Set it to a full URL, such as http://proxy.example.com:8080, or remove it.`
+  );
+
+/**
+ * jsforce retries a refused connection until HTTP_TIMEOUT aborts it and then reports a 30-minute timeout. This code is
+ * not one it retries, so the request fails at once and says which proxy to check.
+ */
+const unreachableProxy = (source: ProxySource, error: Error) =>
+  new SalesforceProxyError(
+    'PROXY_CONNECTION',
+    `Salesforce requests could not connect to the proxy that ${source} names (${(error as NodeJS.ErrnoException).code ?? error.message}). Check that the proxy is running at that address, or change or remove ${source}.`
+  );
 
 /** undici reports a request its dispatcher refused as `TypeError: fetch failed`, with the reason as its cause. */
 export function unwrapSalesforceProxyError(error: unknown): unknown {
@@ -40,7 +54,8 @@ export function unwrapSalesforceProxyError(error: unknown): unknown {
  * that honors NO_PROXY; jsforce's own per-request proxy agent ignores it. CometD streaming runs on Faye and is not
  * covered. Calling it again replaces the route for the next request. Each protocol keeps its own proxy. When undici
  * rejects a protocol's proxy URL, every request over that protocol, bypass hosts included, fails with a
- * `SalesforceProxyError` and is never sent direct.
+ * `SalesforceProxyError` and is never sent direct. A request that cannot connect to its http or https proxy fails at once
+ * with a `SalesforceProxyError` naming that proxy's source.
  */
 export function configureSalesforceProxy(settings: SalesforceProxySettings = {}): void {
   const proxyUrl = settings.proxyUrl?.trim();
@@ -110,30 +125,45 @@ function checkedRoute(source: ProxySource, url: string): ProxyRoute {
     return { kind: 'unusable', source };
   }
   probe.close().catch(() => undefined);
-  return { kind: 'proxy', url };
+  return { kind: 'proxy', url, source };
 }
 
 function dispatcherFor(routes: Record<Protocol, ProxyRoute>, noProxy: string | undefined): Dispatcher {
-  const urlOf = (route: ProxyRoute) => (route.kind === 'proxy' ? route.url : '');
-  const agent = new EnvHttpProxyAgent({
-    allowH2: false,
-    httpProxy: urlOf(routes['http:']),
-    httpsProxy: urlOf(routes['https:']),
-    noProxy
-  });
-  const refusals = new Map<string, Dispatcher>();
-  for (const [protocol, route] of Object.entries(routes)) {
-    if (route.kind === 'unusable') refusals.set(protocol, refusingAgent(route.source));
-  }
-  if (refusals.size === 0) return agent;
-  return agent.compose(dispatch => (options, handler) => {
-    const refusal = refusals.get(new URL(String(options.origin)).protocol);
-    return refusal ? refusal.dispatch(options, handler) : dispatch(options, handler);
-  });
+  const http = protocolDispatcher('http:', routes['http:'], noProxy);
+  const https = protocolDispatcher('https:', routes['https:'], noProxy);
+  return https.compose(
+    dispatch => (options, handler) =>
+      new URL(String(options.origin)).protocol === 'https:'
+        ? dispatch(options, handler)
+        : http.dispatch(options, handler)
+  );
 }
 
-function refusingAgent(source: ProxySource): Agent {
-  return new Agent({ connect: (_options, callback) => callback(new SalesforceProxyError(source), null) });
+function protocolDispatcher(protocol: Protocol, route: ProxyRoute, noProxy: string | undefined): Dispatcher {
+  if (route.kind === 'unusable') {
+    return new Agent({ connect: (_options, callback) => callback(unusableProxy(route.source), null) });
+  }
+  const url = route.kind === 'proxy' ? route.url : '';
+  const options: EnvHttpProxyAgent.Options & Pick<ProxyAgent.Options, 'clientFactory'> = {
+    allowH2: false,
+    httpProxy: protocol === 'http:' ? url : '',
+    httpsProxy: protocol === 'https:' ? url : '',
+    noProxy,
+    // The proxy client: the connection to the proxy that carries each CONNECT tunnel. SOCKS dials on its own.
+    clientFactory: (origin, clientOptions) => {
+      const { connect } = clientOptions as { connect: buildConnector.connector };
+      return new Pool(origin, { ...clientOptions, connect: reportingConnector(connect, route) });
+    }
+  };
+  return new EnvHttpProxyAgent(options);
+}
+
+function reportingConnector(connect: buildConnector.connector, route: ProxyRoute): buildConnector.connector {
+  if (route.kind !== 'proxy') return connect;
+  return (options, callback) =>
+    connect(options, (...result) =>
+      result[0] === null ? callback(...result) : callback(unreachableProxy(route.source, result[0]), null)
+    );
 }
 
 configureSalesforceProxy();

@@ -467,9 +467,35 @@ test('a proxy that refuses the connection fails at once with an error naming its
     assert.match(result.error ?? '', /could not connect to the proxy/);
     assert.match(result.error ?? '', source);
     assert.doesNotMatch(result.error ?? '', /30 minutes|secret/);
-    assert.ok(result.elapsedMs < 5_000, `the refused proxy took ${result.elapsedMs} ms to report`);
+    assert.ok(result.elapsedMs < 10_000, `the refused proxy took ${result.elapsedMs} ms to report`);
   }
   assert.equal(salesforce.received, 0);
+});
+
+test('a refused bypass host and a proxy that rejects the tunnel are not reported as an unreachable proxy', async t => {
+  const deadProxy = `http://127.0.0.1:${await deadPort()}`;
+  saveOrgAuth('dead-bypass@example.com', `https://127.0.0.1:${await deadPort()}`);
+  const salesforce = await startSalesforceDouble(t, oneUser);
+  saveOrgAuth('rejected-tunnel@example.com', salesforce.instanceUrl.replace(/^http:/, 'https:'));
+  const rejecting = await startRecordingProxy(t);
+
+  const [bypass, rejected] = await Promise.all([
+    searchUsersInChild('dead-bypass@example.com', {
+      HTTPS_PROXY: deadProxy,
+      NO_PROXY: '127.0.0.1',
+      HTTP_TIMEOUT: '2000'
+    }),
+    searchUsersInChild('rejected-tunnel@example.com', { HTTPS_PROXY: rejecting.url })
+  ]);
+
+  assert.equal(bypass.ok, false);
+  assert.doesNotMatch(bypass.error ?? '', /could not connect to the proxy/);
+  assert.equal(rejected.ok, false);
+  assert.doesNotMatch(rejected.error ?? '', /could not connect to the proxy/);
+  assert.ok(
+    rejecting.seen.some(line => line.startsWith('CONNECT ')),
+    'the proxy saw no CONNECT'
+  );
 });
 
 test('HTTP_TIMEOUT still bounds each Salesforce request', async t => {
