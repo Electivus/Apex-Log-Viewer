@@ -213,9 +213,11 @@ test('a rejected session is renewed with the refresh token, as sf itself would',
   );
 });
 
-// 9.2's stamp clock starts from the wall clock at process start and then counts on its own: it started up to 2 ms
-// behind NTFS file times on Windows and fell 0.34 ms a minute behind on a Mac (#1449). Ten seconds stands for any gap
-// longer than the few milliseconds between a refresh's own saves.
+// @salesforce/core 9.2 to 9.4.0 stamped auth changes with the performance clock, which starts from the wall clock at
+// process start and then counts on its own: it started up to 2 ms behind NTFS file times on Windows and fell 0.34 ms a
+// minute behind on a Mac (#1449). Once it trailed by more than the few milliseconds between a refresh's own saves, a
+// renewal kept the expired access token and the refresh token rotation had replaced (#1463). 9.4.1 and later stamp with
+// Date.now(), so this fails only on a core that stamps with the performance clock again.
 test('renewals keep each rotated token while the stamp clock trails the auth file', async t => {
   const fakeOrg = await rotatingOrg(t, 'refresh-valid');
   const username = 'renewal-trailing-clock@example.com';
