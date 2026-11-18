@@ -12,11 +12,13 @@ const {
   runVsce
 } = require('./run-vsce');
 
-test('resolveVsceInvocation prefers the local workspace binary when present', () => {
-  const invocation = resolveVsceInvocation(process.platform);
+test('resolveVsceInvocation runs the local vsce entry point on Node when present', () => {
+  const invocation = resolveVsceInvocation();
 
-  assert.match(invocation.command, /node_modules[\\/]\.bin[\\/]vsce(?:\.cmd)?$/);
-  assert.deepEqual(invocation.baseArgs, []);
+  assert.equal(invocation.command, process.execPath);
+  assert.deepEqual(invocation.baseArgs, [
+    path.join(path.resolve(__dirname, '..'), 'node_modules', '@vscode', 'vsce', 'vsce')
+  ]);
 });
 
 test('runVsce uses pnpm for the workspace prepublish build', () => {
