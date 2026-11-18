@@ -871,7 +871,6 @@ test('proxy lab ownership restore covers runner outputs outside the clean script
 
   assert.equal(new Set(restored).size, restored.length, 'HOST_GENERATED_PATHS must not repeat entries');
   for (const generated of [
-    'apex-log-viewer-smoke.vsix', // run-tests.js --smoke-vsix
     'apexlogs',
     'apps/vscode-extension/dist', // extension esbuild bundle
     'apps/vscode-extension/media', // webview bundles and CSS

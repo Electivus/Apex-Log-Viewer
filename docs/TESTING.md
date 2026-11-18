@@ -86,7 +86,7 @@ Se você preferir rodar e depurar via UI, instale a extensão “Extension Test 
 
 - `pnpm run test:clean`: cleans temp test dirs (user data, legacy temp extension dirs) but preserves `.vscode-test/` (VS Code download cache) by default.
 - `pnpm run test:clean:all`: fully removes `.vscode-test/` too (forces a re-download on the next run).
-- `CLEAN_VSCODE_TEST_CACHE=1`: removes `.vscode-test/` (same effect as `test:clean:all`).
+- `CLEAN_VSCODE_TEST_CACHE=1`: makes `pnpm run test:clean` remove `.vscode-test/` too (same effect as `test:clean:all`). A test run with it set downloads VS Code into its own temporary profile and leaves `.vscode-test/` to other runs.
 - `KEEP_VSCODE_TEST_CACHE=1`: preserves `.vscode-test/` (default behavior; useful to override `CLEAN_*`).
 
 ### Salesforce CLI and scratch org (optional)

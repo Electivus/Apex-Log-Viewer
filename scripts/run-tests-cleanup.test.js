@@ -115,7 +115,7 @@ for (const platform of ['darwin', 'linux', 'win32']) {
           case 'esbuild':
             return { build: async () => {} };
           case './clean-vscode-test.js':
-            return { cleanVsCodeTest() {} };
+            return { cacheCleanRequested: () => false };
           case './devhub-auth.js':
             return {
               requiresScratchSetup: () => false,
@@ -250,7 +250,7 @@ function createCheckout() {
                 run.finishPackaging = () => child.emit('exit', 0);
                 signals.packaged();
               } else {
-                assert.equal(file, run.executable, 'Only the run’s own VS Code build can launch');
+                assert.equal(file, run.executable, 'Only the build this run downloaded can launch');
                 run.host = child;
                 signals.launched();
               }

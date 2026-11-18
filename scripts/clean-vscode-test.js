@@ -21,15 +21,18 @@ function safeRm(p, { quiet } = {}) {
   }
 }
 
-function cleanVsCodeTest({ quiet = false, force = false, cleanProfiles = true } = {}) {
-  const cwd = process.cwd();
-  const requestedCleanCache = /^1|true$/i.test(
-    String(process.env.CLEAN_VSCODE_TEST_CACHE || process.env.CLEAN_VSCODE_CACHE || '')
-  );
+function cacheCleanRequested() {
+  const { env } = process;
+  const requestedCleanCache = /^1|true$/i.test(String(env.CLEAN_VSCODE_TEST_CACHE || env.CLEAN_VSCODE_CACHE || ''));
   // Backwards compatible: KEEP_* vars previously preserved cache. Cache is now
   // preserved by default; KEEP_* still overrides CLEAN_* (but not --force).
-  const explicitlyKeepCache = /^1|true$/i.test(String(process.env.KEEP_VSCODE_TEST_CACHE || process.env.KEEP_VSCODE_CACHE || ''));
-  const cleanCache = force || (!explicitlyKeepCache && requestedCleanCache);
+  const explicitlyKeepCache = /^1|true$/i.test(String(env.KEEP_VSCODE_TEST_CACHE || env.KEEP_VSCODE_CACHE || ''));
+  return !explicitlyKeepCache && requestedCleanCache;
+}
+
+function cleanVsCodeTest({ quiet = false, force = false } = {}) {
+  const cwd = process.cwd();
+  const cleanCache = force || cacheCleanRequested();
 
   if (cleanCache) {
     safeRm(join(cwd, '.vscode-test'), { quiet });
@@ -39,8 +42,6 @@ function cleanVsCodeTest({ quiet = false, force = false, cleanProfiles = true } 
   } else if (!quiet) {
     console.log('[test-clean] Preserving .vscode-test cache.');
   }
-
-  if (!cleanProfiles) return;
 
   safeRm(join(tmpdir(), 'alv-user-data'), { quiet });
 
@@ -59,4 +60,4 @@ if (require.main === module) {
   cleanVsCodeTest(args);
 }
 
-module.exports = { cleanVsCodeTest };
+module.exports = { cacheCleanRequested };

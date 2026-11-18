@@ -53,7 +53,7 @@ for (const scenario of ['pending', 'success', 'reject', 'normal']) {
         clear(handle);
       };
       Module._load = function(name) {
-        if (name === './clean-vscode-test.js') return { cleanVsCodeTest() {} };
+        if (name === './clean-vscode-test.js') return { cacheCleanRequested: () => false };
         if (name === 'esbuild') return { build: async () => {} };
         if (name === 'cross-spawn') return Object.assign(() => { throw Error('Unexpected spawn'); },
           { sync: () => ({ status: 0, stdout: '' }) });

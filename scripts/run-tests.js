@@ -5,7 +5,7 @@ const { dirname, join, resolve } = require('path');
 const { stripVTControlCharacters } = require('node:util');
 const { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath } = require('@vscode/test-electron');
 const { build } = require('esbuild');
-const { cleanVsCodeTest } = require('./clean-vscode-test.js');
+const { cacheCleanRequested } = require('./clean-vscode-test.js');
 const {
   requiresScratchSetup,
   safeSfFailureMessage,
@@ -585,12 +585,6 @@ async function run() {
     console.warn('[test-runner] Failed to chdir to repo root:', e && e.message ? e.message : e);
   }
 
-  try {
-    cleanVsCodeTest({ quiet: true, cleanProfiles: false });
-  } catch (e) {
-    console.warn('[test-runner] Pre-clean failed:', e && e.message ? e.message : e);
-  }
-
   // Ensure Electron launches as a GUI app, not Node.
   // Some environments leak ELECTRON_RUN_AS_NODE=1 which breaks VS Code when
   // passed common flags like --user-data-dir. Explicitly unset it here.
@@ -640,12 +634,13 @@ async function run() {
     // Download VS Code: default to stable for all test scopes.
     // Can be overridden via --vscode or VSCODE_TEST_VERSION.
     const vsVer = String(args.vscode || 'stable');
-    const vscodeCachePath = join(repoRoot, '.vscode-test');
+    profileDir = mkdtempSync(join(tmpdir(), 'alv-vscode-'));
+    // Other runs may be using the shared cache, so a clean request downloads into this run's profile instead.
+    const vscodeCachePath = cacheCleanRequested() ? join(profileDir, 'vscode-test') : join(repoRoot, '.vscode-test');
     const vscodeExecutablePath = await downloadAndUnzipVSCode({ version: vsVer, cachePath: vscodeCachePath });
     const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, {
       reuseMachineInstall: true
     });
-    profileDir = mkdtempSync(join(tmpdir(), 'alv-vscode-'));
     const userDataDir = join(profileDir, 'user-data');
     const localExtensionsDir = join(profileDir, 'extensions');
 
@@ -780,7 +775,7 @@ async function run() {
       try {
         await execFileAsync('pnpm', ['run', 'l10n:write']);
       } catch {}
-      const smokeVsixPath = join(repoRoot, 'apex-log-viewer-smoke.vsix');
+      const smokeVsixPath = join(profileDir, 'apex-log-viewer-smoke.vsix');
       await execStreaming(process.execPath, [
         resolve(repoRoot, 'scripts', 'run-vsce.js'),
         'package',
