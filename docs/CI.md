@@ -50,10 +50,9 @@ Concurrency: Most workflows use concurrency groups to avoid duplicate runs per r
   code. `scripts/repo-security.test.js` enforces it.
 - Checkouts set `persist-credentials: false`, so later steps and uploaded
   artifacts never hold the job token in git config. `gh` reads `GH_TOKEN`, so
-  no job needs the persisted token. A job that keeps it is a reviewed exception
-  in `scripts/repo-security.test.js`. The only one is `assemble_release` in
-  Pre-release, which keeps it until its rework lands. Its `git ls-remote` works
-  anonymously too, because the repository is public.
+  no job needs the persisted token, and `scripts/repo-security.test.js` fails on
+  any checkout that persists it. Pre-release's `assemble_release` runs `git ls-remote`
+  against `origin`, which works anonymously because the repository is public.
 - Release, Pre-release and SF Plugin Release restore no cache. A tag run can
   restore caches saved on the default branch, so a cache written by a `main`
   run would flow into the published VSIX or npm package. setup-node's
