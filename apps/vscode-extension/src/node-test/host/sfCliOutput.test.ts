@@ -486,6 +486,17 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     assert.ok(elapsed < 1000, `redacting 32 kB took ${Math.round(elapsed)} ms`);
   });
 
+  test('a held token in a long named secret is looked for in time that grows with the text, not its square', async () => {
+    const session = 'FAKEsession0123456789';
+    const body = `accessToken="${session}${'eyJaaaaaaaaa-'.repeat(12_000)}"`;
+    const started = performance.now();
+    const { shown } = await shownAfterHolding([session], `Request failed with ${body}`);
+    const elapsed = performance.now() - started;
+
+    assert.ok(shown.includes('accessToken=[redacted]'), 'the named secret is replaced');
+    assert.ok(elapsed < 1000, `redacting 156 kB took ${Math.round(elapsed)} ms`);
+  });
+
   test('the token a successful sf prints still reaches the auth source', async () => {
     const { source, traced } = load(() => ({
       code: 0,

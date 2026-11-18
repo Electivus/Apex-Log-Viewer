@@ -352,15 +352,29 @@ function maskHeld(text: string): string {
     const extend = (start: number, end: number) => {
       if (end > valueAt(reach, start)) reach[start] = end;
     };
-    for (const shape of TOKEN_SHAPES) {
-      for (const { index, 0: match } of text.matchAll(shape)) {
-        const end = index + match.length;
-        if (valueAt(covered, end) > valueAt(covered, index)) extend(index, end);
-      }
-    }
+    const secrets: Array<[number, number]> = [];
     for (const named of NAMED_SECRETS) {
       for (const { index, 1: name = '', 2: secret = '' } of text.matchAll(named)) {
-        extend(index + name.length, index + name.length + secret.length);
+        const start = index + name.length;
+        extend(start, start + secret.length);
+        secrets.push([start, start + secret.length]);
+      }
+    }
+    // The named secrets are replaced already: blanked, they keep a shape from being looked for in them, which a long
+    // one could make take time that grows with its square.
+    let scanned = '';
+    let from = 0;
+    for (const [start, end] of secrets.sort((left, right) => left[0] - right[0])) {
+      if (end <= from) continue;
+      const blank = Math.max(start, from);
+      scanned += text.slice(from, blank) + ' '.repeat(end - blank);
+      from = end;
+    }
+    scanned += text.slice(from);
+    for (const shape of TOKEN_SHAPES) {
+      for (const { index, 0: match } of scanned.matchAll(shape)) {
+        const end = index + match.length;
+        if (valueAt(covered, end) > valueAt(covered, index)) extend(index, end);
       }
     }
   }
