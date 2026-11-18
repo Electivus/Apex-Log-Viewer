@@ -201,6 +201,9 @@ const repoRoot = path.resolve(__dirname, '..');
 const sharedExecutable = path.join(repoRoot, '.vscode-test', 'vscode-linux-x64-stable', 'code');
 
 const fixtureTmp = '/fixture/tmp';
+// Node's os.tmpdir() reads these variables on every call.
+const tmpdirOf = (env, platform) =>
+  (platform === 'win32' ? env.TEMP || env.TMP : env.TMPDIR || env.TMP || env.TEMP) || fixtureTmp;
 
 function fakeChild(kind, run) {
   const child = Object.assign(new EventEmitter(), { pid: 1 });
@@ -227,7 +230,7 @@ function createCheckout() {
 
   // interrupt: { at, presses, stubborn }. SIGINT reaches only the runner, the way `kill -INT <pid>` does,
   // so the runner must stop its own child. A process with no SIGINT listener dies at once and runs no finally.
-  function start(id, { argv, env = {}, interrupt = {} }) {
+  function start(id, { argv, env = {}, interrupt = {}, platform = 'linux', listing = [] }) {
     const run = { id, childSignals: [], foreignSignals: [], stubborn: !!interrupt.stubborn, onSigint: [] };
     const signals = {};
     for (const name of ['packaged', 'launched', 'died']) {
@@ -239,7 +242,7 @@ function createCheckout() {
       argv: ['node', filename, ...argv],
       env: { __ALV_XVFB_RAN: '1', ...env },
       execPath: 'node',
-      platform: 'linux',
+      platform,
       cwd: () => repoRoot,
       chdir() {},
       kill(target, signal) {
@@ -288,10 +291,18 @@ function createCheckout() {
         for (const file of filesUnder(target)) files.delete(file);
       }
     };
-    const spawn = (file, args) => {
+    const spawn = (file, args, options = {}) => {
       if (file === 'node') {
         const child = fakeChild('packaging', run);
         files.set(args[args.indexOf('--out') + 1], `VSIX built by ${id}`);
+        // run-vsce.js stages the extension under its os.tmpdir() and removes the stage unless SIGKILL stops it.
+        const stage = path.join(tmpdirOf(options.env || process.env, platform), `alv-vsce-stage-${id}`);
+        files.set(stage, 'directory');
+        const finish = child.finish;
+        child.finish = (code, signal = null) => {
+          if (signal !== 'SIGKILL') for (const file of filesUnder(stage)) files.delete(file);
+          finish(code, signal);
+        };
         run.finishPackaging = () => child.finish(0);
         signals.packaged();
         reached('packaging');
@@ -305,10 +316,16 @@ function createCheckout() {
       }
       if (file === 'code-cli') {
         const child = fakeChild('code-cli', run);
-        if (!codeCli(args) || interrupt.at !== 'installing') setImmediate(() => child.finish(0));
+        const listed = args.includes('--list-extensions') ? listing : [];
+        if (!codeCli(args) || interrupt.at !== 'installing')
+          setImmediate(() => {
+            for (const [stream, chunk] of listed) child[stream].emit('data', chunk);
+            child.finish(0);
+          });
         return child;
       }
       assert.equal(file, run.executable, 'Only the build this run downloaded can launch');
+      run.hostTemp = tmpdirOf(options.env || process.env, platform);
       run.host = fakeChild('host', run);
       signals.launched();
       return run.host;
@@ -331,7 +348,7 @@ function createCheckout() {
             }
           });
         case 'os':
-          return { platform: () => 'linux', tmpdir: () => fixtureTmp };
+          return { platform: () => platform, tmpdir: () => tmpdirOf(process.env, platform) };
         case 'fs':
           return fs;
         case 'path':
@@ -350,6 +367,9 @@ function createCheckout() {
               };
               if (interrupt.at !== 'downloading') return downloaded();
               files.set(path.join(cachePath, 'partial.zip'), 'partial download');
+              // On macOS, @vscode/test-electron saves the archive under os.tmpdir() and deletes it after unzip exits.
+              const archive = path.join(tmpdirOf(process.env, platform), `vscode-test-${id}.zip`);
+              if (platform === 'darwin') files.set(archive, 'downloaded archive');
               reached('downloading');
               // One press lets the download finish. A second press abandons it, and its extraction keeps
               // writing while the run cleans up, until the process exits.
@@ -357,7 +377,11 @@ function createCheckout() {
                 let presses = 0;
                 run.onSigint.push(() => {
                   presses += 1;
-                  if (presses === 1 && interrupt.presses === 1) setImmediate(() => resolve(downloaded()));
+                  if (presses === 1 && interrupt.presses === 1)
+                    setImmediate(() => {
+                      files.delete(archive);
+                      resolve(downloaded());
+                    });
                   if (presses === 2)
                     run.extractLate = () => files.set(path.join(cachePath, 'late-extract'), 'extracted');
                 });
@@ -445,25 +469,43 @@ test('a run that asks for a clean cache leaves the VS Code build another run use
 
   assert.equal(first.downloaded, false, 'The first run reuses the cached build');
   assert.equal(second.downloaded, true, 'A clean-cache run downloads a fresh build');
+  assert.equal(second.hostTemp, fixtureTmp, 'VS Code keeps the system temp dir');
   await second.finish();
   assert.deepEqual(checkout.removedUnder(first.executable), [], 'The running build was never removed');
   assert.ok(checkout.files.has(first.executable));
   await first.finish();
 });
 
+test('a diagnostic on stderr does not hide an extension ID listed on stdout', async () => {
+  const checkout = createCheckout();
+  const run = checkout.start('first', {
+    argv: ['--scope=unit', '--install-deps'],
+    env: { VSCODE_TEST_EXTENSIONS: 'fixture.dependency' },
+    listing: [
+      ['stderr', 'fixture diagnostic: '],
+      ['stdout', 'fixture.dependency@1.0.0\n']
+    ]
+  });
+  await run.launched;
+  run.finish();
+  assert.equal((await run.ended).exitCode, 0);
+});
+
 const smoke = ['--scope=unit', '--smoke-vsix'];
-for (const { step, argv, env, presses = 1, stubborn = false, childSignals } of [
+const cleanCache = { CLEAN_VSCODE_TEST_CACHE: '1' };
+for (const { step, argv, env, platform, presses = 1, stubborn = false, childSignals } of [
   { step: 'packaging', argv: smoke, childSignals: [['packaging', 'SIGINT']] },
-  {
+  ...['linux', 'win32'].map(platform => ({
     step: 'packaging',
     argv: smoke,
+    platform,
     presses: 2,
     stubborn: true,
     childSignals: [
       ['packaging', 'SIGINT'],
       ['packaging', 'SIGKILL']
     ]
-  },
+  })),
   { step: 'installing', argv: smoke, childSignals: [['code-cli', 'SIGINT']] },
   {
     step: 'installing',
@@ -471,16 +513,20 @@ for (const { step, argv, env, presses = 1, stubborn = false, childSignals } of [
     env: { VSCODE_TEST_EXTENSIONS: 'fixture.dependency' },
     childSignals: [['code-cli', 'SIGINT']]
   },
-  { step: 'downloading', argv: ['--scope=unit'], env: { CLEAN_VSCODE_TEST_CACHE: '1' }, childSignals: [] },
-  { step: 'downloading', argv: ['--scope=unit'], env: { CLEAN_VSCODE_TEST_CACHE: '1' }, presses: 2, childSignals: [] }
+  ...['linux', 'darwin'].flatMap(platform =>
+    [undefined, cleanCache].flatMap(env =>
+      [1, 2].map(presses => ({ step: 'downloading', argv: ['--scope=unit'], env, platform, presses, childSignals: [] }))
+    )
+  )
 ]) {
-  const label = `${step} (${[...argv.slice(1), ...Object.keys(env || {})].join(' ')}, pressed ${presses}x)`;
+  const shown = [...argv.slice(1), ...Object.keys(env || {}), ...(platform && platform !== 'linux' ? [platform] : [])];
+  const label = `${step} (${shown.join(' ') || 'shared cache'}, pressed ${presses}x)`;
   test(`Ctrl+C while ${label} leaves no file of the run behind`, async () => {
     const checkout = createCheckout();
-    const run = checkout.start('first', { argv, env, interrupt: { at: step, presses, stubborn } });
+    const run = checkout.start('first', { argv, env, platform, interrupt: { at: step, presses, stubborn } });
     const { exitCode, leftover } = await run.ended;
 
-    assert.deepEqual(leftover, [], 'The run removes its workspace and profile, the VSIX included');
+    assert.deepEqual(leftover, [], 'The run removes its workspace and profile, with the VSIX, vsce stage and archive');
     assert.equal(exitCode, 1);
     assert.deepEqual(run.childSignals, childSignals, 'Only the child the run started receives SIGINT, then SIGKILL');
     assert.deepEqual(run.foreignSignals, []);
