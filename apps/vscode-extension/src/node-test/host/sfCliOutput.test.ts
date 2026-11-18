@@ -395,6 +395,18 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     }
   });
 
+  test('a held token that ends in a percent sign leaves no part of its percent-encoded form', async () => {
+    for (const [token, carried] of [
+      ['FAKE-ends-in-percent-0123%', 'FAKE-ends-in-percent-0123%25'],
+      ['FAKE-ends-in-percent-0123%2', 'FAKE-ends-in-percent-0123%252']
+    ] as const) {
+      const { shown, trace } = await shownAfterHolding([token], `Request failed with ?pw=${carried}&x=1`);
+
+      assert.match(shown, /request failed with \?pw=\[redacted\]&x=1/i, `${carried}: the error replaces all of it`);
+      assert.match(trace, /request failed with \?pw=\[redacted\]&x=1/i, `${carried}: the trace replaces all of it`);
+    }
+  });
+
   test('the token a successful sf prints still reaches the auth source', async () => {
     const { source, traced } = load(() => ({
       code: 0,

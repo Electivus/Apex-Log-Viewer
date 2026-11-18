@@ -94,6 +94,10 @@ export function holdSecretsInOutput(text: string): void {
   }
 }
 
+/** `text` with each lone surrogate as U+FFFD, the character its UTF-8 encoding decodes to. */
+const wellFormed = (text: string): string =>
+  text.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '\uFFFD');
+
 /** The length of the UTF-8 character that starts with `byte`, or 0 when no character starts with it. */
 function utf8Length(byte: number): number {
   if (byte < 0x80) return 1;
@@ -123,43 +127,80 @@ function percentCharacterAt(text: string, index: number): { character: string; e
   return { character: Buffer.from(bytes).toString('utf8'), end: index + length * 3 };
 }
 
-/**
- * Where `secret`, from its character at `from` on, ends if it starts at `index` of `text` with any of its characters
- * percent-encoded. Only a `%` in `secret` can be either itself or the start of an encoding, so only there are both
- * tried.
- */
-function encodedEndAt(text: string, index: number, secret: string, from = 0): number | undefined {
-  let at = index;
-  for (let position = from; position < secret.length;) {
-    const character = String.fromCodePoint(secret.codePointAt(position) ?? 0);
-    if (character === '%' && text[at] === '%') {
-      const end = encodedEndAt(text, at + 1, secret, position + 1);
-      if (end !== undefined) return end;
-    } else if (text.startsWith(character, at)) {
-      at += character.length;
-      position += character.length;
-      continue;
+/** A text with every percent-encoded character decoded, and for each unit where it starts and ends in the text. */
+type Decoded = { text: string; starts: number[]; ends: number[] };
+
+function percentDecoded(text: string): Decoded {
+  let decoded = '';
+  const starts: number[] = [];
+  const ends: number[] = [];
+  for (let index = 0; index < text.length;) {
+    const { character, end } = percentCharacterAt(text, index) ?? { character: text.charAt(index), end: index + 1 };
+    for (const unit of character.split('')) {
+      decoded += unit;
+      starts.push(index);
+      ends.push(end);
     }
-    const encoded = percentCharacterAt(text, at);
-    if (encoded?.character !== character) return undefined;
-    at = encoded.end;
-    position += character.length;
+    index = end;
   }
-  return at;
+  return { text: decoded, starts, ends };
+}
+
+/** Where each occurrence of `secret` in `text` starts, overlapping ones included. */
+function startsOf(text: string, secret: string): number[] {
+  const starts: number[] = [];
+  for (let start = text.indexOf(secret); start !== -1; start = text.indexOf(secret, start + 1)) starts.push(start);
+  return starts;
+}
+
+/**
+ * Where `secret`, which has no `%` and no lone surrogate, occurs in `text` with some of its characters
+ * percent-encoded. Decoding reads a `%` with the next two hex digits as one character, so when a `%` just before the
+ * secret takes its first one or two characters, those are matched as written in `text` and the rest in `decoded`.
+ */
+function encodedSpansOf(text: string, decoded: Decoded, secret: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  for (let taken = 0; taken <= 2 && taken < secret.length; taken++) {
+    const written = secret.slice(0, taken);
+    if (!/^[0-9a-f]*$/i.test(written)) break;
+    const rest = secret.slice(taken);
+    for (const start of startsOf(decoded.text, rest)) {
+      const from = decoded.starts[start] ?? 0;
+      if (text.slice(from - taken, from) !== written) continue;
+      spans.push([from - taken, decoded.ends[start + rest.length - 1] ?? text.length]);
+    }
+  }
+  return spans;
+}
+
+/**
+ * Where `secret` ends at its farthest if it starts at `index` of `text` with any of its characters percent-encoded.
+ * A `%` in `text` can be the secret's own `%` or start an encoding, so every reading is followed.
+ */
+function farthestEndAt(text: string, index: number, secret: string): number | undefined {
+  let reached = new Set([index]);
+  for (const character of secret) {
+    const next = new Set<number>();
+    for (const at of reached) {
+      if (text.startsWith(character, at)) next.add(at + character.length);
+      const encoded = percentCharacterAt(text, at);
+      if (encoded?.character === wellFormed(character)) next.add(encoded.end);
+    }
+    if (next.size === 0) return undefined;
+    reached = next;
+  }
+  return Math.max(...reached);
 }
 
 /** Where `secret` occurs in `text`, verbatim or, when `text` has a `%`, with any of its characters percent-encoded. */
-function spansOf(text: string, secret: string): Array<[number, number]> {
-  const spans: Array<[number, number]> = [];
-  if (!text.includes('%')) {
-    for (let start = text.indexOf(secret); start !== -1; start = text.indexOf(secret, start + 1)) {
-      spans.push([start, start + secret.length]);
-    }
-    return spans;
-  }
+function spansOf(text: string, decoded: Decoded | undefined, secret: string): Array<[number, number]> {
+  const spans = startsOf(text, secret).map((start): [number, number] => [start, start + secret.length]);
+  if (!decoded) return spans;
+  const decodesAlike = !secret.includes('%') && secret === wellFormed(secret);
+  if (decodesAlike) return [...spans, ...encodedSpansOf(text, decoded, secret)];
   for (let start = 0; start < text.length; start++) {
     if (text[start] !== secret[0] && text[start] !== '%') continue;
-    const end = encodedEndAt(text, start, secret);
+    const end = farthestEndAt(text, start, secret);
     if (end !== undefined) spans.push([start, end]);
   }
   return spans;
@@ -171,7 +212,8 @@ function spansOf(text: string, secret: string): Array<[number, number]> {
  * or overlaps another leaves no part of either.
  */
 function maskHeld(text: string): string {
-  const spans = [...held].flatMap(secret => spansOf(text, secret));
+  const decoded = text.includes('%') ? percentDecoded(text) : undefined;
+  const spans = [...held].flatMap(secret => spansOf(text, decoded, secret));
   spans.sort((a, b) => a[0] - b[0]);
   let masked = '';
   let end = 0;
