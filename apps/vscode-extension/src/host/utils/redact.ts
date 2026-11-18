@@ -54,15 +54,15 @@ const TOKEN_SHAPES: readonly RegExp[] = [
 
 /**
  * Text that names its secret before it: the secret is the second group, after the name in the first, and its
- * replacement keeps the name.
+ * replacement keeps the name and the closing third group, when there is one.
  */
 const NAMED_SECRETS: readonly RegExp[] = [
   /(Authorization\s*[:=]\s*Bearer\s+)([^\s,;]+)/gi,
   /(\bBearer\s+)([A-Za-z0-9._~+/=!-]{12,})/gi,
-  new RegExp(`(["']?(?:${SECRET_KEY_NAMES})["']?\\s*:\\s*["'])([^"']+)(?=["'])`, 'gi'),
+  new RegExp(`(["']?(?:${SECRET_KEY_NAMES})["']?\\s*:\\s*["'])([^"']+)(["'])`, 'gi'),
   new RegExp(`(\\b(?:${SECRET_KEY_NAMES})\\b\\s*=\\s*)([^\\s,;]+)`, 'gi'),
   // An SFDX auth URL: client id, secret and refresh token sit between "force://" and "@", whatever they look like.
-  /(\bforce:\/\/)([^\s"'`<>@]+)(?=@)/gi
+  /(\bforce:\/\/)([^\s"'`<>@]+)(@)/gi
 ];
 
 /** Every secret the extension received in this session. The process keeps it until it exits. */
@@ -382,7 +382,9 @@ function maskHeld(text: string): string {
 export function redactSecrets(text: string): string {
   let redacted = maskHeld(stripControlSequences(text));
   for (const named of NAMED_SECRETS) {
-    redacted = redacted.replace(named, (_match, name: string) => `${name}${REDACTED}`);
+    redacted = redacted.replace(named, (_match, name: string, _secret: string, close: unknown) =>
+      typeof close === 'string' ? `${name}${REDACTED}${close}` : `${name}${REDACTED}`
+    );
   }
   for (const shape of TOKEN_SHAPES) {
     redacted = redacted.replace(shape, REDACTED);
