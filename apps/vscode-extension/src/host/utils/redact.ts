@@ -52,6 +52,19 @@ const TOKEN_SHAPES: readonly RegExp[] = [
   /\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}/g
 ];
 
+/**
+ * Text that names its secret before it: the secret is the second group, after the name in the first, and its
+ * replacement keeps the name.
+ */
+const NAMED_SECRETS: readonly RegExp[] = [
+  /(Authorization\s*[:=]\s*Bearer\s+)([^\s,;]+)/gi,
+  /(\bBearer\s+)([A-Za-z0-9._~+/=!-]{12,})/gi,
+  new RegExp(`(["']?(?:${SECRET_KEY_NAMES})["']?\\s*:\\s*["'])([^"']+)(?=["'])`, 'gi'),
+  new RegExp(`(\\b(?:${SECRET_KEY_NAMES})\\b\\s*=\\s*)([^\\s,;]+)`, 'gi'),
+  // An SFDX auth URL: client id, secret and refresh token sit between "force://" and "@", whatever they look like.
+  /(\bforce:\/\/)([^\s"'`<>@]+)(?=@)/gi
+];
+
 /** Every secret the extension received in this session. The process keeps it until it exits. */
 const held = new Set<string>();
 
@@ -320,7 +333,8 @@ function reachSecrets(finder: Finder, text: string, reading: Reading, reach: Int
  * percent-encodings from any place of the text reads it. The places of every held secret are found in one pass over
  * each reading, and their union is replaced at once, so a secret that begins or overlaps another leaves no part of
  * either. A token shape that a held secret falls in is replaced with it, since the shape no longer matches once the
- * secret inside it is replaced.
+ * secret inside it is replaced. So is every named secret of the text, since the stretch of such a shape can take in
+ * the name that comes after it.
  */
 function maskHeld(text: string): string {
   if (held.size === 0) return text;
@@ -334,10 +348,20 @@ function maskHeld(text: string): string {
     end = Math.max(end, valueAt(reach, index));
     covered[index + 1] = valueAt(covered, index) + (index < end ? 1 : 0);
   }
-  for (const shape of TOKEN_SHAPES) {
-    for (const { index, 0: match } of text.matchAll(shape)) {
-      const end = index + match.length;
-      if (valueAt(covered, end) > valueAt(covered, index) && end > valueAt(reach, index)) reach[index] = end;
+  if (valueAt(covered, text.length) > 0) {
+    const extend = (start: number, end: number) => {
+      if (end > valueAt(reach, start)) reach[start] = end;
+    };
+    for (const shape of TOKEN_SHAPES) {
+      for (const { index, 0: match } of text.matchAll(shape)) {
+        const end = index + match.length;
+        if (valueAt(covered, end) > valueAt(covered, index)) extend(index, end);
+      }
+    }
+    for (const named of NAMED_SECRETS) {
+      for (const { index, 1: name = '', 2: secret = '' } of text.matchAll(named)) {
+        extend(index + name.length, index + name.length + secret.length);
+      }
     }
   }
   let masked = '';
@@ -357,15 +381,9 @@ function maskHeld(text: string): string {
  */
 export function redactSecrets(text: string): string {
   let redacted = maskHeld(stripControlSequences(text));
-  redacted = redacted.replace(/(Authorization\s*[:=]\s*Bearer\s+)[^\s,;]+/gi, `$1${REDACTED}`);
-  redacted = redacted.replace(/\bBearer\s+[A-Za-z0-9._~+/=!-]{12,}/gi, `Bearer ${REDACTED}`);
-  redacted = redacted.replace(
-    new RegExp(`(["']?(?:${SECRET_KEY_NAMES})["']?\\s*:\\s*["'])([^"']+)(["'])`, 'gi'),
-    `$1${REDACTED}$3`
-  );
-  redacted = redacted.replace(new RegExp(`(\\b(?:${SECRET_KEY_NAMES})\\b\\s*=\\s*)([^\\s,;]+)`, 'gi'), `$1${REDACTED}`);
-  // An SFDX auth URL: client id, secret and refresh token sit between "force://" and "@", whatever they look like.
-  redacted = redacted.replace(/\bforce:\/\/[^\s"'`<>@]+@/gi, `force://${REDACTED}@`);
+  for (const named of NAMED_SECRETS) {
+    redacted = redacted.replace(named, (_match, name: string) => `${name}${REDACTED}`);
+  }
   for (const shape of TOKEN_SHAPES) {
     redacted = redacted.replace(shape, REDACTED);
   }
