@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import test from 'node:test';
 
-import type { Connection } from '@salesforce/core';
+import type { Connection } from '@jsforce/jsforce-node';
 
 import { cometdCursor, parseEventUuid, type ReplayCursor } from '../src/customLogs/events/ids.ts';
 import {
@@ -20,9 +20,8 @@ import {
   type TransportSignal
 } from '../src/customLogs/events/transport.ts';
 import { recordedEvents, startBayeuxDouble, type DoubleScript } from './support/cometdDouble.ts';
-import { isolateSalesforceHome, openConnection } from './support/salesforceDouble.ts';
+import { openConnection, savedOrgsEnv } from './support/salesforceDouble.ts';
 
-isolateSalesforceHome();
 // Faye reads http_proxy and ignores NO_PROXY, so a proxied machine would send the loopback double's traffic away.
 delete process.env.http_proxy;
 delete process.env.HTTP_PROXY;
@@ -52,7 +51,7 @@ async function openRun(t: test.TestContext, script: DoubleScript, options: RunOp
   // Registered before the double's own hook, so the subscription stops while the server still answers.
   t.after(() => run?.stop().catch(() => undefined));
   const double = await startBayeuxDouble(t, script);
-  run = startRun(await openConnection(double.username), options);
+  run = startRun(openConnection(double.username), options);
   return { double, run };
 }
 
@@ -219,7 +218,7 @@ test('replayValueFor refuses a cursor the CometD transport did not produce', () 
 
 test('a start point that is not a CometD cursor is refused before any request', async t => {
   const double = await startBayeuxDouble(t);
-  const connection = await openConnection(double.username);
+  const connection = openConnection(double.username);
   const finished = createCometdTransport().open({
     connection,
     channel: CHANNEL,
@@ -412,7 +411,7 @@ test('stopping before the handshake completes still disconnects the client once 
 
 test('an aborted signal opens nothing', async t => {
   const double = await startBayeuxDouble(t);
-  const connection = await openConnection(double.username);
+  const connection = openConnection(double.username);
   const aborted = new AbortController();
   aborted.abort();
 
@@ -465,7 +464,11 @@ test('a process that aborts its subscription exits at once with no socket or tim
       const child = spawn(
         process.execPath,
         ['--import', 'tsx', path.resolve(__dirname, 'support/cometdAbortChild.ts'), double.username, CHANNEL, abortOn],
-        { cwd: path.resolve(__dirname, '..'), stdio: ['ignore', 'pipe', 'inherit'] }
+        {
+          cwd: path.resolve(__dirname, '..'),
+          env: { ...process.env, ...savedOrgsEnv() },
+          stdio: ['ignore', 'pipe', 'inherit']
+        }
       );
       let output = '';
       let abortedAt = 0;

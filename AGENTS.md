@@ -40,7 +40,7 @@
 - For explicitly configured native Arch Linux / WSL2 E2E, use the Node 24 runtime selected in the shell (fnm, another manager or system installation), at or above the `.nvmrc` release; follow `docs/E2E_ARCH_WSL.md` when preparing or running that environment. Keep the CI runtime pinned to the exact `.nvmrc` release.
 - Install deps with `pnpm install --frozen-lockfile`.
 - Clean generated outputs with `pnpm run clean`.
-- Type-check only with `pnpm run check-types`; it covers the extension, the webview and its tests, and the core and Salesforce CLI plugin sources and tests.
+- Type-check only with `pnpm run check-types`; it covers the extension, the webview and its tests, the E2E utilities and their tests, and the core and Salesforce CLI plugin sources and tests.
 - Lint with `pnpm run lint`.
 - Format with `pnpm run format`.
 - Lint + the same TypeScript validation with `pnpm run compile`.
@@ -147,7 +147,7 @@ See also: `docs/PUBLISHING.md` and `docs/CI.md`.
 
 ## Security and Configuration Tips
 
-- Salesforce CLI (`sf`/`sfdx`) is required for runtime usage.
+- Salesforce CLI (`sf`) is required for runtime usage.
 - Never commit tokens or org-sensitive data.
 - Run dependency/provenance checks with `pnpm run security:dependency-sources` and `pnpm run security:pnpm-signatures`.
 - Keep logs under `apexlogs/`.

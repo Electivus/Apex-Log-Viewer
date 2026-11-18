@@ -3,9 +3,9 @@ const { platform, tmpdir } = require('os');
 const { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } = require('fs');
 const { dirname, join, resolve } = require('path');
 const { stripVTControlCharacters } = require('node:util');
-const { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath, runTests } = require('@vscode/test-electron');
+const { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath } = require('@vscode/test-electron');
 const { build } = require('esbuild');
-const { cleanVsCodeTest } = require('./clean-vscode-test.js');
+const { cacheCleanRequested } = require('./clean-vscode-test.js');
 const {
   requiresScratchSetup,
   safeSfFailureMessage,
@@ -16,7 +16,6 @@ const {
 } = require('./devhub-auth.js');
 const { resolveSalesforceCliPath } = require('./run-playwright-cli-e2e.js');
 const crossSpawn = require('cross-spawn');
-const spawnSync = crossSpawn.sync;
 
 function execFileAsync(file, args, opts = {}) {
   const isSalesforce = file === 'sf' || file === 'sfdx';
@@ -67,22 +66,6 @@ function execFileAsync(file, args, opts = {}) {
   });
 }
 
-function execStreaming(file, args, opts = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(file, args, { stdio: 'inherit', ...opts });
-    child.on('error', reject);
-    child.on('exit', code => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      const e = new Error(`Command failed: ${file} ${args.join(' ')}`);
-      e.code = code;
-      reject(e);
-    });
-  });
-}
-
 function addLocalBinToPath() {
   try {
     const bin = join(process.cwd(), 'node_modules', '.bin');
@@ -96,24 +79,10 @@ function addLocalBinToPath() {
   }
 }
 
-function normalizeForMatch(value) {
-  if (!value) {
-    return null;
-  }
-  return value.replace(/\\/g, '/').toLowerCase();
-}
-
-function isProcessAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+// A test host stores Electron's "Code Safe Storage" key in the login keychain, the user's own on a developer Mac.
+// Chromium's mock keychain keeps that key in memory.
+function macKeychainLaunchArgs(hostPlatform = process.platform) {
+  return hostPlatform === 'darwin' ? ['--use-mock-keychain'] : [];
 }
 
 function readEnvValue(name) {
@@ -149,94 +118,99 @@ function resolveRequiredDevHubConfig({ requireConfig }) {
   return resolveDevHubConfig(process.env, { required: requireConfig, allowLocalAlias: true });
 }
 
-async function killLeakedVSCodeProcesses(markers) {
-  const normalized = Array.from(new Set(markers.map(normalizeForMatch).filter(Boolean)));
-  if (normalized.length === 0) {
-    return;
-  }
+// From the moment the run creates its profile, Ctrl+C must not end the process before the profile is removed.
+// The first Ctrl+C sends SIGINT to the child in progress and starts no other step; a second one sends SIGKILL,
+// or stops waiting for in-process work. Only the run's own child is signaled.
+function watchInterrupts() {
+  let presses = 0;
+  let stopChild;
+  let abandon;
+  const abandoned = new Promise((_, reject) => {
+    abandon = reject;
+  });
+  abandoned.catch(() => {});
+  const interrupted = () => new Error('[test-runner] Interrupted.');
+  const onInterrupt = () => {
+    presses += 1;
+    if (presses === 1) console.error('\n[test-runner] Interrupted. Cleaning up; press Ctrl+C again to stop now.');
+    if (stopChild) stopChild(presses === 1 ? 'SIGINT' : 'SIGKILL');
+    else if (presses > 1) abandon(interrupted());
+  };
+  process.on('SIGINT', onInterrupt);
+  const assertNotInterrupted = () => {
+    if (presses) throw interrupted();
+  };
 
-  const plat = platform();
-  if (plat === 'win32') {
-    try {
-      const markerExpr = normalized.map(m => m.replace(/"/g, '""')).join(' -and ');
-      const psCommand = `$procs = Get-CimInstance Win32_Process | Where-Object { ${normalized
-        .map((m, idx) => `$_.CommandLine -like '*${m.replace(/'/g, "''")}*'`)
-        .join(' -or ')} }; $pids = $procs | ForEach-Object { $_.ProcessId }; if ($pids) { $pids }`;
-      const { stdout } = await execFileAsync('powershell', ['-NoProfile', '-Command', psCommand]);
-      const pids = stdout
-        .split(/\r?\n/)
-        .map(l => Number.parseInt(l, 10))
-        .filter(n => Number.isInteger(n));
-      for (const pid of pids) {
+  return {
+    settle(startWork) {
+      assertNotInterrupted();
+      return Promise.race([startWork(), abandoned]);
+    },
+    start(file, args, { label = file, input, capture = false, allowFailure = false, env } = {}) {
+      assertNotInterrupted();
+      const child = crossSpawn(file, args, {
+        stdio: [input === undefined ? 'ignore' : 'pipe', capture ? 'pipe' : 'inherit', capture ? 'pipe' : 'inherit'],
+        ...(env ? { env } : {})
+      });
+      let running = Boolean(child.pid);
+      const stop = signal => {
+        if (!running) return;
         try {
-          process.kill(pid);
-        } catch (e) {
-          console.warn('[test-runner] Failed to terminate VS Code process', pid, e && e.message ? e.message : e);
+          child.kill(signal);
+        } catch (error) {
+          console.warn(`[test-runner] Could not stop ${label}:`, error.message);
+        }
+      };
+      stopChild = stop;
+      const captured = { stdout: '', stderr: '' };
+      if (capture) {
+        for (const name of ['stdout', 'stderr']) {
+          child[name].setEncoding('utf8');
+          child[name].on('data', chunk => {
+            captured[name] += chunk;
+          });
         }
       }
-    } catch (e) {
-      console.warn('[test-runner] Unable to enumerate VS Code processes on Windows:', e && e.message ? e.message : e);
+      if (input !== undefined) {
+        child.stdin.on('error', () => {});
+        child.stdin.end(input);
+      }
+      const finished = new Promise((resolve, reject) => {
+        child.on('error', error => {
+          if (running) console.warn(`[test-runner] ${label} error:`, error.message);
+          else if (allowFailure && !presses) resolve({ status: null, output: '' });
+          else reject(error);
+        });
+        child.once(capture ? 'close' : 'exit', (code, signal) => {
+          running = false;
+          const text = [captured.stdout, captured.stderr].filter(Boolean).join('\n').trim();
+          if (!presses && (code === 0 || allowFailure)) resolve({ status: code, output: text });
+          else reject(new Error(`${label} exited with ${signal ?? code}${text && !presses ? `:\n${text}` : ''}`));
+        });
+      }).finally(() => {
+        if (stopChild === stop) stopChild = undefined;
+      });
+      return { finished, stop };
+    },
+    dispose() {
+      process.removeListener('SIGINT', onInterrupt);
     }
-    return;
-  }
+  };
+}
 
-  let stdout;
+// os.tmpdir() reads TMPDIR on macOS and Linux and TEMP or TMP on Windows.
+const tempDirEnv = dir => ({ TMPDIR: dir, TEMP: dir, TMP: dir });
+
+// @vscode/test-electron saves the VS Code archive under os.tmpdir() while it extracts it on macOS.
+async function withTempDir(dir, work) {
+  const saved = Object.keys(tempDirEnv(dir)).map(name => [name, process.env[name]]);
+  Object.assign(process.env, tempDirEnv(dir));
   try {
-    ({ stdout } = await execFileAsync('ps', ['-eo', 'pid=,args=']));
-  } catch (e) {
-    console.warn('[test-runner] Failed to list processes for VS Code cleanup:', e && e.message ? e.message : e);
-    return;
-  }
-
-  const toKill = new Set();
-  for (const line of stdout.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    const match = /^([0-9]+)\s+(.*)$/.exec(trimmed);
-    if (!match) {
-      continue;
-    }
-    const pid = Number.parseInt(match[1], 10);
-    if (pid === process.pid || pid === process.ppid) {
-      continue;
-    }
-    const cmd = normalizeForMatch(match[2] || '');
-    if (!Number.isInteger(pid) || !cmd) {
-      continue;
-    }
-    if (normalized.some(marker => cmd.includes(marker))) {
-      toKill.add(pid);
-    }
-  }
-
-  if (!toKill.size) {
-    return;
-  }
-
-  for (const pid of toKill) {
-    try {
-      process.kill(pid, 'SIGTERM');
-    } catch (e) {
-      if (e && e.code !== 'ESRCH') {
-        console.warn('[test-runner] Failed to TERM VS Code process', pid, e.message || e);
-      }
-    }
-  }
-
-  await delay(300);
-
-  for (const pid of toKill) {
-    if (!isProcessAlive(pid)) {
-      continue;
-    }
-    try {
-      process.kill(pid, 'SIGKILL');
-    } catch (e) {
-      if (e && e.code !== 'ESRCH') {
-        console.warn('[test-runner] Failed to KILL VS Code process', pid, e.message || e);
-      }
+    return await work();
+  } finally {
+    for (const [name, value] of saved) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
     }
   }
 }
@@ -659,13 +633,6 @@ async function run() {
     console.warn('[test-runner] Failed to chdir to repo root:', e && e.message ? e.message : e);
   }
 
-  // Ensure a clean user-data-dir before running. Cache is preserved by default.
-  try {
-    cleanVsCodeTest({ quiet: true });
-  } catch (e) {
-    console.warn('[test-runner] Pre-clean failed:', e && e.message ? e.message : e);
-  }
-
   // Ensure Electron launches as a GUI app, not Node.
   // Some environments leak ELECTRON_RUN_AS_NODE=1 which breaks VS Code when
   // passed common flags like --user-data-dir. Explicitly unset it here.
@@ -696,6 +663,18 @@ async function run() {
   const { cleanup } = await pretestSetup(args.scope, { smokeVsix: args.smokeVsix });
   let cleanupPromise;
   const cleanupOnce = () => cleanupPromise || (cleanupPromise = cleanup());
+  const interrupts = watchInterrupts();
+  let profileDir;
+  const removeProfile = () => {
+    if (!profileDir) return;
+    try {
+      rmSync(profileDir, { recursive: true, force: true });
+    } catch (error) {
+      console.warn('[test-runner] Could not remove the test profile:', error.message);
+    }
+  };
+  let timedOut = false;
+  let cleanupDeadline;
   try {
     // Hint Electron to avoid GPU issues in headless envs
     process.env.ELECTRON_DISABLE_GPU = process.env.ELECTRON_DISABLE_GPU || '1';
@@ -713,17 +692,23 @@ async function run() {
     // Download VS Code: default to stable for all test scopes.
     // Can be overridden via --vscode or VSCODE_TEST_VERSION.
     const vsVer = String(args.vscode || 'stable');
-    const vscodeCachePath = join(repoRoot, '.vscode-test');
-    const vscodeExecutablePath = await downloadAndUnzipVSCode({ version: vsVer, cachePath: vscodeCachePath });
+    profileDir = mkdtempSync(join(tmpdir(), 'alv-vscode-'));
+    // Other runs may be using the shared cache, so a clean request downloads into this run's profile instead.
+    const vscodeCachePath = cacheCleanRequested() ? join(profileDir, 'vscode-test') : join(repoRoot, '.vscode-test');
+    // The archive goes in the profile so that removing the profile removes it, even when a second Ctrl+C
+    // abandons the download.
+    const vscodeExecutablePath = await withTempDir(profileDir, () =>
+      interrupts.settle(() => downloadAndUnzipVSCode({ version: vsVer, cachePath: vscodeCachePath }))
+    );
     const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, {
       reuseMachineInstall: true
     });
+    const userDataDir = join(profileDir, 'user-data');
+    const localExtensionsDir = join(profileDir, 'extensions');
 
     // Install dependency extensions directly (docs approach) when running integration or all
     const shouldInstall = scope === 'integration' || scope === 'all' || !!args.installDeps;
-    const unitExtensionsDir = join(tmpdir(), 'alv-extensions-unit');
     const cachedExtensionsDir = join(vscodeCachePath, 'extensions');
-    let resolvedExtensionsDir = cachedExtensionsDir;
     if (shouldInstall) {
       const toInstall = (
         process.env.VSCODE_TEST_EXTENSIONS ||
@@ -732,7 +717,6 @@ async function run() {
         .split(',')
         .map(s => s.trim())
         .filter(Boolean);
-      const userDataDir = join(tmpdir(), 'alv-user-data');
       const extensionsDir = cachedExtensionsDir;
       try {
         mkdirSync(extensionsDir, { recursive: true });
@@ -741,35 +725,25 @@ async function run() {
       }
 
       const forceInstall = !!args.forceInstallDeps;
-      const installed = new Set();
-      try {
-        const list = spawnSync(
+      // In WSL, code CLI prompts; feed 'y' automatically. Also isolate dirs.
+      const codeCli = (cliArguments, capture) =>
+        interrupts.start(
           cliPath,
-          [
-            ...cliArgs,
-            '--list-extensions',
-            '--show-versions',
-            '--user-data-dir',
-            userDataDir,
-            '--extensions-dir',
-            extensionsDir
-          ],
+          [...cliArgs, ...cliArguments, '--user-data-dir', userDataDir, '--extensions-dir', extensionsDir],
           {
-            stdio: ['pipe', 'pipe', 'pipe'],
-            encoding: 'utf8',
             input: 'y\n',
+            capture,
+            allowFailure: true,
             env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
           }
-        );
-        const out = [list.stdout, list.stderr].filter(Boolean).join('\n').trim();
-        for (const line of out.split(/\r?\n/)) {
-          const trimmed = (line || '').trim();
-          if (!trimmed) continue;
-          const id = trimmed.split('@')[0].trim().toLowerCase();
-          if (id) installed.add(id);
-        }
-      } catch (e) {
-        // ignore and try installing anyway
+        ).finished;
+      const installed = new Set();
+      const { output: alreadyInstalled } = await codeCli(['--list-extensions', '--show-versions'], true);
+      for (const line of alreadyInstalled.split(/\r?\n/)) {
+        const trimmed = (line || '').trim();
+        if (!trimmed) continue;
+        const id = trimmed.split('@')[0].trim().toLowerCase();
+        if (id) installed.add(id);
       }
 
       for (const id of toInstall) {
@@ -779,53 +753,14 @@ async function run() {
           continue;
         }
         console.log(`[deps] Installing extension: ${id}${forceInstall ? ' (forced)' : ''}`);
-        // In WSL, code CLI prompts; feed 'y' automatically. Also isolate dirs.
-        const args = [
-          ...cliArgs,
-          '--install-extension',
-          id,
-          '--force',
-          '--user-data-dir',
-          userDataDir,
-          '--extensions-dir',
-          extensionsDir
-        ];
-        const res = spawnSync(cliPath, args, {
-          stdio: ['pipe', 'inherit', 'inherit'],
-          encoding: 'utf8',
-          input: 'y\n',
-          env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
-        });
+        const res = await codeCli(['--install-extension', id, '--force'], false);
         if (res.status !== 0) {
           console.warn(`[deps] Failed to install ${id}. Continuing; tests may skip/fail.`);
         }
       }
-      let installedOutput = '';
       // List extensions to aid debugging and verify the isolated profile contents
-      try {
-        const list = spawnSync(
-          cliPath,
-          [
-            ...cliArgs,
-            '--list-extensions',
-            '--show-versions',
-            '--user-data-dir',
-            userDataDir,
-            '--extensions-dir',
-            extensionsDir
-          ],
-          {
-            stdio: ['pipe', 'pipe', 'pipe'],
-            encoding: 'utf8',
-            input: 'y\n',
-            env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
-          }
-        );
-        installedOutput = [list.stdout, list.stderr].filter(Boolean).join('\n').trim();
-        console.log('[deps] Extensions installed in test dir:\n' + installedOutput);
-      } catch (e) {
-        console.warn('[deps] Failed to list installed extensions:', e && e.message ? e.message : e);
-      }
+      const { output: installedOutput } = await codeCli(['--list-extensions', '--show-versions'], true);
+      console.log('[deps] Extensions installed in test dir:\n' + installedOutput);
 
       const missingExtensions = resolveMissingExtensionIds(toInstall, installedOutput);
       if (missingExtensions.length) {
@@ -835,40 +770,41 @@ async function run() {
       }
     }
 
-    // Run tests via @vscode/test-electron with our programmatic Mocha runner
     let extensionDevelopmentPath = resolve(__dirname, '..', 'apps', 'vscode-extension');
     let extensionTestsPath = resolve(__dirname, '..', 'apps', 'vscode-extension', 'out', 'test', 'runner.js');
 
     if (!args.smokeVsix) {
-      await buildExtensionTestRunner(repoRoot);
+      await interrupts.settle(() => buildExtensionTestRunner(repoRoot));
     }
+    const extensionsDir = shouldInstall && !args.smokeVsix ? cachedExtensionsDir : localExtensionsDir;
 
     // Optional: VSIX smoke mode installs the freshly built VSIX and runs a minimal activation test
     if (args.smokeVsix) {
       // Package VSIX
       console.log('[smoke] Packaging VSIX...');
       // Build artifacts (avoid full 'package' to reduce flakiness on CI)
-      await execFileAsync('pnpm', ['run', 'build']);
+      await interrupts.start('pnpm', ['run', 'build'], { capture: true }).finished;
       // Ensure l10n bundles exist (best-effort)
-      try {
-        await execFileAsync('pnpm', ['run', 'l10n:write']);
-      } catch {}
-      const smokeVsixPath = join(repoRoot, 'apex-log-viewer-smoke.vsix');
-      await execStreaming(process.execPath, [
-        resolve(repoRoot, 'scripts', 'run-vsce.js'),
-        'package',
-        '--no-dependencies',
-        '--skip-prepublish',
-        '--no-yarn',
-        '--out',
-        smokeVsixPath
-      ]);
+      await interrupts.start('pnpm', ['run', 'l10n:write'], { capture: true, allowFailure: true }).finished;
+      const smokeVsixPath = join(profileDir, 'apex-log-viewer-smoke.vsix');
+      await interrupts.start(
+        process.execPath,
+        [
+          resolve(repoRoot, 'scripts', 'run-vsce.js'),
+          'package',
+          '--no-dependencies',
+          '--skip-prepublish',
+          '--no-yarn',
+          '--out',
+          smokeVsixPath
+        ],
+        // Its staging copy goes in the profile too, so a SIGKILL that skips its own cleanup leaves no stage.
+        { label: 'VSIX packaging', env: { ...process.env, ...tempDirEnv(profileDir) } }
+      ).finished;
       if (!existsSync(smokeVsixPath)) throw new Error('[smoke] VSIX not found');
       // Install into test profile
-      const userDataDir = join(tmpdir(), 'alv-user-data');
-      const extensionsDir = join(tmpdir(), 'alv-extensions');
       console.log('[smoke] Installing VSIX into isolated profile...');
-      const inst = spawnSync(
+      const inst = await interrupts.start(
         cliPath,
         [
           ...cliArgs,
@@ -880,18 +816,14 @@ async function run() {
           '--extensions-dir',
           extensionsDir
         ],
-        {
-          stdio: ['pipe', 'inherit', 'inherit'],
-          encoding: 'utf8',
-          input: 'y\n',
-          env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
-        }
-      );
+        { input: 'y\n', allowFailure: true, env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' } }
+      ).finished;
       if (inst.status !== 0) {
         throw new Error('[smoke] Failed to install VSIX');
       }
       // Create minimal harness extension
-      const dev = mkdtempSync(join(tmpdir(), 'alv-smoke-dev-'));
+      const dev = join(profileDir, 'smoke-dev');
+      mkdirSync(dev);
       const pkg = {
         name: 'alv-smoke-harness',
         version: '0.0.0',
@@ -919,12 +851,8 @@ async function run() {
         '};',
         ''
       ].join('\n');
-      const testsDir = mkdtempSync(join(tmpdir(), 'alv-smoke-tests-'));
-      extensionTestsPath = join(testsDir, 'smoke-runner.js');
+      extensionTestsPath = join(profileDir, 'smoke-runner.js');
       writeFileSync(extensionTestsPath, runner, 'utf8');
-      // Override launchArgs to reuse the isolated profile with installed VSIX
-      process.env.__ALV_SMOKE_USER_DIR = userDataDir;
-      process.env.__ALV_SMOKE_EXT_DIR = extensionsDir;
     }
     // Configure Mocha grep via env for the in-host runner
     if (scope === 'unit') {
@@ -938,85 +866,61 @@ async function run() {
       delete process.env.VSCODE_TEST_INVERT;
     }
 
-    let timedOut = false;
-    const killer = setTimeout(async () => {
+    mkdirSync(extensionsDir, { recursive: true });
+    const launch = [
+      '--user-data-dir',
+      userDataDir,
+      '--extensions-dir',
+      extensionsDir,
+      ...macKeychainLaunchArgs(),
+      ...(process.env.VSCODE_TEST_WORKSPACE ? [process.env.VSCODE_TEST_WORKSPACE] : []),
+      '--no-sandbox',
+      '--disable-gpu-sandbox',
+      '--disable-updates',
+      '--skip-welcome',
+      '--skip-release-notes',
+      '--no-cached-data',
+      '--disable-workspace-trust',
+      `--extensionTestsPath=${extensionTestsPath}`,
+      `--extensionDevelopmentPath=${extensionDevelopmentPath}`
+    ];
+    const host = interrupts.start(vscodeExecutablePath, launch, { label: 'VS Code test host' });
+    const killer = setTimeout(() => {
       timedOut = true;
       console.error(`\n[test-runner] Timed out after ${Math.round(totalTimeout / 1000)}s. Cleaning up...`);
-      const cleanupKiller = setTimeout(() => {
+      cleanupDeadline = setTimeout(() => {
         console.error(
           `[test-runner] Cleanup still pending after 30s. Scratch deletion is unconfirmed; preserve scratch authorization and any alv-devhub-jwt-* state under ${tmpdir()} for recovery. See the scratch alias in setup output.`
         );
+        removeProfile();
         process.exit(124);
       }, 30_000);
-      try {
-        await cleanupOnce();
-      } catch (error) {
-        console.error('[test-runner] Cleanup failed:', error.message);
-      } finally {
-        clearTimeout(cleanupKiller);
-      }
-      process.exit(124);
+      host.stop('SIGKILL');
+      cleanupOnce().catch(() => {});
     }, totalTimeout);
 
-    const defaultUserDataDir = join(tmpdir(), 'alv-user-data');
-    const defaultExtensionsDir = shouldInstall ? resolvedExtensionsDir : unitExtensionsDir;
     try {
-      mkdirSync(defaultExtensionsDir, { recursive: true });
-    } catch (e) {
-      console.warn('[test-runner] Failed to create extensions dir:', e && e.message ? e.message : e);
-    }
-    let userDataDir = process.env.__ALV_SMOKE_USER_DIR || defaultUserDataDir;
-    let extensionsDir = process.env.__ALV_SMOKE_EXT_DIR || defaultExtensionsDir;
-
-    try {
-      userDataDir = process.env.__ALV_SMOKE_USER_DIR || defaultUserDataDir;
-      extensionsDir = process.env.__ALV_SMOKE_EXT_DIR || defaultExtensionsDir;
-
-      const launch = [
-        '--user-data-dir',
-        userDataDir,
-        '--extensions-dir',
-        extensionsDir,
-        '--skip-welcome',
-        '--skip-release-notes',
-        // Use the prepared workspace (set in pretestSetup)
-        ...(process.env.VSCODE_TEST_WORKSPACE ? [process.env.VSCODE_TEST_WORKSPACE] : [])
-      ];
-      const extensionTestsEnv = {};
-      if (process.env.NODE_V8_COVERAGE) {
-        extensionTestsEnv.NODE_V8_COVERAGE = process.env.NODE_V8_COVERAGE;
-      }
-      if (process.env.NODE_OPTIONS) {
-        extensionTestsEnv.NODE_OPTIONS = process.env.NODE_OPTIONS;
-      }
-      if (process.env.ENABLE_COVERAGE) {
-        extensionTestsEnv.ENABLE_COVERAGE = process.env.ENABLE_COVERAGE;
-      }
-
-      await runTests({
-        vscodeExecutablePath,
-        extensionDevelopmentPath,
-        extensionTestsPath,
-        extensionTestsEnv: Object.keys(extensionTestsEnv).length ? extensionTestsEnv : undefined,
-        launchArgs: launch
-      });
+      await host.finished;
+    } catch (error) {
+      if (!timedOut) throw error;
     } finally {
       clearTimeout(killer);
-      if (timedOut) {
-        return;
-      }
-
-      try {
-        const cleanupMarkers = [vscodeExecutablePath, 'chrome_crashpad_handler'];
-        await killLeakedVSCodeProcesses(cleanupMarkers);
-        cleanVsCodeTest({ quiet: true });
-      } catch (e) {
-        console.warn('[test-runner] VS Code cleanup failed:', e && e.message ? e.message : e);
-      }
     }
   } finally {
-    await cleanupOnce();
+    removeProfile();
+    try {
+      await cleanupOnce();
+    } catch (error) {
+      if (!timedOut) throw error;
+      console.error('[test-runner] Cleanup failed:', error.message);
+    } finally {
+      clearTimeout(cleanupDeadline);
+      // A download abandoned by a second Ctrl+C keeps extracting into the profile until the process exits.
+      removeProfile();
+      interrupts.dispose();
+    }
   }
+  if (timedOut) process.exit(124);
 }
 
 if (require.main === module) {

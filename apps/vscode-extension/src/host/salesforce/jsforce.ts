@@ -1,11 +1,12 @@
-import { Connection, type HttpRequest, type SaveResult } from '@jsforce/jsforce-node';
+import type { Connection, HttpRequest, SaveResult } from '@jsforce/jsforce-node';
 import * as https from 'https';
 import { gunzip, inflate } from 'zlib';
 import { URL } from 'url';
-import { createApexLogViewerCore } from '@alv/core';
+import { createSessionConnection } from '@alv/core';
 import { parseApiVersion, recordApiVersionFallback } from './apiVersion';
 import type { OrgAuth } from './types';
 import { logWarn } from '../utils/logger';
+import { runtimeClient } from '../../runtime/runtimeClient';
 import { stringifyUnknown } from '../utils/error';
 
 type HttpsRequestFn = typeof https.request;
@@ -30,14 +31,10 @@ export type JsforceConnectionLike = Pick<Connection, 'request' | 'query' | 'quer
   streaming: Connection['streaming'];
 };
 
-type ConnectionFactory = (
-  auth: OrgAuth,
-  apiVersion: string
-) => Promise<JsforceConnectionLike> | JsforceConnectionLike;
+type ConnectionFactory = (auth: OrgAuth, apiVersion: string) => Promise<JsforceConnectionLike> | JsforceConnectionLike;
 
 let httpsRequestImplForTests: HttpsRequestFn | undefined;
 let connectionFactoryForTests: ConnectionFactory | undefined;
-const core = createApexLogViewerCore();
 
 export function __setHttpsRequestImplForTests(fn: HttpsRequestFn): void {
   httpsRequestImplForTests = fn;
@@ -63,11 +60,8 @@ function chooseEncoding(value: string | string[] | undefined): string {
   if (!value) {
     return '';
   }
-  const raw = Array.isArray(value) ? value.find(Boolean) ?? '' : value;
-  return raw
-    .split(',')[0]
-    ?.trim()
-    .toLowerCase() ?? '';
+  const raw = Array.isArray(value) ? (value.find(Boolean) ?? '') : value;
+  return raw.split(',')[0]?.trim().toLowerCase() ?? '';
 }
 
 function decompressBody(buffer: Buffer, encodingHeader: string | string[] | undefined): Promise<Buffer> {
@@ -162,41 +156,33 @@ function isVersionNotFound404(error: unknown): boolean {
   return /not[_\s-]?found|requested resource does not exist/i.test(errorText(error));
 }
 
-export async function createConnectionFromAuth(
-  auth: OrgAuth,
-  apiVersion: string
-): Promise<JsforceConnectionLike> {
+export async function createConnectionFromAuth(auth: OrgAuth, apiVersion: string): Promise<JsforceConnectionLike> {
   if (connectionFactoryForTests) {
     return await connectionFactoryForTests(auth, apiVersion);
   }
 
-  const connection = new Connection({
+  // The session comes from the extension's single core, which asks `sf` for a new one after a rejection.
+  const connection = createSessionConnection({
+    username: auth.username ?? '',
+    session: { accessToken: auth.accessToken, instanceUrl: auth.instanceUrl },
     version: apiVersion,
-    instanceUrl: auth.instanceUrl,
-    accessToken: auth.accessToken,
-    refreshFn: (conn, callback) => {
-      void (async () => {
-        try {
-          const next = await core.org.getAuth({ username: auth.username, refresh: true });
-          auth.accessToken = next.accessToken;
-          auth.instanceUrl = next.instanceUrl;
-          auth.username = next.username;
-          conn.instanceUrl = next.instanceUrl;
-          callback(null, next.accessToken, {
-            access_token: next.accessToken,
-            instance_url: next.instanceUrl
-          } as any);
-        } catch (error) {
-          callback(error instanceof Error ? error : new Error(errorText(error)));
-        }
-      })();
+    renew: async rejected => {
+      const next = await runtimeClient.getOrgAuth({ username: auth.username, rejected });
+      auth.accessToken = next.accessToken;
+      auth.instanceUrl = next.instanceUrl;
+      auth.username = next.username;
+      return next;
     }
   });
 
   return connection as JsforceConnectionLike;
 }
 
-async function discoverOrgMaxApiVersion(auth: OrgAuth, timeoutMs?: number, signal?: AbortSignal): Promise<string | undefined> {
+async function discoverOrgMaxApiVersion(
+  auth: OrgAuth,
+  timeoutMs?: number,
+  signal?: AbortSignal
+): Promise<string | undefined> {
   const base = String(auth.instanceUrl || '').replace(/\/+$/, '');
   if (!base) {
     return undefined;

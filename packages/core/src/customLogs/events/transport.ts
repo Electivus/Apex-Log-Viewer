@@ -7,7 +7,7 @@
  * disconnect, `400::` / `403::` strings, Avro for Pub/Sub. What crosses it is parsed domain data.
  */
 
-import type { Connection } from '@salesforce/core';
+import type { Connection } from '@jsforce/jsforce-node';
 
 import type { EventUuid, ReplayCursor } from './ids.js';
 

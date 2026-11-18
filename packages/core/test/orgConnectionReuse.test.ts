@@ -1,32 +1,10 @@
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import os from 'node:os';
-import path from 'node:path';
-import test, { after, mock } from 'node:test';
-
-import { StateAggregator } from '@salesforce/core';
+import test from 'node:test';
 
 import { AlvError, createApexLogViewerCore } from '../src/index.ts';
-
-const originalCwd = process.cwd();
-const sfHome = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-sf-home-'));
-process.env.HOME = sfHome;
-process.env.USERPROFILE = sfHome;
-process.env.SF_USE_GENERIC_UNIX_KEYCHAIN = 'true';
-process.env.SF_DISABLE_LOG_FILE = 'true';
-process.env.SF_DISABLE_DNS_CHECK = 'true';
-// Under pt-BR or de-DE the SDK writes a version timestamp it cannot parse back, so its version cache never hits.
-// Ignoring that cache reproduces those locales on every machine.
-process.env.SFDX_IGNORE_API_VERSION_CACHE = 'true';
-process.chdir(sfHome);
-after(() => {
-  process.chdir(originalCwd);
-  fs.rmSync(sfHome, { recursive: true, force: true });
-});
-
-const authFileWrites = mock.method(fs.promises, 'writeFile');
+import { authSourceDouble, saveOrgAuth } from './support/salesforceDouble.ts';
 
 const recordsBySobject: Record<string, Record<string, unknown>> = {
   ApexLog: {
@@ -88,7 +66,6 @@ type SalesforceDouble = {
   queryTokens: () => string[];
   deleteTokens: () => string[];
   holdVersionList: () => () => void;
-  holdTokenRefresh: () => () => void;
   holdQueries: () => () => void;
 };
 
@@ -101,11 +78,8 @@ function routeOf(method: string | undefined, pathname: string): Route {
   return pathname.endsWith('/query') ? 'query' : 'other';
 }
 
-async function startSalesforceDouble(
-  t: test.TestContext,
-  acceptedTokens: string[],
-  renewedToken?: string
-): Promise<SalesforceDouble> {
+/** An org that accepts only `acceptedTokens`. Its OAuth endpoint refuses everyone: only the auth source renews. */
+async function startSalesforceDouble(t: test.TestContext, acceptedTokens: string[]): Promise<SalesforceDouble> {
   const requests: Array<{ route: Route; token: string }> = [];
   const accepted = new Set(acceptedTokens);
   const gates = new Map<Route, Promise<void>>();
@@ -132,17 +106,6 @@ async function startSalesforceDouble(
     };
     if (route === 'versionList') {
       send(200, [{ label: "Spring '25", url: '/services/data/v63.0', version: '63.0' }]);
-      return;
-    }
-    if (route === 'tokenRefresh' && renewedToken) {
-      const instanceUrl = `http://${request.headers.host}`;
-      accepted.add(renewedToken);
-      send(200, {
-        access_token: renewedToken,
-        instance_url: instanceUrl,
-        id: `${instanceUrl}/id/00D000000000001AAA/005000000000001AAA`,
-        token_type: 'Bearer'
-      });
       return;
     }
     if (route === 'tokenRefresh') {
@@ -180,7 +143,6 @@ async function startSalesforceDouble(
     queryTokens: () => requests.filter(request => request.route === 'query').map(request => request.token),
     deleteTokens: () => requests.filter(request => request.route === 'delete').map(request => request.token),
     holdVersionList: hold('versionList'),
-    holdTokenRefresh: hold('tokenRefresh'),
     holdQueries: hold('query')
   };
 }
@@ -189,41 +151,20 @@ async function until(condition: () => boolean): Promise<void> {
   while (!condition()) await new Promise(resolve => setImmediate(resolve));
 }
 
-/**
- * `write` alone merges with the file last-write-wins, and the file's mtime can run ahead of the clock the SDK stamps
- * its writes with, so a save just after the SDK rewrote the file can lose to the token already there. Removing the
- * file first leaves nothing to merge with.
- */
-async function saveOrgAuth(
-  username: string,
-  instanceUrl: string,
-  tokens: { accessToken: string; refreshToken?: string }
-): Promise<void> {
-  const state = await StateAggregator.getInstance();
-  await state.orgs.remove(username);
-  state.orgs.set(username, {
-    username,
-    orgId: '00D000000000001AAA',
-    orgEdition: 'Developer Edition',
-    namespacePrefix: null,
-    instanceUrl,
-    loginUrl: instanceUrl,
-    ...tokens
-  });
-  await state.orgs.write(username);
+/** Salesforce stops accepting every token it knew, as after a revoked or expired session. */
+function revokeSessions(salesforce: SalesforceDouble, ...replacements: string[]): void {
+  salesforce.acceptedTokens.clear();
+  for (const token of replacements) salesforce.acceptedTokens.add(token);
 }
 
-function authFileWritesFor(username: string): number {
-  const authFile = path.join(sfHome, '.sfdx', `${username}.json`);
-  return authFileWrites.mock.calls.filter(call => String(call.arguments[0]) === authFile).length;
-}
+const isAuthRequired = (error: unknown) => error instanceof AlvError && error.code === 'AUTH_REQUIRED';
 
-test('five operations against one org look up its API version once and rewrite its auth file once', async t => {
+test('five operations against one org ask the auth source for one session and look up the API version once', async t => {
   const username = 'reuse@example.com';
   const salesforce = await startSalesforceDouble(t, ['token-reuse']);
-  await saveOrgAuth(username, salesforce.instanceUrl, { accessToken: 'token-reuse' });
-  const writesBefore = authFileWritesFor(username);
-  const core = createApexLogViewerCore();
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-reuse');
+  const auth = authSourceDouble();
+  const core = createApexLogViewerCore({ auth });
   t.after(() => core.dispose());
 
   const resolved = await core.org.resolve({ targetOrg: username });
@@ -258,111 +199,166 @@ test('five operations against one org look up its API version once and rewrite i
   });
   assert.deepEqual(classes.records, [{ Id: '01p000000000001AAA', Name: 'OrderService' }]);
   assert.equal(salesforce.versionListRequests(), 1);
-  assert.equal(authFileWritesFor(username) - writesBefore, 1);
+  assert.deepEqual(auth.sessionReasons(username), ['first-use']);
 });
 
-test('a session Salesforce rejects is rebuilt from the saved auth and retried once', async t => {
+test('org auth answers from the session in memory and asks the source again only for a rejected token', async t => {
+  const username = 'auth-memory@example.com';
+  const salesforce = await startSalesforceDouble(t, []);
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-first');
+  const auth = authSourceDouble();
+  const core = createApexLogViewerCore({ auth });
+  t.after(() => core.dispose());
+  const session = (accessToken: string) => ({ accessToken, instanceUrl: salesforce.instanceUrl, username });
+
+  assert.deepEqual(await core.org.getAuth({ username }), session('token-first'));
+  assert.deepEqual(await core.org.getAuth({ username }), session('token-first'));
+  assert.deepEqual(auth.sessionReasons(username), ['first-use']);
+
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-renewed');
+  assert.deepEqual(await core.org.getAuth({ username, rejected: 'token-first' }), session('token-renewed'));
+  assert.deepEqual(await core.org.getAuth({ username }), session('token-renewed'));
+  assert.deepEqual(
+    await core.org.getAuth({ username, rejected: 'token-first' }),
+    session('token-renewed'),
+    'a caller late with the old token gets the session already renewed'
+  );
+  assert.deepEqual(auth.sessionReasons(username), ['first-use', 'rejected']);
+  assert.equal(salesforce.requestCount(), 0, 'handing out a session sends nothing to Salesforce');
+});
+
+test('a session Salesforce rejects is renewed once through the auth source and the request retried', async t => {
   const username = 'revoked@example.com';
   const salesforce = await startSalesforceDouble(t, ['token-first']);
-  await saveOrgAuth(username, salesforce.instanceUrl, { accessToken: 'token-first' });
-  const core = createApexLogViewerCore();
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-first');
+  const auth = authSourceDouble();
+  const core = createApexLogViewerCore({ auth });
   t.after(() => core.dispose());
 
   assert.deepEqual(await core.debugLevel.list({ targetOrg: username }), [debugLevel]);
-  salesforce.acceptedTokens.clear();
-  salesforce.acceptedTokens.add('token-relogin');
-  await saveOrgAuth(username, salesforce.instanceUrl, { accessToken: 'token-relogin' });
+  revokeSessions(salesforce, 'token-renewed');
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-renewed');
 
   assert.deepEqual(await core.debugLevel.list({ targetOrg: username }), [debugLevel]);
-  assert.deepEqual(salesforce.queryTokens(), ['token-first', 'token-first', 'token-relogin']);
-
-  salesforce.acceptedTokens.clear();
-  await assert.rejects(
-    core.debugLevel.list({ targetOrg: username }),
-    (error: Error & { errorCode?: string }) => error.errorCode === 'INVALID_SESSION_ID'
-  );
-  assert.deepEqual(salesforce.queryTokens(), [
-    'token-first',
-    'token-first',
-    'token-relogin',
-    'token-relogin',
-    'token-relogin'
-  ]);
+  assert.deepEqual(await core.debugLevel.list({ targetOrg: username }), [debugLevel]);
+  assert.deepEqual(salesforce.queryTokens(), ['token-first', 'token-first', 'token-renewed', 'token-renewed']);
+  assert.deepEqual(auth.sessionReasons(username), ['first-use', 'rejected']);
+  assert.equal(salesforce.tokenRefreshRequests(), 0, 'core never refreshes a token itself');
 });
 
-test('a session whose refresh token was revoked is rebuilt from the saved auth', async t => {
-  const username = 'refresh-revoked@example.com';
-  const salesforce = await startSalesforceDouble(t, ['token-expiring']);
-  await saveOrgAuth(username, salesforce.instanceUrl, {
-    accessToken: 'token-expiring',
-    refreshToken: 'refresh-revoked'
-  });
-  const core = createApexLogViewerCore();
-  t.after(() => core.dispose());
-
-  assert.deepEqual(await core.debugLevel.list({ targetOrg: username }), [debugLevel]);
-  salesforce.acceptedTokens.clear();
-  salesforce.acceptedTokens.add('token-relogin');
-  await saveOrgAuth(username, salesforce.instanceUrl, {
-    accessToken: 'token-relogin',
-    refreshToken: 'refresh-relogin'
-  });
-
-  assert.deepEqual(await core.debugLevel.list({ targetOrg: username }), [debugLevel]);
-  assert.deepEqual(salesforce.queryTokens(), ['token-expiring', 'token-expiring', 'token-relogin']);
-  assert.equal(salesforce.tokenRefreshRequests(), 1);
-});
-
-test('two callers waiting on one failed token refresh both rebuild from the saved auth', async t => {
+test('concurrent requests Salesforce rejects share one renewal', async t => {
   const username = 'refresh-shared@example.com';
   const salesforce = await startSalesforceDouble(t, ['token-expiring']);
-  await saveOrgAuth(username, salesforce.instanceUrl, {
-    accessToken: 'token-expiring',
-    refreshToken: 'refresh-revoked'
-  });
-  const core = createApexLogViewerCore();
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-expiring');
+  const auth = authSourceDouble();
+  const core = createApexLogViewerCore({ auth });
   t.after(() => core.dispose());
 
   assert.deepEqual(await core.debugLevel.list({ targetOrg: username }), [debugLevel]);
-  salesforce.acceptedTokens.clear();
-  salesforce.acceptedTokens.add('token-relogin');
-  await saveOrgAuth(username, salesforce.instanceUrl, {
-    accessToken: 'token-relogin',
-    refreshToken: 'refresh-relogin'
-  });
+  revokeSessions(salesforce, 'token-renewed');
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-renewed');
   const releaseQueries = salesforce.holdQueries();
-  const releaseTokenRefresh = salesforce.holdTokenRefresh();
 
   const first = core.debugLevel.list({ targetOrg: username });
   const second = core.debugLevel.list({ targetOrg: username });
   await until(() => salesforce.queryTokens().length === 3);
   releaseQueries();
-  await until(() => salesforce.tokenRefreshRequests() === 1);
-  releaseTokenRefresh();
 
   assert.deepEqual(await Promise.all([first, second]), [[debugLevel], [debugLevel]]);
   assert.deepEqual(salesforce.queryTokens(), [
     'token-expiring',
     'token-expiring',
     'token-expiring',
-    'token-relogin',
-    'token-relogin'
+    'token-renewed',
+    'token-renewed'
   ]);
-  assert.equal(salesforce.tokenRefreshRequests(), 1);
-  assert.equal(salesforce.versionListRequests(), 2);
+  assert.deepEqual(auth.sessionReasons(username), ['first-use', 'rejected']);
+  assert.equal(salesforce.versionListRequests(), 1);
 });
 
-test('a log delete whose session Salesforce rejects is retried on a rebuilt connection', async t => {
-  const username = 'delete-relogin@example.com';
+test('an auth source that hands back the rejected token ends with AUTH_REQUIRED', async t => {
+  const username = 'logged-out@example.com';
   const salesforce = await startSalesforceDouble(t, ['token-first']);
-  await saveOrgAuth(username, salesforce.instanceUrl, { accessToken: 'token-first' });
-  const core = createApexLogViewerCore();
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-first');
+  const auth = authSourceDouble();
+  const core = createApexLogViewerCore({ auth });
   t.after(() => core.dispose());
 
   assert.deepEqual(await core.debugLevel.list({ targetOrg: username }), [debugLevel]);
-  salesforce.acceptedTokens.clear();
-  salesforce.acceptedTokens.add('token-relogin');
-  await saveOrgAuth(username, salesforce.instanceUrl, { accessToken: 'token-relogin' });
+  revokeSessions(salesforce);
+
+  await assert.rejects(core.debugLevel.list({ targetOrg: username }), isAuthRequired);
+  assert.deepEqual(auth.sessionReasons(username), ['first-use', 'rejected']);
+  assert.deepEqual(salesforce.queryTokens(), ['token-first', 'token-first']);
+});
+
+test('after AUTH_REQUIRED, the next operation uses the session of a new login', async t => {
+  const username = 'relogin@example.com';
+  const salesforce = await startSalesforceDouble(t, ['token-first']);
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-first');
+  const auth = authSourceDouble();
+  const core = createApexLogViewerCore({ auth });
+  t.after(() => core.dispose());
+
+  assert.deepEqual(await core.debugLevel.list({ targetOrg: username }), [debugLevel]);
+  revokeSessions(salesforce);
+  await assert.rejects(core.debugLevel.list({ targetOrg: username }), isAuthRequired);
+
+  revokeSessions(salesforce, 'token-relogin');
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-relogin');
+
+  assert.deepEqual(await core.debugLevel.list({ targetOrg: username }), [debugLevel]);
+  assert.equal(salesforce.queryTokens().at(-1), 'token-relogin');
+});
+
+test('a renewed token Salesforce rejects again ends with AUTH_REQUIRED without asking the source a third time', async t => {
+  const username = 'renewed-rejected@example.com';
+  const salesforce = await startSalesforceDouble(t, ['token-first']);
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-first');
+  const auth = authSourceDouble();
+  const core = createApexLogViewerCore({ auth });
+  t.after(() => core.dispose());
+
+  assert.deepEqual(await core.debugLevel.list({ targetOrg: username }), [debugLevel]);
+  revokeSessions(salesforce);
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-renewed');
+
+  await assert.rejects(core.debugLevel.list({ targetOrg: username }), isAuthRequired);
+  assert.deepEqual(salesforce.queryTokens(), ['token-first', 'token-first', 'token-renewed']);
+  assert.deepEqual(auth.sessionReasons(username), ['first-use', 'rejected']);
+});
+
+test('after a renewed session is refused again, the next operation uses the session of a new login', async t => {
+  const username = 'renewed-relogin@example.com';
+  const salesforce = await startSalesforceDouble(t, ['token-first']);
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-first');
+  const auth = authSourceDouble();
+  const core = createApexLogViewerCore({ auth });
+  t.after(() => core.dispose());
+
+  assert.deepEqual(await core.debugLevel.list({ targetOrg: username }), [debugLevel]);
+  revokeSessions(salesforce);
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-renewed');
+  await assert.rejects(core.debugLevel.list({ targetOrg: username }), isAuthRequired);
+
+  revokeSessions(salesforce, 'token-relogin');
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-relogin');
+
+  assert.deepEqual(await core.debugLevel.list({ targetOrg: username }), [debugLevel]);
+  assert.equal(salesforce.queryTokens().at(-1), 'token-relogin');
+});
+
+test('a log delete whose session Salesforce rejects is retried with the renewed session', async t => {
+  const username = 'delete-relogin@example.com';
+  const salesforce = await startSalesforceDouble(t, ['token-first']);
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-first');
+  const auth = authSourceDouble();
+  const core = createApexLogViewerCore({ auth });
+  t.after(() => core.dispose());
+
+  assert.deepEqual(await core.debugLevel.list({ targetOrg: username }), [debugLevel]);
+  revokeSessions(salesforce, 'token-renewed');
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-renewed');
 
   const result = await core.log.delete({
     targetOrg: username,
@@ -382,21 +378,22 @@ test('a log delete whose session Salesforce rejects is retried on a rebuilt conn
     cancelled: 0,
     failedLogIds: []
   });
-  assert.deepEqual(salesforce.deleteTokens(), ['token-first', 'token-relogin']);
+  assert.deepEqual(salesforce.deleteTokens(), ['token-first', 'token-renewed']);
+  assert.deepEqual(auth.sessionReasons(username), ['first-use', 'rejected']);
 });
 
-test('a log delete whose every chunk Salesforce rejects is retried once on a rebuilt connection', async t => {
+test('a log delete whose every chunk Salesforce rejects renews the session once', async t => {
   const username = 'delete-chunks-relogin@example.com';
   const salesforce = await startSalesforceDouble(t, ['token-first']);
-  await saveOrgAuth(username, salesforce.instanceUrl, { accessToken: 'token-first' });
-  const core = createApexLogViewerCore();
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-first');
+  const auth = authSourceDouble();
+  const core = createApexLogViewerCore({ auth });
   t.after(() => core.dispose());
   const logIds = Array.from({ length: 201 }, (_, index) => `07L${String(index).padStart(12, '0')}AAA`);
 
   assert.deepEqual(await core.debugLevel.list({ targetOrg: username }), [debugLevel]);
-  salesforce.acceptedTokens.clear();
-  salesforce.acceptedTokens.add('token-relogin');
-  await saveOrgAuth(username, salesforce.instanceUrl, { accessToken: 'token-relogin' });
+  revokeSessions(salesforce, 'token-renewed');
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-renewed');
 
   const result = await core.log.delete({ targetOrg: username, ids: logIds, confirmed: true });
 
@@ -412,67 +409,39 @@ test('a log delete whose every chunk Salesforce rejects is retried once on a reb
     cancelled: 0,
     failedLogIds: []
   });
-  assert.deepEqual(salesforce.deleteTokens(), ['token-first', 'token-first', 'token-relogin', 'token-relogin']);
-});
-
-test('org auth renews an expired token only when asked to refresh', async t => {
-  const username = 'auth-refresh@example.com';
-  const salesforce = await startSalesforceDouble(t, [], 'token-renewed');
-  await saveOrgAuth(username, salesforce.instanceUrl, {
-    accessToken: 'token-expired',
-    refreshToken: 'refresh-valid'
-  });
-  const core = createApexLogViewerCore();
-  t.after(() => core.dispose());
-
-  assert.deepEqual(await core.org.getAuth({ username }), {
-    accessToken: 'token-expired',
-    instanceUrl: salesforce.instanceUrl,
-    username
-  });
-  assert.equal(salesforce.requestCount(), 0);
-
-  assert.deepEqual(await core.org.getAuth({ username, refresh: true }), {
-    accessToken: 'token-renewed',
-    instanceUrl: salesforce.instanceUrl,
-    username
-  });
-  assert.equal(salesforce.tokenRefreshRequests(), 1);
-
-  assert.deepEqual(await core.org.getAuth({ username }), {
-    accessToken: 'token-renewed',
-    instanceUrl: salesforce.instanceUrl,
-    username
-  });
-  assert.equal(salesforce.tokenRefreshRequests(), 1);
+  assert.deepEqual(salesforce.deleteTokens(), ['token-first', 'token-first', 'token-renewed', 'token-renewed']);
+  assert.deepEqual(auth.sessionReasons(username), ['first-use', 'rejected']);
 });
 
 test('cancelling one caller does not cancel the connection another caller is waiting for', async t => {
   const username = 'shared@example.com';
   const salesforce = await startSalesforceDouble(t, ['token-shared']);
-  await saveOrgAuth(username, salesforce.instanceUrl, { accessToken: 'token-shared' });
-  const core = createApexLogViewerCore();
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-shared');
+  const auth = authSourceDouble();
+  const core = createApexLogViewerCore({ auth });
   t.after(() => core.dispose());
   const releaseVersionList = salesforce.holdVersionList();
   const cancelled = new AbortController();
 
   const abandoned = core.debugLevel.list({ targetOrg: username }, { signal: cancelled.signal });
   const awaited = core.debugLevel.list({ targetOrg: username });
-  await new Promise(resolve => setImmediate(resolve));
+  await until(() => salesforce.versionListRequests() === 1);
   cancelled.abort();
   await assert.rejects(abandoned, error => error instanceof AlvError && error.code === 'ABORTED');
   releaseVersionList();
 
   assert.deepEqual(await awaited, [debugLevel]);
   assert.equal(salesforce.versionListRequests(), 1);
+  assert.deepEqual(auth.sessionReasons(username), ['first-use']);
 });
 
-test('separate core instances never share an org connection', async t => {
+test('separate core instances never share an org connection or a session', async t => {
   const username = 'isolated@example.com';
   const salesforce = await startSalesforceDouble(t, ['token-isolated']);
-  await saveOrgAuth(username, salesforce.instanceUrl, { accessToken: 'token-isolated' });
-  const first = createApexLogViewerCore();
-  const second = createApexLogViewerCore();
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-isolated');
+  const auth = authSourceDouble();
+  const first = createApexLogViewerCore({ auth });
+  const second = createApexLogViewerCore({ auth });
   t.after(() => first.dispose());
   t.after(() => second.dispose());
 
@@ -482,21 +451,56 @@ test('separate core instances never share an org connection', async t => {
   await second.debugLevel.list({ targetOrg: username });
 
   assert.equal(salesforce.versionListRequests(), 2);
+  assert.deepEqual(auth.sessionReasons(username), ['first-use', 'first-use']);
 });
 
-test('a forced org list refresh rebuilds the next connection', async t => {
+const listCalls = (auth: { calls: readonly { method: string }[] }) =>
+  auth.calls.filter(call => call.method === 'listOrgs').length;
+
+test('org list answers from memory; a forced refresh lists again and keeps the session in use', async t => {
   const username = 'refreshed@example.com';
   const salesforce = await startSalesforceDouble(t, ['token-refreshed']);
-  await saveOrgAuth(username, salesforce.instanceUrl, { accessToken: 'token-refreshed' });
-  const core = createApexLogViewerCore();
+  saveOrgAuth(username, salesforce.instanceUrl, 'token-refreshed');
+  const auth = authSourceDouble();
+  const core = createApexLogViewerCore({ auth });
   t.after(() => core.dispose());
 
-  await core.debugLevel.list({ targetOrg: username });
   await core.org.list();
-  await core.debugLevel.list({ targetOrg: username });
-  assert.equal(salesforce.versionListRequests(), 1);
+  await core.org.list();
+  assert.equal(listCalls(auth), 1);
 
-  await core.org.list({ forceRefresh: true });
   await core.debugLevel.list({ targetOrg: username });
-  assert.equal(salesforce.versionListRequests(), 2);
+  await core.org.list({ forceRefresh: true });
+  assert.equal(listCalls(auth), 2);
+  assert.deepEqual(await core.debugLevel.list({ targetOrg: username }), [debugLevel]);
+
+  assert.deepEqual(auth.sessionReasons(username), ['first-use']);
+  assert.equal(salesforce.versionListRequests(), 1);
+  assert.deepEqual(salesforce.queryTokens(), ['token-refreshed', 'token-refreshed']);
+});
+
+test('an org logged in after core listed the orgs is found by one more list, without a forced refresh', async t => {
+  const listed = 'listed@example.com';
+  const late = 'late-login@example.com';
+  const salesforce = await startSalesforceDouble(t, ['token-listed', 'token-late']);
+  saveOrgAuth(listed, salesforce.instanceUrl, 'token-listed');
+  const auth = authSourceDouble();
+  const core = createApexLogViewerCore({ auth });
+  t.after(() => core.dispose());
+  const before = (await core.org.list()).map(org => org.username);
+  assert.ok(before.includes(listed) && !before.includes(late));
+
+  saveOrgAuth(late, salesforce.instanceUrl, 'token-late');
+
+  assert.equal((await core.org.resolve({ targetOrg: late })).username, late);
+  assert.equal(listCalls(auth), 2);
+  assert.deepEqual(await core.debugLevel.list({ targetOrg: late }), [debugLevel]);
+  assert.deepEqual(await core.debugLevel.list({ targetOrg: listed }), [debugLevel]);
+  assert.equal(listCalls(auth), 2, 'orgs already listed resolve from memory');
+
+  await assert.rejects(
+    core.org.resolve({ targetOrg: 'never-logged-in@example.com' }),
+    /No authorization information found for never-logged-in@example.com/
+  );
+  assert.equal(listCalls(auth), 3, 'a name no list names costs one more list, then fails');
 });

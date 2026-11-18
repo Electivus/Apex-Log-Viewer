@@ -370,7 +370,11 @@ suite('Custom Logs feature switch', () => {
     host.quickPick.answer = 'Show Custom Logs';
     await host.commands.get('electivus.apexLogViewer.customLogs.captureStatus')!();
     assert.deepEqual(host.quickPick.offered, ['Show Custom Logs', 'Stop capture']);
-    assert.deepEqual(host.executed, [['electivus.apexLogViewer.customLogsView.focus']], 'Show moves the focus to the view');
+    assert.deepEqual(
+      host.executed,
+      [['electivus.apexLogViewer.customLogsView.focus']],
+      'Show moves the focus to the view'
+    );
 
     host.change(SETTING, false);
 

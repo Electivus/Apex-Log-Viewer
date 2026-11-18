@@ -8,13 +8,11 @@ function loadDebugFlagsPanel(stubs?: {
   traceflags?: Record<string, unknown>;
   telemetry?: Record<string, unknown>;
   runtime?: Record<string, unknown>;
-  cli?: Record<string, unknown>;
 }) {
   return proxyquireStrict('../panel/DebugFlagsPanel', {
     '../host/salesforce/traceflags': stubs?.traceflags ?? {},
     '../shared/telemetry': stubs?.telemetry ?? {},
-    '../runtime/runtimeClient': stubs?.runtime ?? {},
-    '../host/salesforce/cli': stubs?.cli ?? {}
+    '../runtime/runtimeClient': stubs?.runtime ?? {}
   }) as typeof import('../panel/DebugFlagsPanel');
 }
 
@@ -217,14 +215,6 @@ suite('DebugFlagsPanel', () => {
             ...runtimeAuth,
             username: username ?? runtimeAuth.username
           })
-        }
-      },
-      cli: {
-        listOrgs: async () => {
-          throw new Error('should not call cli listOrgs');
-        },
-        getOrgAuth: async () => {
-          throw new Error('should not call cli getOrgAuth');
         }
       }
     });

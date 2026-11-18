@@ -13,7 +13,8 @@ export type OrgListItem = {
 
 export type OrgAuthParams = {
   username?: string;
-  refresh?: boolean;
+  /** A token Salesforce refused: the answer is a newer session, renewed by the auth source when none is in memory. */
+  rejected?: string;
 };
 
 export type OrgAuth = {

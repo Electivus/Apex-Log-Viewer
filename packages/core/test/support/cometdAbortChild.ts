@@ -2,11 +2,11 @@ import { writeSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 
 import { createCometdTransport } from '../../src/customLogs/events/cometd.ts';
-import { openConnection } from './salesforceDouble.ts';
+import { loadSavedOrgs, openConnection } from './salesforceDouble.ts';
 
 /**
- * Run as `node --import tsx cometdAbortChild.ts <username> <channel> <abortOn>`, with the isolated
- * Salesforce home of the test that saved `username`. It opens a subscription and aborts it when
+ * Run as `node --import tsx cometdAbortChild.ts <username> <channel> <abortOn>`, with `savedOrgsEnv()`
+ * of the test that saved `username`. It opens a subscription and aborts it when
  * `abortOn` happens: `start` (30 ms in, before the handshake reply), `down` (the transport reported
  * the connection lost) or `offline` (the same, 200 ms later, after printing `down` so the parent can
  * stop the server). The process exits by itself only when the adapter left no socket or timer
@@ -21,7 +21,8 @@ async function main(): Promise<void> {
   if (!username || !channel || !ABORT_ON.some(mode => mode === abortOn)) {
     throw new Error(`usage: cometdAbortChild.ts <username> <channel> <${ABORT_ON.join('|')}>`);
   }
-  const connection = await openConnection(username);
+  loadSavedOrgs();
+  const connection = openConnection(username);
   const abort = new AbortController();
   let abortedAt: number | undefined;
   process.on('exit', () => {

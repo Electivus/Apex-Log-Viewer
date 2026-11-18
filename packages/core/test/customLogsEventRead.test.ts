@@ -18,14 +18,12 @@ import { eventObjectKey, openEventStore } from '../src/customLogs/events/store.t
 import { busEvent, seedEventStore, uuidOf } from './support/eventSeed.ts';
 import { page, startNebulaOrg } from './support/nebulaDouble.ts';
 import {
+  authSourceDouble,
   ORG_ID,
-  isolateSalesforceHome,
   saveOrgAuth,
   startSalesforceDouble,
   type DoubleHandler
 } from './support/salesforceDouble.ts';
-
-isolateSalesforceHome();
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -122,7 +120,7 @@ async function world(
     t,
     options.orgHandler ?? (() => ({ status: 500, body: [{ errorCode: 'UNEXPECTED', message: 'no request expected' }] }))
   );
-  await saveOrgAuth(username, options.reachable === false ? UNREACHABLE_ORG : org.instanceUrl);
+  saveOrgAuth(username, options.reachable === false ? UNREACHABLE_ORG : org.instanceUrl);
   if (options.events) {
     await seedEventStore({
       root,
@@ -131,7 +129,7 @@ async function world(
       events: options.events
     });
   }
-  const core = createApexLogViewerCore();
+  const core = createApexLogViewerCore({ auth: authSourceDouble() });
   t.after(() => core.dispose());
   const scope = { targetOrg: username, projectDir: root, source: SOURCE };
   return { core, root, username, org, scope };
@@ -330,7 +328,7 @@ test('an event row whose message starts with the system prefix is marked system,
 test('two orgs under one project each read their own stored events', async t => {
   const { core, root, org, scope } = await world(t, { events: [logEvent(1, T0, { message: 'first org' })] });
   const second = `event-read-${nextUser++}@example.com`;
-  await saveOrgAuth(second, org.instanceUrl);
+  saveOrgAuth(second, org.instanceUrl);
   await seedEventStore({
     root,
     username: second,
@@ -534,9 +532,9 @@ test('an event cursor is refused by a record source', async t => {
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   await fs.writeFile(path.join(root, 'sfdx-project.json'), JSON.stringify(projectWith(alvEvents())));
   const username = `event-read-${nextUser++}@example.com`;
-  await saveOrgAuth(username, org.instanceUrl);
+  saveOrgAuth(username, org.instanceUrl);
   await seedEventStore({ root, username, describe: alvTestLogDescribe(), events });
-  const core = createApexLogViewerCore();
+  const core = createApexLogViewerCore({ auth: authSourceDouble() });
   t.after(() => core.dispose());
   const eventPage = await core.customLog.list({ targetOrg: username, projectDir: root, source: SOURCE, limit: 1 });
 
@@ -847,8 +845,8 @@ test('a mapping the stored describe cannot satisfy is an unavailable source, not
 test('an unknown source id still gets the catalog error from the org', async t => {
   const org = await startNebulaOrg(t, { describes: 'unlocked-admin', objects: ['Log__c', 'LogEntry__c'] });
   const username = `event-read-${nextUser++}@example.com`;
-  await saveOrgAuth(username, org.instanceUrl);
-  const core = createApexLogViewerCore();
+  saveOrgAuth(username, org.instanceUrl);
+  const core = createApexLogViewerCore({ auth: authSourceDouble() });
   t.after(() => core.dispose());
 
   const code = await codeOf(core.customLog.list({ targetOrg: username, projectDir: undefined, source: 'nope' }));
@@ -869,9 +867,9 @@ test('sources reports the store of an event source in any state, and never makes
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   await fs.writeFile(path.join(root, 'sfdx-project.json'), JSON.stringify(projectWith(alvEvents())));
   const username = `event-read-${nextUser++}@example.com`;
-  await saveOrgAuth(username, org.instanceUrl);
+  saveOrgAuth(username, org.instanceUrl);
   await seedEventStore({ root, username, describe: alvTestLogDescribe(), events: [logEvent(1, T0)] });
-  const core = createApexLogViewerCore();
+  const core = createApexLogViewerCore({ auth: authSourceDouble() });
   t.after(() => core.dispose());
 
   const result = await core.customLog.sources({ targetOrg: username, projectDir: root });
@@ -895,8 +893,8 @@ test('with Nebula and nebula-events both ready, list without a source reads Nebu
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-event-read-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const username = `event-read-${nextUser++}@example.com`;
-  await saveOrgAuth(username, org.instanceUrl);
-  const core = createApexLogViewerCore();
+  saveOrgAuth(username, org.instanceUrl);
+  const core = createApexLogViewerCore({ auth: authSourceDouble() });
   t.after(() => core.dispose());
 
   const sources = await core.customLog.sources({ targetOrg: username, projectDir: root });
@@ -939,14 +937,14 @@ test('nebula-events reads a stored LogEntryEvent__e offline: level from the ordi
     status: 500,
     body: [{ errorCode: 'UNEXPECTED', message: 'no' }]
   }));
-  await saveOrgAuth(username, org.instanceUrl);
+  saveOrgAuth(username, org.instanceUrl);
   await seedEventStore({
     root,
     username,
     describe,
     events: [nebula(1, {}), nebula(2, { LoggingLevelOrdinal__c: 6, LoggingLevel__c: 'INFO' })]
   });
-  const core = createApexLogViewerCore();
+  const core = createApexLogViewerCore({ auth: authSourceDouble() });
   t.after(() => core.dispose());
   const scope = { targetOrg: username, projectDir: root, source: 'nebula-events' };
 
@@ -1155,7 +1153,7 @@ test('a list cursor inside an event that retention purged resumes with the older
   for (const file of files) if ((await fs.readFile(file, 'utf8')).includes(purged)) holding.push(file);
   assert.equal(holding.length, 1, 'the newer event sits in one partition file');
   await fs.rm(holding[0]!);
-  const later = createApexLogViewerCore();
+  const later = createApexLogViewerCore({ auth: authSourceDouble() });
   t.after(() => later.dispose());
 
   const second = await later.customLog.list({ ...scope, limit: 2, cursor: first.nextCursor! });

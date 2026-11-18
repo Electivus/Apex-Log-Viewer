@@ -1,6 +1,7 @@
 import * as cp from 'child_process';
 import { logTrace, logWarn } from '../utils/logger';
 import { localize } from '../utils/localize';
+import { holdSecretsInOutput, redactSecrets, stripControlSequences } from '../utils/redact';
 import { safeSendEvent, safeSendException } from '../../shared/telemetry';
 import { classifyCliExecTelemetryCode } from './cliTelemetry';
 const crossSpawn = require('cross-spawn');
@@ -30,6 +31,7 @@ export let execFileImpl: ExecFileFn = ((
   const argv = Array.isArray(args) ? args.slice() : [];
   const spawnOpts: cp.SpawnOptions = {
     env: options.env,
+    cwd: options.cwd,
     stdio: ['ignore', 'pipe', 'pipe']
   };
   try {
@@ -146,13 +148,22 @@ function wrapWithAbort<T>(underlying: Promise<T>, signal?: AbortSignal): Promise
   });
 }
 
-function makeExecKey(program: string, args: string[], envOverride?: NodeJS.ProcessEnv, timeoutMs?: number): string {
+function makeExecKey(
+  program: string,
+  args: string[],
+  envOverride?: NodeJS.ProcessEnv,
+  timeoutMs?: number,
+  cwd?: string
+): string {
   const hasAltPath = !!(envOverride && envOverride.PATH && envOverride.PATH !== process.env.PATH);
-  return [program, ...args, hasAltPath ? 'loginPATH' : '', String(timeoutMs || '')].join('\u0000');
+  return [program, ...args, hasAltPath ? 'loginPATH' : '', String(timeoutMs || ''), cwd ?? ''].join('\u0000');
 }
 
 function normalizeCliProgramForTelemetry(program: string): 'sf' | 'sfdx' | 'other' {
-  const normalized = String(program || '').trim().replace(/\\/g, '/').toLowerCase();
+  const normalized = String(program || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .toLowerCase();
   if (/(^|\/)sfdx(?:\.cmd|\.exe)?$/.test(normalized)) {
     return 'sfdx';
   }
@@ -186,9 +197,10 @@ export function execCommand(
   args: string[],
   envOverride?: NodeJS.ProcessEnv,
   timeoutMs: number = CLI_TIMEOUT_MS,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  cwd?: string
 ): Promise<{ stdout: string; stderr: string }> {
-  const key = makeExecKey(program, args, envOverride, timeoutMs);
+  const key = makeExecKey(program, args, envOverride, timeoutMs, cwd);
   const existing = inFlightExecs.get(key);
   if (existing) {
     // Return a per-caller wrapper that can be cancelled without aborting the shared process
@@ -202,6 +214,9 @@ export function execCommand(
     };
     if (envOverride) {
       opts.env = envOverride;
+    }
+    if (cwd) {
+      opts.cwd = cwd;
     }
     try {
       logTrace('execCommand:', program, args.join(' '), envOverride?.PATH ? '(login PATH)' : '');
@@ -230,15 +245,25 @@ export function execCommand(
           reject(e);
           return;
         }
+        // What sf printed can echo a token. Control sequences go first, so that no color code hides one from the
+        // redactor, the parsers or the trace; then the Error, its streams and the trace get it redacted.
+        const out = stripControlSequences(String(stdout ?? ''));
+        const errOut = stripControlSequences(String(stderr ?? ''));
+        const message = stripControlSequences(String(err.message ?? ''));
+        // A token the output itself carries is held before any text is built from that output.
+        holdSecretsInOutput(out);
+        holdSecretsInOutput(errOut);
+        const printed = redactSecrets(out);
+        const printedErr = redactSecrets(errOut);
+        const detail = printedErr || redactSecrets(message);
         try {
-          logTrace('execCommand error for', program, '->', (stderr || err.message || '').split('\n')[0]);
+          logTrace('execCommand error for', program, '->', detail.split('\n')[0]);
         } catch {}
-        const telemetryCode = classifyCliExecTelemetryCode(err.code, stderr, stdout, err.message);
+        const telemetryCode = classifyCliExecTelemetryCode(err.code, errOut, out, message);
         sendCliCommandTelemetry(program, 'error', t0);
         safeSendException('cli.exec', { code: telemetryCode, command: program });
         const code = typeof err.code === 'number' || typeof err.code === 'string' ? err.code : undefined;
         const cmdStr2 = [program, ...args].join(' ').trim();
-        const detail = stderr || err.message;
         const msg =
           code !== undefined
             ? `Command "${cmdStr2}" exited with code ${code}: ${detail}`
@@ -248,8 +273,8 @@ export function execCommand(
           (e as any).code = code;
         }
         e.telemetryCode = telemetryCode;
-        e.stdout = stdout;
-        e.stderr = stderr;
+        e.stdout = printed;
+        e.stderr = printedErr;
         reject(e);
         return;
       }

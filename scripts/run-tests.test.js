@@ -6,7 +6,14 @@ const path = require('node:path');
 const { downloadDirToExecutablePath } = require('@vscode/test-electron/out/util');
 const { ensureDevHub, pretestSetup, resolveMissingExtensionIds, resolveRequiredDevHubConfig } = require('./run-tests');
 
-const originalEnv = { ...process.env };
+const callerEnv = { ...process.env };
+const originalEnv = { ...callerEnv };
+for (const field of ['CLIENT_ID', 'USERNAME', 'LOGIN_URL', 'PRIVATE_KEY', 'PRIVATE_KEY_FILE']) {
+  delete originalEnv[`SF_DEVHUB_${field}`];
+}
+test.after(() => {
+  process.env = callerEnv;
+});
 const testPrivateKey = require('node:crypto').generateKeyPairSync('rsa', {
   modulusLength: 2048,
   privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
@@ -24,6 +31,7 @@ for (const scenario of ['pending', 'success', 'reject', 'normal']) {
       preload,
       `
       const fs = require('node:fs');
+      const { EventEmitter } = require('node:events');
       const Module = require('node:module');
       const load = Module._load;
       const scenario = ${JSON.stringify(scenario)};
@@ -34,6 +42,7 @@ for (const scenario of ['pending', 'success', 'reject', 'normal']) {
       const timer = setTimeout;
       const clear = clearTimeout;
       const cleanupTimers = new Set();
+      process.kill = () => { throw Error('Unexpected global process signal'); };
       global.setTimeout = (callback, ms, ...args) => {
         if (ms === 30000) record('cleanup-deadline-armed');
         const handle = timer(callback, ms === 30000 ? 50 : ms, ...args);
@@ -45,11 +54,26 @@ for (const scenario of ['pending', 'success', 'reject', 'normal']) {
         clear(handle);
       };
       Module._load = function(name) {
-        if (name === './clean-vscode-test.js') return { cleanVsCodeTest() {} };
+        if (name === './clean-vscode-test.js') return { cacheCleanRequested: () => false };
         if (name === 'esbuild') return { build: async () => {} };
-        if (name === 'cross-spawn') return Object.assign(() => { throw Error('Unexpected spawn'); },
-          { sync: () => ({ status: 0, stdout: '' }) });
-        if (name === 'child_process') return { ...load.apply(this, arguments),
+        const spawn = file => {
+          const child = Object.assign(new EventEmitter(), { pid: 42 });
+          const finish = (code, signal) => { child.emit('exit', code, signal); child.emit('close', code, signal); };
+          if (file === 'fixture-code') {
+            child.stdin = Object.assign(new EventEmitter(), { end() {} });
+            child.stdout = Object.assign(new EventEmitter(), { setEncoding() {} });
+            child.stderr = Object.assign(new EventEmitter(), { setEncoding() {} });
+            setImmediate(() => finish(0, null));
+            return child;
+          }
+          if (file !== ${JSON.stringify(path.join(directory, 'code'))}) throw Error('Unexpected spawn');
+          child.kill = signal => finish(null, signal);
+          if (scenario === 'normal') setImmediate(() => finish(0, null));
+          return child;
+        };
+        if (name === 'cross-spawn') return Object.assign(spawn, { sync: () => ({ status: 0, stdout: '' }) });
+        if (name === 'child_process') return {
+          spawn,
           execFile(file, args, options, callback) {
             if (args[0] === 'org' && args[1] === 'display') return callback(Error('fixture missing scratch'), '', '');
             callback(null, '', '');
@@ -57,12 +81,7 @@ for (const scenario of ['pending', 'success', 'reject', 'normal']) {
         };
         if (name === '@vscode/test-electron') return {
           downloadAndUnzipVSCode: async () => ${JSON.stringify(path.join(directory, 'code'))},
-          resolveCliArgsFromVSCodeExecutablePath: () => ['fixture-code'],
-          runTests: async () => {
-            if (scenario === 'normal') return;
-            setInterval(() => {}, 1000);
-            await new Promise(() => {});
-          }
+          resolveCliArgsFromVSCodeExecutablePath: () => ['fixture-code']
         };
         if (name === './devhub-auth.js') return { ...load.apply(this, arguments),
           authenticateDevHub: async () => ({ targetOrg: 'FixtureHub', env: process.env,

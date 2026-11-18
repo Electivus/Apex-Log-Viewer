@@ -78,24 +78,24 @@ const GATE_ROWS = [
     expected: { state: 'success', description: 'Codex does not review Dependabot pull requests' }
   },
   {
-    name: 'no review yet waits and says how to start it',
+    name: 'no optional review stays pending without asking for one',
     input: { author: 'alice', headSha: HEAD, review: null },
-    expected: { state: 'pending', description: 'Waiting for Codex. Comment @codex review if it does not start' }
+    expected: { state: 'pending', description: 'Optional Codex review has not run; do not wait or request it' }
   },
   {
     name: 'a stale sha stays pending even when completed and clean',
     input: { author: 'alice', headSha: HEAD, review: reviewOf({ commitSha: OLD_HEAD }) },
-    expected: { state: 'pending', description: 'Codex has not reviewed 6d9c949 yet' }
+    expected: { state: 'pending', description: 'Optional Codex review is not current for 6d9c949' }
   },
   {
     name: 'a review without a sha stays pending',
     input: { author: 'alice', headSha: HEAD, review: reviewOf({ commitSha: null, status: null }) },
-    expected: { state: 'pending', description: 'Codex has not reviewed 6d9c949 yet' }
+    expected: { state: 'pending', description: 'Optional Codex review is not current for 6d9c949' }
   },
   {
     name: 'running stays pending',
     input: { author: 'alice', headSha: HEAD, review: reviewOf({ status: 'running' }) },
-    expected: { state: 'pending', description: 'Codex review is running' }
+    expected: { state: 'pending', description: 'Optional Codex review is running' }
   },
   {
     name: 'unresolved findings fail',
