@@ -373,6 +373,17 @@ test('crash mid-flush: the torn line is never read, the checkpoint stays, and th
   });
 });
 
+test('an open that is aborted rejects ABORTED, holds no lease and leaves the store free to open', async () => {
+  await withProject(async root => {
+    const store = openStore(root);
+
+    await assert.rejects(store.openWriter('cli', AbortSignal.abort()), { code: 'ABORTED' });
+
+    const writer = await openWriter(store);
+    await writer.release();
+  });
+});
+
 test('lease handover: the old writer keeps its unflushed lines, the new one allocates above them, and one row per uuid reads back', async () => {
   await withProject(async root => {
     const old = await openWriter(openStore(root), 'vscode');

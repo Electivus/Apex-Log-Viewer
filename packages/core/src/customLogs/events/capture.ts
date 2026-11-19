@@ -606,7 +606,7 @@ function createRun(
     let standingBy = false;
     for (;;) {
       if (isTerminal(stopRequest)) return undefined;
-      const attempt = await store.openWriter(deps.surface);
+      const attempt = await store.openWriter(deps.surface, runAbort.signal);
       if ('writer' in attempt) {
         const afterOtherHolder = standingBy || leaseHeldBefore;
         leaseHeldBefore = true;

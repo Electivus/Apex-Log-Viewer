@@ -8,7 +8,8 @@ import type { CustomLogCaptureResult } from '@alv/core/contracts';
 
 import CustomLogCapture from '../src/commands/electivus/custom-log/capture.ts';
 import { core } from '../src/core.ts';
-import { config, world } from './support/captureWorld.ts';
+import { eventObjectKey } from '../../core/src/customLogs/events/store.ts';
+import { OBJECT, config, world } from './support/captureWorld.ts';
 import { withStreams } from './support/streams.ts';
 
 /**
@@ -26,28 +27,49 @@ test.after(() => core.dispose());
 const namesUnder = async (directory: string): Promise<string[]> =>
   (await fs.readdir(directory, { recursive: true })).map(entry => path.basename(entry));
 
-test(
-  '--max-time that passes while a slow disk opens the event store stops the open and frees the lease',
-  { todo: '#1507' },
-  async t => {
-    const { double, org } = await world(t);
+const drain = async (org: string[]) => {
+  const started = performance.now();
+  const { out } = await withStreams(() => new CustomLogCapture([...org, '--max-time', '1', '--json'], config)._run());
+  return {
+    result: JSON.parse(out).result as CustomLogCaptureResult,
+    elapsedMs: Math.round(performance.now() - started),
+    stored: await namesUnder(path.join(process.cwd(), 'apexlogs'))
+  };
+};
 
-    // A first open syncs nine times before it connects: 6.3 s here, against a limit of 1 s.
-    const started = performance.now();
-    const { out } = await withStreams(() => new CustomLogCapture([...org, '--max-time', '1', '--json'], config)._run());
-    const elapsedMs = Math.round(performance.now() - started);
-    const result = JSON.parse(out).result as CustomLogCaptureResult;
+// Neither test bounds the wall time, which a stalled runner stretches. Each one names a file that the open writes
+// seconds after the limit, so a run that stopped near the limit never wrote it.
 
-    assert.equal(result.outcome, 'timeLimit');
-    assert.deepEqual([result.delivered, result.stored], [0, 0]);
-    assert.deepEqual(double.replays, [], 'nothing subscribed');
-    // Not a bound on the wall time, which a stalled runner stretches. The open writes format.json after its seventh
-    // sync, 4.9 s in, so a run that stopped near the limit never wrote it.
-    const stored = await namesUnder(path.join(process.cwd(), 'apexlogs'));
-    assert.ok(
-      !stored.includes('format.json'),
-      `the store open ran on past the limit: the command took ${elapsedMs} ms and left ${stored.join(', ')}`
-    );
-    assert.ok(!stored.includes('capture.lease'), 'the lease is free for the next run');
-  }
-);
+test('--max-time that passes while a slow disk opens the event store stops the open', async t => {
+  const { double, org } = await world(t);
+
+  // A first open syncs nine times before it connects, 6.3 s here, and writes format.json after 4.9 s.
+  const { result, elapsedMs, stored } = await drain(org);
+
+  assert.equal(result.outcome, 'timeLimit');
+  assert.deepEqual([result.delivered, result.stored], [0, 0]);
+  assert.deepEqual(double.replays, [], 'nothing subscribed');
+  assert.ok(
+    !stored.includes('format.json'),
+    `the store open ran on past the limit: the command took ${elapsedMs} ms and left ${stored.join(', ')}`
+  );
+});
+
+test('--max-time that passes after the open took the capture lease gives the lease back', async t => {
+  const { double, org } = await world(t);
+  // With its directories in place the open takes the lease at once, then writes format.json for 1.4 s and
+  // .gitignore after it.
+  await fs.mkdir(path.join(process.cwd(), 'apexlogs', 'orgs', double.username, 'events', eventObjectKey(OBJECT)), {
+    recursive: true
+  });
+
+  const { result, elapsedMs, stored } = await drain(org);
+
+  assert.equal(result.outcome, 'timeLimit');
+  assert.deepEqual(double.replays, [], 'nothing subscribed');
+  assert.ok(
+    !stored.includes('.gitignore'),
+    `the store open ran on past the limit: the command took ${elapsedMs} ms and left ${stored.join(', ')}`
+  );
+  assert.ok(!stored.includes('capture.lease'), 'the lease is free for the next run');
+});
