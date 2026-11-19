@@ -348,8 +348,9 @@ test('a process that finds the lease held stands by, relays what the holder stor
       await clock.advance(2_000);
       await until(() => w.rows().length === 2, 'the rows the holder stored');
       assert.deepEqual(w.rows(), ['message 2', 'message 3']);
+      await until(() => clock.pending > 0, 'the next standby poll');
       await clock.advance(2_000);
-      await new Promise<void>(resolve => setTimeout(resolve, 20));
+      await until(() => clock.pending > 0, 'the next standby poll');
       assert.equal(w.rows().length, 2, 'a row is relayed once');
 
       await holder.advance({
@@ -361,7 +362,7 @@ test('a process that finds the lease held stands by, relays what the holder stor
       });
       foreign.plant();
       await clock.advance(2_000);
-      await new Promise<void>(resolve => setTimeout(resolve, 20));
+      await until(() => clock.pending > 0, 'the next standby poll');
       assert.equal(transport.attempts.length, 0, 'a live pid keeps the lease');
 
       await foreign.die();
@@ -433,9 +434,11 @@ test('a standby run shows a gap the lease holder opens without storing a row, on
       assert.equal(w.rows().length, 0, 'a gap brings no row');
 
       const sent = w.updates.length;
+      await until(() => clock.pending > 0, 'the next standby poll');
       await clock.advance(2_000);
+      await until(() => clock.pending > 0, 'the next standby poll');
       await clock.advance(2_000);
-      await new Promise<void>(resolve => setTimeout(resolve, 20));
+      await until(() => clock.pending > 0, 'the next standby poll');
       assert.equal(w.updates.length, sent, 'an unchanged gap is not sent again');
 
       w.abort();
@@ -461,7 +464,7 @@ test('a run that takes the lease over shows a gap the previous holder opened aft
 
     const opened = await holder.openGap({ reason: 'cursorRejected', after: busEvent(1).createdDate });
     await clock.advance(2_000);
-    await new Promise<void>(resolve => setTimeout(resolve, 20));
+    await until(() => clock.pending > 0, 'the next standby poll');
     assert.deepEqual(shownGaps(w), [], 'the poll read no gap');
     await holder.release();
     await clock.advance(2_000);
