@@ -1209,6 +1209,8 @@ suite('TailService', () => {
         return Promise.resolve(true);
       };
 
+      (provider as any).refreshViewState = async () => undefined;
+
       await provider.resolveWebviewView(view);
       await clock.advanceBy(WEBVIEW_SESSION_MOUNT_DELAY_MS);
       await webview.emit({ type: 'ready' });
@@ -1255,6 +1257,8 @@ suite('TailService', () => {
         return Promise.resolve(true);
       };
 
+      (provider as any).refreshViewState = async () => undefined;
+
       await provider.resolveWebviewView(view);
       await clock.advanceBy(WEBVIEW_SESSION_MOUNT_DELAY_MS);
       await webview.emit({ type: 'ready' });
@@ -1300,6 +1304,8 @@ suite('TailService', () => {
         posted.push(message);
         return Promise.resolve(true);
       };
+
+      (provider as any).refreshViewState = async () => undefined;
 
       provider.resolveWebviewPanel(panel);
       await clock.advanceBy(WEBVIEW_SESSION_MOUNT_DELAY_MS);
