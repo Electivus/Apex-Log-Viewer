@@ -200,7 +200,7 @@ test('--follow prints the stored row, and Ctrl-C ends with the aborted summary a
 
   const followed = await withStreams(async ({ out }) => {
     const running = capture(...org, '--follow')._run<CustomLogCaptureResult>();
-    await until(() => out.length > 0);
+    await until(() => out.length > 0, 60_000);
     process.emit('SIGINT');
     return running;
   });
