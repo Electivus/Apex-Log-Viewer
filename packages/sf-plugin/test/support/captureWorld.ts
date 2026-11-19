@@ -11,11 +11,6 @@ import { alvTestLogDescribe } from '../../../core/test/support/describeFixtures.
 import { nebulaHandler } from '../../../core/test/support/nebulaDouble.ts';
 import { isolateSalesforceHome, saveSfOrgAuth } from './salesforceHome.ts';
 
-/**
- * What the custom-log commands need to run over the real core: an isolated Salesforce home, the plugin's oclif
- * config, and `world`, an org double with a project that has an event source over it.
- */
-
 isolateSalesforceHome();
 // Faye reads http_proxy and ignores NO_PROXY, so a proxied machine would send the loopback double's traffic away.
 delete process.env.http_proxy;

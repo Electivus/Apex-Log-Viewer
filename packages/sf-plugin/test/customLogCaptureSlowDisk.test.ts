@@ -12,13 +12,9 @@ import { eventObjectKey } from '../../core/src/customLogs/events/store.ts';
 import { OBJECT, config, world } from './support/captureWorld.ts';
 import { withStreams } from './support/streams.ts';
 
-/**
- * `capture --max-time` on a slow disk. This file runs in its own process, so the slow-disk preload it loads delays
- * the file syncs of these tests only.
- */
+// The test runner gives this file its own process, so the preload delays the file syncs of these tests only.
 
-const SYNC_MS = 700;
-process.env.ALV_TEST_SLOW_SYNC_MS = String(SYNC_MS);
+process.env.ALV_TEST_SLOW_SYNC_MS = '700';
 const scripts = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../scripts');
 await import(pathToFileURL(path.join(scripts, 'slow-disk.mjs')).href);
 
@@ -37,13 +33,11 @@ const drain = async (org: string[]) => {
   };
 };
 
-// Neither test bounds the wall time, which a stalled runner stretches. Each one names a file that the open writes
-// seconds after the limit, so a run that stopped near the limit never wrote it.
+// A stalled runner stretches the wall time, so each test asserts on a file that the open writes well after the limit.
 
 test('--max-time that passes while a slow disk opens the event store stops the open', async t => {
   const { double, org } = await world(t);
 
-  // A first open syncs nine times before it connects, 6.3 s here, and writes format.json after 4.9 s.
   const { result, elapsedMs, stored } = await drain(org);
 
   assert.equal(result.outcome, 'timeLimit');
@@ -57,8 +51,7 @@ test('--max-time that passes while a slow disk opens the event store stops the o
 
 test('--max-time that passes after the open took the capture lease gives the lease back', async t => {
   const { double, org } = await world(t);
-  // With its directories in place the open takes the lease at once, then writes format.json for 1.4 s and
-  // .gitignore after it.
+  // With its directories in place the open takes the lease at once, so the limit passes while it holds the lease.
   await fs.mkdir(path.join(process.cwd(), 'apexlogs', 'orgs', double.username, 'events', eventObjectKey(OBJECT)), {
     recursive: true
   });
