@@ -130,7 +130,7 @@ function watchInterrupts() {
     abandon = reject;
   });
   abandoned.catch(() => {});
-  const interrupted = () => new Error('[test-runner] Interrupted.');
+  const interrupted = () => Object.assign(new Error('[test-runner] Interrupted.'), { interrupted: true });
   const onInterrupt = () => {
     presses += 1;
     if (presses === 1) console.error('\n[test-runner] Interrupted. Cleaning up; press Ctrl+C again to stop now.');
@@ -186,8 +186,10 @@ function watchInterrupts() {
         child.once(capture ? 'close' : 'exit', (code, signal) => {
           running = false;
           const text = [captured.stdout, captured.stderr].filter(Boolean).join('\n').trim();
-          if (!presses && (code === 0 || allowFailure)) resolve({ status: code, output: text });
-          else reject(new Error(`${label} exited with ${signal ?? code}${text && !presses ? `:\n${text}` : ''}`));
+          // pnpm waits for a script that handles SIGINT and exits 0, so the exit status says nothing after Ctrl+C.
+          if (presses) reject(interrupted());
+          else if (code === 0 || allowFailure) resolve({ status: code, output: text });
+          else reject(new Error(`${label} exited with ${signal ?? code}${text ? `:\n${text}` : ''}`));
         });
       }).finally(() => {
         if (stopChild === stop) stopChild = undefined;
@@ -970,11 +972,18 @@ async function run() {
   if (timedOut) process.exit(124);
 }
 
+// An interrupted run exits 130, the status a shell reports for a process that Ctrl+C ended.
+function reportRunFailure(error, log) {
+  if (error && error.interrupted) {
+    log.error(error.message);
+    return 130;
+  }
+  log.error(`[test-runner] Failed: ${error && error.message ? error.message : error}`);
+  return 1;
+}
+
 if (require.main === module) {
-  run().catch(error => {
-    console.error('[test-runner] Failed:', error && error.message ? error.message : error);
-    process.exit(1);
-  });
+  run().catch(error => process.exit(reportRunFailure(error, console)));
 }
 
 module.exports = {
@@ -982,6 +991,7 @@ module.exports = {
   ensureDevHub,
   pretestSetup,
   removeTestProfile,
+  reportRunFailure,
   resolveMissingExtensionIds,
   resolveRequiredDevHubConfig,
   withCheckoutLock

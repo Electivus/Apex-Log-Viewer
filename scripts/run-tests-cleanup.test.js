@@ -9,6 +9,7 @@ const test = require('node:test');
 const { runInNewContext } = require('node:vm');
 
 const filename = path.join(__dirname, 'run-tests.js');
+const { reportRunFailure } = require('./run-tests.js');
 const source = readFileSync(filename, 'utf8');
 
 for (const platform of ['darwin', 'linux', 'win32']) {
@@ -176,7 +177,7 @@ for (const platform of ['darwin', 'linux', 'win32']) {
     const [third, fourth] = await Promise.all([start(702), start(703)]);
     third.process.emit('SIGINT');
     third.process.emit('SIGINT');
-    await assert.rejects(third.run, /VS Code test host exited with SIGKILL/);
+    await assert.rejects(third.run, /Interrupted/);
     assert.deepEqual(signals.slice(1), [
       [702, 'launch handle', 702, 'SIGINT'],
       [702, 'launch handle', 702, 'SIGKILL']
@@ -220,7 +221,8 @@ function fakeChild(kind, run) {
   };
   child.kill = signal => {
     run.childSignals.push([kind, signal]);
-    if (signal === 'SIGKILL' || !run.stubborn) setImmediate(() => child.finish(null, signal));
+    if (signal === 'SIGKILL' || !run.stubborn)
+      setImmediate(() => (run.exitsZero ? child.finish(0) : child.finish(null, signal)));
     return true;
   };
   return child;
@@ -267,12 +269,16 @@ function createCheckout({ cachedBuild = 'stable' } = {}) {
 
   // interrupt: { at, presses, stubborn }. SIGINT reaches only the runner, the way `kill -INT <pid>` does,
   // so the runner must stop its own child. A process with no SIGINT listener dies at once and runs no finally.
-  function start(id, { argv, env = {}, interrupt = {}, platform = 'linux', listing, holdProfile = 0 }) {
+  function start(
+    id,
+    { argv, env = {}, interrupt = {}, platform = 'linux', listing, holdProfile = 0, exitsZero = false }
+  ) {
     const run = {
       id,
       childSignals: [],
       foreignSignals: [],
       stubborn: !!interrupt.stubborn,
+      exitsZero,
       onSigint: [],
       builds: 0,
       warnings: []
@@ -826,6 +832,28 @@ test('a diagnostic on stderr does not hide an extension ID listed on stdout', as
   assert.equal(run.builds, 1);
   run.finish();
   assert.equal((await run.ended).exitCode, 0);
+});
+
+test('Ctrl+C reports an interrupted run even when the child exits with 0', async () => {
+  // `pnpm run` waits for a script that handles SIGINT and then exits 0.
+  const checkout = createCheckout();
+  const run = checkout.start('first', { argv: smoke, exitsZero: true, interrupt: { at: 'packaging' } });
+  await assert.rejects(run.run, error => {
+    assert.match(error.message, /Interrupted/);
+    assert.doesNotMatch(error.message, /exited with/);
+    return true;
+  });
+});
+
+test('An interrupted run exits 130 and any other failure exits 1', () => {
+  const lines = [];
+  const log = { error: line => lines.push(line) };
+  assert.equal(
+    reportRunFailure(Object.assign(new Error('[test-runner] Interrupted.'), { interrupted: true }), log),
+    130
+  );
+  assert.equal(reportRunFailure(new Error('pnpm exited with 1'), log), 1);
+  assert.deepEqual(lines, ['[test-runner] Interrupted.', '[test-runner] Failed: pnpm exited with 1']);
 });
 
 const cleanCache = { CLEAN_VSCODE_TEST_CACHE: '1' };
