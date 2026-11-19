@@ -512,6 +512,26 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     assert.ok(elapsed < 1000, `redacting 156 kB took ${Math.round(elapsed)} ms`);
   });
 
+  test('text that starts a JSON Web Token again and again is looked for in time that grows with the text, not its square', async () => {
+    const body = 'eyJ-'.repeat(25_000);
+    const started = performance.now();
+    const { shown } = await shownFor('stderr', `Request failed with ${body}`);
+    const elapsed = performance.now() - started;
+
+    assert.ok(shown.includes(body), 'the text, which holds no token, stays as written');
+    assert.ok(elapsed < 1000, `redacting 100 kB took ${Math.round(elapsed)} ms`);
+  });
+
+  test('a held token that starts a JSON Web Token, repeated, is looked for in time that grows with the text, not its square', async () => {
+    const token = 'FAKE-eyJ-held-token-0123';
+    const started = performance.now();
+    const { shown } = await shownAfterHolding([token], `Request failed with ${token.repeat(16_000)}`);
+    const elapsed = performance.now() - started;
+
+    assert.ok(!shown.includes('FAKE-eyJ'), 'every copy of the held token is replaced');
+    assert.ok(elapsed < 1000, `redacting 384 kB took ${Math.round(elapsed)} ms`);
+  });
+
   test('the token a successful sf prints still reaches the auth source', async () => {
     const { source, traced } = load(() => ({
       code: 0,
