@@ -12,7 +12,7 @@ import {
   readAllowance
 } from '../utils/eventsOrg';
 import { createTempWorkspace, type TempWorkspace } from '../utils/tempWorkspace';
-import { recordElectronTrace } from '../utils/electronArtifacts';
+import { recordElectronTrace, type FinishTrace } from '../utils/electronArtifacts';
 import { launchVsCode, resolveExtensionDevelopmentPath } from '../utils/vscode';
 import { waitForWebviewFrame } from '../utils/webviews';
 
@@ -35,7 +35,8 @@ test.describe.configure({ mode: 'serial' });
 let workspace: TempWorkspace;
 let app: ElectronApplication;
 let page: Page;
-let finishTrace: (() => Promise<void>) | undefined;
+let finishTrace: FinishTrace | undefined;
+let anyFailed = false;
 let cleanupApp: ((options?: { keep?: boolean }) => Promise<void>) | undefined;
 
 test.beforeAll(async ({}, testInfo) => {
@@ -63,9 +64,13 @@ test.beforeAll(async ({}, testInfo) => {
   cleanupApp = launch.cleanup;
 });
 
+test.afterEach(({}, testInfo) => {
+  anyFailed ||= testInfo.status !== testInfo.expectedStatus;
+});
+
 test.afterAll(async ({}, testInfo) => {
-  const keep = testInfo.status !== testInfo.expectedStatus;
-  await finishTrace?.();
+  const keep = anyFailed || testInfo.status !== testInfo.expectedStatus;
+  await finishTrace?.({ testInfo, failed: keep });
   await cleanupApp?.({ keep });
   await workspace?.cleanup({ keep });
 });

@@ -37,23 +37,26 @@ export function shouldKeepTrace(rawMode: string, failed: boolean, retry: number)
   }
 }
 
-// The config's `trace` never reaches the Electron app, so record it here.
-export async function recordElectronTrace(app: ElectronApplication, testInfo: TestInfo): Promise<() => Promise<void>> {
+export type FinishTrace = (final?: { testInfo: TestInfo; failed: boolean }) => Promise<void>;
+
+// The config's `trace` never reaches the Electron app, so record it here. A caller that records in beforeAll
+// passes the final hook's TestInfo and whether any test failed.
+export async function recordElectronTrace(app: ElectronApplication, testInfo: TestInfo): Promise<FinishTrace> {
   const setting = testInfo.project.use.trace;
   const mode = (typeof setting === 'object' ? setting.mode : setting) ?? 'off';
   if (!shouldRecordTrace(mode, testInfo.retry)) return async () => {};
   const tracing = app.context().tracing;
   await tracing.start({ screenshots: true, snapshots: true });
 
-  return async () => {
-    if (!shouldKeepTrace(mode, testInfo.status !== testInfo.expectedStatus, testInfo.retry)) {
+  return async (final = { testInfo, failed: testInfo.status !== testInfo.expectedStatus }) => {
+    if (!shouldKeepTrace(mode, final.failed, final.testInfo.retry)) {
       await tracing.stop().catch(() => undefined);
       return;
     }
-    const path = testInfo.outputPath('electron-trace.zip');
+    const path = final.testInfo.outputPath('electron-trace.zip');
     await tracing
       .stop({ path })
-      .then(() => testInfo.attach('electron-trace', { path, contentType: 'application/zip' }))
+      .then(() => final.testInfo.attach('electron-trace', { path, contentType: 'application/zip' }))
       .then(() => rm(path, { force: true }))
       .catch(() => console.warn('[e2e] VS Code trace unavailable.'));
   };
