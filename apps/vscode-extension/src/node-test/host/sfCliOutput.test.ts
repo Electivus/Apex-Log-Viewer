@@ -483,6 +483,18 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     assert.match(trace, /request failed: Bearer \[redacted\] end/i, 'the trace replaces all of it');
   });
 
+  test('a held session right after a named secret is replaced to the end of its token shape', async () => {
+    const shaped = ['00D000000000001', 'FAKEsession0123456789'].join('!');
+
+    const { shown, trace } = await shownAfterHolding(
+      [shaped],
+      `Request failed: Bearer FAKEbearer0123${shaped}%TAIL end`
+    );
+
+    assert.ok(!shown.includes('TAIL'), 'the error carries no part of the token shape');
+    assert.ok(!trace.includes('TAIL'), 'the trace carries no part of the token shape');
+  });
+
   test('a held token that ends in a percent sign leaves no part of its percent-encoded form', async () => {
     for (const [token, carried] of [
       ['FAKE-ends-in-percent-0123%', 'FAKE-ends-in-percent-0123%25'],

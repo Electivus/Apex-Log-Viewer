@@ -385,16 +385,18 @@ function heldReach(text: string): Int32Array | undefined {
   return reach.some(end => end > 0) ? reach : undefined;
 }
 
-function shapesIn(text: string): { found: Array<{ start: number; end: number }>; furthestEndUpTo: Int32Array } {
-  const found = TOKEN_SHAPES.flatMap(shape =>
-    Array.from(text.matchAll(shape), ({ index, 0: match }) => ({ start: index, end: index + match.length }))
-  );
-  const furthestEndUpTo = new Int32Array(text.length);
-  for (const { start, end } of found) furthestEndUpTo[start] = Math.max(valueAt(furthestEndUpTo, start), end);
-  for (let index = 1; index < furthestEndUpTo.length; index++) {
-    furthestEndUpTo[index] = Math.max(valueAt(furthestEndUpTo, index), valueAt(furthestEndUpTo, index - 1));
+/** For each place of `text`, where the furthest token shape of the text as written that starts there or before it ends. */
+function furthestShapeEnds(text: string): Int32Array {
+  const furthest = new Int32Array(text.length);
+  for (const shape of TOKEN_SHAPES) {
+    for (const { index, 0: match } of text.matchAll(shape)) {
+      furthest[index] = Math.max(valueAt(furthest, index), index + match.length);
+    }
   }
-  return { found, furthestEndUpTo };
+  for (let index = 1; index < furthest.length; index++) {
+    furthest[index] = Math.max(valueAt(furthest, index), valueAt(furthest, index - 1));
+  }
+  return furthest;
 }
 
 /**
@@ -430,14 +432,26 @@ export function redactSecrets(text: string): string {
       extend(start, end);
     }
   }
-  if (unclosed.length > 0 || heldCovered) {
-    const { found, furthestEndUpTo } = shapesIn(stripped);
-    for (const { start, end } of unclosed) extend(start, valueAt(furthestEndUpTo, end - 1));
-    if (heldCovered) {
-      for (const { start, end } of found) {
-        if (valueAt(heldCovered, end) > valueAt(heldCovered, start)) extend(start, end);
+  if (heldCovered) {
+    // What the rules replaced beside the held secrets is blanked, so that a shape a held secret falls in starts
+    // where the replaced text ends, as it does once that text reads [redacted].
+    const covered = coveredBy(reach);
+    let scanned = '';
+    for (let index = 0; index < stripped.length; index++) {
+      const replaced = valueAt(covered, index + 1) > valueAt(covered, index);
+      const isHeld = valueAt(heldCovered, index + 1) > valueAt(heldCovered, index);
+      scanned += replaced && !isHeld ? ' ' : stripped[index];
+    }
+    for (const shape of TOKEN_SHAPES) {
+      for (const { index, 0: match } of scanned.matchAll(shape)) {
+        const end = index + match.length;
+        if (valueAt(heldCovered, end) > valueAt(heldCovered, index)) extend(index, end);
       }
     }
+  }
+  if (unclosed.length > 0) {
+    const furthest = furthestShapeEnds(stripped);
+    for (const { start, end } of unclosed) extend(start, valueAt(furthest, end - 1));
   }
   return maskedSoFar || maskedIsStale ? spliced(stripped, reach).masked : stripped;
 }
