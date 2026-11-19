@@ -17,10 +17,5 @@ export default defineConfig({
   expect: { timeout: 60 * 1000 },
   retries: 0,
   outputDir: resultsRoot,
-  reporter: [['list']],
-  use: {
-    trace: 'retain-on-failure',
-    video: 'retain-on-failure',
-    screenshot: 'only-on-failure'
-  }
+  reporter: [['list']]
 });

@@ -24,7 +24,6 @@ export default defineConfig({
     : [['list']],
   use: {
     trace: 'retain-on-failure',
-    video: 'retain-on-failure',
     screenshot: 'only-on-failure'
   }
 });

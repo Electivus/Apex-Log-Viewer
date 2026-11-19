@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { expect, type ElectronApplication, type Page } from '@playwright/test';
+import { recordElectronTrace } from '../utils/electronArtifacts';
 import { createTempWorkspace } from '../utils/tempWorkspace';
 import { launchVsCode, resolveExtensionDevelopmentPath } from '../utils/vscode';
 import { test as base } from './alvPoolLease';
@@ -35,9 +36,11 @@ export const test = base.extend<Fixtures & Options>({
       extensionDevelopmentPath,
       extensionIds: supportExtensionIds
     });
+    const finishTrace = await recordElectronTrace(launch.app, testInfo);
     try {
       await use(launch.app);
     } finally {
+      await finishTrace();
       await poolLease.runTeardown(testInfo, () =>
         launch.cleanup({ keep: testInfo.status !== testInfo.expectedStatus })
       );

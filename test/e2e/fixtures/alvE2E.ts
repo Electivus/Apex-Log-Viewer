@@ -3,6 +3,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { expect, type ElectronApplication, type Page } from '@playwright/test';
 import { seedApexLog } from '../utils/seedLog';
+import { recordElectronTrace } from '../utils/electronArtifacts';
 import { createTempWorkspace } from '../utils/tempWorkspace';
 import { launchVsCode, resolveExtensionDevelopmentPath } from '../utils/vscode';
 import { test as base } from './alvPoolLease';
@@ -48,9 +49,11 @@ export const test = base.extend<Fixtures & Options>({
       extensionDevelopmentPath,
       extensionIds: supportExtensionIds
     });
+    const finishTrace = await recordElectronTrace(launch.app, testInfo);
     try {
       await use(launch.app);
     } finally {
+      await finishTrace();
       if (process.env.ALV_E2E_TIMING === '1' && testInfo.status !== testInfo.expectedStatus) {
         console.log(`[e2e] VS Code test status before cleanup: ${testInfo.status}`);
         if (process.platform === 'darwin') {
