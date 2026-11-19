@@ -60,7 +60,7 @@ function freshSingleEvent() {
 }
 
 /** An org that serves the REST half of a capture and the Bayeux stream on one host, and a project with an event source over it. */
-async function world(t: test.TestContext) {
+async function world(t: test.TestContext, { remaining = 22_000 } = {}) {
   const double = await startBayeuxDouble(
     t,
     { connects: [{ events: freshSingleEvent() }] },
@@ -70,7 +70,7 @@ async function world(t: test.TestContext) {
       extraDescribes: { [OBJECT]: alvTestLogDescribe() },
       answer: (_soql, request) =>
         request.path === '/limits'
-          ? { body: { DailyDeliveredPlatformEvents: { Max: 25_000, Remaining: 22_000 } } }
+          ? { body: { DailyDeliveredPlatformEvents: { Max: 25_000, Remaining: remaining } } }
           : undefined
     })
   );
@@ -159,12 +159,15 @@ test('capture drains the event stream into the store, and list then reads it wit
 });
 
 test('a drain reports in its JSON result the delivery allowance the org had and the budget of the run', async t => {
-  const { org } = await world(t);
+  // One delivery left is a budget of zero, so the run ends as soon as it has read the allowance. A time bound
+  // would also have to cover taking the lease and connecting, which a loaded runner can stretch past it.
+  const { org } = await world(t, { remaining: 1 });
 
-  const { out } = await withStreams(() => capture(...org, '--max-time', '1', '--json')._run());
+  const { out } = await withStreams(() => capture(...org, '--json')._run());
   const drained = JSON.parse(out).result as CustomLogCaptureResult;
 
-  assert.deepEqual(drained.allowance, { remaining: 22_000, max: 25_000, budget: 11_000 });
+  assert.equal(drained.outcome, 'budget');
+  assert.deepEqual(drained.allowance, { remaining: 1, max: 25_000, budget: 0 });
 });
 
 test('a drain that finds another process capturing the source names that process in its JSON result', async t => {
