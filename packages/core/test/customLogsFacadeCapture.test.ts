@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { AlvError, createApexLogViewerCore, type CoreInstrumentation } from '../src/index.ts';
-import type { CustomLogCaptureUpdate } from '../src/customLogs/contracts.ts';
+import type { CustomLogCaptureResult, CustomLogCaptureUpdate } from '../src/customLogs/contracts.ts';
 import { openEventStore } from '../src/customLogs/events/store.ts';
 import { appLogSource, type Json } from './support/customLogsFixtures.ts';
 import { within } from './support/captureHarness.ts';
@@ -136,28 +136,44 @@ async function world(
 }
 
 /**
- * A drain that ends at its bound instead of after the 10 s of silence a real run waits for. The bound starts with the
- * run, so it covers the lease, the allowance read and the handshake as well as the delivery: a loaded Windows runner
- * once spent all of 1 s before the first event arrived.
+ * A drain the test ends by aborting it once `done` holds, so what it asserts never races a bound: under load the lease,
+ * the allowance read and the handshake alone have taken longer than 6 s. The run would otherwise end after 10 s of
+ * silence. The manual-clock suites cover a drain that ends at its bound.
  */
-const DRAIN = { follow: false, initial: 'retained', maxDurationMs: 3_000 } as const;
+async function drainUntil(
+  core: ReturnType<typeof createApexLogViewerCore>,
+  scope: { targetOrg: string; projectDir: string; source: string },
+  done: (updates: readonly CustomLogCaptureUpdate[]) => boolean
+): Promise<{ result: CustomLogCaptureResult; updates: CustomLogCaptureUpdate[] }> {
+  const abort = new AbortController();
+  const updates: CustomLogCaptureUpdate[] = [];
+  let settled = false;
+  const run = core.customLog
+    .capture(
+      { ...scope, follow: false, initial: 'retained' },
+      { signal: abort.signal, onUpdate: update => updates.push(update) }
+    )
+    .finally(() => (settled = true));
+  await eventually(() => settled || done(updates), 30_000);
+  abort.abort();
+  return { result: await run, updates };
+}
+
+const rowsStreamed = (count: number) => (updates: readonly CustomLogCaptureUpdate[]) =>
+  updates.flatMap(update => update.rows).length >= count;
 
 // ---------------------------------------------------------------------------------------------
 // the join: capture over the real adapter, then the offline read of the same source
 
 test('capture stores a recorded event through the real CometD adapter, and list reads it back with no request', async t => {
   const { core, double, scope } = await world(t, { events: 'single' });
-  const updates: CustomLogCaptureUpdate[] = [];
 
-  // The only drain here that needs its row streamed before the bound. The run counts an event as stored before
-  // it finishes the write (cursor, gap check, coverage) and streams the row, so this bound covers the whole write.
-  const result = await core.customLog.capture(
-    { ...scope, ...DRAIN, maxDurationMs: 6_000 },
-    { onUpdate: update => updates.push(update) }
-  );
+  // The run counts an event as stored before it finishes the write (cursor, gap check, coverage) and streams the
+  // row, so a streamed row has been written whole.
+  const { result, updates } = await drainUntil(core, scope, rowsStreamed(1));
 
   assert.equal(result.source.id, SOURCE);
-  assert.equal(result.outcome, 'timeLimit', 'the event was still being caught up when the bound passed');
+  assert.equal(result.outcome, 'aborted');
   assert.deepEqual([result.delivered, result.stored, result.newGaps], [1, 1, []]);
   assert.equal(result.store.state, 'captured');
   assert.deepEqual(double.replays, [{ [REPLAY]: -2 }], 'a store with no position replays what Salesforce retains');
@@ -182,7 +198,7 @@ test('capture stores a recorded event through the real CometD adapter, and list 
 test('capture stores a recorded burst of 870 events and list pages through all of them offline', async t => {
   const { core, double, scope } = await world(t, { events: 'burst-870' });
 
-  const result = await core.customLog.capture({ ...scope, ...DRAIN, maxDurationMs: 4_000 });
+  const { result } = await drainUntil(core, scope, rowsStreamed(870));
 
   assert.deepEqual([result.delivered, result.stored, result.newGaps], [870, 870, []]);
   const received = double.received;
@@ -204,7 +220,7 @@ test('a delivery without an EventUuid is counted, stored as a gap between the ev
   };
   const { core, scope } = await world(t, { deliveries: [before, unreadable, after] });
 
-  const result = await core.customLog.capture({ ...scope, ...DRAIN });
+  const { result } = await drainUntil(core, scope, rowsStreamed(2));
 
   assert.deepEqual([result.delivered, result.stored], [3, 2]);
   assert.deepEqual(
@@ -220,10 +236,10 @@ test('a delivery without an EventUuid is counted, stored as a gap between the ev
 
 test('a second capture resumes after the stored cursor and stores nothing twice', async t => {
   const { core, double, scope } = await world(t, { events: 'single' });
-  await core.customLog.capture({ ...scope, ...DRAIN });
+  await drainUntil(core, scope, rowsStreamed(1));
   const { data } = recordedEvents('single')[0]!;
 
-  const again = await core.customLog.capture({ ...scope, ...DRAIN });
+  const { result: again } = await drainUntil(core, scope, () => double.replays.length === 2);
 
   assert.deepEqual(double.replays, [{ [REPLAY]: -2 }, { [REPLAY]: data.event.replayId }]);
   assert.deepEqual([again.delivered, again.stored], [0, 0]);
@@ -243,7 +259,7 @@ test('two sources that spell one event object differently share one history', as
     ]
   });
 
-  const captured = await core.customLog.capture({ ...scope, ...DRAIN });
+  const { result: captured } = await drainUntil(core, scope, rowsStreamed(1));
   const listed = await core.customLog.list({ ...scope, source: lowerSource });
 
   assert.equal(captured.stored, 1);
@@ -345,14 +361,14 @@ test('the facade reports one start and one end per run through onCapture, and ti
     instrumentation: { onCapture: event => runs.push(event), onCall: event => calls.push(event.method) }
   });
 
-  await core.customLog.capture({ ...scope, ...DRAIN });
+  await drainUntil(core, scope, rowsStreamed(1));
   await core.customLog.list(scope);
 
   assert.equal(runs.length, 2);
   assert.deepEqual(runs[0], { type: 'start', from: 'retained' });
   assert.deepEqual(runs[1], {
     type: 'end',
-    outcome: 'timeLimit',
+    outcome: 'aborted',
     durationMs: (runs[1] as { durationMs: number }).durationMs,
     delivered: 1,
     stored: 1,
