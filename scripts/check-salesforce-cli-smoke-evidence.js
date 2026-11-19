@@ -2,15 +2,25 @@ const { execFileSync } = require('node:child_process');
 
 const WORKFLOW_NAME = 'E2E (Playwright • Real Org)';
 const REQUEST_STEP = 'Record the JWT smoke request';
-const PIN_SITE = 'scripts/setup-salesforce-cli.mjs';
-const PIN = /@salesforce\/cli@(\d+\.\d+\.\d+)/;
+const PIN_SITES = [
+  '.devcontainer/Dockerfile',
+  '.github/workflows/e2e-playwright.yml',
+  '.github/workflows/salesforce-cli-cache.yml',
+  '.github/workflows/slot-recovery.yml',
+  'docker-compose.e2e-proxy.yml',
+  'scripts/run-tests.js',
+  'scripts/setup-salesforce-cli.mjs',
+  'test/e2e/proxy-lab/Dockerfile.runner'
+];
+const PIN = /@salesforce\/cli@(\d+\.\d+\.\d+)/g;
 
-function pinnedRelease(source) {
-  return PIN.exec(String(source ?? ''))?.[1] ?? null;
+function pinnedReleases(sources) {
+  const releases = sources.flatMap(source => Array.from(String(source ?? '').matchAll(PIN), match => match[1]));
+  return [...new Set(releases)].sort().join(',');
 }
 
-function changesCliPin(baseSource, headSource) {
-  return pinnedRelease(baseSource) !== pinnedRelease(headSource);
+function changesCliPin(baseSources, headSources) {
+  return pinnedReleases(baseSources) !== pinnedReleases(headSources);
 }
 
 function findRunIds(body, repo) {
@@ -48,7 +58,17 @@ function gh(args) {
 
 function main(env) {
   const { REPO, PR_NUMBER, BASE_SHA, HEAD_SHA } = env;
-  const show = rev => execFileSync('git', ['show', `${rev}:${PIN_SITE}`], { encoding: 'utf8' });
+  const show = rev =>
+    PIN_SITES.map(site => {
+      try {
+        return execFileSync('git', ['show', `${rev}:${site}`], {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore']
+        });
+      } catch {
+        return '';
+      }
+    });
   const pinChanged = changesCliPin(show(BASE_SHA), show('HEAD'));
   // The event payload is stale on a re-run, so read the description live.
   const body = JSON.parse(gh(['pr', 'view', PR_NUMBER, '--repo', REPO, '--json', 'body'])).body;
@@ -63,6 +83,15 @@ function main(env) {
   return verdict.ok ? 0 : 1;
 }
 
-module.exports = { pinnedRelease, changesCliPin, findRunIds, runProblem, decideEvidence, REQUEST_STEP, WORKFLOW_NAME };
+module.exports = {
+  pinnedReleases,
+  PIN_SITES,
+  changesCliPin,
+  findRunIds,
+  runProblem,
+  decideEvidence,
+  REQUEST_STEP,
+  WORKFLOW_NAME
+};
 
 if (require.main === module) process.exit(main(process.env));

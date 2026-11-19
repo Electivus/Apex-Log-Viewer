@@ -3,7 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const YAML = require('yaml');
 const {
-  pinnedRelease,
+  pinnedReleases,
+  PIN_SITES,
   changesCliPin,
   findRunIds,
   runProblem,
@@ -28,15 +29,20 @@ function run(overrides = {}) {
   };
 }
 
-test('changesCliPin compares the pinned release of the canonical site, not mentions of it', () => {
+test('changesCliPin compares the releases pinned at the executable sites, not mentions of them', () => {
   const site = release => `packageName = env.X || '@salesforce/cli@${release}'`;
-  assert.equal(changesCliPin(site('2.159.7'), site('2.160.0')), true);
-  assert.equal(changesCliPin(site('2.159.7'), site('2.159.7')), false);
-  assert.equal(changesCliPin(site('2.159.7'), `${site('2.159.7')}\n// see @salesforce/cli@2.100.0 docs`), false);
+  const same = [site('2.159.7'), site('2.159.7')];
+  assert.equal(changesCliPin(same, [site('2.160.0'), site('2.160.0')]), true);
+  assert.equal(changesCliPin(same, [site('2.159.7'), site('2.160.0')]), true);
+  assert.equal(changesCliPin(same, [...same, '// see @salesforce/cli@2.159.7 docs']), false);
+  assert.equal(changesCliPin(same, [...same, 'npm i @salesforce/cli']), false);
+  assert.equal(changesCliPin(same, [...same]), false);
 });
 
-test('the canonical pin site exists and names a release', () => {
-  assert.match(pinnedRelease(fs.readFileSync(`${__dirname}/setup-salesforce-cli.mjs`, 'utf8')), /^\d+\.\d+\.\d+$/);
+test('every pin site exists and names a release', () => {
+  for (const site of PIN_SITES) {
+    assert.match(pinnedReleases([fs.readFileSync(`${__dirname}/../${site}`, 'utf8')]), /^\d+\.\d+\.\d+$/, site);
+  }
 });
 
 test('findRunIds keeps run links of this repository once each', () => {
