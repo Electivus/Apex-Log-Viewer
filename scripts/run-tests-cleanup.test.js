@@ -1,6 +1,9 @@
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
-const { readFileSync } = require('node:fs');
+const { spawn } = require('node:child_process');
+const { once } = require('node:events');
+const { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = require('node:fs');
+const { tmpdir } = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const { runInNewContext } = require('node:vm');
@@ -230,8 +233,16 @@ function createCheckout() {
 
   // interrupt: { at, presses, stubborn }. SIGINT reaches only the runner, the way `kill -INT <pid>` does,
   // so the runner must stop its own child. A process with no SIGINT listener dies at once and runs no finally.
-  function start(id, { argv, env = {}, interrupt = {}, platform = 'linux', listing = [] }) {
-    const run = { id, childSignals: [], foreignSignals: [], stubborn: !!interrupt.stubborn, onSigint: [], builds: 0 };
+  function start(id, { argv, env = {}, interrupt = {}, platform = 'linux', listing = [], holdProfile = 0 }) {
+    const run = {
+      id,
+      childSignals: [],
+      foreignSignals: [],
+      stubborn: !!interrupt.stubborn,
+      onSigint: [],
+      builds: 0,
+      warnings: []
+    };
     const signals = {};
     for (const name of ['packaged', 'launched', 'died']) {
       run[name] = new Promise(resolve => {
@@ -285,8 +296,14 @@ function createCheckout() {
         files.set(`${prefix}${id}`, 'directory');
         return `${prefix}${id}`;
       },
-      rmSync: target => {
+      rmSync: (target, options = {}) => {
         run.extractLate?.();
+        // A process that holds a profile file makes removal fail until it lets go. Node's rmSync retries
+        // maxRetries times.
+        if (path.basename(target).startsWith('alv-vscode-'))
+          for (let attempt = 0; attempt < holdProfile; attempt += 1)
+            if (attempt >= (options.maxRetries ?? 0))
+              throw Object.assign(new Error(`EBUSY: resource busy or locked, rmdir '${target}'`), { code: 'EBUSY' });
         removed.push(target);
         for (const file of filesUnder(target)) files.delete(file);
       }
@@ -420,7 +437,7 @@ function createCheckout() {
         process,
         __filename: filename,
         __dirname,
-        console: quiet,
+        console: { ...quiet, warn: (...args) => run.warnings.push(args.join(' ')) },
         setTimeout: callback => callback,
         clearTimeout() {}
       },
@@ -479,6 +496,52 @@ test('a run that asks for a clean cache leaves the VS Code build another run use
   assert.ok(checkout.files.has(first.executable));
   await first.finish();
 });
+
+test('a run removes a profile that another process holds for a moment', async () => {
+  const run = createCheckout().start('first', { argv: ['--scope=unit'], holdProfile: 3 });
+  await run.launched;
+  const { exitCode, leftover } = await run.finish().then(() => run.ended);
+
+  assert.equal(exitCode, 0);
+  assert.deepEqual(leftover, []);
+  assert.deepEqual(run.warnings, []);
+});
+
+test('a run that cannot remove its profile names the profile to remove', async () => {
+  const run = createCheckout().start('first', { argv: ['--scope=unit'], holdProfile: Infinity });
+  await run.launched;
+  const { exitCode, leftover } = await run.finish().then(() => run.ended);
+
+  assert.equal(exitCode, 0);
+  assert.ok(leftover.includes(path.join(fixtureTmp, 'alv-vscode-first')));
+  assert.ok(run.warnings.length > 0);
+  for (const warning of run.warnings) assert.ok(warning.includes(path.join(fixtureTmp, 'alv-vscode-first')), warning);
+});
+
+test(
+  'removeTestProfile removes a profile whose file another process holds for a moment',
+  { skip: process.platform !== 'win32' && 'Only Windows refuses to remove a file that a process holds open' },
+  async () => {
+    const profile = mkdtempSync(path.join(tmpdir(), 'alv-vscode-'));
+    const held = path.join(profile, 'held');
+    writeFileSync(held, '');
+    // Opened with FileShare.None, as a Windows process can, so nothing can delete the file until it is closed.
+    const holder = spawn('powershell.exe', [
+      '-NoProfile',
+      '-Command',
+      `$f = [IO.File]::Open('${held.replace(/'/g, "''")}', 'Open', 'Read', 'None'); Write-Output open; Start-Sleep -Milliseconds 1000; $f.Close()`
+    ]);
+    try {
+      await once(holder.stdout, 'data');
+      assert.throws(() => rmSync(profile, { recursive: true, force: true }), /EBUSY|EPERM/);
+      require('./run-tests.js').removeTestProfile(profile);
+      assert.equal(existsSync(profile), false);
+    } finally {
+      holder.kill();
+      rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    }
+  }
+);
 
 test('a diagnostic on stderr does not hide an extension ID listed on stdout', async () => {
   const checkout = createCheckout();
