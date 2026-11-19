@@ -142,6 +142,10 @@ On macOS, the job keeps Salesforce state in a private `0700` home under `RUNNER_
 
 Manual dispatch accepts optional `jwt_smoke_devhub_org_id`, the independently verified authorized Dev Hub ID. Supplying it enables the existing direct JWT lifecycle smokes on Windows/macOS and inside the Ubuntu proxy lab, plus the isolated pool/independent-consumer smoke in that lab. These create and delete their own test scratches, verify export/reimport from empty state, and leave the ordinary full E2E/telemetry gates enabled. Omit it for normal PR-equivalent pool validation.
 
+The telemetry Azure login and validation run only for pull requests and for dispatches from `main`. The federated credential does not trust a dispatch from another branch, so there both steps skip and the run can end green without telemetry proof. Telemetry for such a candidate is proven by the pull request run and by a dispatch at `main` after the merge.
+
+A pull request that changes a `@salesforce/cli@` pin must link a successful smoke run on its head in the description. The `Salesforce CLI pin smoke evidence` job reads the description live, so after you add the link, re-run the failed jobs. It accepts a manual dispatch of this workflow on the exact head with `jwt_smoke_devhub_org_id`, and a new push needs a new smoke. `Real Org E2E required` fails while the job fails.
+
 Operational note:
 
 - Each scratch org is expected to be cleaned and reseeded by the E2E test that uses it. Pooling reduces daily org creation and unlocks test-level parallelism, but it does not replace test-level cleanup.

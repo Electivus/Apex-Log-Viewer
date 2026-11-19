@@ -190,7 +190,8 @@ test('real-org Playwright workflow exposes a stable required PR gate', () => {
     'classify_e2e',
     'playwright_e2e',
     'playwright_e2e_os_matrix',
-    'playwright_e2e_telemetry'
+    'playwright_e2e_telemetry',
+    'salesforce_cli_smoke_evidence'
   ]);
   assert.equal(job.if, '${{ always() }}');
   assert.equal(job['runs-on'], 'ubuntu-latest');
@@ -218,7 +219,8 @@ test(
       RUN_E2E: 'true',
       UBUNTU_RESULT: 'success',
       DIRECT_RESULT: 'success',
-      TELEMETRY_RESULT: 'success'
+      TELEMETRY_RESULT: 'success',
+      EVIDENCE_RESULT: 'success'
     };
     const skipped = {
       ...success,
@@ -236,7 +238,22 @@ test(
         env: { ...skipped, CLASSIFIER_RESULT: 'failure' },
         expected: 1
       },
-      { name: 'invalid classification fails closed', env: { ...success, RUN_E2E: '' }, expected: 1 }
+      { name: 'invalid classification fails closed', env: { ...success, RUN_E2E: '' }, expected: 1 },
+      {
+        name: 'evidence gate skips outside pull requests',
+        env: { ...success, EVIDENCE_RESULT: 'skipped' },
+        expected: 0
+      },
+      {
+        name: 'missing smoke evidence blocks the pin change',
+        env: { ...success, EVIDENCE_RESULT: 'failure' },
+        expected: 1
+      },
+      {
+        name: 'missing smoke evidence blocks even a skipped E2E',
+        env: { ...skipped, EVIDENCE_RESULT: 'failure' },
+        expected: 1
+      }
     ];
     for (const key of ['UBUNTU_RESULT', 'DIRECT_RESULT', 'TELEMETRY_RESULT']) {
       for (const result of ['failure', 'cancelled', 'skipped']) {
@@ -414,7 +431,7 @@ test('real-org Playwright workflow keeps E2E tunables configurable with safe def
   assert.equal(job?.env?.AZURE_SUBSCRIPTION_ID, '${{ secrets.AZURE_SUBSCRIPTION_ID }}');
   assert.equal(
     job?.env?.HAS_AZURE_E2E_TELEMETRY_CONFIG,
-    "${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && '1' || '' }}"
+    "${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main') && '1' || '' }}"
   );
   assert.equal(job?.env?.ALV_E2E_TELEMETRY_RUN_ID_SEED, 'github:${{ github.run_id }}/ubuntu');
   assert.ok(!Object.prototype.hasOwnProperty.call(job?.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL'));
@@ -658,7 +675,7 @@ test('real-org Playwright workflow validates Ubuntu telemetry in parallel with t
   assert.ok(!Object.prototype.hasOwnProperty.call(job.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL'));
   assert.equal(
     job.env?.HAS_AZURE_E2E_TELEMETRY_CONFIG,
-    "${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && '1' || '' }}"
+    "${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main') && '1' || '' }}"
   );
   assert.equal(job.env?.ALV_E2E_TELEMETRY_RUN_ID_SEED, 'github:${{ github.run_id }}/ubuntu');
   assert.match(
