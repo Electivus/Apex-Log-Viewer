@@ -49,7 +49,7 @@ const TOKEN_SHAPES: readonly RegExp[] = [
   // A refresh token.
   /\b5Aep8[A-Za-z0-9._]{20,}/g,
   // A JSON Web Token.
-  /\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}/g
+  /\beyJ(?<!\beyJ[\w-]*?eyJ)[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}/g
 ];
 
 /**
