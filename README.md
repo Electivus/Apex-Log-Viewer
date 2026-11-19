@@ -239,7 +239,7 @@ See [docs/SETTINGS.md](docs/SETTINGS.md) for the full configuration reference.
 - **No orgs detected**
   Authenticate with `sf org login web` and verify with `sf org list`; the extension lists orgs and gets their access tokens through `sf`, and never reads the auth files itself.
 - **Asked to log in again after a session renewal**
-  In orgs whose connected app rotates refresh tokens, update the Salesforce CLI to 2.152.9 or newer. Older CLIs drop the new refresh token after a refresh, so the next refresh fails with `invalid_grant`. When the extension asks for a new login with such a CLI, its message names the installed release and how to update it.
+  In orgs whose connected app rotates refresh tokens, update the Salesforce CLI to 2.157.8 or newer. Older CLIs drop the new refresh token after a refresh, so the next refresh fails with `invalid_grant`. When the extension asks for a new login with such a CLI, its message names the installed release and how to update it.
 - **Replay Debugger does not launch**
   Install the Salesforce Extension Pack or the standalone Apex Replay Debugger extension.
 - **Behind a corporate proxy**

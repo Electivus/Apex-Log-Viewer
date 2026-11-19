@@ -30,7 +30,7 @@
     "watch": "tsc -p tsconfig.json --watch"
   },
   "dependencies": {
-    "@jsforce/jsforce-node": "^3.10.24",
+    "@jsforce/jsforce-node": "^3.12.0",
     "undici": "^8.12.3"
   },
   "devDependencies": {
