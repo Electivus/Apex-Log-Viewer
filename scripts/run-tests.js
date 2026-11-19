@@ -16,6 +16,7 @@ const {
 } = require('./devhub-auth.js');
 const { resolveSalesforceCliPath } = require('./run-playwright-cli-e2e.js');
 const crossSpawn = require('cross-spawn');
+const lockfile = require('proper-lockfile');
 
 function execFileAsync(file, args, opts = {}) {
   const isSalesforce = file === 'sf' || file === 'sfdx';
@@ -142,6 +143,7 @@ function watchInterrupts() {
   };
 
   return {
+    check: assertNotInterrupted,
     settle(startWork) {
       assertNotInterrupted();
       return Promise.race([startWork(), abandoned]);
@@ -205,6 +207,35 @@ function removeTestProfile(profileDir) {
     rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   } catch (error) {
     console.warn(`[test-runner] Could not remove the test profile ${profileDir}; remove it yourself:`, error.message);
+  }
+}
+
+// Runs in one checkout share the VS Code builds and extensions in .vscode-test and the build outputs that a smoke
+// run packages. Only one run at a time writes them; the others wait. A lock whose holder died goes stale in 10s.
+async function withCheckoutLock(repoRoot, interrupts, work) {
+  const cacheDir = join(repoRoot, '.vscode-test');
+  let release;
+  for (let waiting = false; !release; waiting = true) {
+    interrupts.check();
+    try {
+      // `pnpm run test:clean:all` can remove .vscode-test while this run waits.
+      mkdirSync(cacheDir, { recursive: true });
+      release = await lockfile.lock(cacheDir, {
+        lockfilePath: join(cacheDir, 'alv-runner.lock'),
+        realpath: false,
+        onCompromised: error => console.warn('[test-runner] Lost the checkout lock:', error.message)
+      });
+    } catch (error) {
+      if (error.code !== 'ELOCKED' && error.code !== 'ENOENT') throw error;
+      if (!waiting) console.log('[test-runner] Waiting for another test run in this checkout to finish writing...');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+  try {
+    interrupts.check();
+    return await work();
+  } finally {
+    await release().catch(() => {});
   }
 }
 
@@ -698,12 +729,16 @@ async function run() {
     // Can be overridden via --vscode or VSCODE_TEST_VERSION.
     const vsVer = String(args.vscode || 'stable');
     profileDir = mkdtempSync(join(tmpdir(), 'alv-vscode-'));
-    // Other runs may be using the shared cache, so a clean request downloads into this run's profile instead.
-    const vscodeCachePath = cacheCleanRequested() ? join(profileDir, 'vscode-test') : join(repoRoot, '.vscode-test');
+    const exclusive = work => withCheckoutLock(repoRoot, interrupts, work);
+    // A clean request, and Insiders, which replaces its build in place when a newer one is out, download into this
+    // run's profile, so they never remove a build that another run uses.
+    const privateCache = cacheCleanRequested() || /insider/i.test(vsVer);
+    const vscodeCachePath = privateCache ? join(profileDir, 'vscode-test') : join(repoRoot, '.vscode-test');
+    const download = () => downloadAndUnzipVSCode({ version: vsVer, cachePath: vscodeCachePath });
     // The archive goes in the profile so that removing the profile removes it, even when a second Ctrl+C
     // abandons the download.
     const vscodeExecutablePath = await withTempDir(profileDir, () =>
-      interrupts.settle(() => downloadAndUnzipVSCode({ version: vsVer, cachePath: vscodeCachePath }))
+      interrupts.settle(() => (privateCache ? download() : exclusive(download)))
     );
     const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, {
       reuseMachineInstall: true
@@ -713,7 +748,10 @@ async function run() {
 
     // Install dependency extensions directly (docs approach) when running integration or all
     const shouldInstall = scope === 'integration' || scope === 'all' || !!args.installDeps;
-    const cachedExtensionsDir = join(vscodeCachePath, 'extensions');
+    const forceInstall = !!args.forceInstallDeps;
+    // A forced install replaces extensions in place, so it installs into this run's profile, never into the
+    // shared extensions that another run may be using.
+    const depsExtensionsDir = forceInstall ? localExtensionsDir : join(vscodeCachePath, 'extensions');
     if (shouldInstall) {
       const toInstall = (
         process.env.VSCODE_TEST_EXTENSIONS ||
@@ -722,14 +760,13 @@ async function run() {
         .split(',')
         .map(s => s.trim())
         .filter(Boolean);
-      const extensionsDir = cachedExtensionsDir;
+      const extensionsDir = depsExtensionsDir;
       try {
         mkdirSync(extensionsDir, { recursive: true });
       } catch (e) {
         console.warn('[deps] Failed to ensure cached extensions dir exists:', e && e.message ? e.message : e);
       }
 
-      const forceInstall = !!args.forceInstallDeps;
       // In WSL, code CLI prompts; feed 'y' automatically. Also isolate dirs.
       const codeCli = (cliArguments, capture) =>
         interrupts.start(
@@ -742,27 +779,29 @@ async function run() {
             env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
           }
         ).finished;
-      const installed = new Set();
-      const { output: alreadyInstalled } = await codeCli(['--list-extensions', '--show-versions'], true);
-      for (const line of alreadyInstalled.split(/\r?\n/)) {
-        const trimmed = (line || '').trim();
-        if (!trimmed) continue;
-        const id = trimmed.split('@')[0].trim().toLowerCase();
-        if (id) installed.add(id);
-      }
+      await exclusive(async () => {
+        const installed = new Set();
+        const { output: alreadyInstalled } = await codeCli(['--list-extensions', '--show-versions'], true);
+        for (const line of alreadyInstalled.split(/\r?\n/)) {
+          const trimmed = (line || '').trim();
+          if (!trimmed) continue;
+          const id = trimmed.split('@')[0].trim().toLowerCase();
+          if (id) installed.add(id);
+        }
 
-      for (const id of toInstall) {
-        const key = String(id).toLowerCase();
-        if (!forceInstall && installed.has(key)) {
-          console.log(`[deps] Extension already installed; skipping: ${id}`);
-          continue;
+        for (const id of toInstall) {
+          const key = String(id).toLowerCase();
+          if (!forceInstall && installed.has(key)) {
+            console.log(`[deps] Extension already installed; skipping: ${id}`);
+            continue;
+          }
+          console.log(`[deps] Installing extension: ${id}${forceInstall ? ' (forced)' : ''}`);
+          const res = await codeCli(['--install-extension', id, '--force'], false);
+          if (res.status !== 0) {
+            console.warn(`[deps] Failed to install ${id}. Continuing; tests may skip/fail.`);
+          }
         }
-        console.log(`[deps] Installing extension: ${id}${forceInstall ? ' (forced)' : ''}`);
-        const res = await codeCli(['--install-extension', id, '--force'], false);
-        if (res.status !== 0) {
-          console.warn(`[deps] Failed to install ${id}. Continuing; tests may skip/fail.`);
-        }
-      }
+      });
       // List extensions to aid debugging and verify the isolated profile contents
       const { output: installedOutput } = await codeCli(['--list-extensions', '--show-versions'], true);
       console.log('[deps] Extensions installed in test dir:\n' + installedOutput);
@@ -781,31 +820,34 @@ async function run() {
     if (!args.smokeVsix) {
       await interrupts.settle(() => buildExtensionTestRunner(repoRoot));
     }
-    const extensionsDir = shouldInstall && !args.smokeVsix ? cachedExtensionsDir : localExtensionsDir;
+    const extensionsDir = shouldInstall && !args.smokeVsix ? depsExtensionsDir : localExtensionsDir;
 
     // Optional: VSIX smoke mode installs the freshly built VSIX and runs a minimal activation test
     if (args.smokeVsix) {
       // Package VSIX
       console.log('[smoke] Packaging VSIX...');
-      // Build artifacts (avoid full 'package' to reduce flakiness on CI)
-      await interrupts.start('pnpm', ['run', 'build'], { capture: true }).finished;
-      // Ensure l10n bundles exist (best-effort)
-      await interrupts.start('pnpm', ['run', 'l10n:write'], { capture: true, allowFailure: true }).finished;
       const smokeVsixPath = join(profileDir, 'apex-log-viewer-smoke.vsix');
-      await interrupts.start(
-        process.execPath,
-        [
-          resolve(repoRoot, 'scripts', 'run-vsce.js'),
-          'package',
-          '--no-dependencies',
-          '--skip-prepublish',
-          '--no-yarn',
-          '--out',
-          smokeVsixPath
-        ],
-        // Its staging copy goes in the profile too, so a SIGKILL that skips its own cleanup leaves no stage.
-        { label: 'VSIX packaging', env: { ...process.env, ...tempDirEnv(profileDir) } }
-      ).finished;
+      // `pnpm run build` cleans the build outputs first, so no other run may build until this VSIX holds them.
+      await exclusive(async () => {
+        // Build artifacts (avoid full 'package' to reduce flakiness on CI)
+        await interrupts.start('pnpm', ['run', 'build'], { capture: true }).finished;
+        // Ensure l10n bundles exist (best-effort)
+        await interrupts.start('pnpm', ['run', 'l10n:write'], { capture: true, allowFailure: true }).finished;
+        await interrupts.start(
+          process.execPath,
+          [
+            resolve(repoRoot, 'scripts', 'run-vsce.js'),
+            'package',
+            '--no-dependencies',
+            '--skip-prepublish',
+            '--no-yarn',
+            '--out',
+            smokeVsixPath
+          ],
+          // Its staging copy goes in the profile too, so a SIGKILL that skips its own cleanup leaves no stage.
+          { label: 'VSIX packaging', env: { ...process.env, ...tempDirEnv(profileDir) } }
+        ).finished;
+      });
       if (!existsSync(smokeVsixPath)) throw new Error('[smoke] VSIX not found');
       // Install into test profile
       console.log('[smoke] Installing VSIX into isolated profile...');
@@ -941,5 +983,6 @@ module.exports = {
   pretestSetup,
   removeTestProfile,
   resolveMissingExtensionIds,
-  resolveRequiredDevHubConfig
+  resolveRequiredDevHubConfig,
+  withCheckoutLock
 };
