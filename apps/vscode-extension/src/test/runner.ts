@@ -86,19 +86,18 @@ export async function run(): Promise<void> {
     }
   }
 
-  // Ensure mocha hooks are loaded
-  const setup = path.join(testsRoot, 'mocha.setup.ts');
-  if (fs.existsSync(setup)) {
-    require(setup);
-  }
+  const { mochaHooks } = require(path.join(testsRoot, 'mocha.setup.ts')) as typeof import('./mocha.setup');
+  mocha.rootHooks(mochaHooks);
 
   const files = collectTests(testsRoot);
   files.forEach(f => mocha.addFile(f));
 
   await new Promise<void>((resolve, reject) => {
     try {
-      mocha.run((failures: number) => {
-        if (networkViolations.length > 0) {
+      const runner = mocha.run((failures: number) => {
+        if (runner.stats.passes + runner.stats.failures === 0) {
+          reject(new Error('No tests executed. Check scope or missing dependencies.'));
+        } else if (networkViolations.length > 0) {
           reject(
             new Error(
               `Unit tests opened network connections; stub the org boundary instead:\n${networkViolations.join('\n')}`

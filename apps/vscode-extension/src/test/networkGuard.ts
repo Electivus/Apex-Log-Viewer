@@ -5,7 +5,10 @@ const LOOPBACK_HOST = /^(localhost|::1?|0\.0\.0\.0|127\.\d+\.\d+\.\d+|::ffff:7f[
 
 /** Lower-cases the host, drops a trailing dot and IPv6 brackets, and compresses IPv6 to the form URL prints. */
 function normalizeHost(host: string): string {
-  const bare = host.toLowerCase().replace(/^\[(.*)\]$/, '$1').replace(/\.$/, '');
+  const bare = host
+    .toLowerCase()
+    .replace(/^\[(.*)\]$/, '$1')
+    .replace(/\.$/, '');
   if (!bare.includes(':')) {
     return bare;
   }
@@ -51,7 +54,12 @@ export function installNetworkGuard(runnable: MochaRunnable): readonly string[] 
   net.Socket.prototype.connect = function (this: net.Socket, ...args: unknown[]): net.Socket {
     const target = tcpTarget(args);
     const test = runningTest.getStore();
-    if (!target || LOOPBACK_HOST.test(normalizeHost(target.host)) || test === undefined || test.startsWith('integration:')) {
+    if (
+      !target ||
+      LOOPBACK_HOST.test(normalizeHost(target.host)) ||
+      test === undefined ||
+      test.startsWith('integration:')
+    ) {
       return connect.apply(this, args);
     }
     const endpoint = `${target.host}:${target.port}`;

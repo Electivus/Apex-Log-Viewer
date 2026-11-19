@@ -38,7 +38,8 @@ function installMinimalDomShims(): void {
 
 function shouldFallbackToMinimalDom(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  const rawCode = typeof error === 'object' && error && 'code' in error ? (error as { code?: unknown }).code : undefined;
+  const rawCode =
+    typeof error === 'object' && error && 'code' in error ? (error as { code?: unknown }).code : undefined;
   const code = typeof rawCode === 'string' ? rawCode : '';
   return (
     (code === 'ERR_REQUIRE_ESM' || /ERR_REQUIRE_ESM/.test(message)) &&
@@ -77,9 +78,6 @@ class ResizeObserverMock {
 }
 (globalThis as any).ResizeObserver = ResizeObserverMock;
 
-// Log test start/finish to help diagnose failures in the VS Code host
-let executedCount = 0;
-
 if (process.env.ENABLE_COVERAGE) {
   console.log('[coverage] ENABLE_COVERAGE detected. NODE_V8_COVERAGE=', process.env.NODE_V8_COVERAGE ?? '<undefined>');
 }
@@ -92,15 +90,6 @@ export const mochaHooks = {
   afterEach(this: any) {
     const name = this.currentTest?.fullTitle?.() ?? 'unknown';
     const state = this.currentTest?.state ?? 'unknown';
-    // Count only tests that actually executed (passed/failed), not pending/skipped
-    if (state === 'passed' || state === 'failed') {
-      executedCount++;
-    }
     console.log(`[mocha] finished: ${name} -> ${state}`);
-  },
-  afterAll() {
-    if (executedCount === 0) {
-      throw new Error('No tests executed. Check scope or missing dependencies.');
-    }
   }
 };
