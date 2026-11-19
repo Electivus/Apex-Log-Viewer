@@ -521,6 +521,23 @@ test('a run that cannot remove its profile names the profile to remove', async (
   for (const warning of run.warnings) assert.ok(warning.includes(profile), warning);
 });
 
+// Resolves when the holder prints its first output; rejects at once if it fails to spawn or exits before that.
+function holderOpened(holder, stderr) {
+  const ac = new AbortController();
+  const opened = once(holder.stdout, 'data', { signal: ac.signal });
+  const failed = Promise.race([
+    once(holder, 'error', { signal: ac.signal }).then(([error]) => {
+      throw new Error(`The holder process failed to start: ${error.message}`);
+    }),
+    once(holder, 'exit', { signal: ac.signal }).then(([code, signal]) => {
+      throw new Error(
+        `The holder process exited (code ${code}, signal ${signal}) before it opened the file: ${stderr()}`
+      );
+    })
+  ]);
+  return Promise.race([opened, failed]).finally(() => ac.abort());
+}
+
 test(
   'removeTestProfile removes a profile whose file another process holds for a moment',
   { skip: process.platform !== 'win32' && 'Only Windows refuses to remove a file that a process holds open' },
@@ -534,8 +551,10 @@ test(
       '-Command',
       `$f = [IO.File]::Open('${held.replace(/'/g, "''")}', 'Open', 'Read', 'None'); Write-Output open; Start-Sleep -Milliseconds 1000; $f.Close()`
     ]);
+    let holderStderr = '';
+    holder.stderr.on('data', chunk => (holderStderr += chunk));
     try {
-      await once(holder.stdout, 'data');
+      await holderOpened(holder, () => holderStderr);
       assert.throws(() => rmSync(profile, { recursive: true, force: true }), /EBUSY|EPERM/);
       require('./run-tests.js').removeTestProfile(profile);
       assert.equal(existsSync(profile), false);
