@@ -589,6 +589,9 @@ suite('SfLogsViewProvider webview', () => {
         return Promise.resolve(true);
       };
 
+      (provider as any).sendOrgs = async () => undefined;
+      (provider as any).refresh = async () => {};
+
       await provider.resolveWebviewView(view);
       await clock.advanceBy(WEBVIEW_SESSION_MOUNT_DELAY_MS);
       await webview.emit({ type: 'ready' });
@@ -636,6 +639,9 @@ suite('SfLogsViewProvider webview', () => {
         posted.push(message);
         return Promise.resolve(true);
       };
+
+      (provider as any).sendOrgs = async () => undefined;
+      (provider as any).refresh = async () => {};
 
       await provider.resolveWebviewView(view);
       await clock.advanceBy(WEBVIEW_SESSION_MOUNT_DELAY_MS);
@@ -687,6 +693,9 @@ suite('SfLogsViewProvider webview', () => {
         posted.push(message);
         return Promise.resolve(true);
       };
+
+      (provider as any).sendOrgs = async () => undefined;
+      (provider as any).refresh = async () => {};
 
       await provider.resolveWebviewView(view);
       await clock.advanceBy(WEBVIEW_SESSION_MOUNT_DELAY_MS);
@@ -751,6 +760,9 @@ suite('SfLogsViewProvider webview', () => {
         posted.push(message);
         return Promise.resolve(true);
       };
+
+      (provider as any).sendOrgs = async () => undefined;
+      (provider as any).refresh = async () => {};
 
       await provider.resolveWebviewView(view);
       await clock.advanceBy(WEBVIEW_SESSION_MOUNT_DELAY_MS);
