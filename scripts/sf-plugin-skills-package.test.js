@@ -3,8 +3,10 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { createRequire } = require('node:module');
 const { pathToFileURL } = require('node:url');
 const spawn = require('cross-spawn');
+const yaml = require('yaml');
 
 const repoRoot = path.resolve(__dirname, '..');
 
@@ -31,7 +33,7 @@ async function files(root, prefix = '') {
 
 test(
   'npm tarball installs bundled skills outside the checkout with network and subprocesses denied',
-  { timeout: 180_000 },
+  { timeout: 480_000 },
   async t => {
     const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-skill-package-'));
     t.after(() => fs.rm(temporary, { recursive: true, force: true }));
@@ -52,6 +54,25 @@ test(
       );
     assert.ok(packed.files.some(entry => entry.path === 'node_modules/@alv/core/lib/index.js'));
     assert.ok(packed.files.some(entry => entry.path === 'README.md'));
+    await t.test('an npm install gives bundled core and @salesforce/core one jsforce request module', async () => {
+      // Core routes proxies through the dispatcher on the jsforce request module it loads; a second copy would skip it.
+      const project = path.join(temporary, 'npm-install');
+      await fs.mkdir(project);
+      await fs.writeFile(path.join(project, 'package.json'), '{"private":true}\n');
+      // npm resolves this tree outside pnpm's minimumReleaseAge; apply the same window.
+      const { minimumReleaseAge } = yaml.parse(await fs.readFile(path.join(repoRoot, 'pnpm-workspace.yaml'), 'utf8'));
+      run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', path.join(temporary, packed.filename)], {
+        cwd: project,
+        timeout: 300_000,
+        env: { ...process.env, npm_config_before: new Date(Date.now() - minimumReleaseAge * 60 * 1000).toISOString() }
+      });
+      const plugin = path.join(project, 'node_modules/@electivus/plugin-electivus/package.json');
+      const requestModule = from => fs.realpath(createRequire(from).resolve('@jsforce/jsforce-node/lib/request'));
+      assert.equal(
+        await requestModule(path.join(path.dirname(plugin), 'node_modules/@alv/core/package.json')),
+        await requestModule(createRequire(plugin).resolve('@salesforce/core'))
+      );
+    });
     // GNU tar interprets a Windows drive colon as a remote host; pass only paths relative to cwd.
     const holderName = "O'Brien & Sons";
     const holder = path.join(temporary, holderName);
