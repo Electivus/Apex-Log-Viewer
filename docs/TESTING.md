@@ -392,6 +392,6 @@ Use the `Extension Tests` launch config. It points to `out/test/runner.js`. Set 
 
 ## Notes
 
-- The runner enforces Mocha UI `tdd` (`suite`/`test`) and loads `out/test/mocha.setup.js` to count executed tests; if zero tests run and `VSCODE_TEST_FAIL_IF_NO_TESTS=1`, the run fails.
+- The runner enforces Mocha UI `tdd` (`suite`/`test`) and registers the root hooks from `out/test/mocha.setup.js`, which log each test's start and result; a run in which no test passes or fails (for example a scope or grep that matches nothing) fails.
 - We inject an HTTPS request shim in tests to avoid interference from extension host instrumentation.
 - The temporary workspace is deleted after the run.

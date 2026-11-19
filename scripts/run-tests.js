@@ -917,12 +917,12 @@ async function run() {
 
     mkdirSync(extensionsDir, { recursive: true });
     const launch = [
+      ...(process.env.VSCODE_TEST_WORKSPACE ? [process.env.VSCODE_TEST_WORKSPACE] : []),
       '--user-data-dir',
       userDataDir,
       '--extensions-dir',
       extensionsDir,
       ...macKeychainLaunchArgs(),
-      ...(process.env.VSCODE_TEST_WORKSPACE ? [process.env.VSCODE_TEST_WORKSPACE] : []),
       '--no-sandbox',
       '--disable-gpu-sandbox',
       '--disable-updates',

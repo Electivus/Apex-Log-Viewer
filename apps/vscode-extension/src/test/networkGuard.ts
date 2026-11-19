@@ -1,7 +1,23 @@
 import { AsyncLocalStorage } from 'async_hooks';
 import * as net from 'net';
 
-const LOOPBACK_HOST = /^(localhost|::1|(::ffff:)?127\.\d+\.\d+\.\d+)$/i;
+const LOOPBACK_HOST = /^(localhost|::1?|0\.0\.0\.0|127\.\d+\.\d+\.\d+|::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4})$/;
+
+/** Lower-cases the host, drops a trailing dot and IPv6 brackets, and compresses IPv6 to the form URL prints. */
+function normalizeHost(host: string): string {
+  const bare = host
+    .toLowerCase()
+    .replace(/^\[(.*)\]$/, '$1')
+    .replace(/\.$/, '');
+  if (!bare.includes(':')) {
+    return bare;
+  }
+  try {
+    return new URL(`http://[${bare}]`).hostname.slice(1, -1);
+  } catch {
+    return bare;
+  }
+}
 
 /** The host and port a Socket#connect call dials over TCP, or undefined for an IPC path. */
 function tcpTarget(args: unknown[]): { host: string; port: string } | undefined {
@@ -38,7 +54,12 @@ export function installNetworkGuard(runnable: MochaRunnable): readonly string[] 
   net.Socket.prototype.connect = function (this: net.Socket, ...args: unknown[]): net.Socket {
     const target = tcpTarget(args);
     const test = runningTest.getStore();
-    if (!target || LOOPBACK_HOST.test(target.host) || test === undefined || test.startsWith('integration:')) {
+    if (
+      !target ||
+      LOOPBACK_HOST.test(normalizeHost(target.host)) ||
+      test === undefined ||
+      test.startsWith('integration:')
+    ) {
       return connect.apply(this, args);
     }
     const endpoint = `${target.host}:${target.port}`;
