@@ -457,6 +457,44 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     assert.ok(!trace.includes('FAKEclientSecret0123'), 'the trace carries no client secret');
   });
 
+  test('a named secret that a token shape runs past is replaced to the end of the shape', async () => {
+    const session = ['00D000000000001', 'AQFakeSession'].join('!');
+    for (const value of [`${session}%TAIL`, `abcdef.${session}%TAIL`]) {
+      for (const place of PLACES) {
+        const { shown, trace } = await shownFor(place, `Request failed: Bearer ${value} end`);
+
+        assert.match(
+          shown,
+          /request failed: Bearer \[redacted\] end/i,
+          `${place}, ${value}: the error replaces all of it`
+        );
+        assert.ok(!trace.includes('TAIL'), `${place}, ${value}: the trace carries no part of it`);
+      }
+    }
+  });
+
+  test('a named secret that a token shape with a held session runs past is replaced to the end of the shape', async () => {
+    const session = 'FAKEsession0123456789';
+    const shaped = ['00D000000000001', session].join('!');
+
+    const { shown, trace } = await shownAfterHolding([session], `Request failed: Bearer ${shaped}%TAIL end`);
+
+    assert.match(shown, /request failed: Bearer \[redacted\] end/i, 'the error replaces all of it');
+    assert.match(trace, /request failed: Bearer \[redacted\] end/i, 'the trace replaces all of it');
+  });
+
+  test('a held session right after a named secret is replaced to the end of its token shape', async () => {
+    const shaped = ['00D000000000001', 'FAKEsession0123456789'].join('!');
+
+    const { shown, trace } = await shownAfterHolding(
+      [shaped],
+      `Request failed: Bearer FAKEbearer0123${shaped}%TAIL end`
+    );
+
+    assert.ok(!shown.includes('TAIL'), 'the error carries no part of the token shape');
+    assert.ok(!trace.includes('TAIL'), 'the trace carries no part of the token shape');
+  });
+
   test('a held token that ends in a percent sign leaves no part of its percent-encoded form', async () => {
     for (const [token, carried] of [
       ['FAKE-ends-in-percent-0123%', 'FAKE-ends-in-percent-0123%25'],
@@ -510,6 +548,26 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
 
     assert.ok(shown.includes('accessToken=[redacted]'), 'the named secret is replaced');
     assert.ok(elapsed < 1000, `redacting 156 kB took ${Math.round(elapsed)} ms`);
+  });
+
+  test('text that starts a JSON Web Token again and again is looked for in time that grows with the text, not its square', async () => {
+    const body = 'eyJ-'.repeat(25_000);
+    const started = performance.now();
+    const { shown } = await shownFor('stderr', `Request failed with ${body}`);
+    const elapsed = performance.now() - started;
+
+    assert.ok(shown.includes(body), 'the text, which holds no token, stays as written');
+    assert.ok(elapsed < 1000, `redacting 100 kB took ${Math.round(elapsed)} ms`);
+  });
+
+  test('a held token that starts a JSON Web Token, repeated, is looked for in time that grows with the text, not its square', async () => {
+    const token = 'FAKE-eyJ-held-token-0123';
+    const started = performance.now();
+    const { shown } = await shownAfterHolding([token], `Request failed with ${token.repeat(16_000)}`);
+    const elapsed = performance.now() - started;
+
+    assert.ok(!shown.includes('FAKE-eyJ'), 'every copy of the held token is replaced');
+    assert.ok(elapsed < 1000, `redacting 384 kB took ${Math.round(elapsed)} ms`);
   });
 
   test('the token a successful sf prints still reaches the auth source', async () => {
