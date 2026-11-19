@@ -177,7 +177,7 @@ for (const platform of ['darwin', 'linux', 'win32']) {
     const [third, fourth] = await Promise.all([start(702), start(703)]);
     third.process.emit('SIGINT');
     third.process.emit('SIGINT');
-    await assert.rejects(third.run, /VS Code test host exited with SIGKILL/);
+    await assert.rejects(third.run, /Interrupted/);
     assert.deepEqual(signals.slice(1), [
       [702, 'launch handle', 702, 'SIGINT'],
       [702, 'launch handle', 702, 'SIGKILL']
