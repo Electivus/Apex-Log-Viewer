@@ -12,11 +12,11 @@ import { eventObjectKey } from '../../core/src/customLogs/events/store.ts';
 import { OBJECT, config, world } from './support/captureWorld.ts';
 import { withStreams } from './support/streams.ts';
 
-// The test runner gives this file its own process, so the preload delays the file syncs of these tests only.
-
-process.env.ALV_TEST_SLOW_SYNC_MS = '700';
+// The test runner gives this file its own process, so the preload delays the file syncs of these tests only. Each
+// sync takes longer than the limit, and the query loads a copy of the preload when NODE_OPTIONS already loaded one.
+process.env.ALV_TEST_SLOW_SYNC_MS = '1500';
 const scripts = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../scripts');
-await import(pathToFileURL(path.join(scripts, 'slow-disk.mjs')).href);
+await import(`${pathToFileURL(path.join(scripts, 'slow-disk.mjs')).href}?capture-max-time`);
 
 test.after(() => core.dispose());
 
@@ -33,7 +33,8 @@ const drain = async (org: string[]) => {
   };
 };
 
-// A stalled runner stretches the wall time, so each test asserts on a file that the open writes well after the limit.
+// A stalled runner stretches the wall time, so each test asserts on .gitignore, the last file an open writes. That
+// holds where win32 refuses directory syncs too: the limit then passes while the open syncs format.json.
 
 test('--max-time that passes while a slow disk opens the event store stops the open', async t => {
   const { double, org } = await world(t);
@@ -44,9 +45,10 @@ test('--max-time that passes while a slow disk opens the event store stops the o
   assert.deepEqual([result.delivered, result.stored], [0, 0]);
   assert.deepEqual(double.replays, [], 'nothing subscribed');
   assert.ok(
-    !stored.includes('format.json'),
+    !stored.includes('.gitignore'),
     `the store open ran on past the limit: the command took ${elapsedMs} ms and left ${stored.join(', ')}`
   );
+  assert.ok(!stored.includes('capture.lease'), 'the lease is free for the next run');
 });
 
 test('--max-time that passes after the open took the capture lease gives the lease back', async t => {
