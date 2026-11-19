@@ -12,7 +12,7 @@ Legacy `github-actions-secret:<owner>/<repo>/SF_DEVHUB_PRIVATE_KEY` journals rem
 
 Before replacing an active credential:
 
-1. Use Node 24, the pinned pnpm, Salesforce CLI **2.150.6**, OpenSSL and authenticated `gh`. Keep the repository-pinned CLI runtime and macOS isolation described in [CI.md](CI.md). On Windows 11 use PowerShell without elevation. Retain approved proxy/CA settings and TLS verification.
+1. Use Node 24, the pinned pnpm, Salesforce CLI **2.159.7**, OpenSSL and authenticated `gh`. Keep the repository-pinned CLI runtime and macOS isolation described in [CI.md](CI.md). On Windows 11 use PowerShell without elevation. Retain approved proxy/CA settings and TLS verification.
 2. Authenticate the authorized bootstrap administrator and independently verify the exact **18-character** Dev Hub ID. For a normal rotation, retain the existing `identity.json` ownership UUID and history in [durable operator storage](DEVHUB_LOCAL.md). Do not adopt another similarly named app. If the original journal/key was lost, use the separate audited recovery procedure below.
 3. Confirm the previous private key and certificate are readable, matching and unexpired. Preparation checks them and copies both into private recovery storage. **GitHub Actions Secrets cannot return an old key.** A successful Secret inventory query confirms names/timestamps only.
 4. Resolve every owned proof's pending scratch/pool cleanup. Preserve shared pool leases, configuration and scratch authorization. Existing active scratches do not need deletion for a certificate rotation.

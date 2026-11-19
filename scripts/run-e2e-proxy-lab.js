@@ -25,7 +25,7 @@ function normalizeSalesforceCliPackage(value) {
   const packageName = String(value || '').trim();
   if (!SALESFORCE_CLI_PACKAGE_PATTERN.test(packageName)) {
     throw new Error(
-      '--sf-cli-package must be @salesforce/cli pinned to an exact version, for example @salesforce/cli@2.150.6.'
+      '--sf-cli-package must be @salesforce/cli pinned to an exact version, for example @salesforce/cli@2.159.7.'
     );
   }
   return packageName;

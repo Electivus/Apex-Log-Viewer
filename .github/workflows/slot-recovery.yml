@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 120
     env:
       SCRATCH_POOL_NAME: ${{ vars.SF_SCRATCH_POOL_NAME }}
-      SALESFORCE_CLI_PACKAGE: '@salesforce/cli@2.150.6'
+      SALESFORCE_CLI_PACKAGE: '@salesforce/cli@2.159.7'
       # Hosted Linux runners have no desktop Secret Service; use the CLI's encrypted file keychain.
       SF_USE_GENERIC_UNIX_KEYCHAIN: 'true'
     steps:

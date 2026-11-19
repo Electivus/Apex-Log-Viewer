@@ -86,7 +86,7 @@ test('isolated JWT pool administration and independent consumer lifecycle', asyn
     for (const name of Object.keys(process.env)) if (!(name in adminEnv)) delete process.env[name];
     Object.assign(process.env, adminEnv);
     const version = await runSfJson(['version']);
-    expect(version.cliVersion).toBe('@salesforce/cli/2.150.6');
+    expect(version.cliVersion).toBe('@salesforce/cli/2.159.7');
     evidence.cliVersion = version.cliVersion;
     evidence.nodeVersion = process.version;
     const empty = await runSfJson(['org', 'list']);

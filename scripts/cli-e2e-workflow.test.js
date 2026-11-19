@@ -389,7 +389,7 @@ test('real-org Playwright workflow keeps E2E tunables configurable with safe def
     job?.env?.VSCODE_TEST_VERSION,
     "${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}"
   );
-  assert.equal(job?.env?.SALESFORCE_CLI_PACKAGE, '@salesforce/cli@2.150.6');
+  assert.equal(job?.env?.SALESFORCE_CLI_PACKAGE, '@salesforce/cli@2.159.7');
   assert.equal(
     job?.env?.PLAYWRIGHT_WORKERS,
     "${{ github.event.inputs.playwright_workers || vars.PLAYWRIGHT_WORKERS || '1' }}"
@@ -559,7 +559,7 @@ test('direct real-org Playwright workflow uploads OS-specific artifacts and keep
     job.env?.VSCODE_TEST_VERSION,
     "${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}"
   );
-  assert.equal(job.env?.SALESFORCE_CLI_PACKAGE, '@salesforce/cli@2.150.6');
+  assert.equal(job.env?.SALESFORCE_CLI_PACKAGE, '@salesforce/cli@2.159.7');
   assert.equal(job.env?.SALESFORCE_CLI_NODE_VERSION, undefined);
   assert.equal(
     job.env?.PLAYWRIGHT_WORKERS,

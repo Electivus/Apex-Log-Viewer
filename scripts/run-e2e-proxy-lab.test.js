@@ -430,7 +430,7 @@ test('lab configuration isolates auth from reusable caches and uses the validate
   const runner = compose.services.runner;
   assert.equal(
     runner.build.args.ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE,
-    '${SALESFORCE_CLI_PACKAGE:-@salesforce/cli@2.150.6}'
+    '${SALESFORCE_CLI_PACKAGE:-@salesforce/cli@2.159.7}'
   );
   assert.deepEqual(runner.networks, ['e2e_proxy_internal']);
   assert.equal(compose.networks.e2e_proxy_internal.internal, true);
@@ -815,7 +815,7 @@ test('proxy lab compose forwards the Salesforce CLI package override into the ru
 
   assert.match(
     compose,
-    /^\s+ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE: \$\{SALESFORCE_CLI_PACKAGE:-@salesforce\/cli@2\.150\.6\}$/m
+    /^\s+ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE: \$\{SALESFORCE_CLI_PACKAGE:-@salesforce\/cli@2\.159\.7\}$/m
   );
   assert.match(compose, /^\s+ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE: \$\{ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE:-\}$/m);
 });
@@ -996,7 +996,7 @@ test('proxy lab Docker images are pinned by digest without a Rust toolchain stag
 test('proxy lab runner image installs the configured Salesforce CLI package', () => {
   const runnerDockerfile = readRunnerDockerfile();
 
-  assert.match(runnerDockerfile, /^ARG ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE=@salesforce\/cli@2\.150\.6$/m);
+  assert.match(runnerDockerfile, /^ARG ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE=@salesforce\/cli@2\.159\.7$/m);
   assert.match(runnerDockerfile, /npm install -g "\$\{ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE\}" --no-audit --no-fund/);
   assert.match(runnerDockerfile, /^ARG ALV_PNPM_VERSION=11\.11\.0$/m);
   assert.match(runnerDockerfile, /^ARG ALV_PNPM_INTEGRITY=sha512-[A-Za-z0-9+/]{86}==$/m);

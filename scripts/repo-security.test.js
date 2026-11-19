@@ -7,7 +7,7 @@ const shellQuote = require('shell-quote');
 const yaml = require('yaml');
 
 const repoRoot = path.join(__dirname, '..');
-const pinnedSalesforceCliPackage = '@salesforce/cli@2.150.6';
+const pinnedSalesforceCliPackage = '@salesforce/cli@2.159.7';
 
 function read(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
@@ -1158,6 +1158,26 @@ test('devcontainer pins its base image and the Salesforce CLI release of the rea
     dockerfile.match(/npm install -g (@salesforce\/cli@\S+) --no-audit --no-fund/)?.[1],
     pinnedSalesforceCliPackage
   );
+});
+
+test('every Salesforce CLI pin names the same release', () => {
+  const pinSites = [
+    '.devcontainer/Dockerfile',
+    '.github/workflows/e2e-playwright.yml',
+    '.github/workflows/salesforce-cli-cache.yml',
+    '.github/workflows/slot-recovery.yml',
+    'docker-compose.e2e-proxy.yml',
+    'scripts/run-tests.js',
+    'scripts/setup-salesforce-cli.mjs',
+    'test/e2e/proxy-lab/Dockerfile.runner'
+  ];
+  for (const site of pinSites) {
+    const pins = Array.from(read(site).matchAll(/@salesforce\/cli@\d+\.\d+\.\d+/g), match => match[0]);
+    assert.ok(pins.length > 0, `${site} should pin a Salesforce CLI release`);
+    for (const pin of pins) {
+      assert.equal(pin, pinnedSalesforceCliPackage, `${site} should pin ${pinnedSalesforceCliPackage}`);
+    }
+  }
 });
 
 test('container images install the workspace pnpm release from a hash-checked tarball', () => {

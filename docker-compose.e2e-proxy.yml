@@ -23,7 +23,7 @@ services:
       context: ./test/e2e/proxy-lab
       dockerfile: Dockerfile.runner
       args:
-        ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE: ${SALESFORCE_CLI_PACKAGE:-@salesforce/cli@2.150.6}
+        ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE: ${SALESFORCE_CLI_PACKAGE:-@salesforce/cli@2.159.7}
     depends_on:
       proxy:
         condition: service_healthy

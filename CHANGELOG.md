@@ -21,7 +21,7 @@
 
 - Build: the webview CSS no longer passes through PostCSS. Tailwind 4 already adds the vendor prefixes, so `postcss.config.cjs`, `postcss` and `autoprefixer` are gone, and the built CSS is byte-identical.
 - Development: `pnpm run watch:webview` keeps rebuilding the CSS after the first build, and starts both watchers on Windows too.
-- Development: the devcontainer installs Salesforce CLI 2.150.6, the release that CI, the proxy lab and the local test runner use, instead of 2.136.8. A repository test fails when the devcontainer and the real-org jobs pin different releases.
+- Development: CI, the devcontainer, the proxy lab and the local test runner install Salesforce CLI 2.159.7, so the real-org E2E runs use a release at or above the 2.152.9 that the README asks for in orgs that rotate refresh tokens. They used 2.150.6, and the devcontainer 2.136.8. A repository test fails when any of them pins another release (#1464).
 - TypeScript: the configs drop `baseUrl`, Node10 module resolution and `ignoreDeprecations`, which TypeScript 7 rejects.
 - Tests: local extension coverage measures the extension, core and protocol sources again. Since the monorepo move it had reported no file.
 - E2E: `ALV_E2E_VSCODE_ENV`, a JSON object of variables for the VS Code process alone, lets the proxy lab start VS Code with the proxy only in its settings.
