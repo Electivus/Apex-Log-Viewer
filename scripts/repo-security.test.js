@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const semver = require('semver');
+const { PIN_SITES } = require('./check-salesforce-cli-smoke-evidence');
 const shellQuote = require('shell-quote');
 const yaml = require('yaml');
 
@@ -1161,16 +1162,7 @@ test('devcontainer pins its base image and the Salesforce CLI release of the rea
 });
 
 test('every Salesforce CLI pin names the same release', () => {
-  const pinSites = [
-    '.devcontainer/Dockerfile',
-    '.github/workflows/e2e-playwright.yml',
-    '.github/workflows/salesforce-cli-cache.yml',
-    '.github/workflows/slot-recovery.yml',
-    'docker-compose.e2e-proxy.yml',
-    'scripts/run-tests.js',
-    'scripts/setup-salesforce-cli.mjs',
-    'test/e2e/proxy-lab/Dockerfile.runner'
-  ];
+  const pinSites = PIN_SITES;
   for (const site of pinSites) {
     const pins = Array.from(read(site).matchAll(/@salesforce\/cli@\d+\.\d+\.\d+/g), match => match[0]);
     assert.ok(pins.length > 0, `${site} should pin a Salesforce CLI release`);

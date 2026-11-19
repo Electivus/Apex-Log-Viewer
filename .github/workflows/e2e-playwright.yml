@@ -50,6 +50,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Record the JWT smoke request
+        if: ${{ inputs.jwt_smoke_devhub_org_id != '' }}
+        run: echo "A JWT smoke was requested for this dispatch."
+
       - name: Classify product and test changes
         id: changes
         shell: bash
@@ -65,6 +69,31 @@ jobs:
           mapfile -t changed_paths < <(git diff --name-only "$BASE_SHA" "$GITHUB_SHA")
           run_e2e=$(node scripts/classify-real-org-e2e.js "${changed_paths[@]}")
           echo "run_e2e=$run_e2e" >> "$GITHUB_OUTPUT"
+
+  salesforce_cli_smoke_evidence:
+    name: Salesforce CLI pin smoke evidence
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    steps:
+      - name: Checkout change history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require JWT smoke evidence when the Salesforce CLI pin changes
+        run: node scripts/check-salesforce-cli-smoke-evidence.js
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
   playwright_e2e:
     name: Playwright E2E (scratch org)
@@ -84,7 +113,7 @@ jobs:
       ALV_E2E_TELEMETRY_APP: ${{ vars.ALV_E2E_TELEMETRY_APP }}
       ALV_E2E_TELEMETRY_BASE_APP: ${{ vars.ALV_E2E_TELEMETRY_BASE_APP }}
       ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID: ${{ vars.ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID }}
-      HAS_AZURE_E2E_TELEMETRY_CONFIG: ${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && '1' || '' }}
+      HAS_AZURE_E2E_TELEMETRY_CONFIG: ${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main') && '1' || '' }}
       ALV_E2E_TELEMETRY_RUN_ID_SEED: github:${{ github.run_id }}/ubuntu
       SCRATCH_POOL_NAME: ${{ vars.SF_SCRATCH_POOL_NAME }}
       SCRATCH_STRATEGY: pool
@@ -440,7 +469,7 @@ jobs:
       ALV_E2E_TELEMETRY_APP: ${{ vars.ALV_E2E_TELEMETRY_APP }}
       ALV_E2E_TELEMETRY_BASE_APP: ${{ vars.ALV_E2E_TELEMETRY_BASE_APP }}
       ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID: ${{ vars.ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID }}
-      HAS_AZURE_E2E_TELEMETRY_CONFIG: ${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && '1' || '' }}
+      HAS_AZURE_E2E_TELEMETRY_CONFIG: ${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main') && '1' || '' }}
       ALV_E2E_TELEMETRY_RUN_ID_SEED: github:${{ github.run_id }}/ubuntu
     steps:
       - name: Checkout
@@ -468,7 +497,7 @@ jobs:
         shell: bash
         run: |
           if [[ -z "${AZURE_CLIENT_ID}" || -z "${AZURE_TENANT_ID}" || -z "${AZURE_SUBSCRIPTION_ID}" || "${HAS_AZURE_E2E_TELEMETRY_CONFIG}" != "1" ]]; then
-            echo "Azure OIDC secrets or E2E telemetry target variables are not fully configured; skipping dedicated telemetry validation after the E2E jobs."
+            echo "Azure OIDC secrets, E2E telemetry target variables or the main-branch trust are missing; skipping dedicated telemetry validation after the E2E jobs."
             exit 0
           fi
           echo "Validating telemetry emitted by the Ubuntu Playwright E2E job."
@@ -481,6 +510,7 @@ jobs:
       - playwright_e2e
       - playwright_e2e_os_matrix
       - playwright_e2e_telemetry
+      - salesforce_cli_smoke_evidence
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -493,8 +523,13 @@ jobs:
           UBUNTU_RESULT: ${{ needs.playwright_e2e.result }}
           DIRECT_RESULT: ${{ needs.playwright_e2e_os_matrix.result }}
           TELEMETRY_RESULT: ${{ needs.playwright_e2e_telemetry.result }}
+          EVIDENCE_RESULT: ${{ needs.salesforce_cli_smoke_evidence.result }}
         run: |
           set -euo pipefail
+          if [[ "${EVIDENCE_RESULT}" != "success" && "${EVIDENCE_RESULT}" != "skipped" ]]; then
+            echo "::error::Salesforce CLI pin smoke evidence did not pass (${EVIDENCE_RESULT})."
+            exit 1
+          fi
           if [[ "${CLASSIFIER_RESULT}" != "success" ]]; then
             echo "::error::Real Org E2E change classification did not succeed (${CLASSIFIER_RESULT})."
             exit 1
