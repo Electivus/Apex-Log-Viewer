@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { transformSync } from 'esbuild';
+import { installNetworkGuard } from './networkGuard';
 
 // Use CommonJS import to align with Mocha's programmatic API
 const Mocha = require('mocha');
@@ -63,6 +64,7 @@ export async function run(): Promise<void> {
   const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
   const testsRoot = path.join(repoRoot, 'apps', 'vscode-extension', 'src', 'test');
   registerTypeScriptLoader(repoRoot);
+  const networkViolations = installNetworkGuard(Mocha.Runnable);
 
   const timeout = Number(process.env.VSCODE_TEST_MOCHA_TIMEOUT_MS || 120000);
   const grep = process.env.VSCODE_TEST_GREP;
@@ -96,7 +98,13 @@ export async function run(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     try {
       mocha.run((failures: number) => {
-        if (failures > 0) {
+        if (networkViolations.length > 0) {
+          reject(
+            new Error(
+              `Unit tests opened network connections; stub the org boundary instead:\n${networkViolations.join('\n')}`
+            )
+          );
+        } else if (failures > 0) {
           reject(new Error(`${failures} test(s) failed.`));
         } else {
           resolve();
