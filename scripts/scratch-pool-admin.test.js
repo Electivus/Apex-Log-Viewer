@@ -522,7 +522,7 @@ for (const [label, expiresAt] of [
     const { state, dependencies } = poolSalesforce(t);
     state.historicalInfo = { Id: 'old-info', Status: 'Deleted' };
     Object.assign(state.slot, { HealthState__c: 'healthy', ScratchAuthUrl__c: state.authUrl,
-      ScratchOrgInfoId__c: 'old-info', ScratchExpiresAt__c: expiresAt() });
+      ScratchOrgInfoId__c: 'old-info', ActiveScratchOrgId__c: 'old-active', ScratchExpiresAt__c: expiresAt() });
     const request = dependencies.fetchImpl;
     dependencies.fetchImpl = async (url, options) => {
       if (options.method === 'DELETE') throw new Error('Historical signup must not be deleted again');
@@ -530,6 +530,7 @@ for (const [label, expiresAt] of [
         return { ok: true, status: 200, text: async () => JSON.stringify(state.historicalInfo) };
       }
       if (url.includes('/query')) {
+        assert.match(decodeURIComponent(url), /FROM ActiveScratchOrg.*old-info.*old-active/);
         return { ok: true, status: 200, text: async () => JSON.stringify({ done: true, records: [] }) };
       }
       return request(url, options);

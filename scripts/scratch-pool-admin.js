@@ -912,7 +912,7 @@ async function listPool(targetOrg, poolKey) {
   const slots = await getSlotsByPoolId(targetOrg, pool.Id);
   const now = Date.now();
   const publicSlots = slots.map(slot => {
-    const publicSlot = { ...slot, scratchExpired: isScratchExpired(slot, pool, now) };
+    const publicSlot = { ...slot, scratchExpired: isScratchExpired(slot, now) };
     delete publicSlot.ScratchAuthUrl__c;
     delete publicSlot.LeaseToken__c;
     return publicSlot;
@@ -1223,7 +1223,7 @@ async function prewarmPool(targetOrg, poolKey, options = {}) {
   const scannedAt = Date.now();
 
   for (const slot of slots) {
-    if (isSlotReusable(slot, pool, scannedAt) && slot.LeaseState__c === 'available') {
+    if (isSlotReusable(slot, scannedAt) && slot.LeaseState__c === 'available') {
       healthySlots.push(slot.SlotKey__c);
       continue;
     }
@@ -1270,8 +1270,8 @@ async function prewarmPool(targetOrg, poolKey, options = {}) {
 
   const refreshedSlots = await getSlotsByPoolIdForMaintenance(targetOrg, pool.Id);
   const finishedAt = Date.now();
-  const finalHealthySlots = refreshedSlots.filter(slot => isSlotReusable(slot, pool, finishedAt));
-  const finalNeedsRecreateSlots = refreshedSlots.filter(slot => !isSlotReusable(slot, pool, finishedAt));
+  const finalHealthySlots = refreshedSlots.filter(slot => isSlotReusable(slot, finishedAt));
+  const finalNeedsRecreateSlots = refreshedSlots.filter(slot => !isSlotReusable(slot, finishedAt));
 
   return {
     ok: true,
@@ -1356,16 +1356,17 @@ function renderResult(result, asJson) {
   console.log(JSON.stringify(result, null, 2));
 }
 
-// Mirrors the expiry rule of ALVScratchPoolService.slotNeedsCreate, which a Pool Lease applies.
-function isScratchExpired(slot, pool, now) {
-  const expiresAt = Date.parse(slot.ScratchExpiresAt__c || '');
-  const minRemainingMinutes = Math.max(0, parseInteger(pool.MinRemainingMinutes__c ?? undefined, 120));
-  return !(expiresAt > now + minRemainingMinutes * 60 * 1000);
+function leaseMinRemainingMinutes() {
+  return Math.max(0, Number(process.env.SF_SCRATCH_POOL_MIN_REMAINING_MINUTES || 120) || 120);
 }
 
-function isSlotReusable(slot, pool, now) {
-  return slot.HealthState__c === 'healthy' && isUsableSfdxAuthUrl(slot.ScratchAuthUrl__c) &&
-    !isScratchExpired(slot, pool, now);
+function isScratchExpired(slot, now) {
+  const expiresAt = Date.parse(slot.ScratchExpiresAt__c || '');
+  return Number.isNaN(expiresAt) || expiresAt <= now + leaseMinRemainingMinutes() * 60 * 1000;
+}
+
+function isSlotReusable(slot, now) {
+  return slot.HealthState__c === 'healthy' && isUsableSfdxAuthUrl(slot.ScratchAuthUrl__c) && !isScratchExpired(slot, now);
 }
 
 function isSlotEligibleForPrewarm(slot) {
