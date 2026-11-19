@@ -23,10 +23,13 @@ function execFileAsync(file, args, options = {}) {
 }
 
 function execCommandAsync(command, args, options = {}) {
-  if (process.platform === 'win32') {
-    return execFileAsync('cmd.exe', ['/d', '/s', '/c', command, ...args], options);
+  if (process.platform !== 'win32') {
+    return execFileAsync(command, args, options);
   }
-  return execFileAsync(command, args, options);
+  // az is a .cmd program on Windows, so it runs inside cmd.exe; cross-spawn escapes each argument for it.
+  // Required here because the E2E workflow runs this module on Linux before it installs dependencies.
+  const parsed = require('cross-spawn')._parse(command, args, options);
+  return execFileAsync(parsed.command, parsed.args, parsed.options);
 }
 
 function buildWindowsQueryCommand(workspaceId, query, baseEnv = process.env) {
