@@ -83,6 +83,12 @@ for (const platform of ['darwin', 'linux', 'win32']) {
                   args.includes('--extensionDevelopmentPath=' + path.resolve(__dirname, '../apps/vscode-extension'))
                 );
                 assert.equal(args.includes('--use-mock-keychain'), platform === 'darwin');
+                assert.ok(process.env.VSCODE_TEST_WORKSPACE, 'The run prepares a workspace');
+                assert.equal(
+                  args[0],
+                  process.env.VSCODE_TEST_WORKSPACE,
+                  'VS Code reads the first token after a bare flag such as --use-mock-keychain as its value, so the workspace leads'
+                );
                 return open(pid, args, launched);
               },
               execFile(file, args, options, callback) {
