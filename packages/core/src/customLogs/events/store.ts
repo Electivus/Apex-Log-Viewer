@@ -49,7 +49,7 @@ import { promises as fs } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 
-import { AlvError } from '../../errors.js';
+import { AlvError, throwIfAborted } from '../../errors.js';
 import {
   LeaseUnreadableError,
   ensureRealDirectoryPath,
@@ -162,8 +162,14 @@ export type EventStore = StoreScan & {
    * `nextSeq` seeded from every writer's data files whose mtime is at or after `checkpoint.updatedAt`
    * (every data file when there is no checkpoint), so no seq is reused. A re-delivery of a stored event
    * (crash, takeover or `-2` replay) is dropped by `append`, which looks the uuid up in the stored hour.
+   *
+   * A first open syncs the directories and files it creates, which a slow disk stretches to seconds. `signal`
+   * stops it between those steps: it rejects with ABORTED and holds no lease. A step in progress finishes first.
    */
-  openWriter(surface: 'vscode' | 'cli'): Promise<{ writer: EventStoreWriter } | { heldBy: CustomLogLeaseHolder }>;
+  openWriter(
+    surface: 'vscode' | 'cli',
+    signal?: AbortSignal
+  ): Promise<{ writer: EventStoreWriter } | { heldBy: CustomLogLeaseHolder }>;
 };
 
 export type AppendResult = {
@@ -283,7 +289,7 @@ const dataFileOf = (layout: Layout, createdMs: number, writerId: string): string
  * Creates `target` and every missing directory above it below `root`, and fsyncs the parent of each
  * directory it created, so no file is appended into a directory whose own name could vanish in an OS crash.
  */
-async function ensureDirectory(root: string, target: string): Promise<void> {
+async function ensureDirectory(root: string, target: string, signal?: AbortSignal): Promise<void> {
   const missing: string[] = [];
   for (
     let directory = target;
@@ -293,6 +299,7 @@ async function ensureDirectory(root: string, target: string): Promise<void> {
     missing.unshift(directory);
   }
   for (const directory of missing) {
+    throwIfAborted(signal);
     await ensureRealDirectoryPath(root, directory, true);
     await syncDirectory(path.dirname(directory));
   }
@@ -778,9 +785,12 @@ export function openEventStore(location: EventStoreLocation): EventStore {
       }
     },
 
-    async openWriter(surface) {
+    async openWriter(surface, signal) {
       await readable();
-      await orUnavailable('Cannot create', layout.objectDir, () => ensureDirectory(layout.root, layout.objectDir));
+      await orUnavailable('Cannot create', layout.objectDir, () =>
+        ensureDirectory(layout.root, layout.objectDir, signal)
+      );
+      throwIfAborted(signal);
       let attempt: Awaited<ReturnType<typeof tryAcquireLease>>;
       try {
         attempt = await tryAcquireLease(layout.root, layout.leaseFile, surface);
@@ -794,11 +804,14 @@ export function openEventStore(location: EventStoreLocation): EventStore {
       const { acquired: lease } = attempt;
       try {
         await orUnavailable('Cannot write', layout.eventsDir, async () => {
+          throwIfAborted(signal);
           await writeFileAtomic(layout.formatFile, `${JSON.stringify({ version: FORMAT_VERSION })}\n`, true, {
             syncDirectory: true
           });
+          throwIfAborted(signal);
           await writeFileAtomic(layout.ignoreFile, '*\n', true, { syncDirectory: true });
         });
+        throwIfAborted(signal);
         const start = await seedWriter(await readCheckpoint());
         return { writer: createWriter(layout, index, lease, start) };
       } catch (error) {

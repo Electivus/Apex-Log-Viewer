@@ -291,8 +291,8 @@ export type WriterHooks = {
 export function instrumentStore(store: EventStore, hooks: WriterHooks): EventStore {
   return {
     ...store,
-    openWriter: async surface => {
-      const opened = await store.openWriter(surface);
+    openWriter: async (surface, signal) => {
+      const opened = await store.openWriter(surface, signal);
       if (!('writer' in opened)) return opened;
       const { writer } = opened;
       const wrapped: EventStoreWriter = {
