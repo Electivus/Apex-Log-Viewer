@@ -86,8 +86,19 @@ export class ManualClock implements CaptureClock {
   }
 }
 
+/**
+ * How long `until` and `within` wait before they fail the test. It only stops a hung run from hanging the suite, so it
+ * is far above what the run's real file I/O takes on a slow disk: a store open is 11 file syncs, and a loaded Windows
+ * runner once took 34 s over it.
+ */
+const HANG_GUARD_MS = 60_000;
+
 /** Polls (real time) until `check` holds; the run's file I/O is real, so a test waits for its effect, never for a fixed time. */
-export async function until(check: () => boolean | Promise<boolean>, what: string, timeoutMs = 8_000): Promise<void> {
+export async function until(
+  check: () => boolean | Promise<boolean>,
+  what: string,
+  timeoutMs = HANG_GUARD_MS
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     if (await check()) return;
@@ -97,7 +108,7 @@ export async function until(check: () => boolean | Promise<boolean>, what: strin
 }
 
 /** Rejects when `promise` has not settled after `timeoutMs` of real time, so a run that never stops fails instead of hanging the suite. */
-export async function within<T>(promise: Promise<T>, what: string, timeoutMs = 8_000): Promise<T> {
+export async function within<T>(promise: Promise<T>, what: string, timeoutMs = HANG_GUARD_MS): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const expired = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`Timed out waiting for ${what}`)), timeoutMs);
