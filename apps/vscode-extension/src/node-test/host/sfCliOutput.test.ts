@@ -457,6 +457,32 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     assert.ok(!trace.includes('FAKEclientSecret0123'), 'the trace carries no client secret');
   });
 
+  test('a named secret that a token shape runs past is replaced to the end of the shape', async () => {
+    const session = ['00D000000000001', 'AQFakeSession'].join('!');
+    for (const value of [`${session}%TAIL`, `abcdef.${session}%TAIL`]) {
+      for (const place of PLACES) {
+        const { shown, trace } = await shownFor(place, `Request failed: Bearer ${value} end`);
+
+        assert.match(
+          shown,
+          /request failed: Bearer \[redacted\] end/i,
+          `${place}, ${value}: the error replaces all of it`
+        );
+        assert.ok(!trace.includes('TAIL'), `${place}, ${value}: the trace carries no part of it`);
+      }
+    }
+  });
+
+  test('a named secret that a token shape with a held session runs past is replaced to the end of the shape', async () => {
+    const session = 'FAKEsession0123456789';
+    const shaped = ['00D000000000001', session].join('!');
+
+    const { shown, trace } = await shownAfterHolding([session], `Request failed: Bearer ${shaped}%TAIL end`);
+
+    assert.match(shown, /request failed: Bearer \[redacted\] end/i, 'the error replaces all of it');
+    assert.match(trace, /request failed: Bearer \[redacted\] end/i, 'the trace replaces all of it');
+  });
+
   test('a held token that ends in a percent sign leaves no part of its percent-encoded form', async () => {
     for (const [token, carried] of [
       ['FAKE-ends-in-percent-0123%', 'FAKE-ends-in-percent-0123%25'],
