@@ -28,10 +28,10 @@ Coverage record. The model describes all of these functions. The replay runs the
 | `packages/core/src/customLogs/events/store.ts`   | `openWriter` (lease part), writer `advance` (the `stillHeld` fence), writer `release`, `LeaseLostError`                                                                                                                                 |
 | `packages/core/src/customLogs/events/capture.ts` | `acquire` (standby retry), `epoch` (`LeaseLostError` → release → standby), `flushBatch` (`advance` call)                                                                                                                                |
 
-**Sync commit: `1bd463d4334f926dadd90889c8d9c34aad8910d0`.** At that commit the model was confirmed to describe the code above, including the F1 fix. Record a commit on `main` here. The repo squash-merges, so the head of a pull request is not on `main` and can lack commits that `main` gained before the merge. See what changed since:
+**Sync commit: `62b61e792aa521ed0d2a826d95fd60095336fbe2`.** At that commit the model was confirmed to describe the code above, including the F1 fix. Record a commit on `main` here. The repo squash-merges, so the head of a pull request is not on `main` and can lack commits that `main` gained before the merge. See what changed since:
 
 ```bash
-git diff 1bd463d4334f926dadd90889c8d9c34aad8910d0 -- packages/core/src/localStore/workspaceFs.ts packages/core/src/customLogs/events/store.ts packages/core/src/customLogs/events/capture.ts
+git diff 62b61e792aa521ed0d2a826d95fd60095336fbe2 -- packages/core/src/localStore/workspaceFs.ts packages/core/src/customLogs/events/store.ts packages/core/src/customLogs/events/capture.ts
 ```
 
 `.github/workflows/capture-lease-check.yml` runs `check.mjs` on pull requests that change `workspaceFs.ts`, `store.ts` or this skill. It is not a required check. A `capture.ts` change is not in its filter, because the check cannot fail on that file, so that change still needs the read by hand. store.ts and capture.ts also change for reasons unrelated to the lease. Look only at the functions in the table. Move the sync commit forward only after `check.mjs` passes and you have read the changed functions against the action table below. A passing replay alone does not prove that the model is current: the random behaviors might not take a new branch.
