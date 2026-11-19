@@ -11,6 +11,7 @@ Tail streams new Apex logs from the selected org while it runs. The user picks a
 - `tail-stream` shows each new log as `=== ApexLog <logId> | <StartTime> | <operation> | <status> | <size in bytes>`, then `Saved to <absolute path>/apexlogs/orgs/<safe org username>/logs/<YYYY-MM-DD>/<logId>.log`, then the log lines. A failed save omits `Saved to` but can still display the log. Event text displays `&#124;` as `|`; `Execute Anonymous:` source echoes keep their literal text.
 - `tail-search` filters the buffer line by line with `Search live logs…`: only lines that contain the text remain, so the header row hides unless the text is in it, such as the log id. Search accepts both the raw `&#124;` and the displayed `|` form.
 - `tail-view-options` provides the `Debug Only`, `Color` and `Auto-scroll` switches. A click on a row or a scroll up pauses `Auto-scroll`, and a scroll back to the end resumes a scroll's pause.
+- `tail-buffer` keeps the last `electivus.apexLogViewer.tail.bufferLines` lines (default 10000, 1000 to 200000) and drops older ones. A change applies to a running tail.
 - `tail-actions` provides `Clear`, `Open Log` (Log Viewer), `Replay Debugger` and `Debug Flags`. `Open Log` and `Replay Debugger` need a selected row.
 - `tail-editor-area` uses `Open Tail in Editor Area` to open a second, independent Tail in an editor tab. Closing that tab stops its tail (`Tail webview detached; stopped tail (hostDisposed).` in the Output log). Running the command again reveals the tab and resets it to the panel's org.
 
