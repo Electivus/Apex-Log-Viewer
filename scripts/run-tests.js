@@ -198,6 +198,16 @@ function watchInterrupts() {
   };
 }
 
+// On Windows a VS Code helper can hold a profile file for a moment after VS Code exits, and removal fails with
+// EBUSY or EPERM. rmSync retries those errors.
+function removeTestProfile(profileDir) {
+  try {
+    rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch (error) {
+    console.warn(`[test-runner] Could not remove the test profile ${profileDir}; remove it yourself:`, error.message);
+  }
+}
+
 // os.tmpdir() reads TMPDIR on macOS and Linux and TEMP or TMP on Windows.
 const tempDirEnv = dir => ({ TMPDIR: dir, TEMP: dir, TMP: dir });
 
@@ -666,12 +676,7 @@ async function run() {
   const interrupts = watchInterrupts();
   let profileDir;
   const removeProfile = () => {
-    if (!profileDir) return;
-    try {
-      rmSync(profileDir, { recursive: true, force: true });
-    } catch (error) {
-      console.warn('[test-runner] Could not remove the test profile:', error.message);
-    }
+    if (profileDir) removeTestProfile(profileDir);
   };
   let timedOut = false;
   let cleanupDeadline;
@@ -934,6 +939,7 @@ module.exports = {
   ensureDefaultScratch,
   ensureDevHub,
   pretestSetup,
+  removeTestProfile,
   resolveMissingExtensionIds,
   resolveRequiredDevHubConfig
 };
