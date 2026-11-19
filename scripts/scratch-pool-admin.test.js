@@ -511,6 +511,63 @@ test('prewarm loses a conditional lease race without creating or overwriting a s
   assert.equal(state.keyFiles.every(key => !existsSync(key)), true);
 });
 
+const minutesFromNow = minutes => new Date(Date.now() + minutes * 60 * 1000).toISOString();
+
+for (const [label, expiresAt] of [
+  ['past its expiry', () => minutesFromNow(-30 * 24 * 60)],
+  ['inside the minimum remaining lifetime', () => minutesFromNow(60)],
+  ['without an expiry', () => null]
+]) {
+  test(`prewarm recreates a healthy slot ${label} whose signup the Dev Hub deleted`, async t => {
+    const { state, dependencies } = poolSalesforce(t);
+    state.historicalInfo = { Id: 'old-info', Status: 'Deleted' };
+    Object.assign(state.slot, { HealthState__c: 'healthy', ScratchAuthUrl__c: state.authUrl,
+      ScratchOrgInfoId__c: 'old-info', ActiveScratchOrgId__c: 'old-active', ScratchExpiresAt__c: expiresAt() });
+    const request = dependencies.fetchImpl;
+    dependencies.fetchImpl = async (url, options) => {
+      if (options.method === 'DELETE') throw new Error('Historical signup must not be deleted again');
+      if (url.includes('/sobjects/ScratchOrgInfo/old-info')) {
+        return { ok: true, status: 200, text: async () => JSON.stringify(state.historicalInfo) };
+      }
+      if (url.includes('/query')) {
+        assert.match(decodeURIComponent(url), /FROM ActiveScratchOrg.*old-info.*old-active/);
+        return { ok: true, status: 200, text: async () => JSON.stringify({ done: true, records: [] }) };
+      }
+      return request(url, options);
+    };
+    const result = await main(['prewarm', '--pool-key', 'isolated', '--json'], dependencies);
+    assert.deepEqual(result.skippedHealthySlotKeys, []);
+    assert.deepEqual(result.prewarmedSlotKeys, ['slot-01']);
+    assert.equal(state.created, true);
+    assert.equal(state.slot.HealthState__c, 'healthy');
+  });
+}
+
+test('prewarm leaves a healthy slot with remaining lifetime untouched', async t => {
+  const { state, dependencies } = poolSalesforce(t);
+  Object.assign(state.slot, { HealthState__c: 'healthy', ScratchAuthUrl__c: state.authUrl,
+    ScratchExpiresAt__c: minutesFromNow(10 * 24 * 60) });
+  const result = await main(['prewarm', '--pool-key', 'isolated', '--json'], dependencies);
+  assert.deepEqual(result.skippedHealthySlotKeys, ['slot-01']);
+  assert.deepEqual(result.prewarmedSlotKeys, []);
+  assert.equal(result.healthySlotCount, 1);
+  assert.equal(state.created, false);
+});
+
+test('list flags a healthy slot whose scratch org has expired', async t => {
+  const { state, dependencies } = poolSalesforce(t);
+  state.slots = [
+    { ...state.slot, HealthState__c: 'healthy', ScratchExpiresAt__c: minutesFromNow(-24 * 60) },
+    { ...state.slot, Id: 'slot-id-2', SlotKey__c: 'slot-02', HealthState__c: 'healthy',
+      ScratchExpiresAt__c: minutesFromNow(10 * 24 * 60) }
+  ];
+  const result = await main(['list', '--pool-key', 'isolated', '--json'], dependencies);
+  assert.deepEqual(result.slots.map(slot => [slot.SlotKey__c, slot.HealthState__c, slot.scratchExpired]), [
+    ['slot-01', 'healthy', true],
+    ['slot-02', 'healthy', false]
+  ]);
+});
+
 test('a redacted export preserves the only new scratch authorization for recovery', async t => {
   const { state, dependencies } = poolSalesforce(t);
   state.exportValue = '[REDACTED]';

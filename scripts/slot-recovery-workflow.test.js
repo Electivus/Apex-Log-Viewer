@@ -175,6 +175,11 @@ test('Slot Recovery replaces retired environments with prewarm for the configure
   const poolKeyVariable = /--pool-key[= ]"?\$\{?(\w+)\}?"?/.exec(prewarm.run)?.[1];
   assert.ok(poolKeyVariable, 'expected prewarm to select its pool explicitly from the environment');
   assert.equal(bindingSource(job, prewarm, poolKeyVariable), 'vars.SF_SCRATCH_POOL_NAME');
+  assert.equal(
+    bindingSource(job, prewarm, 'SF_SCRATCH_POOL_MIN_REMAINING_MINUTES'),
+    'vars.SF_SCRATCH_POOL_MIN_REMAINING_MINUTES',
+    'expected prewarm to recreate a slot inside the same expiry window a Pool Lease applies'
+  );
 
   assert.ok(gateStepIndex(job) < prewarmIndex, 'expected the configuration gate to run before prewarm');
   for (const name of JWT_SECRET_NAMES) {

@@ -910,8 +910,9 @@ async function listPool(targetOrg, poolKey) {
     throw new Error(`Scratch pool '${poolKey}' was not found.`);
   }
   const slots = await getSlotsByPoolId(targetOrg, pool.Id);
+  const now = Date.now();
   const publicSlots = slots.map(slot => {
-    const publicSlot = { ...slot };
+    const publicSlot = { ...slot, scratchExpired: isScratchExpired(slot, now) };
     delete publicSlot.ScratchAuthUrl__c;
     delete publicSlot.LeaseToken__c;
     return publicSlot;
@@ -1219,11 +1220,10 @@ async function prewarmPool(targetOrg, poolKey, options = {}) {
   const slots = await getSlotsByPoolIdForMaintenance(targetOrg, pool.Id);
   const healthySlots = [];
   const slotsToPrewarm = [];
+  const scannedAt = Date.now();
 
   for (const slot of slots) {
-    const hasAuthUrl = isUsableSfdxAuthUrl(slot.ScratchAuthUrl__c);
-    const isHealthy = slot.HealthState__c === 'healthy' && hasAuthUrl && slot.LeaseState__c === 'available';
-    if (isHealthy) {
+    if (isSlotReusable(slot, scannedAt) && slot.LeaseState__c === 'available') {
       healthySlots.push(slot.SlotKey__c);
       continue;
     }
@@ -1269,12 +1269,9 @@ async function prewarmPool(targetOrg, poolKey, options = {}) {
   }
 
   const refreshedSlots = await getSlotsByPoolIdForMaintenance(targetOrg, pool.Id);
-  const finalHealthySlots = refreshedSlots.filter(
-    slot => slot.HealthState__c === 'healthy' && isUsableSfdxAuthUrl(slot.ScratchAuthUrl__c)
-  );
-  const finalNeedsRecreateSlots = refreshedSlots.filter(
-    slot => slot.HealthState__c === 'needs_recreate' || !isUsableSfdxAuthUrl(slot.ScratchAuthUrl__c)
-  );
+  const finishedAt = Date.now();
+  const finalHealthySlots = refreshedSlots.filter(slot => isSlotReusable(slot, finishedAt));
+  const finalNeedsRecreateSlots = refreshedSlots.filter(slot => !isSlotReusable(slot, finishedAt));
 
   return {
     ok: true,
@@ -1336,7 +1333,7 @@ function renderResult(result, asJson) {
         slotKey: slot.SlotKey__c,
         alias: slot.ScratchAlias__c,
         leaseState: slot.LeaseState__c,
-        health: slot.HealthState__c,
+        health: slot.HealthState__c === 'healthy' && slot.scratchExpired ? 'healthy (expired)' : slot.HealthState__c,
         scratchUsername: slot.ScratchUsername__c,
         scratchExpiresAt: slot.ScratchExpiresAt__c,
         usageCount: slot.UsageCount__c
@@ -1357,6 +1354,19 @@ function renderResult(result, asJson) {
   }
 
   console.log(JSON.stringify(result, null, 2));
+}
+
+function leaseMinRemainingMinutes() {
+  return Math.max(0, Number(process.env.SF_SCRATCH_POOL_MIN_REMAINING_MINUTES || 120) || 120);
+}
+
+function isScratchExpired(slot, now) {
+  const expiresAt = Date.parse(slot.ScratchExpiresAt__c || '');
+  return Number.isNaN(expiresAt) || expiresAt <= now + leaseMinRemainingMinutes() * 60 * 1000;
+}
+
+function isSlotReusable(slot, now) {
+  return slot.HealthState__c === 'healthy' && isUsableSfdxAuthUrl(slot.ScratchAuthUrl__c) && !isScratchExpired(slot, now);
 }
 
 function isSlotEligibleForPrewarm(slot) {
