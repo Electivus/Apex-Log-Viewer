@@ -498,24 +498,27 @@ test('a run that asks for a clean cache leaves the VS Code build another run use
 });
 
 test('a run removes a profile that another process holds for a moment', async () => {
-  const run = createCheckout().start('first', { argv: ['--scope=unit'], holdProfile: 3 });
+  const checkout = createCheckout();
+  const run = checkout.start('first', { argv: ['--scope=unit'], holdProfile: 3 });
   await run.launched;
-  const { exitCode, leftover } = await run.finish().then(() => run.ended);
+  const { exitCode } = await run.finish().then(() => run.ended);
 
   assert.equal(exitCode, 0);
-  assert.deepEqual(leftover, []);
+  assert.equal(checkout.files.has(path.join(fixtureTmp, 'alv-vscode-first')), false, 'The profile is removed');
   assert.deepEqual(run.warnings, []);
 });
 
 test('a run that cannot remove its profile names the profile to remove', async () => {
-  const run = createCheckout().start('first', { argv: ['--scope=unit'], holdProfile: Infinity });
+  const checkout = createCheckout();
+  const run = checkout.start('first', { argv: ['--scope=unit'], holdProfile: Infinity });
   await run.launched;
-  const { exitCode, leftover } = await run.finish().then(() => run.ended);
+  const { exitCode } = await run.finish().then(() => run.ended);
+  const profile = path.join(fixtureTmp, 'alv-vscode-first');
 
   assert.equal(exitCode, 0);
-  assert.ok(leftover.includes(path.join(fixtureTmp, 'alv-vscode-first')));
+  assert.ok(checkout.files.has(profile), 'The held profile stays');
   assert.ok(run.warnings.length > 0);
-  for (const warning of run.warnings) assert.ok(warning.includes(path.join(fixtureTmp, 'alv-vscode-first')), warning);
+  for (const warning of run.warnings) assert.ok(warning.includes(profile), warning);
 });
 
 test(
