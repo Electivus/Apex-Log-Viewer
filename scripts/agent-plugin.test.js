@@ -96,3 +96,39 @@ test('a Windows-style Git checkout preserves generated plugin freshness', async 
   git(['checkout', 'HEAD', '--', 'LICENSE', 'plugins/electivus-debug/LICENSE']);
   await buildAgentPlugin({ repoRoot: temporary, check: true });
 });
+
+test('the analyzer smoke run lets npx resolve only packages past the repository release age', async () => {
+  const yaml = require('yaml');
+  const workspace = yaml.parse(await fs.readFile(path.join(repoRoot, 'pnpm-workspace.yaml'), 'utf8'));
+  const windowMs = workspace.minimumReleaseAge * 60 * 1000;
+  const bin = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-npx-stub-'));
+  const record = path.join(bin, 'before.json');
+  try {
+    // A stub npx records the npm config the smoke script hands it, then exits like a broken server.
+    await fs.writeFile(
+      path.join(bin, 'stub.cjs'),
+      `require('node:fs').writeFileSync(${JSON.stringify(record)}, JSON.stringify(process.env.npm_config_before ?? null)); process.exit(1);`
+    );
+    await fs.writeFile(
+      path.join(bin, 'npx'),
+      `#!/bin/sh\nexec "${process.execPath}" "${path.join(bin, 'stub.cjs')}"\n`,
+      { mode: 0o755 }
+    );
+    await fs.writeFile(path.join(bin, 'npx.cmd'), `@"${process.execPath}" "${path.join(bin, 'stub.cjs')}"\r\n`);
+    const pathKey = Object.keys(process.env).find(key => key.toUpperCase() === 'PATH') ?? 'PATH';
+    const started = Date.now();
+    spawnSync(process.execPath, [path.join(__dirname, 'test-agent-plugin-mcp.mjs')], {
+      cwd: repoRoot,
+      env: { ...process.env, [pathKey]: `${bin}${path.delimiter}${process.env[pathKey]}` },
+      encoding: 'utf8',
+      timeout: 60000
+    });
+    const finished = Date.now();
+    const before = JSON.parse(await fs.readFile(record, 'utf8'));
+    assert.equal(typeof before, 'string', 'the smoke script must pass npm a before= cutoff');
+    const cutoff = Date.parse(before);
+    assert.ok(cutoff >= started - windowMs - 1000 && cutoff <= finished - windowMs, `cutoff ${before}`);
+  } finally {
+    await fs.rm(bin, { recursive: true, force: true });
+  }
+});
