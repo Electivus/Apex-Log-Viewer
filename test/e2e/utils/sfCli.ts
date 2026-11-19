@@ -3,6 +3,8 @@ import { execFile, type ExecFileException } from 'node:child_process';
 import fs from 'node:fs';
 import { isUsableSfdxAuthUrl, safeSfFailureMessage, salesforceChildEnv } from '../../../scripts/devhub-auth.js';
 
+const crossSpawn = require('cross-spawn');
+
 export type ExecOptions = {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
@@ -55,27 +57,12 @@ function formatSfErrorDetails(stdout: string, stderr: string): string | undefine
   return undefined;
 }
 
-function getWrappedSfExecutable(file: string, args: string[]): string | undefined {
-  if (path.basename(file).toLowerCase() !== 'cmd.exe') {
-    return undefined;
-  }
-  const sfArg = args.find(arg => {
-    const basename = path.basename(String(arg || '')).toLowerCase();
-    return basename === 'sf' || basename === 'sf.cmd' || basename === 'sf.exe';
-  });
-  return sfArg ? 'sf' : undefined;
-}
-
-function formatProcessFailureDetails(file: string, args: string[], error: unknown): string | undefined {
+function formatProcessFailureDetails(file: string, error: unknown): string | undefined {
   const err = error as ExecFileException | undefined;
   const code = err?.code;
   const signal = err?.signal;
 
   if (code === 'ENOENT') {
-    const wrappedSfExecutable = getWrappedSfExecutable(file, args);
-    if (wrappedSfExecutable) {
-      return `Salesforce CLI executable '${wrappedSfExecutable}' was not found. Check PATH or install Salesforce CLI for the Node/test environment.`;
-    }
     const executable = path.basename(file) || file;
     if (executable === 'sf' || executable === 'sf.cmd' || executable === 'sf.exe') {
       return `Salesforce CLI executable '${file}' was not found. Check PATH or install Salesforce CLI for the Node/test environment.`;
@@ -216,7 +203,7 @@ function execProcessFileAsync(file: string, args: string[], options: SfProcessOp
           options.credentialOutput
             ? safeSfFailureMessage(`${stdout}\n${stderr}`)
             : formatSfErrorDetails(String(stdout || ''), String(stderr || '')),
-          formatProcessFailureDetails(file, args, error)
+          formatProcessFailureDetails(file, error)
         ]
           .filter(Boolean)
           .join('\n');
@@ -239,8 +226,10 @@ function execProcessFileAsync(file: string, args: string[], options: SfProcessOp
       maxBuffer: 1024 * 1024 * 20
     };
 
-    const executable = getTrustedExecutable(file, ['cmd.exe', 'bash']);
-    execFile(executable, args, execOptions, callback);
+    // A Windows .cmd program runs inside cmd.exe, which has its own quoting rules; cross-spawn escapes the
+    // program and each argument for it and leaves every other program as is.
+    const parsed = crossSpawn._parse(getTrustedExecutable(file, ['cmd.exe', 'bash']), args, execOptions);
+    execFile(parsed.command, parsed.args, parsed.options, callback);
   });
 }
 
@@ -269,18 +258,7 @@ function getTrustedExecutable(file: string, additionalAllowedBasenames: string[]
 }
 
 async function execSfCliAsync(file: string, args: string[], options: SfProcessOptions = {}): Promise<ExecResult> {
-  const executable = getTrustedExecutable(file);
-  const finalArgs = normalizeExecArgs(args);
-
-  if (process.platform === 'win32' && /\.cmd$/i.test(executable)) {
-    return await execProcessFileAsync(
-      process.env.ComSpec || 'cmd.exe',
-      ['/d', '/s', '/c', executable, ...finalArgs],
-      options
-    );
-  }
-
-  return await execProcessFileAsync(executable, finalArgs, options);
+  return await execProcessFileAsync(getTrustedExecutable(file), normalizeExecArgs(args), options);
 }
 
 export async function runSfJson(args: string[], options: ExecOptions = {}): Promise<any> {

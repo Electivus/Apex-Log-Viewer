@@ -1,7 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { mkdtempSync, rmSync, readFileSync, writeFileSync } = require('node:fs');
-const { homedir } = require('node:os');
+const { readFileSync, writeFileSync } = require('node:fs');
 const path = require('node:path');
 const { X509Certificate, createPrivateKey } = require('node:crypto');
 const { main } = require('./devhub-identity');
@@ -11,7 +10,8 @@ const {
   discoveryFixture,
   temporaryCertificate,
   preparedAppFixture,
-  addRuntimeAssignment
+  addRuntimeAssignment,
+  stateDirectory
 } = require('./devhub-identity-fixtures');
 
 test('rotation preparation validates replacement and rollback material without changing the app, store or grants', async t => {
@@ -404,8 +404,7 @@ function directoryPermissions(directory) {
 
 test('lost-material recovery preparation preserves unrelated existing directories', async t => {
   const fs = require('node:fs');
-  const directory = mkdtempSync(path.join(homedir(), 'alv-unrelated-preparation-test-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const directory = stateDirectory(t, 'alv-unrelated-preparation-test-');
   if (process.platform !== 'win32') fs.chmodSync(directory, 0o750);
   const before = directoryPermissions(directory);
   const candidate = await temporaryCertificate(t);
@@ -427,8 +426,7 @@ test('lost-material recovery preparation preserves unrelated existing directorie
 
 test('lost-material recovery rejects an unrecognized plan without changing directory permissions', async t => {
   const fs = require('node:fs');
-  const directory = mkdtempSync(path.join(homedir(), 'alv-unrelated-recovery-test-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const directory = stateDirectory(t, 'alv-unrelated-recovery-test-');
   if (process.platform !== 'win32') fs.chmodSync(directory, 0o750);
   const before = directoryPermissions(directory);
   for (const { body, approvedHash } of [
