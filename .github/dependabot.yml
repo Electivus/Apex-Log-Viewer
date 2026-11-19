@@ -30,9 +30,6 @@ updates:
       # Revisit with a coordinated compiler and test-transformer migration (#980).
       - dependency-name: 'typescript'
         versions: ['>=7.0.0 <8.0.0']
-      # sf-plugins-core 12 exports oclif 4 flag types; v5 breaks declarations (#1092).
-      - dependency-name: '@oclif/core'
-        versions: ['>=5.0.0 <6.0.0']
       - dependency-name: '@types/node'
         update-types:
           - 'version-update:semver-major'
@@ -41,9 +38,6 @@ updates:
           - 'version-update:semver-major'
           - 'version-update:semver-minor'
           - 'version-update:semver-patch'
-      - dependency-name: '@salesforce/sf-plugins-core'
-        update-types:
-          - 'version-update:semver-major'
   - package-ecosystem: 'github-actions'
     directory: '/'
     schedule:

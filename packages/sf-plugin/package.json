@@ -27,9 +27,9 @@
   },
   "dependencies": {
     "@alv/core": "workspace:*",
-    "@oclif/core": "^4.14.0",
+    "@oclif/core": "^5.1.9",
     "@salesforce/core": "^9.4.6",
-    "@salesforce/sf-plugins-core": "^12.2.28"
+    "@salesforce/sf-plugins-core": "^13.0.9"
   },
   "bundleDependencies": [
     "@alv/core"
