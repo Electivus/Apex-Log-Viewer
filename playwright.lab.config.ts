@@ -13,5 +13,6 @@ export default defineConfig({
   timeout: 30 * 60_000,
   retries: 0,
   outputDir: path.join(artifactsRoot, 'test-results'),
-  reporter: [['list']]
+  reporter: [['list']],
+  use: { screenshot: 'only-on-failure' }
 });

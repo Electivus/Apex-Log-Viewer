@@ -49,8 +49,9 @@ export const test = base.extend<Fixtures & Options>({
       extensionDevelopmentPath,
       extensionIds: supportExtensionIds
     });
-    const finishTrace = await recordElectronTrace(launch.app, testInfo);
+    let finishTrace = async () => {};
     try {
+      finishTrace = await recordElectronTrace(launch.app, testInfo);
       await use(launch.app);
     } finally {
       await finishTrace();
