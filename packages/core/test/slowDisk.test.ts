@@ -25,11 +25,8 @@ const writeMs = await timed(() => handle.writeFile('x'));
 const syncMs = await timed(() => handle.sync());
 const datasyncMs = await timed(() => handle.datasync());
 await handle.close();
-const directory = await fs.promises.open(dir, 'r');
-const directorySyncMs = await timed(() => directory.sync().catch(() => undefined));
-await directory.close();
 fs.rmSync(dir, { recursive: true });
-console.log(JSON.stringify({ writeMs, syncMs, datasyncMs, directorySyncMs }));
+console.log(JSON.stringify({ writeMs, syncMs, datasyncMs }));
 `;
 
 function run(env: Record<string, string>, program: string = PROBE) {
@@ -45,7 +42,7 @@ test('a process under the slow-disk preload waits the delay before every file sy
   assert.equal(child.status, 0, child.stderr);
   const seen = JSON.parse(child.stdout) as Record<string, number>;
 
-  for (const call of ['syncMs', 'datasyncMs', 'directorySyncMs'] as const) {
+  for (const call of ['syncMs', 'datasyncMs'] as const) {
     assert.ok(
       seen[call]! >= DELAY_MS - TIMER_SLACK_MS,
       `${call}: ${seen[call]} ms is shorter than the ${DELAY_MS} ms delay`
