@@ -4,6 +4,7 @@
 //   node scripts/test-shifted-clock.mjs                 # +45, +400 and -1 days
 //   node scripts/test-shifted-clock.mjs --days 31,90    # other shifts
 //   node scripts/test-shifted-clock.mjs --all           # every core and sf-plugin test file, not only the event suites
+//   ALV_TEST_SLOW_SYNC_MS=150 NODE_OPTIONS="--import $PWD/scripts/slow-disk.mjs" node scripts/test-shifted-clock.mjs   # on a slow disk too
 //
 // Exit 1 when any run fails. Run it after `pnpm run build:core`, as `pnpm run test:sf-plugin` does.
 import { spawn } from 'node:child_process';
@@ -60,7 +61,12 @@ function runShifted(days, suite) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['--import', 'tsx', '--test', '--test-reporter=tap', ...suite.files], {
       cwd: path.join(repoRoot, suite.cwd),
-      env: { ...process.env, ALV_TEST_CLOCK_SHIFT_DAYS: String(days), NODE_OPTIONS: `--import ${preload}` }
+      env: {
+        ...process.env,
+        ALV_TEST_CLOCK_SHIFT_DAYS: String(days),
+        // Kept, so a preload the caller set (scripts/slow-disk.mjs) runs in the sweep too.
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import ${preload}`].filter(Boolean).join(' ')
+      }
     });
     let stdout = '';
     let stderr = '';
