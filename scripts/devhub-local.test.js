@@ -4,10 +4,10 @@ const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs');
 const { main } = require('./devhub-local');
+const { stateDirectory } = require('./devhub-identity-fixtures');
 
 async function operatorFixture(t) {
-  const directory = fs.mkdtempSync(path.join(os.homedir(), 'alv-operator-test-'));
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const directory = stateDirectory(t, 'alv-operator-test-');
   const openssl = [
     'openssl',
     path.join(process.env.LOCALAPPDATA || '', 'Programs/Git/usr/bin/openssl.exe'),
@@ -101,8 +101,7 @@ test('local JWT verification rejects a temporary operator root before Salesforce
 });
 
 test('local JWT rejects an unrecognized state root without changing its permissions', async t => {
-  const directory = fs.mkdtempSync(path.join(os.homedir(), 'alv-unrelated-directory-test-'));
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const directory = stateDirectory(t, 'alv-unrelated-directory-test-');
   const snapshot = () => {
     if (process.platform !== 'win32') return fs.statSync(directory).mode & 0o777;
     const result = require('cross-spawn').sync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
@@ -147,8 +146,7 @@ test('permanent certificate creation refuses temporary storage before producing 
 });
 
 test('local operator commands reject platform cache roots before reading or creating credentials', async t => {
-  const root = fs.mkdtempSync(path.join(os.homedir(), 'alv-storage-policy-test-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = stateDirectory(t, 'alv-storage-policy-test-');
   let calls = 0;
   for (const relative of ['.cache', 'Library/Caches', 'AppData/Local/Packages/Fixture/LocalCache']) {
     const directory = path.join(root, relative, 'devhub-jwt');
