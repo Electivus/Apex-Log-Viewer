@@ -21,10 +21,5 @@ export default defineConfig({
   outputDir: resultsRoot,
   reporter: process.env.CI
     ? [['list'], ['html', { open: 'never', outputFolder: path.join(artifactsRoot, 'report') }]]
-    : [['list']],
-  use: {
-    trace: 'retain-on-failure',
-    video: 'retain-on-failure',
-    screenshot: 'only-on-failure'
-  }
+    : [['list']]
 });

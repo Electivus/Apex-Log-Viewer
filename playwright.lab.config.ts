@@ -14,5 +14,5 @@ export default defineConfig({
   retries: 0,
   outputDir: path.join(artifactsRoot, 'test-results'),
   reporter: [['list']],
-  use: { trace: 'retain-on-failure', screenshot: 'only-on-failure' }
+  use: { screenshot: 'only-on-failure' }
 });

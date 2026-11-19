@@ -18,9 +18,5 @@ export default defineConfig({
   retries: 0,
   outputDir: resultsRoot,
   reporter: [['list']],
-  use: {
-    trace: 'retain-on-failure',
-    video: 'retain-on-failure',
-    screenshot: 'only-on-failure'
-  }
+  use: { screenshot: 'only-on-failure' }
 });

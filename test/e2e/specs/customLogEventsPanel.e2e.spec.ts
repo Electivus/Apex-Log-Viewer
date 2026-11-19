@@ -12,6 +12,7 @@ import {
   readAllowance
 } from '../utils/eventsOrg';
 import { createTempWorkspace, type TempWorkspace } from '../utils/tempWorkspace';
+import { recordElectronTrace, type FinishTrace } from '../utils/electronArtifacts';
 import { launchVsCode, resolveExtensionDevelopmentPath } from '../utils/vscode';
 import { waitForWebviewFrame } from '../utils/webviews';
 
@@ -34,9 +35,11 @@ test.describe.configure({ mode: 'serial' });
 let workspace: TempWorkspace;
 let app: ElectronApplication;
 let page: Page;
+let finishTrace: FinishTrace | undefined;
+let anyFailed = false;
 let cleanupApp: ((options?: { keep?: boolean }) => Promise<void>) | undefined;
 
-test.beforeAll(async () => {
+test.beforeAll(async ({}, testInfo) => {
   workspace = await createTempWorkspace({ targetOrg: EVENTS_ORG_ALIAS, settings: { [SETTING]: true } });
   await writeFile(
     path.join(workspace.workspacePath, 'sfdx-project.json'),
@@ -57,11 +60,17 @@ test.beforeAll(async () => {
   });
   app = launch.app;
   page = await app.firstWindow();
+  finishTrace = await recordElectronTrace(app, testInfo);
   cleanupApp = launch.cleanup;
 });
 
+test.afterEach(({}, testInfo) => {
+  anyFailed ||= testInfo.status !== testInfo.expectedStatus;
+});
+
 test.afterAll(async ({}, testInfo) => {
-  const keep = testInfo.status !== testInfo.expectedStatus;
+  const keep = anyFailed || testInfo.status !== testInfo.expectedStatus;
+  await finishTrace?.({ testInfo, failed: keep });
   await cleanupApp?.({ keep });
   await workspace?.cleanup({ keep });
 });
