@@ -395,6 +395,68 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     }
   });
 
+  test('a held token inside a JSON Web Token leaves no part of the JSON Web Token', async () => {
+    // Synthetic segments, joined at run time so that secret scanners do not take the source for a real token.
+    const [header, payload, signature] = [
+      'eyJhbGciOiJSUzI1NiJ9',
+      'eyJzdWIiOiJGQUtFLXN1YmplY3QifQ',
+      'FAKEsignatureFAKEsignature0123'
+    ];
+    const jwt = [header, payload, signature].join('.');
+
+    const { shown, trace } = await shownAfterHolding([payload], `Request failed with token ${jwt} end`);
+
+    assert.match(shown, /request failed with token \[redacted\] end/i, 'the error replaces the whole token');
+    assert.match(trace, /request failed with token \[redacted\] end/i, 'the trace replaces the whole token');
+  });
+
+  test('a held token inside a JSON Web Token leaves the secret after it replaced, whatever names it', async () => {
+    const [header, payload, signature] = [
+      'eyJhbGciOiJSUzI1NiJ9',
+      'eyJzdWIiOiJGQUtFLXN1YmplY3QifQ',
+      'FAKEsignatureFAKEsignature0123'
+    ];
+    const jwt = [header, payload, signature].join('.');
+
+    for (const [named, secret] of [
+      ['-sid=FAKEplainSession0123', 'FAKEplainSession0123'],
+      ['-password=FAKEhunter2hunter2', 'FAKEhunter2hunter2'],
+      ['-force://cid:FAKEsecret:FAKErefresh0123@login.example.com', 'FAKErefresh0123'],
+      ['-Bearer FAKEplainBearerValue123', 'FAKEplainBearerValue123']
+    ] as const) {
+      const { shown, trace } = await shownAfterHolding([payload], `Request failed with ${jwt}${named} end`);
+
+      assert.ok(!shown.includes(secret), `${named}: the error carries no ${secret}`);
+      assert.ok(!trace.includes(secret), `${named}: the trace carries no ${secret}`);
+      assert.ok(!shown.includes(signature), `${named}: the error carries no signature`);
+    }
+  });
+
+  test('a held session right before a named secret leaves the named secret replaced', async () => {
+    const session = 'FAKEsession0123456789';
+    const shaped = ['00D000000000001AAA', session].join('!');
+
+    for (const [named, secret] of [
+      ['Bearer FAKEbearerToken0123', 'FAKEbearerToken0123'],
+      ['sid=FAKEplainSession0123', 'FAKEplainSession0123']
+    ] as const) {
+      const { shown, trace } = await shownAfterHolding([session], `Request failed with ${shaped}${named} end`);
+
+      assert.ok(!shown.includes(secret), `${named}: the error carries no ${secret}`);
+      assert.ok(!trace.includes(secret), `${named}: the trace carries no ${secret}`);
+    }
+  });
+
+  test('a held session inside an SFDX auth URL leaves the client secret of the URL replaced', async () => {
+    const session = 'FAKEsession0123456789';
+    const url = `force://PlatformCLI:FAKEclientSecret0123:${['00D000000000001AAA', session].join('!')}@example.my.salesforce.com`;
+
+    const { shown, trace } = await shownAfterHolding([session], `Request failed with ${url} end`);
+
+    assert.ok(!shown.includes('FAKEclientSecret0123'), 'the error carries no client secret');
+    assert.ok(!trace.includes('FAKEclientSecret0123'), 'the trace carries no client secret');
+  });
+
   test('a held token that ends in a percent sign leaves no part of its percent-encoded form', async () => {
     for (const [token, carried] of [
       ['FAKE-ends-in-percent-0123%', 'FAKE-ends-in-percent-0123%25'],
@@ -437,6 +499,17 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
 
     assert.ok(shown.includes(body), 'the text, which holds no token, stays as written');
     assert.ok(elapsed < 1000, `redacting 32 kB took ${Math.round(elapsed)} ms`);
+  });
+
+  test('a held token in a long named secret is looked for in time that grows with the text, not its square', async () => {
+    const session = 'FAKEsession0123456789';
+    const body = `accessToken="${session}${'eyJaaaaaaaaa-'.repeat(12_000)}"`;
+    const started = performance.now();
+    const { shown } = await shownAfterHolding([session], `Request failed with ${body}`);
+    const elapsed = performance.now() - started;
+
+    assert.ok(shown.includes('accessToken=[redacted]'), 'the named secret is replaced');
+    assert.ok(elapsed < 1000, `redacting 156 kB took ${Math.round(elapsed)} ms`);
   });
 
   test('the token a successful sf prints still reaches the auth source', async () => {

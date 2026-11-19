@@ -364,15 +364,33 @@ function createExtensionHarness(options: {
   };
 }
 
+const realSetTimeout = globalThis.setTimeout;
+
+async function recordingTimeouts(
+  timeoutCallbacks: Array<() => Promise<void> | void>,
+  run: () => Promise<void> | void
+): Promise<void> {
+  (globalThis as any).setTimeout = (callback: () => Promise<void> | void, ...rest: unknown[]) => {
+    timeoutCallbacks.push(callback);
+    return (realSetTimeout as any)(callback, ...rest);
+  };
+  try {
+    await run();
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+}
+
 suite('extension activation gating', () => {
-  let originalSetTimeout: typeof globalThis.setTimeout;
-
-  setup(() => {
-    originalSetTimeout = globalThis.setTimeout;
-  });
-
-  teardown(() => {
-    globalThis.setTimeout = originalSetTimeout;
+  test('the setTimeout stub hands back a timer that host code can unref', async () => {
+    await recordingTimeouts([], () => {
+      assert.doesNotThrow(() =>
+        setTimeout(() => undefined, 0)
+          .unref()
+          .ref()
+          .hasRef()
+      );
+    });
   });
 
   test('keeps on-demand commands available without a Salesforce project and skips project preload', async () => {
@@ -386,13 +404,10 @@ suite('extension activation gating', () => {
       activeDocument,
       logId: '07L000000000123'
     });
-    (globalThis as any).setTimeout = (callback: () => Promise<void> | void) => {
-      harness.timeoutCallbacks.push(callback);
-      return 1;
-    };
-
-    const exports = await harness.extension.activate(createContext());
-    await exports.whenProjectReady();
+    await recordingTimeouts(harness.timeoutCallbacks, async () => {
+      const exports = await harness.extension.activate(createContext());
+      await exports.whenProjectReady();
+    });
 
     assert.deepEqual(harness.setApiVersionCalls, []);
     assert.equal(harness.timeoutCallbacks.length, 0, 'should not schedule CLI preload outside Salesforce projects');
@@ -443,13 +458,10 @@ suite('extension activation gating', () => {
       },
       orgs: [{ username: 'first@example.com' }, { username: 'default@example.com', isDefaultUsername: true }]
     });
-    (globalThis as any).setTimeout = (callback: () => Promise<void> | void) => {
-      harness.timeoutCallbacks.push(callback);
-      return 1;
-    };
-
-    const exports = await harness.extension.activate(createContext());
-    await exports.whenProjectReady();
+    await recordingTimeouts(harness.timeoutCallbacks, async () => {
+      const exports = await harness.extension.activate(createContext());
+      await exports.whenProjectReady();
+    });
 
     assert.deepEqual(harness.setApiVersionCalls, ['60.0']);
     assert.equal(harness.timeoutCallbacks.length, 0, 'the autonomous extension should not preload the Salesforce CLI');

@@ -46,7 +46,7 @@ describe('runSfJson failure diagnostics', () => {
   });
 
   test('reports missing Salesforce CLI executable with PATH guidance', async () => {
-    const { runSfJson } = await importSfCli();
+    const { runSfJson, getSfBinPath } = await importSfCli();
     const promise = runSfJson(['org', 'display', '-o', 'ConfiguredDevHub']);
 
     await waitForExecCallCount(1);
@@ -60,7 +60,7 @@ describe('runSfJson failure diagnostics', () => {
     failCommand(missingError);
 
     await expect(promise).rejects.toThrow(
-      /Salesforce CLI executable 'sf' was not found\. Check PATH or install Salesforce CLI for the Node\/test environment\./
+      `Salesforce CLI executable '${getSfBinPath()}' was not found. Check PATH or install Salesforce CLI for the Node/test environment.`
     );
   });
 
@@ -198,6 +198,52 @@ describe('runSfJson failure diagnostics', () => {
     }
   );
 
+  test('quotes a Windows sf.cmd path and arguments with spaces and cmd.exe metacharacters for cmd.exe', async () => {
+    const fs = require('node:fs');
+    const directory = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'alv R&D 100% '));
+    const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    try {
+      const authFile = path.join(directory, 'scratch auth.sfdxurl');
+      fs.writeFileSync(authFile, 'force://PlatformCLI::test-refresh-token@scratch.my.salesforce.com');
+      process.env.SF_CLI_BIN_PATH = 'C:/Program Files/sf/bin/sf.cmd';
+      process.env.ComSpec = process.env.comspec = 'C:/Windows/System32/cmd.exe';
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      const { runSfJson } = await importSfCli();
+      const promise = runSfJson(['org', 'login', 'sfdx-url', '--sfdx-url-file', authFile, '--alias', 'R&D']);
+      await waitForExecCallCount(1);
+      Object.defineProperty(process, 'platform', originalPlatform);
+      const [file, args, options] = execFileMock.mock.calls[0]!;
+      passCommand('{"status":0,"result":{}}');
+      await promise;
+
+      const escaped = (value: string) => `^"${value.replace(/([()\][%!^"`<>&|;, *?])/g, '^$1')}^"`;
+      expect({ file, args, verbatim: options.windowsVerbatimArguments }).toEqual({
+        file: 'C:/Windows/System32/cmd.exe',
+        args: [
+          '/d',
+          '/s',
+          '/c',
+          `"${path.normalize('C:/Program Files/sf/bin/sf.cmd').replace(/ /g, '^ ')} ${[
+            'org',
+            'login',
+            'sfdx-url',
+            '--sfdx-url-file',
+            authFile,
+            '--alias',
+            'R&D',
+            '--json'
+          ]
+            .map(escaped)
+            .join(' ')}"`
+        ],
+        verbatim: true
+      });
+    } finally {
+      Object.defineProperty(process, 'platform', originalPlatform);
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test('uses explicit Salesforce CLI Node runtime when configured', async () => {
     process.env.SF_CLI_NODE_PATH = '/opt/hostedtoolcache/node/22/bin/node';
     const { resolveSfCliInvocation } = await importSfCli();
@@ -248,7 +294,8 @@ describe('runSfJson failure diagnostics', () => {
     await waitForExecCallCount(1);
     if (process.platform === 'win32') {
       expect(String(execFileMock.mock.calls[0]?.[0]).toLowerCase()).toContain('cmd');
-      expect((execFileMock.mock.calls[0]?.[1] as string[]).slice(0, 4)).toEqual(['/d', '/s', '/c', configuredSfPath]);
+      expect((execFileMock.mock.calls[0]?.[1] as string[]).slice(0, 3)).toEqual(['/d', '/s', '/c']);
+      expect(execFileMock.mock.calls[0]?.[1][3]).toMatch(/^"C:\\Tools\\sf\.cmd /);
     } else {
       expect(execFileMock.mock.calls[0]?.[0]).toBe(configuredSfPath);
     }

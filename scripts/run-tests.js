@@ -200,6 +200,16 @@ function watchInterrupts() {
   };
 }
 
+// On Windows a VS Code helper can hold a profile file for a moment after VS Code exits, and removal fails with
+// EBUSY or EPERM. rmSync retries those errors.
+function removeTestProfile(profileDir) {
+  try {
+    rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch (error) {
+    console.warn(`[test-runner] Could not remove the test profile ${profileDir}; remove it yourself:`, error.message);
+  }
+}
+
 // Runs in one checkout share the VS Code builds and extensions in .vscode-test and the build outputs that a smoke
 // run packages. Only one run at a time writes them; the others wait. A lock whose holder died goes stale in 10s.
 async function withCheckoutLock(repoRoot, interrupts, work) {
@@ -697,12 +707,7 @@ async function run() {
   const interrupts = watchInterrupts();
   let profileDir;
   const removeProfile = () => {
-    if (!profileDir) return;
-    try {
-      rmSync(profileDir, { recursive: true, force: true });
-    } catch (error) {
-      console.warn('[test-runner] Could not remove the test profile:', error.message);
-    }
+    if (profileDir) removeTestProfile(profileDir);
   };
   let timedOut = false;
   let cleanupDeadline;
@@ -976,6 +981,7 @@ module.exports = {
   ensureDefaultScratch,
   ensureDevHub,
   pretestSetup,
+  removeTestProfile,
   resolveMissingExtensionIds,
   resolveRequiredDevHubConfig,
   withCheckoutLock

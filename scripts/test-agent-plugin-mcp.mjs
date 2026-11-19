@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import spawn from 'cross-spawn';
+import yaml from 'yaml';
 import { materializeDebugCorpus } from './agent-debug-fixtures.mjs';
 
 // This intentionally tests the configured official package, not a mock or a local fork.
@@ -13,9 +14,16 @@ const configuration = JSON.parse(
 );
 const server = configuration.mcpServers['apex-log-mcp'];
 assert.ok(server.args.includes('--no-apex-execution'));
+// npx resolves the analyzer's dependency tree live, outside pnpm's minimumReleaseAge; apply the same window.
+const { minimumReleaseAge } = yaml.parse(await fs.readFile(new URL('../pnpm-workspace.yaml', import.meta.url), 'utf8'));
 const child = spawn(server.command, server.args, {
   cwd: temporary,
-  env: { ...process.env, SF_DISABLE_TELEMETRY: 'true', SF_AUTOUPDATE_DISABLE: 'true' },
+  env: {
+    ...process.env,
+    npm_config_before: new Date(Date.now() - minimumReleaseAge * 60 * 1000).toISOString(),
+    SF_DISABLE_TELEMETRY: 'true',
+    SF_AUTOUPDATE_DISABLE: 'true'
+  },
   stdio: ['pipe', 'pipe', 'pipe']
 });
 let nextId = 0;
