@@ -6,6 +6,7 @@ const test = require('node:test');
 const { createRequire } = require('node:module');
 const { pathToFileURL } = require('node:url');
 const spawn = require('cross-spawn');
+const yaml = require('yaml');
 
 const repoRoot = path.resolve(__dirname, '..');
 
@@ -58,9 +59,12 @@ test(
       const project = path.join(temporary, 'npm-install');
       await fs.mkdir(project);
       await fs.writeFile(path.join(project, 'package.json'), '{"private":true}\n');
+      // npm resolves this tree outside pnpm's minimumReleaseAge; apply the same window.
+      const { minimumReleaseAge } = yaml.parse(await fs.readFile(path.join(repoRoot, 'pnpm-workspace.yaml'), 'utf8'));
       run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', path.join(temporary, packed.filename)], {
         cwd: project,
-        timeout: 300_000
+        timeout: 300_000,
+        env: { ...process.env, npm_config_before: new Date(Date.now() - minimumReleaseAge * 60 * 1000).toISOString() }
       });
       const plugin = path.join(project, 'node_modules/@electivus/plugin-electivus/package.json');
       const requestModule = from => fs.realpath(createRequire(from).resolve('@jsforce/jsforce-node/lib/request'));
