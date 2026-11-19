@@ -405,7 +405,7 @@ suite('sf CLI auth source in the VS Code display language', () => {
           ).source.session(ORG, 'first-use')
         ),
         'update hint':
-          (await loadSource(() => ({ stdout: '@salesforce/cli/2.152.8 darwin-arm64 node-v24.22.2\n' }), {
+          (await loadSource(() => ({ stdout: '@salesforce/cli/2.157.6 darwin-arm64 node-v24.22.2\n' }), {
             translations
           }).source.updateHint()) ?? 'no hint'
       };
@@ -422,7 +422,7 @@ suite('sf CLI auth source in the VS Code display language', () => {
       assert.notEqual(portuguese[failure], message, `${failure}: "${message}" has a pt-BR translation`);
     }
     const hint = portuguese['update hint'] ?? '';
-    assert.match(hint, /2\.152\.8/, 'the hint still names the installed release');
-    assert.match(hint, /2\.152\.9/, 'and the release that keeps the login');
+    assert.match(hint, /2\.157\.6/, 'the hint still names the installed release');
+    assert.match(hint, /2\.157\.8/, 'and the release that keeps the login');
   });
 });

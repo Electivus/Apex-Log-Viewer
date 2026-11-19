@@ -156,3 +156,18 @@ test('stageSfPluginPackage declares the runtime dependencies of the bundled core
     /the plugin declares @salesforce\/core@\^9\.4\.5 but the bundled core needs @salesforce\/core@\^9\.2\.0/
   );
 });
+
+test("core's @jsforce/jsforce-node floor is not below the one @salesforce/core declares", () => {
+  const root = path.join(__dirname, '..');
+  const salesforceCore = require(path.join(root, 'packages/sf-plugin/node_modules/@salesforce/core/package.json'));
+  const coreManifest = require(path.join(root, 'packages/core/package.json'));
+  const [ours, theirs] = [
+    coreManifest.dependencies['@jsforce/jsforce-node'],
+    salesforceCore.dependencies['@jsforce/jsforce-node']
+  ].map(range => range.replace(/^\^/, ''));
+
+  assert.ok(
+    ours.localeCompare(theirs, 'en', { numeric: true }) >= 0,
+    `core declares @jsforce/jsforce-node ^${ours}, below ^${theirs} from @salesforce/core ${salesforceCore.version}`
+  );
+});

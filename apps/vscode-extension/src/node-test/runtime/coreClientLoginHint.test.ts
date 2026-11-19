@@ -56,10 +56,10 @@ function load(options: { version: string | typeof HANGS; failure?: unknown }) {
 
 const loginRequired = () => new AlvError('AUTH_REQUIRED', LOGIN_REQUIRED);
 
-suite('core client: a new login with an sf older than 2.152.9', () => {
+suite('core client: a new login with an sf older than 2.157.8', () => {
   test('the login request also names the installed sf, the release that keeps the login, and how to update', async () => {
     const { client, runs } = load({
-      version: '@salesforce/cli/2.152.8 darwin-arm64 node-v24.22.2',
+      version: '@salesforce/cli/2.157.6 darwin-arm64 node-v24.22.2',
       failure: loginRequired()
     });
 
@@ -70,15 +70,15 @@ suite('core client: a new login with an sf older than 2.152.9', () => {
 
     assert.equal(error.code, 'AUTH_REQUIRED');
     assert.ok(error.message.startsWith(LOGIN_REQUIRED), "core's request to log in comes first");
-    assert.match(error.message, /2\.152\.8/);
-    assert.match(error.message, /2\.152\.9/);
+    assert.match(error.message, /2\.157\.6/);
+    assert.match(error.message, /2\.157\.8/);
     assert.match(error.message, /"sf update"/);
     assert.match(error.message, /npm install --global @salesforce\/cli/);
     assert.deepEqual(runs, [['--version']], 'one sf --version, read after the failure');
   });
 
   for (const version of [
-    '@salesforce/cli/2.152.9 darwin-arm64 node-v24.22.2',
+    '@salesforce/cli/2.157.8 darwin-arm64 node-v24.22.2',
     '@salesforce/cli/2.158.7 win32-x64 node-v24.22.2',
     'unexpected output'
   ]) {

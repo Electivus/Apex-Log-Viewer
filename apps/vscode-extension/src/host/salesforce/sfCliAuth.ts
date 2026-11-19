@@ -41,8 +41,8 @@ export type SfCliAuthSource = OrgAuthSource & {
   updateHint(signal?: AbortSignal): Promise<string | undefined>;
 };
 
-/** The first `sf` whose `@salesforce/core` (9.2.0) keeps the new refresh token a rotating connected app returns. */
-const KEEPS_ROTATED_LOGIN: readonly number[] = [2, 152, 9];
+/** The first `sf` whose `@salesforce/core` (9.4.1) keeps the new refresh token a rotating connected app returns. */
+const KEEPS_ROTATED_LOGIN: readonly number[] = [2, 157, 8];
 
 /** `sf --version` answers in under a second; past this the login request goes out without the update hint. */
 const VERSION_TIMEOUT_MS = 5_000;
