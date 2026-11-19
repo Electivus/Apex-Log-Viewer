@@ -1,6 +1,8 @@
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
-const { readFileSync } = require('node:fs');
+const { spawn } = require('node:child_process');
+const { mkdtempSync, readFileSync, rmSync, writeFileSync } = require('node:fs');
+const { tmpdir } = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const { runInNewContext } = require('node:vm');
@@ -125,6 +127,8 @@ for (const platform of ['darwin', 'linux', 'win32']) {
             return {};
           case 'cross-spawn':
             return (file, args, options) => stubRequire('child_process').spawn(file, args, options);
+          case 'proper-lockfile':
+            return { lock: async () => async () => {} };
           default:
             throw new Error(`Unexpected module: ${name}`);
         }
@@ -198,7 +202,6 @@ for (const platform of ['darwin', 'linux', 'win32']) {
 const cleanFilename = path.join(__dirname, 'clean-vscode-test.js');
 const cleanSource = readFileSync(cleanFilename, 'utf8');
 const repoRoot = path.resolve(__dirname, '..');
-const sharedExecutable = path.join(repoRoot, '.vscode-test', 'vscode-linux-x64-stable', 'code');
 
 const fixtureTmp = '/fixture/tmp';
 // Node's os.tmpdir() reads these variables on every call.
@@ -222,15 +225,48 @@ function fakeChild(kind, run) {
   return child;
 }
 
-function createCheckout() {
-  const files = new Map([[sharedExecutable, 'cached VS Code']]);
+const buildOutputs = [
+  path.join(repoRoot, 'apps', 'vscode-extension', 'dist', 'extension.js'),
+  path.join(repoRoot, 'apps', 'vscode-extension', 'media', 'main.js')
+];
+const tick = () => new Promise(resolve => setImmediate(resolve));
+
+// The checkout records a clobber whenever a run removes or rewrites a file that another run wrote.
+function createCheckout({ cachedBuild = 'stable' } = {}) {
+  const cachedDir = path.join(repoRoot, '.vscode-test', `vscode-linux-x64-${cachedBuild}`);
+  const files = new Map();
+  const owners = new Map();
+  const clobbers = [];
+  const locks = new Set();
   const removed = [];
   const quiet = { log() {}, warn() {}, error() {} };
   const filesUnder = dir => [...files.keys()].filter(file => file === dir || file.startsWith(dir + path.sep));
+  const put = (by, file, content) => {
+    if (owners.has(file) && owners.get(file) !== by) clobbers.push({ by, file, owner: owners.get(file) });
+    files.set(file, content);
+    owners.set(file, by);
+  };
+  const drop = (by, dir) => {
+    for (const file of filesUnder(dir)) {
+      if (owners.has(file) && owners.get(file) !== by) clobbers.push({ by, file, owner: owners.get(file) });
+      files.delete(file);
+      owners.delete(file);
+    }
+  };
+  if (cachedBuild) {
+    put('cache', path.join(cachedDir, 'code'), 'cached VS Code');
+    put('cache', path.join(cachedDir, 'is-complete'), '');
+  }
+  const installedIn = dir => {
+    const ids = filesUnder(dir)
+      .filter(file => path.basename(file) === 'package.json')
+      .map(file => `${path.basename(path.dirname(file))}@1.0.0`);
+    return ids.length ? [['stdout', ids.join('\n') + '\n']] : [];
+  };
 
   // interrupt: { at, presses, stubborn }. SIGINT reaches only the runner, the way `kill -INT <pid>` does,
   // so the runner must stop its own child. A process with no SIGINT listener dies at once and runs no finally.
-  function start(id, { argv, env = {}, interrupt = {}, platform = 'linux', listing = [] }) {
+  function start(id, { argv, env = {}, interrupt = {}, platform = 'linux', listing }) {
     const run = { id, childSignals: [], foreignSignals: [], stubborn: !!interrupt.stubborn, onSigint: [], builds: 0 };
     const signals = {};
     for (const name of ['packaged', 'launched', 'died']) {
@@ -294,13 +330,19 @@ function createCheckout() {
     const spawn = (file, args, options = {}) => {
       if (file === 'node') {
         const child = fakeChild('packaging', run);
-        files.set(args[args.indexOf('--out') + 1], `VSIX built by ${id}`);
+        const out = args[args.indexOf('--out') + 1];
+        run.vsixOut = out;
+        files.set(out, `VSIX built by ${id}`);
+        // vsce copies the build while it packages, so the VSIX is whole only if no build output changed meanwhile.
+        const staged = buildOutputs.map(output => files.get(output));
         // run-vsce.js stages the extension under its os.tmpdir() and removes the stage unless SIGKILL stops it.
         const stage = path.join(tmpdirOf(options.env || process.env, platform), `alv-vsce-stage-${id}`);
         files.set(stage, 'directory');
         const finish = child.finish;
         child.finish = (code, signal = null) => {
           if (signal !== 'SIGKILL') for (const file of filesUnder(stage)) files.delete(file);
+          if (staged.some((content, index) => content === undefined || content !== files.get(buildOutputs[index])))
+            files.set(out, `partial VSIX from ${id}`);
           finish(code, signal);
         };
         run.finishPackaging = () => child.finish(0);
@@ -311,21 +353,45 @@ function createCheckout() {
       }
       if (file === 'pnpm') {
         const child = fakeChild('pnpm', run);
-        setImmediate(() => child.finish(0));
+        // `pnpm run build` runs `pnpm run clean` first, then writes the outputs one by one.
+        setImmediate(async () => {
+          if (args[1] === 'build') {
+            for (const output of buildOutputs) files.delete(output);
+            for (const output of buildOutputs) {
+              await tick();
+              files.set(output, `built by ${id}`);
+            }
+          }
+          child.finish(0);
+        });
         return child;
       }
       if (file === 'code-cli') {
         const child = fakeChild('code-cli', run);
-        const listed = args.includes('--list-extensions') ? listing : [];
+        const extensionsDir = args[args.indexOf('--extensions-dir') + 1];
+        const listed = args.includes('--list-extensions') ? (listing ?? installedIn(extensionsDir)) : [];
+        const index = args.indexOf('--install-extension');
+        const fromMarketplace = index >= 0 && !files.has(args[index + 1]);
         if (!codeCli(args) || interrupt.at !== 'installing')
-          setImmediate(() => {
+          setImmediate(async () => {
             for (const [stream, chunk] of listed) child[stream].emit('data', chunk);
+            // A forced install removes the extension, then writes it again.
+            if (fromMarketplace) {
+              const dir = path.join(extensionsDir, args[index + 1]);
+              drop(id, dir);
+              await checkout.installGate;
+              for (const part of ['extension.js', 'package.json']) {
+                await tick();
+                put(id, path.join(dir, part), `installed by ${id}`);
+              }
+            }
             child.finish(0);
           });
         return child;
       }
       assert.equal(file, run.executable, 'Only the build this run downloaded can launch');
       run.hostTemp = tmpdirOf(options.env || process.env, platform);
+      run.hostExtensionsDir = args[args.indexOf('--extensions-dir') + 1];
       run.host = fakeChild('host', run);
       signals.launched();
       return run.host;
@@ -338,6 +404,17 @@ function createCheckout() {
             execFile(file, args, options, callback) {
               assert.equal(file, 'pnpm', 'Only the synthetic build can run');
               callback(null, '', '');
+            }
+          };
+        case 'proper-lockfile':
+          return {
+            async lock(file, { lockfilePath = `${file}.lock` } = {}) {
+              if (locks.has(lockfilePath))
+                throw Object.assign(new Error('Lock file is already being held'), { code: 'ELOCKED' });
+              locks.add(lockfilePath);
+              return async () => {
+                locks.delete(lockfilePath);
+              };
             }
           };
         case 'cross-spawn':
@@ -357,15 +434,29 @@ function createCheckout() {
           return require(name);
         case '@vscode/test-electron':
           return {
-            downloadAndUnzipVSCode: async ({ cachePath }) => {
-              const executable = path.join(cachePath, 'vscode-linux-x64-stable', 'code');
+            downloadAndUnzipVSCode: async ({ version, cachePath }) => {
+              const build = path.join(cachePath, `vscode-linux-x64-${/insider/.test(version) ? 'insiders' : 'stable'}`);
+              const executable = path.join(build, 'code');
+              if (interrupt.at !== 'downloading') {
+                // @vscode/test-electron 3.1.0 reuses a complete build, except an Insiders build with a newer one out.
+                // Otherwise it removes the directory and downloads into it.
+                run.executable = executable;
+                const complete = files.has(path.join(build, 'is-complete'));
+                run.downloaded = !complete || (build.endsWith('insiders') && checkout.newerInsiders);
+                if (!run.downloaded) return executable;
+                drop(id, build);
+                for (const part of ['resources', 'code', 'is-complete']) {
+                  await tick();
+                  put(id, path.join(build, part), `VS Code downloaded by ${id}`);
+                }
+                return executable;
+              }
               const downloaded = () => {
                 run.executable = executable;
                 run.downloaded = !files.has(executable);
                 files.set(executable, 'downloaded VS Code');
                 return executable;
               };
-              if (interrupt.at !== 'downloading') return downloaded();
               files.set(path.join(cachePath, 'partial.zip'), 'partial download');
               // On macOS, @vscode/test-electron saves the archive under os.tmpdir() and deletes it after unzip exits.
               const archive = path.join(tmpdirOf(process.env, platform), `vscode-test-${id}.zip`);
@@ -421,8 +512,9 @@ function createCheckout() {
         __filename: filename,
         __dirname,
         console: quiet,
-        setTimeout: callback => callback,
-        clearTimeout() {}
+        // Unref'd, so a run a failed test leaves waiting cannot keep the test process alive.
+        setTimeout: (callback, ms) => setTimeout(callback, ms).unref(),
+        clearTimeout
       },
       { filename }
     );
@@ -439,6 +531,7 @@ function createCheckout() {
       run[name] = Promise.race([run[name], run.run.then(() => assert.fail(`Run ${id} ended before it ${name}`))]);
       run[name].catch(() => {});
     }
+    run.pressCtrlC = pressCtrlC;
     run.finish = () => {
       run.host.finish(0);
       return run.run;
@@ -447,22 +540,9 @@ function createCheckout() {
   }
 
   const removedUnder = file => removed.filter(target => file === target || file.startsWith(target + path.sep));
-  return { files, start, removedUnder };
+  const checkout = { files, clobbers, start, removedUnder, newerInsiders: false };
+  return checkout;
 }
-
-test('two overlapping VSIX smoke runs each install the VSIX they built', async () => {
-  const checkout = createCheckout();
-  const first = checkout.start('first', { argv: ['--scope=unit', '--smoke-vsix'] });
-  const second = checkout.start('second', { argv: ['--scope=unit', '--smoke-vsix'] });
-  await Promise.all([first.packaged, second.packaged]);
-  first.finishPackaging();
-  second.finishPackaging();
-  await Promise.all([first.launched, second.launched]);
-
-  assert.equal(first.installed, 'VSIX built by first');
-  assert.equal(second.installed, 'VSIX built by second');
-  await Promise.all([first.finish(), second.finish()]);
-});
 
 test('a run that asks for a clean cache leaves the VS Code build another run uses', async () => {
   const checkout = createCheckout();
@@ -478,6 +558,175 @@ test('a run that asks for a clean cache leaves the VS Code build another run use
   assert.deepEqual(checkout.removedUnder(first.executable), [], 'The running build was never removed');
   assert.ok(checkout.files.has(first.executable));
   await first.finish();
+});
+
+const smoke = ['--scope=unit', '--smoke-vsix'];
+const dependency = { VSCODE_TEST_EXTENSIONS: 'fixture.dependency' };
+
+test("two runs on a cold cache download VS Code once and leave each other's files alone", async () => {
+  const checkout = createCheckout({ cachedBuild: null });
+  const first = checkout.start('first', { argv: ['--scope=unit'] });
+  const second = checkout.start('second', { argv: ['--scope=unit'] });
+  await Promise.all([first.launched, second.launched]);
+
+  assert.deepEqual(checkout.clobbers, []);
+  assert.equal([first, second].filter(run => run.downloaded).length, 1, 'The second run reuses the first download');
+  await Promise.all([first.finish(), second.finish()]);
+});
+
+test('an Insiders run leaves the Insiders build another run uses when a newer one is out', async () => {
+  const checkout = createCheckout({ cachedBuild: 'insiders' });
+  const first = checkout.start('first', { argv: ['--scope=unit', '--vscode=insiders'] });
+  await first.launched;
+  checkout.newerInsiders = true;
+  const second = checkout.start('second', { argv: ['--scope=unit', '--vscode=insiders'] });
+  await second.launched;
+
+  assert.deepEqual(checkout.clobbers, []);
+  assert.ok(checkout.files.has(first.executable), 'The running build is still there');
+  await Promise.all([first.finish(), second.finish()]);
+});
+
+test("two runs that install the same missing extension leave each other's files alone", async () => {
+  const checkout = createCheckout();
+  let openGate;
+  // Installs wait here, so the second run reaches its install while the first is still writing.
+  checkout.installGate = new Promise(resolve => {
+    openGate = resolve;
+  });
+  const argv = ['--scope=unit', '--install-deps'];
+  const first = checkout.start('first', { argv, env: dependency });
+  const second = checkout.start('second', { argv, env: dependency });
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  openGate();
+  await Promise.all([first.launched, second.launched]);
+
+  assert.deepEqual(checkout.clobbers, []);
+  await Promise.all([first.finish(), second.finish()]);
+  assert.equal((await first.ended).exitCode, 0);
+  assert.equal((await second.ended).exitCode, 0);
+});
+
+test('a forced install leaves the extensions another run uses', async () => {
+  const checkout = createCheckout();
+  const first = checkout.start('first', { argv: ['--scope=unit', '--install-deps'], env: dependency });
+  await first.launched;
+  const second = checkout.start('second', {
+    argv: ['--scope=unit', '--install-deps', '--force-install-deps'],
+    env: dependency
+  });
+  await second.launched;
+
+  assert.deepEqual(checkout.clobbers, []);
+  assert.ok(checkout.files.has(path.join(first.hostExtensionsDir, 'fixture.dependency', 'package.json')));
+  assert.ok(checkout.files.has(path.join(second.hostExtensionsDir, 'fixture.dependency', 'package.json')));
+  await Promise.all([first.finish(), second.finish()]);
+});
+
+test('a smoke run that starts while another packages its VSIX leaves that build alone', async () => {
+  const checkout = createCheckout();
+  const first = checkout.start('first', { argv: smoke });
+  await first.packaged;
+  const second = checkout.start('second', { argv: smoke });
+  await new Promise(resolve => setTimeout(resolve, 200));
+  first.finishPackaging();
+  await second.packaged;
+  second.finishPackaging();
+  await Promise.all([first.launched, second.launched]);
+
+  assert.equal(first.installed, 'VSIX built by first');
+  assert.equal(second.installed, 'VSIX built by second');
+  assert.notEqual(first.vsixOut, second.vsixOut);
+  await Promise.all([first.finish(), second.finish()]);
+  assert.deepEqual(
+    [...checkout.files.keys()].filter(file => file.endsWith('.vsix')),
+    [],
+    'Each run removes its VSIX with its profile'
+  );
+});
+
+test('Ctrl+C while a run waits for another to finish its build stops only the waiting run', async () => {
+  const checkout = createCheckout();
+  const first = checkout.start('first', { argv: smoke });
+  await first.packaged;
+  const second = checkout.start('second', { argv: smoke });
+  await new Promise(resolve => setTimeout(resolve, 200));
+  second.pressCtrlC();
+  const { exitCode, leftover } = await second.ended;
+
+  assert.equal(exitCode, 1);
+  assert.deepEqual(
+    leftover.filter(file => file.includes('second')),
+    []
+  );
+  assert.deepEqual(second.childSignals, [], 'The waiting run had no child to stop');
+  first.finishPackaging();
+  await first.launched;
+  assert.equal(first.installed, 'VSIX built by first');
+  await first.finish();
+});
+
+// The real lock, in real processes: each holder writes when it enters and leaves. The second holder is killed
+// with SIGKILL inside the lock, so it never removes the lock directory.
+test('the checkout lock admits one process at a time, survives a removed .vscode-test and outlives a holder killed with SIGKILL', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'alv-lock-'));
+  const journal = path.join(root, 'journal');
+  const until = async predicate => {
+    for (const deadline = Date.now() + 30_000; !predicate(); await new Promise(resolve => setTimeout(resolve, 50)))
+      assert.ok(Date.now() < deadline, `Timed out waiting for ${predicate}`);
+  };
+  const holder = (name, inside, onOutput = () => {}) =>
+    new Promise((resolve, reject) => {
+      const script = `const fs = require('fs');
+require(${JSON.stringify(filename)}).withCheckoutLock(${JSON.stringify(root)}, { check() {} }, async () => {
+  fs.appendFileSync(${JSON.stringify(journal)}, 'enter ${name}\\n');
+  ${inside}
+  fs.appendFileSync(${JSON.stringify(journal)}, 'leave ${name}\\n');
+});`;
+      const child = spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'pipe', 'inherit'] });
+      let stdout = '';
+      child.stdout.on('data', chunk => {
+        stdout += chunk;
+        onOutput(String(chunk));
+      });
+      child.on('error', reject);
+      child.on('exit', (code, signal) => resolve({ code, signal, stdout }));
+    });
+  try {
+    const release = path.join(root, 'release');
+    const untilReleased = `while (!fs.existsSync(${JSON.stringify(release)})) await new Promise(resolve => setTimeout(resolve, 50));`;
+    const first = holder('a', untilReleased);
+    await until(() => readFileSync(journal, { encoding: 'utf8', flag: 'a+' }).includes('enter a'));
+    let secondOutput = '';
+    const second = holder('b', '', chunk => (secondOutput += chunk));
+    await until(() => secondOutput.includes('Waiting for another test run'));
+    writeFileSync(release, '');
+    assert.deepEqual([(await first).code, (await second).code], [0, 0]);
+    assert.deepEqual(readFileSync(journal, 'utf8').trim().split('\n'), ['enter a', 'leave a', 'enter b', 'leave b']);
+
+    rmSync(journal);
+    rmSync(release);
+    const holderOfRemoved = holder('e', untilReleased);
+    await until(() => readFileSync(journal, { encoding: 'utf8', flag: 'a+' }).includes('enter e'));
+    let waiterOutput = '';
+    const waiter = holder('f', '', chunk => (waiterOutput += chunk));
+    await until(() => waiterOutput.includes('Waiting for another test run'));
+    rmSync(path.join(root, '.vscode-test'), { recursive: true, force: true });
+    writeFileSync(release, '');
+    assert.equal((await waiter).code, 0, 'A run waiting while .vscode-test is removed still gets the lock');
+    await holderOfRemoved;
+
+    rmSync(journal);
+    const killed = await holder('c', "process.kill(process.pid, 'SIGKILL');");
+    assert.ok(killed.signal === 'SIGKILL' || killed.code !== 0);
+    const started = Date.now();
+    const next = await holder('d', '');
+    assert.equal(next.code, 0);
+    assert.ok(Date.now() - started < 30_000);
+    assert.deepEqual(readFileSync(journal, 'utf8').trim().split('\n'), ['enter c', 'enter d', 'leave d']);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('a diagnostic on stderr does not hide an extension ID listed on stdout', async () => {
@@ -496,7 +745,6 @@ test('a diagnostic on stderr does not hide an extension ID listed on stdout', as
   assert.equal((await run.ended).exitCode, 0);
 });
 
-const smoke = ['--scope=unit', '--smoke-vsix'];
 const cleanCache = { CLEAN_VSCODE_TEST_CACHE: '1' };
 for (const { step, argv, env, platform, presses = 1, stubborn = false, childSignals } of [
   { step: 'packaging', argv: smoke, childSignals: [['packaging', 'SIGINT']] },
