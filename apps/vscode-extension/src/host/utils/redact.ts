@@ -385,55 +385,59 @@ function heldReach(text: string): Int32Array | undefined {
   return reach.some(end => end > 0) ? reach : undefined;
 }
 
+function shapesIn(text: string): { found: Array<{ start: number; end: number }>; furthestEndUpTo: Int32Array } {
+  const found = TOKEN_SHAPES.flatMap(shape =>
+    Array.from(text.matchAll(shape), ({ index, 0: match }) => ({ start: index, end: index + match.length }))
+  );
+  const furthestEndUpTo = new Int32Array(text.length);
+  for (const { start, end } of found) furthestEndUpTo[start] = Math.max(valueAt(furthestEndUpTo, start), end);
+  for (let index = 1; index < furthestEndUpTo.length; index++) {
+    furthestEndUpTo[index] = Math.max(valueAt(furthestEndUpTo, index), valueAt(furthestEndUpTo, index - 1));
+  }
+  return { found, furthestEndUpTo };
+}
+
 /**
  * `text` with every held secret, every token-shaped string and every secret-named value replaced, after its
  * control sequences are removed. Where held secrets occur, the union of their places is replaced at once, so a secret
- * that begins or overlaps another leaves no part of either. The rules after them run on the text with the held
- * secrets replaced, and each match is kept as the stretch of the text it came from; a token shape that a held secret
- * falls in, which no longer matches once the secret is replaced, is then found in the text as written and joins them.
+ * that begins or overlaps another leaves no part of either. A value that only its name marks, with nothing to close
+ * it, is replaced to the end of every token shape that runs past it, and a token shape that a held secret falls in is
+ * replaced whole.
  */
 export function redactSecrets(text: string): string {
   const stripped = stripControlSequences(text);
-  const reach = heldReach(stripped);
-  if (!reach) {
-    let redacted = stripped;
-    for (const named of NAMED_SECRETS) {
-      redacted = redacted.replace(named, (_match, name: string, _secret: string, close: unknown) =>
-        typeof close === 'string' ? `${name}${REDACTED}${close}` : `${name}${REDACTED}`
-      );
-    }
-    for (const shape of TOKEN_SHAPES) {
-      redacted = redacted.replace(shape, REDACTED);
-    }
-    return redacted;
-  }
-  const heldCovered = coveredBy(reach);
+  const heldAt = heldReach(stripped);
+  const heldCovered = heldAt && coveredBy(heldAt);
+  const reach = heldAt ?? new Int32Array(stripped.length);
+  let maskedSoFar = heldAt && spliced(stripped, reach);
+  let maskedIsStale = false;
   const extend = (start: number, end: number) => {
-    if (end > valueAt(reach, start)) reach[start] = end;
+    if (end <= valueAt(reach, start)) return;
+    reach[start] = end;
+    maskedIsStale = true;
   };
+  const unclosed: Array<{ start: number; end: number }> = [];
   for (const rule of [...NAMED_SECRETS, ...TOKEN_SHAPES]) {
-    const { masked, starts, ends } = spliced(stripped, reach);
-    for (const match of masked.matchAll(rule)) {
-      const [whole, name, secret] = match;
+    if (maskedIsStale) maskedSoFar = spliced(stripped, reach);
+    maskedIsStale = false;
+    for (const match of (maskedSoFar?.masked ?? stripped).matchAll(rule)) {
+      const [whole, name, secret, close] = match;
       const from = match.index + (secret === undefined ? 0 : (name ?? '').length);
       const to = secret === undefined ? match.index + whole.length : from + secret.length;
-      extend(starts[from] ?? 0, ends[to - 1] ?? 0);
+      const start = maskedSoFar ? (maskedSoFar.starts[from] ?? 0) : from;
+      const end = maskedSoFar ? (maskedSoFar.ends[to - 1] ?? 0) : to;
+      if (secret !== undefined && close === undefined) unclosed.push({ start, end });
+      extend(start, end);
     }
   }
-  // What the rules replaced beside the held secrets is blanked, so a shape is not looked for in a long secret that is
-  // replaced already, which could take time that grows with its square.
-  const covered = coveredBy(reach);
-  let scanned = '';
-  for (let index = 0; index < stripped.length; index++) {
-    const replaced = valueAt(covered, index + 1) > valueAt(covered, index);
-    const isHeld = valueAt(heldCovered, index + 1) > valueAt(heldCovered, index);
-    scanned += replaced && !isHeld ? ' ' : stripped[index];
-  }
-  for (const shape of TOKEN_SHAPES) {
-    for (const { index, 0: match } of scanned.matchAll(shape)) {
-      const end = index + match.length;
-      if (valueAt(heldCovered, end) > valueAt(heldCovered, index)) extend(index, end);
+  if (unclosed.length > 0 || heldCovered) {
+    const { found, furthestEndUpTo } = shapesIn(stripped);
+    for (const { start, end } of unclosed) extend(start, valueAt(furthestEndUpTo, end - 1));
+    if (heldCovered) {
+      for (const { start, end } of found) {
+        if (valueAt(heldCovered, end) > valueAt(heldCovered, start)) extend(start, end);
+      }
     }
   }
-  return spliced(stripped, reach).masked;
+  return maskedSoFar || maskedIsStale ? spliced(stripped, reach).masked : stripped;
 }
