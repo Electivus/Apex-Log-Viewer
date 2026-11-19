@@ -131,7 +131,9 @@ for (const [module, methods] of Object.entries({
   'node:child_process': ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork']
 })) for (const method of methods) require(module)[method] = deny;
 require('node:net').Socket.prototype.connect = deny;
-globalThis.fetch = deny;
+const inProcessFetch = globalThis.fetch;
+globalThis.fetch = (input, ...rest) =>
+  String(input?.url ?? input).startsWith('data:') ? inProcessFetch(input, ...rest) : deny();
 require('node:module').syncBuiltinESMExports();
 `
     );

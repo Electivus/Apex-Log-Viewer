@@ -19,6 +19,7 @@
 
 ### Maintenance
 
+- Salesforce CLI plugin: moves to `@salesforce/sf-plugins-core` 13 and `@oclif/core` 5, the `@oclif/core` major that `sf` 2.157.8 and later already run, and drops both Dependabot ignores that held the pair back. No supported `sf` host runs `@oclif/core` 4 any more.
 - Build: the webview CSS no longer passes through PostCSS. Tailwind 4 already adds the vendor prefixes, so `postcss.config.cjs`, `postcss` and `autoprefixer` are gone, and the built CSS is byte-identical.
 - Development: `pnpm run watch:webview` keeps rebuilding the CSS after the first build, and starts both watchers on Windows too.
 - Development: CI, the devcontainer, the proxy lab and the local test runner install Salesforce CLI 2.159.7, so the real-org E2E runs use a release at or above the 2.157.8 that the README asks for in orgs that rotate refresh tokens. They used 2.150.6, and the devcontainer 2.136.8. A repository test fails when any of them pins another release (#1464).
