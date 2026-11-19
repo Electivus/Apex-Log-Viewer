@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const YAML = require('yaml');
 const {
+  pinnedRelease,
   changesCliPin,
   findRunIds,
   runProblem,
@@ -27,15 +28,15 @@ function run(overrides = {}) {
   };
 }
 
-test('changesCliPin sees an added or removed pin and ignores a mention', () => {
-  assert.equal(
-    changesCliPin('-  SALESFORCE_CLI_PACKAGE: "@salesforce/cli@2.159.7"\n+  X: "@salesforce/cli@2.160.0"'),
-    true
-  );
-  assert.equal(
-    changesCliPin(' unchanged @salesforce/cli@2.159.7\n+docs mention @salesforce/cli without a version'),
-    false
-  );
+test('changesCliPin compares the pinned release of the canonical site, not mentions of it', () => {
+  const site = release => `packageName = env.X || '@salesforce/cli@${release}'`;
+  assert.equal(changesCliPin(site('2.159.7'), site('2.160.0')), true);
+  assert.equal(changesCliPin(site('2.159.7'), site('2.159.7')), false);
+  assert.equal(changesCliPin(site('2.159.7'), `${site('2.159.7')}\n// see @salesforce/cli@2.100.0 docs`), false);
+});
+
+test('the canonical pin site exists and names a release', () => {
+  assert.match(pinnedRelease(fs.readFileSync(`${__dirname}/setup-salesforce-cli.mjs`, 'utf8')), /^\d+\.\d+\.\d+$/);
 });
 
 test('findRunIds keeps run links of this repository once each', () => {

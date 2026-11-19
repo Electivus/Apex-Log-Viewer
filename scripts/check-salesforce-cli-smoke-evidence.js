@@ -2,10 +2,15 @@ const { execFileSync } = require('node:child_process');
 
 const WORKFLOW_NAME = 'E2E (Playwright • Real Org)';
 const REQUEST_STEP = 'Record the JWT smoke request';
-const PIN_LINE = /^[+-].*@salesforce\/cli@\d+\.\d+\.\d+/m;
+const PIN_SITE = 'scripts/setup-salesforce-cli.mjs';
+const PIN = /@salesforce\/cli@(\d+\.\d+\.\d+)/;
 
-function changesCliPin(diff) {
-  return PIN_LINE.test(diff);
+function pinnedRelease(source) {
+  return PIN.exec(String(source ?? ''))?.[1] ?? null;
+}
+
+function changesCliPin(baseSource, headSource) {
+  return pinnedRelease(baseSource) !== pinnedRelease(headSource);
 }
 
 function findRunIds(body, repo) {
@@ -43,11 +48,8 @@ function gh(args) {
 
 function main(env) {
   const { REPO, PR_NUMBER, BASE_SHA, HEAD_SHA } = env;
-  const diff = execFileSync('git', ['diff', '-U0', BASE_SHA, 'HEAD'], {
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024
-  });
-  const pinChanged = changesCliPin(diff);
+  const show = rev => execFileSync('git', ['show', `${rev}:${PIN_SITE}`], { encoding: 'utf8' });
+  const pinChanged = changesCliPin(show(BASE_SHA), show('HEAD'));
   // The event payload is stale on a re-run, so read the description live.
   const body = JSON.parse(gh(['pr', 'view', PR_NUMBER, '--repo', REPO, '--json', 'body'])).body;
   const runIds = pinChanged ? findRunIds(body, REPO) : [];
@@ -61,6 +63,6 @@ function main(env) {
   return verdict.ok ? 0 : 1;
 }
 
-module.exports = { changesCliPin, findRunIds, runProblem, decideEvidence, REQUEST_STEP, WORKFLOW_NAME };
+module.exports = { pinnedRelease, changesCliPin, findRunIds, runProblem, decideEvidence, REQUEST_STEP, WORKFLOW_NAME };
 
 if (require.main === module) process.exit(main(process.env));
