@@ -60,7 +60,7 @@ function freshSingleEvent() {
 }
 
 /** An org that serves the REST half of a capture and the Bayeux stream on one host, and a project with an event source over it. */
-async function world(t: test.TestContext) {
+async function world(t: test.TestContext, { remaining = 22_000 } = {}) {
   const double = await startBayeuxDouble(
     t,
     { connects: [{ events: freshSingleEvent() }] },
@@ -70,7 +70,7 @@ async function world(t: test.TestContext) {
       extraDescribes: { [OBJECT]: alvTestLogDescribe() },
       answer: (_soql, request) =>
         request.path === '/limits'
-          ? { body: { DailyDeliveredPlatformEvents: { Max: 25_000, Remaining: 22_000 } } }
+          ? { body: { DailyDeliveredPlatformEvents: { Max: 25_000, Remaining: remaining } } }
           : undefined
     })
   );
@@ -115,35 +115,33 @@ async function world(t: test.TestContext) {
 }
 
 const capture = (...argv: string[]) => new CustomLogCapture(argv, config);
-/**
- * `--max-time` of the drains that must reach the stream. The bound starts with the run, so it also covers the
- * lease, the allowance read and the handshake; a loaded Windows runner spent all of 1 s before the event came.
- * It stays under the 15 s quiet wait, so both drains still end on `timeLimit`.
- */
-const DRAIN_SECONDS = '3';
 const list = (...argv: string[]) => new CustomLogList(argv, config);
 
 test('capture drains the event stream into the store, and list then reads it with the org unreachable', async t => {
-  const { double, org } = await world(t);
+  // No drain here ends on a time bound: one starts with the run, so a slow store open under the lease can use it
+  // up before the subscribe. Two deliveries left is a budget of one, so the first drain ends on the one event.
+  const { double, org } = await world(t, { remaining: 2 });
 
-  const first = await withStreams(() => capture(...org, '--max-time', DRAIN_SECONDS, '--json')._run());
+  const first = await withStreams(() => capture(...org, '--json')._run());
   const drained = JSON.parse(first.out).result as CustomLogCaptureResult;
 
   assert.equal(first.err, '');
   assert.equal(drained.source.shape, 'events');
-  assert.equal(drained.outcome, 'timeLimit', 'the event was still arriving when the bound passed');
+  assert.equal(drained.outcome, 'budget');
   assert.deepEqual([drained.delivered, drained.stored, drained.newGaps], [1, 1, []]);
   assert.equal(drained.store.state, 'captured');
 
-  const second = await withStreams(() => capture(...org, '--max-time', DRAIN_SECONDS, '--json')._run());
+  // The second drain waits 15 s for a first event over its young position, so it stops once it has resubscribed.
+  const second = await withStreams(async () => {
+    const running = capture(...org, '--json')._run();
+    await until(() => double.replays.length === 2, 60_000);
+    process.emit('SIGINT');
+    return running;
+  });
   const resumed = JSON.parse(second.out).result as CustomLogCaptureResult;
 
   assert.deepEqual([resumed.delivered, resumed.stored], [0, 0]);
-  assert.equal(
-    resumed.outcome,
-    'timeLimit',
-    'a 3 s bound ends a drain over a young position before its 15 s quiet wait'
-  );
+  assert.equal(resumed.outcome, 'aborted');
   const { data } = recordedEvents('single')[0]!;
   assert.deepEqual(double.replays, [{ [`/event/${OBJECT}`]: -2 }, { [`/event/${OBJECT}`]: data.event.replayId }]);
 
@@ -159,12 +157,15 @@ test('capture drains the event stream into the store, and list then reads it wit
 });
 
 test('a drain reports in its JSON result the delivery allowance the org had and the budget of the run', async t => {
-  const { org } = await world(t);
+  // One delivery left is a budget of zero, so the run ends as soon as it has read the allowance. A time bound
+  // would also have to cover taking the lease and connecting, which a loaded runner can stretch past it.
+  const { org } = await world(t, { remaining: 1 });
 
-  const { out } = await withStreams(() => capture(...org, '--max-time', '1', '--json')._run());
+  const { out } = await withStreams(() => capture(...org, '--json')._run());
   const drained = JSON.parse(out).result as CustomLogCaptureResult;
 
-  assert.deepEqual(drained.allowance, { remaining: 22_000, max: 25_000, budget: 11_000 });
+  assert.equal(drained.outcome, 'budget');
+  assert.deepEqual(drained.allowance, { remaining: 1, max: 25_000, budget: 0 });
 });
 
 test('a drain that finds another process capturing the source names that process in its JSON result', async t => {
@@ -199,7 +200,7 @@ test('--follow prints the stored row, and Ctrl-C ends with the aborted summary a
 
   const followed = await withStreams(async ({ out }) => {
     const running = capture(...org, '--follow')._run<CustomLogCaptureResult>();
-    await until(() => out.length > 0);
+    await until(() => out.length > 0, 60_000);
     process.emit('SIGINT');
     return running;
   });
