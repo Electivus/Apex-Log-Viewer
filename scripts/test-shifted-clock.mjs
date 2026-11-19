@@ -64,7 +64,6 @@ function runShifted(days, suite) {
       env: {
         ...process.env,
         ALV_TEST_CLOCK_SHIFT_DAYS: String(days),
-        // Kept, so a preload the caller set (scripts/slow-disk.mjs) runs in the sweep too.
         NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import ${preload}`].filter(Boolean).join(' ')
       }
     });

@@ -86,11 +86,7 @@ export class ManualClock implements CaptureClock {
   }
 }
 
-/**
- * How long `until` and `within` wait before they fail the test. It only stops a hung run from hanging the suite, so it
- * is far above what the run's real file I/O takes on a slow disk: a store open is 11 file syncs, and a loaded Windows
- * runner once took 34 s over it.
- */
+/** Only stops a hung run from hanging the suite, so it is far above what a run's real file syncs take on a slow disk. */
 const HANG_GUARD_MS = 60_000;
 
 /** Polls (real time) until `check` holds; the run's file I/O is real, so a test waits for its effect, never for a fixed time. */

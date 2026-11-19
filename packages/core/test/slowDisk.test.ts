@@ -6,8 +6,9 @@ import { pathToFileURL } from 'node:url';
 
 const PRELOAD = pathToFileURL(path.resolve(__dirname, '../../../scripts/slow-disk.mjs')).href;
 const DELAY_MS = 500;
+/** Timers can fire a millisecond early. */
+const TIMER_SLACK_MS = 5;
 
-/** How long a process under the preload spends in each kind of file call. */
 const PROBE = `
 import fs from 'node:fs';
 import os from 'node:os';
@@ -44,11 +45,13 @@ test('a process under the slow-disk preload waits the delay before every file sy
   assert.equal(child.status, 0, child.stderr);
   const seen = JSON.parse(child.stdout) as Record<string, number>;
 
-  // Timers can fire a millisecond early; a real sync of one byte never takes most of the delay.
   for (const call of ['syncMs', 'datasyncMs', 'directorySyncMs'] as const) {
-    assert.ok(seen[call]! >= DELAY_MS - 5, `${call}: ${seen[call]} ms is shorter than the ${DELAY_MS} ms delay`);
+    assert.ok(
+      seen[call]! >= DELAY_MS - TIMER_SLACK_MS,
+      `${call}: ${seen[call]} ms is shorter than the ${DELAY_MS} ms delay`
+    );
   }
-  assert.ok(seen.writeMs! < DELAY_MS - 5, `a write is not delayed: ${seen.writeMs} ms`);
+  assert.ok(seen.writeMs! < DELAY_MS - TIMER_SLACK_MS, `a write is not delayed: ${seen.writeMs} ms`);
 });
 
 test('the preload refuses to run without a delay, so a fast run is never mistaken for a slow one', () => {

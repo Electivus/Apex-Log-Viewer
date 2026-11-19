@@ -4,7 +4,8 @@
 //   ALV_TEST_SLOW_SYNC_MS=150 NODE_OPTIONS="--import $PWD/scripts/slow-disk.mjs" pnpm run test:sf-plugin
 //
 // `FileHandle.sync` and `FileHandle.datasync` wait that many milliseconds and then run. Those two calls are every
-// sync the Custom Logs event store makes: the lease, the appends, the checkpoint and the directories it creates.
+// sync the Custom Logs event store makes: its format and describe files, the appends, the checkpoint and the
+// directories it creates.
 // Nothing else slows down, and CPU load does not reproduce what a slow sync does. Child processes inherit the delay
 // through NODE_OPTIONS. `fs.fsync`, `fs.fsyncSync` and their `fdatasync` twins are not delayed.
 //
