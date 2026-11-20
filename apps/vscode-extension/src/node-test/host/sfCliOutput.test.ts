@@ -413,6 +413,17 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     }
   });
 
+  test('a held token inside a session id leaves no part of it, when a refresh token shape runs into the session id', async () => {
+    // Synthetic values, joined at run time so that secret scanners do not take the source for real tokens.
+    const held = ['00DFAKEFAKEFAKE1', '5Aep8fake'].join('!');
+    const text = ['5Aep8fakefakefakefakefake', held, 'fakefakefakefake/FAKE_SESSION_SUFFIX'].join('');
+
+    const { shown, trace } = await shownAfterHolding([held], `Request failed with ${text} end`);
+
+    assert.ok(!shown.includes('FAKE_SESSION_SUFFIX'), 'the error carries no part of the session id');
+    assert.ok(!trace.includes('FAKE_SESSION_SUFFIX'), 'the trace carries no part of the session id');
+  });
+
   test('a held token that ends in the first half of a surrogate pair is replaced where the text has that half', async () => {
     const token = 'FAKE-surrogate-\uD83D';
 
