@@ -1,4 +1,4 @@
-import type { Frame } from '@playwright/test';
+import type { Locator } from '@playwright/test';
 import { expect, test } from '../fixtures/alvE2E';
 import {
   ensureDebugFlagsTestUser,
@@ -8,11 +8,7 @@ import {
 } from '../utils/tooling';
 import { openDebugFlagsFromLogs, openDebugFlagsFromTail } from './debugFlagsPanel.shared';
 
-async function assertUserSearchFiltering(
-  debugFlagsFrame: Frame,
-  userId: string,
-  searchToken: string
-): Promise<void> {
+async function assertUserSearchFiltering(debugFlagsFrame: Locator, userId: string, searchToken: string): Promise<void> {
   const searchInput = debugFlagsFrame.locator('[data-testid="debug-flags-user-search"]');
   const userRows = debugFlagsFrame.locator('[data-testid^="debug-flags-user-row-"]');
   const targetUserRow = debugFlagsFrame.locator(`[data-testid="debug-flags-user-row-${userId}"]`);
@@ -26,9 +22,7 @@ async function assertUserSearchFiltering(
   await expect(errorBanner).toHaveCount(0);
 
   await searchInput.fill(uniqueNoMatch);
-  await expect
-    .poll(async () => await userRows.count(), { timeout: 60_000 })
-    .toBe(0);
+  await expect.poll(async () => await userRows.count(), { timeout: 60_000 }).toBe(0);
   await expect(errorBanner).toHaveCount(0);
 
   await searchInput.fill(searchToken);
@@ -36,16 +30,16 @@ async function assertUserSearchFiltering(
   await expect(errorBanner).toHaveCount(0);
 }
 
-async function assertSelectedScratchOrg(
-  debugFlagsFrame: Frame,
-  scratchAlias: string
-): Promise<void> {
+async function assertSelectedScratchOrg(debugFlagsFrame: Locator, scratchAlias: string): Promise<void> {
   await expect(debugFlagsFrame.locator('[data-testid="debug-flags-org-select"]')).toContainText(scratchAlias, {
     timeout: 60_000
   });
 }
 
-test('filters users correctly in debug flags panel from logs and tail entrypoints', async ({ vscodePage, scratchAlias }) => {
+test('filters users correctly in debug flags panel from logs and tail entrypoints', async ({
+  vscodePage,
+  scratchAlias
+}) => {
   const auth = await getOrgAuth(scratchAlias);
   const testUser = await ensureDebugFlagsTestUser(auth);
   const userId = testUser.id;

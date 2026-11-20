@@ -1,6 +1,6 @@
 import { readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { ElectronApplication, Frame, Page } from '@playwright/test';
+import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import { runCommand, runCommandWhenAvailable } from '../utils/commandPalette';
 import {
@@ -14,7 +14,7 @@ import {
 import { createTempWorkspace, type TempWorkspace } from '../utils/tempWorkspace';
 import { recordElectronTrace, type FinishTrace } from '../utils/electronArtifacts';
 import { launchVsCode, resolveExtensionDevelopmentPath } from '../utils/vscode';
-import { waitForWebviewFrame } from '../utils/webviews';
+import { webviewWith } from '../utils/webviews';
 
 /**
  * The Custom Logs panel on a platform event source, against the real `alv-events` scratch org (docs/TESTING.md).
@@ -75,16 +75,13 @@ test.afterAll(async ({}, testInfo) => {
   await workspace?.cleanup({ keep });
 });
 
-async function openPanel(): Promise<Frame> {
+async function openPanel(): Promise<Locator> {
   await runCommandWhenAvailable(page, 'Custom Logs: Focus on Custom Logs View', {
     timeoutMs: 90_000
   });
   await runCommandWhenAvailable(page, 'Electivus Apex Logs: Refresh Custom Logs', { timeoutMs: 90_000 });
-  const frame = await waitForWebviewFrame(
-    page,
-    async candidate => await candidate.locator('[data-testid="custom-logs-root"]').first().isVisible(),
-    { timeoutMs: 180_000 }
-  );
+  const frame = webviewWith(page, 'custom-logs-root');
+  await expect(frame.getByTestId('custom-logs-root')).toBeVisible({ timeout: 180_000 });
   // The bottom panel is about 260 px tall, which hides rows from a screenshot.
   await runCommand(page, 'View: Toggle Maximized Panel');
   return frame;
@@ -120,11 +117,8 @@ test('first use asks before it subscribes and says what the replay would spend',
 });
 
 test('"Only new events" shows five published events in order and the strip reaches Live with its tooltip', async ({}, testInfo) => {
-  const frame = await waitForWebviewFrame(
-    page,
-    async candidate => await candidate.locator('[data-testid="custom-logs-root"]').first().isVisible(),
-    { timeoutMs: 60_000 }
-  );
+  const frame = webviewWith(page, 'custom-logs-root');
+  await expect(frame.getByTestId('custom-logs-root')).toBeVisible({ timeout: 60_000 });
   const strip = frame.getByTestId('custom-logs-capture');
   await frame.getByRole('button', { name: 'Only new events' }).click();
   await expect(strip).toHaveAttribute('data-state', /catchingUp|live/, { timeout: 60_000 });

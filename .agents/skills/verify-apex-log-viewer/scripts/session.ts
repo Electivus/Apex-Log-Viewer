@@ -26,7 +26,6 @@ import {
   resolveExtensionDevelopmentPath,
   resolveVsCodeLocale
 } from '../../../../test/e2e/utils/vscode';
-import { waitForWebviewFrame } from '../../../../test/e2e/utils/webviews';
 import { openDebugFlagsFromLogs } from '../../../../test/e2e/specs/debugFlagsPanel.shared';
 
 type Phase = 'starting' | 'ready' | 'stopping' | 'stopped' | 'failed';
@@ -155,12 +154,28 @@ async function isShown(frame: Frame): Promise<boolean> {
   return visibility !== 'hidden';
 }
 
+/**
+ * The first frame on screen containing `selector`. Unlike `webviewWith` in `test/e2e/utils/webviews.ts`, this picks
+ * the visible copy when several webviews hold the same content (the Logs panel and its editor-area copy, two Log
+ * Viewer tabs), which a `page.frameLocator()` lookup rejects as ambiguous.
+ */
 async function frameWith(selector: string, timeoutMs = 120_000): Promise<Frame> {
-  return await waitForWebviewFrame(
-    requirePage(),
-    async frame => (await frame.locator(selector).first().isVisible()) && (await isShown(frame)),
-    { timeoutMs }
-  );
+  const vscodePage = requirePage();
+  const deadline = Date.now() + timeoutMs;
+  do {
+    for (const frame of vscodePage.frames()) {
+      if (frame === vscodePage.mainFrame()) {
+        continue;
+      }
+      const shown = await (async () =>
+        (await frame.locator(selector).first().isVisible()) && (await isShown(frame)))().catch(() => false);
+      if (shown) {
+        return frame;
+      }
+    }
+    await vscodePage.waitForTimeout(250);
+  } while (Date.now() < deadline);
+  throw new Error(`No webview on screen showed ${selector} within ${timeoutMs} ms.`);
 }
 
 const DEBUG_FLAGS_FRAME = '[data-testid="debug-flags-user-search"]';
@@ -206,7 +221,7 @@ async function closeDebugFlagsEditor(): Promise<void> {
     .toBe(0);
 }
 
-async function openDebugFlagsFromLogsAfterClosing(): Promise<Frame> {
+async function openDebugFlagsFromLogsAfterClosing(): Promise<Locator> {
   await closeDebugFlagsEditor();
   return await openDebugFlagsFromLogs(requirePage());
 }
