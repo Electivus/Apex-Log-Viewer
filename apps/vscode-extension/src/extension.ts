@@ -23,6 +23,7 @@ import { LogViewerPanel } from './panel/LogViewerPanel';
 import { DebugFlagsPanel } from './panel/DebugFlagsPanel';
 import { LogsEditorPanel } from './panel/LogsEditorPanel';
 import { TailEditorPanel } from './panel/TailEditorPanel';
+import { closeTabs, isWebviewTab } from './host/utils/editorTabs';
 import { registerCustomLogsFeature } from './host/customLogsFeature';
 import { registerLogsStatusBar } from './host/logsStatusBar';
 import { runtimeClient } from './runtime/runtimeClient';
@@ -121,6 +122,13 @@ export interface ExtensionExports {
  */
 export function activate(context: vscode.ExtensionContext): ExtensionExports {
   const activationStart = Date.now();
+  const webviewTypes = new Set([
+    LogViewerPanel.viewType,
+    DebugFlagsPanel.viewType,
+    LogsEditorPanel.viewType,
+    TailEditorPanel.viewType
+  ]);
+  closeTabs(tab => isWebviewTab(tab, webviewTypes));
   LogViewerPanel.initialize(context);
   DebugFlagsPanel.initialize(context);
   LogsEditorPanel.initialize(context);

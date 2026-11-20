@@ -22,7 +22,7 @@ interface ShowOptions {
 export class LogViewerPanel {
   private static context: vscode.ExtensionContext | undefined;
   private static panels = new Map<string, LogViewerPanel>();
-  private static readonly viewType = 'electivus.apexLogViewer.logsView.logPanel';
+  static readonly viewType = 'electivus.apexLogViewer.logsView.logPanel';
 
   static initialize(context: vscode.ExtensionContext): void {
     this.context = context;

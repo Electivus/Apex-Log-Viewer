@@ -167,6 +167,7 @@ function load(options: { enabled: boolean; logsOrg?: string; tabGroups?: Tab[][]
       getBooleanConfig: (key: string, fallback: boolean) => (settings.get(key) as boolean | undefined) ?? fallback,
       affectsConfiguration: (event: ConfigurationEvent, key: string) => event.affectsConfiguration(key)
     },
+    './utils/editorTabs': proxyquireStrict('../../host/utils/editorTabs', { vscode: vscodeStub }),
     './utils/customLogDocuments': proxyquireStrict('../../host/utils/customLogDocuments', { vscode: vscodeStub }),
     './customLogsStatusBar': proxyquireStrict('../../host/customLogsStatusBar', {
       vscode: vscodeStub,
