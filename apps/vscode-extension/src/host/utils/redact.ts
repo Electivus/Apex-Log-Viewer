@@ -162,38 +162,45 @@ function encodedPointAt(text: string, index: number): number {
 const encodedWidth = (point: number): number => 3 * (point < 0x80 ? 1 : point < 0x800 ? 2 : point < 0x10000 ? 3 : 4);
 
 /**
- * A text read one code point at a time, with the stretch `[start, end)` of the text each one came from. Read as
- * written, each code point is its own stretch. Read decoded, from the first character on, each well-formed
- * percent-encoded character is one code point, and every other `%` is itself.
+ * A text read one UTF-16 unit at a time, with the stretch `[start, end)` of the text each one came from. Read as
+ * written, each unit is its own stretch. Read decoded, from the first character on, each well-formed percent-encoded
+ * character gives its units, which share the stretch of its encoding, and every other character is itself.
  */
-type Reading = { points: Int32Array; starts: Int32Array; ends: Int32Array; length: number };
+type Reading = { units: Int32Array; starts: Int32Array; ends: Int32Array; length: number };
 
 function readingOf(text: string, decoded: boolean): Reading {
-  const points = new Int32Array(text.length);
+  const units = new Int32Array(text.length);
   const starts = new Int32Array(text.length);
   const ends = new Int32Array(text.length);
   let length = 0;
-  for (let index = 0; index < text.length; length++) {
-    let point = decoded ? encodedPointAt(text, index) : -1;
-    let end: number;
-    if (point >= 0) {
-      end = index + encodedWidth(point);
-    } else {
-      point = text.codePointAt(index) ?? 0;
-      end = index + (point > 0xffff ? 2 : 1);
+  const add = (unit: number, start: number, end: number) => {
+    units[length] = unit;
+    starts[length] = start;
+    ends[length++] = end;
+  };
+  for (let index = 0; index < text.length;) {
+    const point = decoded ? encodedPointAt(text, index) : -1;
+    if (point < 0) {
+      add(text.charCodeAt(index), index, index + 1);
+      index++;
+      continue;
     }
-    points[length] = point;
-    starts[length] = index;
-    ends[length] = end;
+    const end = index + encodedWidth(point);
+    if (point > 0xffff) {
+      add(0xd800 + ((point - 0x10000) >> 10), index, end);
+      add(0xdc00 + ((point - 0x10000) & 0x3ff), index, end);
+    } else {
+      add(point, index, end);
+    }
     index = end;
   }
-  return { points, starts, ends, length };
+  return { units, starts, ends, length };
 }
 
 /**
- * An Aho-Corasick automaton over every held secret written backwards. Fed a reading from its end, the node it reaches
- * at a code point names, in `longest`, how many code points the longest held secret that starts there has. An edge
- * goes on the code point's symbol, its index among the code points that held secrets use.
+ * An Aho-Corasick automaton over every held secret, in UTF-16 units. Fed a reading, the node it reaches at a unit
+ * names, in `longest`, how many units the longest held secret that ends there has. An edge goes on the unit's symbol,
+ * its index among the units that held secrets use.
  */
 type Finder = {
   symbols: Map<number, number>;
@@ -206,33 +213,30 @@ type Finder = {
   edges: Map<number, number>;
   fail: Int32Array;
   longest: Int32Array;
-  /** Remembered moves on the characters of an encoding's tail from nodes without that edge. */
-  jumps: Map<number, number>;
 };
 
 function finderOf(secrets: ReadonlySet<string>): Finder {
-  const backwards = [...secrets].map(secret =>
-    Array.from(secret, character => character.codePointAt(0) ?? 0).reverse()
+  const units = [...secrets].map(secret =>
+    Array.from({ length: secret.length }, (_, index) => secret.charCodeAt(index))
   );
-  const size = backwards.reduce((total, points) => total + points.length, 1);
+  const size = units.reduce((total, secret) => total + secret.length, 1);
   const symbols = new Map<number, number>();
-  for (const point of backwards.flat()) if (!symbols.has(point)) symbols.set(point, symbols.size);
+  for (const unit of units.flat()) if (!symbols.has(unit)) symbols.set(unit, symbols.size);
   const finder: Finder = {
     symbols,
     chain: new Int32Array(size).fill(-1),
     edges: new Map(),
     fail: new Int32Array(size),
-    longest: new Int32Array(size),
-    jumps: new Map()
+    longest: new Int32Array(size)
   };
   const parent = new Int32Array(size);
   const via = new Int32Array(size);
   const depth = new Int32Array(size);
   let nodes = 1;
-  for (const points of backwards) {
+  for (const secret of units) {
     let node = 0;
-    for (const point of points) {
-      const symbol = symbols.get(point) ?? 0;
+    for (const unit of secret) {
+      const symbol = symbols.get(unit) ?? 0;
       let next = childOf(finder, node, symbol);
       if (next === 0) {
         next = nodes++;
@@ -270,61 +274,36 @@ const edgeKey = (finder: Finder, node: number, symbol: number): number => node *
 const childOf = (finder: Finder, node: number, symbol: number): number =>
   valueAt(finder.chain, node) === symbol ? node + 1 : (finder.edges.get(edgeKey(finder, node, symbol)) ?? 0);
 
-/** The node `finder` reaches from `node` on `symbol`, which is -1 for a code point that no held secret has. */
+let moves = 0;
+
+/** How many edges the automata looked for since the module loaded, building them and feeding them text. */
+export const automatonMoves = (): number => moves;
+
+/**
+ * The node `finder` reaches from `node` on `symbol`, which is -1 for a unit that no held secret has. Each failure link
+ * it follows leads to a shallower node, and each unit fed goes one level deeper at most, so feeding a reading looks
+ * for at most two edges per unit on average.
+ */
 function step(finder: Finder, node: number, symbol: number): number {
   if (symbol < 0) return 0;
   for (;;) {
+    moves++;
     const next = childOf(finder, node, symbol);
     if (next !== 0 || node === 0) return next;
     node = valueAt(finder.fail, node);
   }
 }
 
-/**
- * `step` on a character of an encoding's tail, remembered for every node it passes. A tail is read from a node it
- * does not move the main feed to, so without the memory each one could walk the whole failure chain again.
- */
-function jump(finder: Finder, node: number, symbol: number): number {
-  if (symbol < 0) return 0;
-  const passed: number[] = [];
-  let next: number | undefined;
-  for (;;) {
-    const key = edgeKey(finder, node, symbol);
-    const child = childOf(finder, node, symbol);
-    next = child !== 0 ? child : finder.jumps.get(key);
-    if (next !== undefined || node === 0) break;
-    passed.push(key);
-    node = valueAt(finder.fail, node);
-  }
-  for (const key of passed) finder.jumps.set(key, next ?? 0);
-  return next ?? 0;
-}
-
-/**
- * Records in `reach`, for each place of `text` where a held secret starts in `reading`, where the longest one ends. A
- * reader that starts inside a percent-encoding takes the rest of it as written and decodes from the next character,
- * so the tail of each encoding is also read as the start of a secret.
- */
-function reachSecrets(finder: Finder, text: string, reading: Reading, reach: Int32Array): void {
-  const startOf = (index: number) => valueAt(reading.starts, index);
-  const endOf = (index: number) => valueAt(reading.ends, index);
-  const extend = (start: number, end: number) => {
-    if (end > valueAt(reach, start)) reach[start] = end;
-  };
+/** Records in `reach`, for each place of the text where a held secret that `reading` has starts, where the longest ends. */
+function reachSecrets(finder: Finder, reading: Reading, reach: Int32Array): void {
   let node = 0;
-  for (let index = reading.length - 1; index >= 0; index--) {
-    node = step(finder, node, finder.symbols.get(valueAt(reading.points, index)) ?? -1);
+  for (let index = 0; index < reading.length; index++) {
+    node = step(finder, node, finder.symbols.get(valueAt(reading.units, index)) ?? -1);
     const found = valueAt(finder.longest, node);
-    if (found > 0) extend(startOf(index), endOf(index + found - 1));
-    const before = index - 1;
-    if (before < 0 || endOf(before) - startOf(before) < 3) continue;
-    let tail = node;
-    for (let at = endOf(before) - 1; at > startOf(before); at--) {
-      tail = jump(finder, tail, finder.symbols.get(text.charCodeAt(at)) ?? -1);
-      const length = valueAt(finder.longest, tail);
-      const written = endOf(before) - at;
-      if (length > 0) extend(at, length <= written ? at + length : endOf(index + length - written - 1));
-    }
+    if (found === 0) continue;
+    const start = valueAt(reading.starts, index - found + 1);
+    const end = valueAt(reading.ends, index);
+    if (end > valueAt(reach, start)) reach[start] = end;
   }
 }
 
@@ -372,16 +351,15 @@ function coveredBy(reach: Int32Array): Int32Array {
 }
 
 /**
- * Where held secrets occur in `text`, as `reach`: as written, or as a reader that decodes the well-formed
- * percent-encodings from any place of the text reads it. The places of every held secret are found in one pass over
- * each reading. Undefined when none occurs.
+ * Where held secrets occur in `text`, as `reach`: as written, or in the text with its well-formed percent-encodings
+ * decoded from the first character on. Each reading is fed once through the automaton. Undefined when none occurs.
  */
 function heldReach(text: string): Int32Array | undefined {
   if (held.size === 0) return undefined;
   finder ??= finderOf(held);
   const reach = new Int32Array(text.length);
-  reachSecrets(finder, text, readingOf(text, false), reach);
-  if (text.includes('%')) reachSecrets(finder, text, readingOf(text, true), reach);
+  reachSecrets(finder, readingOf(text, false), reach);
+  if (text.includes('%')) reachSecrets(finder, readingOf(text, true), reach);
   return reach.some(end => end > 0) ? reach : undefined;
 }
 
@@ -399,40 +377,52 @@ function furthestShapeEnds(text: string): Int32Array {
   return furthest;
 }
 
+type Stretch = { start: number; end: number };
+
 /**
- * `text` with every held secret, every token-shaped string and every secret-named value replaced, after its
- * control sequences are removed. Where held secrets occur, the union of their places is replaced at once, so a secret
- * that begins or overlaps another leaves no part of either. A value that only its name marks, with nothing to close
- * it, is replaced to the end of every token shape that runs past it, and a token shape that a held secret falls in is
- * replaced whole.
+ * Adds to `reach` what the rules match in `text` with the stretches of `reach` replaced, each rule on the text as the
+ * rules before it left it. Returns the values that only their name marks, with nothing to close them.
  */
-export function redactSecrets(text: string): string {
-  const stripped = stripControlSequences(text);
-  const heldAt = heldReach(stripped);
-  const heldCovered = heldAt && coveredBy(heldAt);
-  const reach = heldAt ?? new Int32Array(stripped.length);
-  let maskedSoFar = heldAt && spliced(stripped, reach);
-  let maskedIsStale = false;
-  const extend = (start: number, end: number) => {
-    if (end <= valueAt(reach, start)) return;
-    reach[start] = end;
-    maskedIsStale = true;
-  };
-  const unclosed: Array<{ start: number; end: number }> = [];
+function reachRules(text: string, reach: Int32Array): Stretch[] {
+  let masked = reach.some(end => end > 0) ? spliced(text, reach) : undefined;
+  let isStale = false;
+  const unclosed: Stretch[] = [];
   for (const rule of [...NAMED_SECRETS, ...TOKEN_SHAPES]) {
-    if (maskedIsStale) maskedSoFar = spliced(stripped, reach);
-    maskedIsStale = false;
-    for (const match of (maskedSoFar?.masked ?? stripped).matchAll(rule)) {
+    if (isStale) masked = spliced(text, reach);
+    isStale = false;
+    for (const match of (masked?.masked ?? text).matchAll(rule)) {
       const [whole, name, secret, close] = match;
       const from = match.index + (secret === undefined ? 0 : (name ?? '').length);
       const to = secret === undefined ? match.index + whole.length : from + secret.length;
-      const start = maskedSoFar ? (maskedSoFar.starts[from] ?? 0) : from;
-      const end = maskedSoFar ? (maskedSoFar.ends[to - 1] ?? 0) : to;
+      const start = masked ? (masked.starts[from] ?? 0) : from;
+      const end = masked ? (masked.ends[to - 1] ?? 0) : to;
       if (secret !== undefined && close === undefined) unclosed.push({ start, end });
-      extend(start, end);
+      if (end <= valueAt(reach, start)) continue;
+      reach[start] = end;
+      isStale = true;
     }
   }
-  if (heldCovered) {
+  return unclosed;
+}
+
+/**
+ * `text` with every held secret, every token-shaped string and every secret-named value replaced, after its
+ * control sequences are removed. Where held secrets occur, the union of their places is replaced at once, so a secret
+ * that begins or overlaps another leaves no part of either. The rules run on the text as written, so a held secret
+ * that covers part of a secret's name leaves the secret replaced, and again with the held secrets replaced, where
+ * they can end a name. A value that only its name marks, with nothing to close it, is replaced to the end of every
+ * token shape that runs past it, and a token shape that a held secret falls in is replaced whole.
+ */
+export function redactSecrets(text: string): string {
+  const stripped = stripControlSequences(text);
+  const reach = new Int32Array(stripped.length);
+  const unclosed = reachRules(stripped, reach);
+  const heldAt = heldReach(stripped);
+  if (heldAt) {
+    const heldCovered = coveredBy(heldAt);
+    unclosed.push(...reachRules(stripped, heldAt));
+    for (let index = 0; index < reach.length; index++)
+      reach[index] = Math.max(valueAt(reach, index), valueAt(heldAt, index));
     // What the rules replaced beside the held secrets is blanked, so that a shape a held secret falls in starts
     // where the replaced text ends, as it does once that text reads [redacted].
     const covered = coveredBy(reach);
@@ -445,13 +435,13 @@ export function redactSecrets(text: string): string {
     for (const shape of TOKEN_SHAPES) {
       for (const { index, 0: match } of scanned.matchAll(shape)) {
         const end = index + match.length;
-        if (valueAt(heldCovered, end) > valueAt(heldCovered, index)) extend(index, end);
+        if (valueAt(heldCovered, end) > valueAt(heldCovered, index) && end > valueAt(reach, index)) reach[index] = end;
       }
     }
   }
   if (unclosed.length > 0) {
     const furthest = furthestShapeEnds(stripped);
-    for (const { start, end } of unclosed) extend(start, valueAt(furthest, end - 1));
+    for (const { start, end } of unclosed) reach[start] = Math.max(valueAt(reach, start), valueAt(furthest, end - 1));
   }
-  return maskedSoFar || maskedIsStale ? spliced(stripped, reach).masked : stripped;
+  return reach.some(end => end > 0) ? spliced(stripped, reach).masked : stripped;
 }
