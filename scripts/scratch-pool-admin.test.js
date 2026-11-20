@@ -124,6 +124,7 @@ function poolSalesforce(t) {
             if (query.includes('FROM ALV_ScratchOrgPool__c')) return { done: true, records: [pool] };
             if (query.includes('FROM ALV_ScratchOrgPoolSlot__c')) {
               const slotKey = /SlotKey__c = '([^']+)'/.exec(query)?.[1];
+              if (slotKey) state.beforeSlotRead?.(slotKey);
               const records = state.slots.filter(item => !slotKey || item.SlotKey__c === slotKey);
               return { done: true, records: records.map(item => ({ ...item })) };
             }
@@ -552,6 +553,27 @@ test('prewarm leaves a healthy slot with remaining lifetime untouched', async t 
   assert.deepEqual(result.prewarmedSlotKeys, []);
   assert.equal(result.healthySlotCount, 1);
   assert.equal(state.created, false);
+});
+
+test('prewarm skips a slot healed since the scan without consuming the limit', async t => {
+  const { state, dependencies } = poolSalesforce(t);
+  state.slots.push({ ...state.slot, Id: 'slot-id-02', SlotKey__c: 'slot-02', ScratchAlias__c: 'ISOLATED_02' });
+  state.beforeSlotRead = slotKey => {
+    if (slotKey === 'slot-01') {
+      Object.assign(state.slot, {
+        HealthState__c: 'healthy',
+        ScratchAuthUrl__c: state.authUrl,
+        ScratchExpiresAt__c: minutesFromNow(10 * 24 * 60),
+        ActiveScratchOrgId__c: 'healed-active-id'
+      });
+    }
+  };
+
+  const result = await main(['prewarm', '--pool-key', 'isolated', '--limit', '1', '--json'], dependencies);
+  assert.deepEqual(result.skippedHealthySlotKeys, ['slot-01']);
+  assert.deepEqual(result.prewarmedSlotKeys, ['slot-02']);
+  assert.equal(state.slot.ActiveScratchOrgId__c, 'healed-active-id');
+  assert.equal(state.requests.some(request => request.url.endsWith('/slot-id') || request.method === 'DELETE'), false);
 });
 
 test('list flags a healthy slot whose scratch org has expired', async t => {
