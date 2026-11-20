@@ -21,13 +21,13 @@
     "lib"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "check-types": "tsc --noEmit -p tsconfig.json",
-    "check-types:test": "tsc -p tsconfig.test.json",
+    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "check-types": "node ../../node_modules/typescript7/bin/tsc --noEmit -p tsconfig.json",
+    "check-types:test": "node ../../node_modules/typescript7/bin/tsc -p tsconfig.test.json",
     "clean": "node -e \"require('fs').rmSync('lib',{recursive:true,force:true})\"",
     "test": "node --import tsx --test test/*.test.ts",
     "test:conformance": "node --import tsx --test test/conformance.test.ts",
-    "watch": "tsc -p tsconfig.json --watch"
+    "watch": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --watch"
   },
   "dependencies": {
     "@jsforce/jsforce-node": "^3.12.0",
