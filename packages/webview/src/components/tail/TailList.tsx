@@ -55,29 +55,123 @@ const lineSeqAt = (index: number, { filteredIndexes, firstLineSeq }: LineSeqSour
 const tailRowKey = (index: number, rowProps: TailRowProps) => lineSeqAt(index, rowProps) ?? `index-${index}`;
 
 /**
- * Row heights in react-window's dynamic row height protocol, kept per line sequence number, so a line keeps its
- * height when older lines leave the buffer or a filter moves it. The List measures every row it renders through
- * `observeRowElements`. The map is mutable so that a measurement does not copy a map that can hold a height for
- * each of the buffer's lines, up to 200,000.
+ * Measured row heights by line sequence number. It also counts the lines at each height, so that a line not measured
+ * yet can count the most common height: most log lines fit on one row, so a new line usually measures what it was
+ * counted at, and its measurement moves no row.
  */
-function useLineRowHeights(filteredIndexes: readonly number[], firstLineSeq: number): DynamicRowHeight {
-  const heightsRef = useRef(new Map<number, number>());
-  const [version, setVersion] = useState(0);
-  const observerRef = useRef<ResizeObserver | null>(null);
+class LineHeights {
+  private readonly bySeq = new Map<number, number>();
+  private readonly linesByHeight = new Map<number, number>();
+  /** The most common height, or undefined until it is worked out again. */
+  private common: number | undefined;
 
-  const record = useCallback((measured: ReadonlyArray<readonly [number, number]>) => {
-    const heights = heightsRef.current;
-    let changed = false;
-    for (const [seq, size] of measured) {
-      if (heights.get(seq) !== size) {
-        heights.set(seq, size);
-        changed = true;
+  constructor(private firstSeq: number) {}
+
+  get(seq: number) {
+    return this.bySeq.get(seq);
+  }
+
+  commonHeight() {
+    if (this.common === undefined) {
+      let most = 0;
+      for (const [height, lines] of this.linesByHeight) {
+        if (lines > most) {
+          most = lines;
+          this.common = height;
+        }
       }
     }
-    if (changed) {
-      setVersion(v => v + 1);
+    return this.common ?? DEFAULT_ROW_HEIGHT;
+  }
+
+  set(seq: number, height: number) {
+    const previous = this.bySeq.get(seq);
+    if (previous === height) {
+      return;
     }
-  }, []);
+    if (previous !== undefined) {
+      this.uncount(previous);
+    }
+    this.bySeq.set(seq, height);
+    const lines = (this.linesByHeight.get(height) ?? 0) + 1;
+    this.linesByHeight.set(height, lines);
+    if (this.common !== undefined && lines > (this.linesByHeight.get(this.common) ?? 0)) {
+      this.common = height;
+    }
+  }
+
+  /**
+   * Lines numbered below `firstSeq` left the buffer for good. A small trim deletes their keys one by one; a trim
+   * larger than the map walks the map instead.
+   */
+  forgetBefore(firstSeq: number) {
+    const from = this.firstSeq;
+    this.firstSeq = firstSeq;
+    if (firstSeq - from <= this.bySeq.size) {
+      for (let seq = from; seq < firstSeq; seq++) {
+        this.delete(seq);
+      }
+      return;
+    }
+    for (const seq of this.bySeq.keys()) {
+      if (seq < firstSeq) {
+        this.delete(seq);
+      }
+    }
+  }
+
+  private delete(seq: number) {
+    const height = this.bySeq.get(seq);
+    if (height !== undefined) {
+      this.bySeq.delete(seq);
+      this.uncount(height);
+    }
+  }
+
+  private uncount(height: number) {
+    const lines = (this.linesByHeight.get(height) ?? 1) - 1;
+    if (lines > 0) {
+      this.linesByHeight.set(height, lines);
+    } else {
+      this.linesByHeight.delete(height);
+    }
+    if (height === this.common) {
+      this.common = undefined;
+    }
+  }
+}
+
+/**
+ * Row heights in react-window's dynamic row height protocol, kept per line sequence number, so a line keeps its
+ * height when older lines leave the buffer or a filter moves it. The List measures every row it renders through
+ * `observeRowElements`. The heights are mutable so that a measurement does not copy a map that can hold a height for
+ * each of the buffer's lines, up to 200,000.
+ *
+ * A new object tells the List to rebuild its row positions, a pass over every row. A measurement asks for one only
+ * when it differs from the height the List holds for that line, so a new line at the common height costs no pass
+ * beyond the one its arrival already made.
+ */
+function useLineRowHeights(filteredIndexes: readonly number[], firstLineSeq: number): DynamicRowHeight {
+  const [heights] = useState(() => new LineHeights(firstLineSeq));
+  const [version, setVersion] = useState(0);
+  const observerRef = useRef<ResizeObserver | null>(null);
+  /** The height the committed object gives a line that is not measured yet. */
+  const estimateRef = useRef(DEFAULT_ROW_HEIGHT);
+
+  const record = useCallback(
+    (measured: ReadonlyArray<readonly [number, number]>) => {
+      let moved = false;
+      for (const [seq, size] of measured) {
+        const held = heights.get(seq) ?? estimateRef.current;
+        heights.set(seq, size);
+        moved ||= held !== size;
+      }
+      if (moved) {
+        setVersion(v => v + 1);
+      }
+    },
+    [heights]
+  );
 
   const observeRowElements = useCallback(
     (elements: Element[] | NodeListOf<Element>) => {
@@ -100,34 +194,16 @@ function useLineRowHeights(filteredIndexes: readonly number[], firstLineSeq: num
 
   useEffect(() => () => observerRef.current?.disconnect(), []);
 
-  // Lines before the first one left the buffer for good. A small trim deletes their keys one by one; a trim
-  // larger than the map walks the map instead.
-  const prunedBelowRef = useRef(firstLineSeq);
-  useEffect(() => {
-    const heights = heightsRef.current;
-    const from = prunedBelowRef.current;
-    prunedBelowRef.current = firstLineSeq;
-    if (firstLineSeq - from <= heights.size) {
-      for (let seq = from; seq < firstLineSeq; seq++) {
-        heights.delete(seq);
-      }
-      return;
-    }
-    for (const seq of heights.keys()) {
-      if (seq < firstLineSeq) {
-        heights.delete(seq);
-      }
-    }
-  }, [firstLineSeq]);
+  useEffect(() => heights.forgetBefore(firstLineSeq), [heights, firstLineSeq]);
 
-  // A new object for each `version` tells the List that the mutable height map changed.
-  return useMemo<DynamicRowHeight>(() => {
+  const rowHeight = useMemo<DynamicRowHeight>(() => {
     const source = { filteredIndexes, firstLineSeq };
+    const estimate = heights.commonHeight();
     return {
-      getAverageRowHeight: () => DEFAULT_ROW_HEIGHT,
+      getAverageRowHeight: () => estimate,
       getRowHeight: index => {
         const seq = lineSeqAt(index, source);
-        return seq === undefined ? undefined : heightsRef.current.get(seq);
+        return seq === undefined ? undefined : heights.get(seq);
       },
       setRowHeight: (index, size) => {
         const seq = lineSeqAt(index, source);
@@ -137,7 +213,14 @@ function useLineRowHeights(filteredIndexes: readonly number[], firstLineSeq: num
       },
       observeRowElements
     };
-  }, [filteredIndexes, firstLineSeq, version, observeRowElements, record]);
+    // `version` stands for the mutable heights: a new object makes the List read them again.
+  }, [filteredIndexes, firstLineSeq, version, heights, observeRowElements, record]);
+
+  useLayoutEffect(() => {
+    estimateRef.current = rowHeight.getAverageRowHeight();
+  }, [rowHeight]);
+
+  return rowHeight;
 }
 
 function TailRow({ index, style, ...rowProps }: RowComponentProps<TailRowProps>) {
