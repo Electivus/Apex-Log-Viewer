@@ -395,6 +395,33 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     }
   });
 
+  test('held tokens that cover part of a secret name leave the value after it replaced, in either hold order', async () => {
+    const shorter = 'FAKE-BRIDGE-';
+    const longer = 'FAKE-BRIDGE-access';
+    const value = 'FAKEunheldValue123456';
+
+    for (const order of [
+      [shorter, longer],
+      [longer, shorter]
+    ]) {
+      const { shown, trace } = await shownAfterHolding(order, `Request failed with ${shorter}accessToken=${value} end`);
+
+      assert.match(shown, /request failed with/i, 'the error still says what sf reported');
+      assert.ok(!shown.includes(value), `held as ${order.join(', ')}: the error carries no named value`);
+      assert.ok(!trace.includes(value), `held as ${order.join(', ')}: the trace carries no named value`);
+      assert.ok(!shown.includes('FAKE-BRIDGE'), `held as ${order.join(', ')}: the error carries no held token`);
+    }
+  });
+
+  test('a held token that ends in the first half of a surrogate pair is replaced where the text has that half', async () => {
+    const token = 'FAKE-surrogate-\uD83D';
+
+    const { shown, trace } = await shownAfterHolding([token], `Request failed with ${token}\uDE00 end`);
+
+    assert.ok(!shown.includes('FAKE-surrogate-'), 'the error carries no held token');
+    assert.ok(!trace.includes('FAKE-surrogate-'), 'the trace carries no held token');
+  });
+
   test('a held token inside a JSON Web Token leaves no part of the JSON Web Token', async () => {
     // Synthetic segments, joined at run time so that secret scanners do not take the source for a real token.
     const [header, payload, signature] = [
