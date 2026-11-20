@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, type Frame, type Locator, type Page } from '@playwright/test';
 import { runCommand, runCommandWhenAvailable } from '../utils/commandPalette';
 import { dismissAllNotifications } from '../utils/notifications';
 import {
@@ -6,7 +6,7 @@ import {
   resolveSpecialTraceFlagTarget,
   type SpecialTraceFlagTargetType
 } from '../utils/tooling';
-import { webviewWith } from '../utils/webviews';
+import { shownWebviewFrame, webviewWith } from '../utils/webviews';
 
 const SPECIAL_TARGET_UI: Record<SpecialTraceFlagTargetType, { buttonTestId: string; expectedLabel: string }> = {
   automatedProcess: {
@@ -30,10 +30,12 @@ async function closeQuickInputIfOpen(page: Page): Promise<void> {
   await widget.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {});
 }
 
-async function waitForLogsDebugFlagsButton(page: Page, timeoutMs: number): Promise<Locator> {
-  const logs = webviewWith(page, 'logs-open-debug-flags');
-  await expect(logs.getByTestId('logs-open-debug-flags')).toBeVisible({ timeout: timeoutMs });
-  return logs;
+/**
+ * The Logs webview on screen. The verify skill can leave the Logs panel and its editor-area copy open together, and
+ * both hold this button, so this picks the shown copy instead of using `webviewWith`.
+ */
+export async function waitForLogsDebugFlagsButton(page: Page, timeoutMs: number): Promise<Frame> {
+  return await shownWebviewFrame(page, '[data-testid="logs-open-debug-flags"]', timeoutMs);
 }
 
 async function waitForDebugFlagsFrame(page: Page, timeoutMs: number): Promise<Locator> {
@@ -93,13 +95,11 @@ export async function openDebugFlagsFromLogs(vscodePage: Page): Promise<Locator>
   await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
   await closeQuickInputIfOpen(vscodePage);
 
-  let logsFrame: Locator;
+  let logsFrame: Frame;
   try {
     logsFrame = await waitForLogsDebugFlagsButton(vscodePage, 60_000);
   } catch {
-    // Reveal the panel copy instead of opening a second Logs copy in the editor area: the panel keeps its content,
-    // so two copies would make the lookup ambiguous.
-    await runCommandWhenAvailable(vscodePage, 'Apex Logs: Focus on Apex Logs View', { timeoutMs: 90_000 });
+    await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Open Logs in Editor Area', { timeoutMs: 90_000 });
     await closeQuickInputIfOpen(vscodePage);
     await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
     await closeQuickInputIfOpen(vscodePage);

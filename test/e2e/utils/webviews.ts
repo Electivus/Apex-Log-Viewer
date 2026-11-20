@@ -1,4 +1,4 @@
-import type { Locator, Page } from '@playwright/test';
+import type { Frame, Locator, Page } from '@playwright/test';
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -22,6 +22,46 @@ export function webviewWith(page: Page, testId: string): Locator {
     .contentFrame()
     .locator('body')
     .filter({ has: page.getByTestId(testId) });
+}
+
+/**
+ * VS Code keeps the webview of a hidden panel or a background tab alive, with its outer iframe at
+ * `visibility: hidden`. Playwright's `isVisible` looks only inside the frame, so ask the outer iframe too.
+ */
+async function isShown(frame: Frame): Promise<boolean> {
+  const outer = await frame.parentFrame()?.frameElement();
+  const visibility = await outer?.evaluate(element =>
+    element instanceof Element ? getComputedStyle(element).visibility : undefined
+  );
+  await outer?.dispose();
+  return visibility !== 'hidden';
+}
+
+/**
+ * The first webview content frame on screen that shows `selector`.
+ *
+ * Use it where two webviews can hold the same content at once, such as the Logs panel and its editor-area copy: there
+ * `webviewWith` fails, because Playwright rejects a frame lookup that matches in more than one frame, and a hidden
+ * frame still matches (its visibility only counts in visibility checks). VS Code hides a webview by setting
+ * `visibility: hidden` on its outer iframe, so this skips frames whose outer iframe is hidden. The `Frame` it returns
+ * goes stale if VS Code replaces the content iframe.
+ */
+export async function shownWebviewFrame(page: Page, selector: string, timeoutMs = 120_000): Promise<Frame> {
+  const deadline = Date.now() + timeoutMs;
+  do {
+    for (const frame of page.frames()) {
+      if (frame === page.mainFrame()) {
+        continue;
+      }
+      const shown = await (async () =>
+        (await frame.locator(selector).first().isVisible()) && (await isShown(frame)))().catch(() => false);
+      if (shown) {
+        return frame;
+      }
+    }
+    await sleep(250);
+  } while (Date.now() < deadline);
+  throw new Error(`No webview on screen showed ${selector} within ${timeoutMs} ms.`);
 }
 
 type PageBox = { x: number; y: number; width: number; height: number };

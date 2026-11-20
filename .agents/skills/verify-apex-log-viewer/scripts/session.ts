@@ -27,6 +27,7 @@ import {
   resolveVsCodeLocale
 } from '../../../../test/e2e/utils/vscode';
 import { openDebugFlagsFromLogs } from '../../../../test/e2e/specs/debugFlagsPanel.shared';
+import { shownWebviewFrame } from '../../../../test/e2e/utils/webviews';
 
 type Phase = 'starting' | 'ready' | 'stopping' | 'stopped' | 'failed';
 
@@ -143,39 +144,9 @@ async function shot(name: string, target?: Frame | Locator): Promise<string> {
   return path.relative(repoRoot, filePath);
 }
 
-/**
- * VS Code keeps the webview of a hidden panel or a background tab alive, with its outer iframe at
- * `visibility: hidden`. Playwright's `isVisible` looks only inside the frame, so ask the outer iframe too.
- */
-async function isShown(frame: Frame): Promise<boolean> {
-  const outer = await frame.parentFrame()?.frameElement();
-  const visibility = await outer?.evaluate(element => getComputedStyle(element).visibility);
-  await outer?.dispose();
-  return visibility !== 'hidden';
-}
-
-/**
- * The first frame on screen containing `selector`. Unlike `webviewWith` in `test/e2e/utils/webviews.ts`, this picks
- * the visible copy when several webviews hold the same content (the Logs panel and its editor-area copy, two Log
- * Viewer tabs), which a `page.frameLocator()` lookup rejects as ambiguous.
- */
+/** The first webview frame on screen containing `selector`; see `shownWebviewFrame`. */
 async function frameWith(selector: string, timeoutMs = 120_000): Promise<Frame> {
-  const vscodePage = requirePage();
-  const deadline = Date.now() + timeoutMs;
-  do {
-    for (const frame of vscodePage.frames()) {
-      if (frame === vscodePage.mainFrame()) {
-        continue;
-      }
-      const shown = await (async () =>
-        (await frame.locator(selector).first().isVisible()) && (await isShown(frame)))().catch(() => false);
-      if (shown) {
-        return frame;
-      }
-    }
-    await vscodePage.waitForTimeout(250);
-  } while (Date.now() < deadline);
-  throw new Error(`No webview on screen showed ${selector} within ${timeoutMs} ms.`);
+  return await shownWebviewFrame(requirePage(), selector, timeoutMs);
 }
 
 const DEBUG_FLAGS_FRAME = '[data-testid="debug-flags-user-search"]';
