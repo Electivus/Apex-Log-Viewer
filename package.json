@@ -135,7 +135,7 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-window": "^2.5.3",
-    "semver": "^7.8.5",
+    "semver": "^7.8.6",
     "sharp": "^0.35.5",
     "shell-quote": "^1.12.0",
     "skills": "1.8.1",
