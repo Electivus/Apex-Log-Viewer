@@ -58,10 +58,10 @@ test.beforeAll(async ({}, testInfo) => {
     workspacePath: workspace.workspacePath,
     extensionDevelopmentPath: resolveExtensionDevelopmentPath(path.join(__dirname, '..', '..', '..'))
   });
+  cleanupApp = launch.cleanup;
   app = launch.app;
   page = await app.firstWindow();
   finishTrace = await recordElectronTrace(app, testInfo);
-  cleanupApp = launch.cleanup;
 });
 
 test.afterEach(({}, testInfo) => {
