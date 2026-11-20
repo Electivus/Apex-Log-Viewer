@@ -175,6 +175,20 @@ describe('TailList rows over the real virtual list', () => {
     expect(list().scrollHeight).toBe(40 * SHORT);
   });
 
+  it('keeps the measured height of a line out of view that stays in the buffer', () => {
+    const { update } = renderTail(buffer(0, 40, new Set([0, 1])));
+    for (let top = 0; top <= 40 * SHORT; top += VIEWPORT / 2) {
+      scrollListTo(top);
+    }
+    expect(list().scrollHeight).toBe(2 * TALL + 38 * SHORT);
+
+    // Line 0 leaves; line 1 stays out of view, so only the height kept for it can count.
+    update(buffer(1, 40, new Set([1])));
+
+    expect(screen.queryByText('Line 1 TALL')).toBeNull();
+    expect(list().scrollHeight).toBe(TALL + 39 * SHORT);
+  });
+
   it('keeps each row element across renders and as older lines leave the buffer', () => {
     const { update } = renderTail(buffer(0, 5));
     const row = rowElement('Line 3');

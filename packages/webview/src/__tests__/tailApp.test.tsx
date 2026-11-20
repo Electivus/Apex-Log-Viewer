@@ -187,7 +187,8 @@ describe('Tail webview App', () => {
   });
 
   it('keeps the row of a line when older lines leave the full buffer', async () => {
-    const { vscode } = createVsCodeMock();
+    // With Auto-scroll off the view stays at the head of the buffer, where the lines leave.
+    const { vscode } = createVsCodeMock({ autoScroll: false });
     const bus = new EventTarget();
     render(<TailApp vscode={vscode} messageBus={bus} />);
     send(bus, { type: 'init', locale: 'en' });
@@ -270,7 +271,7 @@ describe('Tail webview App', () => {
       type: 'tailData',
       lines: Array.from({ length: 40 }, (_, i) => `13:00:${String(i).padStart(2, '0')}.000|INFO|line-${i}`)
     });
-    await screen.findByText('13:00:00.000|INFO|line-0');
+    await screen.findAllByRole('row');
 
     const autoScroll = screen.getByRole('switch', { name: 'Auto-scroll' });
     expect(autoScroll).toHaveAttribute('aria-checked', 'true');

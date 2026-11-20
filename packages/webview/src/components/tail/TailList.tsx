@@ -100,11 +100,22 @@ function useLineRowHeights(filteredIndexes: readonly number[], firstLineSeq: num
 
   useEffect(() => () => observerRef.current?.disconnect(), []);
 
-  // Lines before the first one left the buffer for good.
+  // Lines before the first one left the buffer for good. A small trim deletes their keys one by one; a trim
+  // larger than the map walks the map instead.
+  const prunedBelowRef = useRef(firstLineSeq);
   useEffect(() => {
-    for (const seq of heightsRef.current.keys()) {
+    const heights = heightsRef.current;
+    const from = prunedBelowRef.current;
+    prunedBelowRef.current = firstLineSeq;
+    if (firstLineSeq - from <= heights.size) {
+      for (let seq = from; seq < firstLineSeq; seq++) {
+        heights.delete(seq);
+      }
+      return;
+    }
+    for (const seq of heights.keys()) {
       if (seq < firstLineSeq) {
-        heightsRef.current.delete(seq);
+        heights.delete(seq);
       }
     }
   }, [firstLineSeq]);
@@ -247,6 +258,12 @@ export function TailList({
     const started = follow && (!prevFollowRef.current || prevListElementRef.current !== listElement);
     prevFollowRef.current = follow;
     prevListElementRef.current = listElement;
+    if (started) {
+      // With dynamic row heights, scrollToRow keeps steering toward the row it revealed, such as
+      // the selected line, until the rows settle. The List stops that on the keys a user scrolls
+      // with, so End hands the scroll back to this pin before it can pull the view up again.
+      listElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End' }));
+    }
     pinToEnd(started);
   });
 
