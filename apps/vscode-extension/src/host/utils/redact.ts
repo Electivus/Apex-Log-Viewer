@@ -198,9 +198,9 @@ function readingOf(text: string, decoded: boolean): Reading {
 }
 
 /**
- * An Aho-Corasick automaton over every held secret, in UTF-16 units. Fed a reading, the node it reaches at a unit
- * names, in `longest`, how many units the longest held secret that ends there has. An edge goes on the unit's symbol,
- * its index among the units that held secrets use.
+ * An Aho-Corasick automaton over every held secret written backwards, in UTF-16 units. Fed a reading from its end,
+ * the node it reaches at a unit names, in `longest`, how many units the longest held secret that starts there has. An
+ * edge goes on the unit's symbol, its index among the units that held secrets use.
  */
 type Finder = {
   symbols: Map<number, number>;
@@ -213,11 +213,21 @@ type Finder = {
   edges: Map<number, number>;
   fail: Int32Array;
   longest: Int32Array;
+  /** Where each node enters the tree of failure links, depth first. */
+  entered: Int32Array;
+  /**
+   * For each symbol a percent-encoding is written with, the nodes with an edge on it, as stretches of `entered`
+   * that each name the deepest such node whose subtree of failure links holds them.
+   */
+  encodingEdges: Map<number, { starts: Int32Array; owners: Int32Array }>;
 };
+
+/** `%` and the hex digits: the characters a percent-encoding is written with. */
+const ENCODING_UNITS = [...'%0123456789abcdefABCDEF'].map(character => character.charCodeAt(0));
 
 function finderOf(secrets: ReadonlySet<string>): Finder {
   const units = [...secrets].map(secret =>
-    Array.from({ length: secret.length }, (_, index) => secret.charCodeAt(index))
+    Array.from({ length: secret.length }, (_, index) => secret.charCodeAt(secret.length - 1 - index))
   );
   const size = units.reduce((total, secret) => total + secret.length, 1);
   const symbols = new Map<number, number>();
@@ -227,7 +237,9 @@ function finderOf(secrets: ReadonlySet<string>): Finder {
     chain: new Int32Array(size).fill(-1),
     edges: new Map(),
     fail: new Int32Array(size),
-    longest: new Int32Array(size)
+    longest: new Int32Array(size),
+    entered: new Int32Array(size),
+    encodingEdges: new Map()
   };
   const parent = new Int32Array(size);
   const via = new Int32Array(size);
@@ -262,7 +274,75 @@ function finderOf(secrets: ReadonlySet<string>): Finder {
   finder.chain = finder.chain.slice(0, nodes);
   finder.fail = finder.fail.slice(0, nodes);
   finder.longest = finder.longest.slice(0, nodes);
+  indexEncodingEdges(finder, nodes);
   return finder;
+}
+
+/**
+ * Numbers the tree of failure links depth first, and lists, for each symbol of a percent-encoding, which stretch of
+ * that numbering each node with an edge on it rules: its subtree, less the subtrees of deeper such nodes.
+ */
+function indexEncodingEdges(finder: Finder, nodes: number): void {
+  const firstChild = new Int32Array(nodes + 1);
+  for (let node = 1; node < nodes; node++) {
+    const parent = valueAt(finder.fail, node);
+    firstChild[parent + 1] = valueAt(firstChild, parent + 1) + 1;
+  }
+  for (let node = 0; node < nodes; node++) {
+    firstChild[node + 1] = valueAt(firstChild, node + 1) + valueAt(firstChild, node);
+  }
+  const children = new Int32Array(Math.max(nodes - 1, 0));
+  const placed = firstChild.slice(0, nodes);
+  for (let node = 1; node < nodes; node++) {
+    const parent = valueAt(finder.fail, node);
+    children[valueAt(placed, parent)] = node;
+    placed[parent] = valueAt(placed, parent) + 1;
+  }
+  const exits = new Int32Array(nodes);
+  const pending = [0];
+  for (let order = 0; pending.length > 0; order++) {
+    const node = pending.pop() ?? 0;
+    finder.entered[node] = order;
+    for (let at = valueAt(firstChild, node + 1) - 1; at >= valueAt(firstChild, node); at--) {
+      pending.push(valueAt(children, at));
+    }
+  }
+  // A subtree holds the nodes entered from its root up to, not including, where the next sibling's subtree starts.
+  const size = new Int32Array(nodes).fill(1);
+  const byEntry = new Int32Array(nodes);
+  for (let node = 0; node < nodes; node++) byEntry[valueAt(finder.entered, node)] = node;
+  for (let order = nodes - 1; order > 0; order--) {
+    const node = valueAt(byEntry, order);
+    size[valueAt(finder.fail, node)] = valueAt(size, valueAt(finder.fail, node)) + valueAt(size, node);
+  }
+  for (let node = 0; node < nodes; node++) exits[node] = valueAt(finder.entered, node) + valueAt(size, node);
+  for (const unit of ENCODING_UNITS) {
+    const symbol = finder.symbols.get(unit);
+    if (symbol === undefined) continue;
+    const owners: number[] = [];
+    for (let order = 0; order < nodes; order++) {
+      const node = valueAt(byEntry, order);
+      if (childOf(finder, node, symbol) !== 0) owners.push(node);
+    }
+    const starts: number[] = [];
+    const ruled: number[] = [];
+    const open: number[] = [];
+    const close = (until: number) => {
+      while (open.length > 0 && valueAt(exits, open[open.length - 1] ?? 0) <= until) {
+        const closed = open.pop() ?? 0;
+        starts.push(valueAt(exits, closed));
+        ruled.push(open[open.length - 1] ?? -1);
+      }
+    };
+    for (const node of owners) {
+      close(valueAt(finder.entered, node));
+      open.push(node);
+      starts.push(valueAt(finder.entered, node));
+      ruled.push(node);
+    }
+    close(nodes);
+    finder.encodingEdges.set(symbol, { starts: Int32Array.from(starts), owners: Int32Array.from(ruled) });
+  }
 }
 
 /** `values[index]`, for an index that its caller keeps in bounds. */
@@ -276,7 +356,7 @@ const childOf = (finder: Finder, node: number, symbol: number): number =>
 
 let moves = 0;
 
-/** How many edges the automata looked for since the module loaded, building them and feeding them text. */
+/** How many edges and stretches the automata looked for since the module loaded, building them and reading text. */
 export const automatonMoves = (): number => moves;
 
 /**
@@ -294,16 +374,55 @@ function step(finder: Finder, node: number, symbol: number): number {
   }
 }
 
-/** Records in `reach`, for each place of the text where a held secret that `reading` has starts, where the longest ends. */
-function reachSecrets(finder: Finder, reading: Reading, reach: Int32Array): void {
+/**
+ * `step` on a character of a percent-encoding, from a node the feed of the reading did not reach on it. It finds the
+ * deepest node on the failure links of `node` with an edge on that character by a binary search, so it takes the same
+ * few moves however long those links are.
+ */
+function encodingStep(finder: Finder, node: number, symbol: number): number {
+  const index = finder.encodingEdges.get(symbol);
+  if (!index) return 0;
+  moves++;
+  const next = childOf(finder, node, symbol);
+  if (next !== 0) return next;
+  const entered = valueAt(finder.entered, node);
+  let low = 0;
+  let high = index.starts.length - 1;
+  while (low < high) {
+    moves++;
+    const middle = (low + high + 1) >> 1;
+    if (valueAt(index.starts, middle) <= entered) low = middle;
+    else high = middle - 1;
+  }
+  const owner = valueAt(index.starts, low) <= entered ? valueAt(index.owners, low) : -1;
+  return owner < 0 ? 0 : childOf(finder, owner, symbol);
+}
+
+/**
+ * Records in `reach`, for each place of `text` where a held secret starts in `reading`, where the longest one ends. A
+ * reader that starts inside a percent-encoding takes the rest of it as written and decodes from the next character,
+ * so the tail of each encoding is also read as the start of a secret.
+ */
+function reachSecrets(finder: Finder, text: string, reading: Reading, reach: Int32Array): void {
+  const startOf = (index: number) => valueAt(reading.starts, index);
+  const endOf = (index: number) => valueAt(reading.ends, index);
+  const extend = (start: number, end: number) => {
+    if (end > valueAt(reach, start)) reach[start] = end;
+  };
   let node = 0;
-  for (let index = 0; index < reading.length; index++) {
+  for (let index = reading.length - 1; index >= 0; index--) {
     node = step(finder, node, finder.symbols.get(valueAt(reading.units, index)) ?? -1);
     const found = valueAt(finder.longest, node);
-    if (found === 0) continue;
-    const start = valueAt(reading.starts, index - found + 1);
-    const end = valueAt(reading.ends, index);
-    if (end > valueAt(reach, start)) reach[start] = end;
+    if (found > 0) extend(startOf(index), endOf(index + found - 1));
+    const before = index - 1;
+    if (before < 0 || endOf(before) - startOf(before) < 3 || startOf(before) === startOf(index)) continue;
+    let tail = node;
+    for (let at = endOf(before) - 1; at > startOf(before); at--) {
+      tail = encodingStep(finder, tail, finder.symbols.get(text.charCodeAt(at)) ?? -1);
+      const length = valueAt(finder.longest, tail);
+      const written = endOf(before) - at;
+      if (length > 0) extend(at, length <= written ? at + length : endOf(index + length - written - 1));
+    }
   }
 }
 
@@ -351,15 +470,17 @@ function coveredBy(reach: Int32Array): Int32Array {
 }
 
 /**
- * Where held secrets occur in `text`, as `reach`: as written, or in the text with its well-formed percent-encodings
- * decoded from the first character on. Each reading is fed once through the automaton. Undefined when none occurs.
+ * Where held secrets occur in `text`, as `reach`: as written, or as a reader that starts at any place of the text,
+ * takes the rest of a percent-encoding it starts in as written, and decodes the well-formed percent-encodings after
+ * it, reads it. Each reading is fed once through the automaton, and each character of an encoding once more as the
+ * start of a reader. Undefined when none occurs.
  */
 function heldReach(text: string): Int32Array | undefined {
   if (held.size === 0) return undefined;
   finder ??= finderOf(held);
   const reach = new Int32Array(text.length);
-  reachSecrets(finder, readingOf(text, false), reach);
-  if (text.includes('%')) reachSecrets(finder, readingOf(text, true), reach);
+  reachSecrets(finder, text, readingOf(text, false), reach);
+  if (text.includes('%')) reachSecrets(finder, text, readingOf(text, true), reach);
   return reach.some(end => end > 0) ? reach : undefined;
 }
 
