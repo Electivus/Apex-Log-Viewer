@@ -395,6 +395,62 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     }
   });
 
+  test('held tokens that cover part of a secret name leave the value after it replaced, in either hold order', async () => {
+    const shorter = 'FAKE-BRIDGE-';
+    const longer = 'FAKE-BRIDGE-access';
+    const value = 'FAKEunheldValue123456';
+
+    for (const order of [
+      [shorter, longer],
+      [longer, shorter]
+    ]) {
+      const { shown, trace } = await shownAfterHolding(order, `Request failed with ${shorter}accessToken=${value} end`);
+
+      assert.match(shown, /request failed with/i, 'the error still says what sf reported');
+      assert.ok(!shown.includes(value), `held as ${order.join(', ')}: the error carries no named value`);
+      assert.ok(!trace.includes(value), `held as ${order.join(', ')}: the trace carries no named value`);
+      assert.ok(!shown.includes('FAKE-BRIDGE'), `held as ${order.join(', ')}: the error carries no held token`);
+    }
+  });
+
+  test('a held token inside a session id leaves no part of it, when a refresh token shape runs into the session id', async () => {
+    // Synthetic values, joined at run time so that secret scanners do not take the source for real tokens.
+    const held = ['00DFAKEFAKEFAKE1', '5Aep8fake'].join('!');
+    const text = ['5Aep8fakefakefakefakefake', held, 'fakefakefakefake/FAKE_SESSION_SUFFIX'].join('');
+
+    const { shown, trace } = await shownAfterHolding([held], `Request failed with ${text} end`);
+
+    assert.ok(!shown.includes('FAKE_SESSION_SUFFIX'), 'the error carries no part of the session id');
+    assert.ok(!trace.includes('FAKE_SESSION_SUFFIX'), 'the trace carries no part of the session id');
+  });
+
+  test('a held token that starts inside a percent-encoding is replaced, while other characters of it are encoded', async () => {
+    // Synthetic values, joined at run time so that secret scanners do not take the source for real tokens.
+    const session = ['00DFAKEFAKEFAKE1', 'fakeSession0123'].join('!');
+    const encoded = ['00DFAKEFAKEFAKE1', 'fakeSession0123'].join('%21');
+
+    for (const text of [`q=%${encoded} end`, 'x %41%46%41%4b%45tail-token-0123 y']) {
+      const tokens = [session, '1FAKEtail-token-0123'];
+      const { shown, trace } = await shownAfterHolding(tokens, `Request failed with ${text}`);
+
+      assert.ok(!shown.includes('fakeSession0123'), `${text}: the error carries no part of the session id`);
+      assert.ok(!shown.includes('tail-token'), `${text}: the error carries no part of the held token`);
+      assert.ok(
+        !trace.includes('fakeSession0123') && !trace.includes('tail-token'),
+        `${text}: the trace carries neither`
+      );
+    }
+  });
+
+  test('a held token that ends in the first half of a surrogate pair is replaced where the text has that half', async () => {
+    const token = 'FAKE-surrogate-\uD83D';
+
+    const { shown, trace } = await shownAfterHolding([token], `Request failed with ${token}\uDE00 end`);
+
+    assert.ok(!shown.includes('FAKE-surrogate-'), 'the error carries no held token');
+    assert.ok(!trace.includes('FAKE-surrogate-'), 'the trace carries no held token');
+  });
+
   test('a held token inside a JSON Web Token leaves no part of the JSON Web Token', async () => {
     // Synthetic segments, joined at run time so that secret scanners do not take the source for a real token.
     const [header, payload, signature] = [
