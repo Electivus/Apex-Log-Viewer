@@ -6,28 +6,30 @@ import {
   removeUserDebugTraceFlags,
   waitForDebugFlagsUserSearchAvailability
 } from '../utils/tooling';
+import { expectWebviewWithout } from '../utils/webviews';
 import { openDebugFlagsFromLogs, openDebugFlagsFromTail } from './debugFlagsPanel.shared';
+
+const USER_ROW = '[data-testid^="debug-flags-user-row-"]';
+const ERROR_BANNER = '[data-testid="debug-flags-error"]';
 
 async function assertUserSearchFiltering(debugFlagsFrame: Locator, userId: string, searchToken: string): Promise<void> {
   const searchInput = debugFlagsFrame.locator('[data-testid="debug-flags-user-search"]');
-  const userRows = debugFlagsFrame.locator('[data-testid^="debug-flags-user-row-"]');
   const targetUserRow = debugFlagsFrame.locator(`[data-testid="debug-flags-user-row-${userId}"]`);
-  const errorBanner = debugFlagsFrame.locator('[data-testid="debug-flags-error"]');
 
   const uniqueNoMatch = `__alv_e2e_user_not_found_${Date.now()}__`;
 
   await searchInput.fill('');
   await searchInput.fill(searchToken);
   await expect(targetUserRow).toBeVisible({ timeout: 60_000 });
-  await expect(errorBanner).toHaveCount(0);
+  await expectWebviewWithout(debugFlagsFrame, ERROR_BANNER);
 
   await searchInput.fill(uniqueNoMatch);
-  await expect.poll(async () => await userRows.count(), { timeout: 60_000 }).toBe(0);
-  await expect(errorBanner).toHaveCount(0);
+  await expectWebviewWithout(debugFlagsFrame, USER_ROW, { timeout: 60_000 });
+  await expectWebviewWithout(debugFlagsFrame, ERROR_BANNER);
 
   await searchInput.fill(searchToken);
   await expect(targetUserRow).toBeVisible({ timeout: 60_000 });
-  await expect(errorBanner).toHaveCount(0);
+  await expectWebviewWithout(debugFlagsFrame, ERROR_BANNER);
 }
 
 async function assertSelectedScratchOrg(debugFlagsFrame: Locator, scratchAlias: string): Promise<void> {

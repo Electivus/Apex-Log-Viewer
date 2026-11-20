@@ -1,4 +1,4 @@
-import { expect, type Frame, type Locator, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 import { runCommand, runCommandWhenAvailable } from '../utils/commandPalette';
 import { dismissAllNotifications } from '../utils/notifications';
 import {
@@ -6,7 +6,7 @@ import {
   resolveSpecialTraceFlagTarget,
   type SpecialTraceFlagTargetType
 } from '../utils/tooling';
-import { shownWebviewFrame, webviewWith } from '../utils/webviews';
+import { shownWebview, webviewWith } from '../utils/webviews';
 
 const SPECIAL_TARGET_UI: Record<SpecialTraceFlagTargetType, { buttonTestId: string; expectedLabel: string }> = {
   automatedProcess: {
@@ -34,8 +34,8 @@ async function closeQuickInputIfOpen(page: Page): Promise<void> {
  * The Logs webview on screen. The verify skill can leave the Logs panel and its editor-area copy open together, and
  * both hold this button, so this picks the shown copy instead of using `webviewWith`.
  */
-export async function waitForLogsDebugFlagsButton(page: Page, timeoutMs: number): Promise<Frame> {
-  return await shownWebviewFrame(page, '[data-testid="logs-open-debug-flags"]', timeoutMs);
+export async function waitForLogsDebugFlagsButton(page: Page, timeoutMs: number): Promise<Locator> {
+  return await shownWebview(page, '[data-testid="logs-open-debug-flags"]', timeoutMs);
 }
 
 async function waitForDebugFlagsFrame(page: Page, timeoutMs: number): Promise<Locator> {
@@ -95,7 +95,7 @@ export async function openDebugFlagsFromLogs(vscodePage: Page): Promise<Locator>
   await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
   await closeQuickInputIfOpen(vscodePage);
 
-  let logsFrame: Frame;
+  let logsFrame: Locator;
   try {
     logsFrame = await waitForLogsDebugFlagsButton(vscodePage, 60_000);
   } catch {

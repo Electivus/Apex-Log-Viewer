@@ -27,7 +27,7 @@ import {
   resolveVsCodeLocale
 } from '../../../../test/e2e/utils/vscode';
 import { openDebugFlagsFromLogs } from '../../../../test/e2e/specs/debugFlagsPanel.shared';
-import { shownWebviewFrame } from '../../../../test/e2e/utils/webviews';
+import { shownWebview } from '../../../../test/e2e/utils/webviews';
 
 type Phase = 'starting' | 'ready' | 'stopping' | 'stopped' | 'failed';
 
@@ -144,9 +144,12 @@ async function shot(name: string, target?: Frame | Locator): Promise<string> {
   return path.relative(repoRoot, filePath);
 }
 
-/** The first webview frame on screen containing `selector`; see `shownWebviewFrame`. */
-async function frameWith(selector: string, timeoutMs = 120_000): Promise<Frame> {
-  return await shownWebviewFrame(requirePage(), selector, timeoutMs);
+/**
+ * The body of the first webview on screen containing `selector`; see `shownWebview`. It is a locator bound to that
+ * webview, not a `Frame`, so it still works after VS Code replaces the webview's content iframe.
+ */
+async function frameWith(selector: string, timeoutMs = 120_000): Promise<Locator> {
+  return await shownWebview(requirePage(), selector, timeoutMs);
 }
 
 const DEBUG_FLAGS_FRAME = '[data-testid="debug-flags-user-search"]';
@@ -201,7 +204,7 @@ async function openDebugFlagsFromLogsAfterClosing(): Promise<Locator> {
  * Right after `Tail Logs` reveals the panel, a forced click on the Tail toolbar is lost (seen twice in a row),
  * so click with Playwright's actionability checks first, then fall back to Enter and a DOM click.
  */
-async function openDebugFlagsFromTailWithRetry(): Promise<Frame> {
+async function openDebugFlagsFromTailWithRetry(): Promise<Locator> {
   const vscodePage = requirePage();
   const alias = state.org?.alias;
   await closeDebugFlagsEditor();
@@ -225,7 +228,7 @@ async function openDebugFlagsFromTailWithRetry(): Promise<Frame> {
     },
     () => button.evaluate((element: HTMLButtonElement) => element.click())
   ];
-  let frame: Frame | undefined;
+  let frame: Locator | undefined;
   for (const attempt of attempts) {
     await attempt().catch(() => {});
     frame = await frameWith(DEBUG_FLAGS_FRAME, 10_000).catch(() => undefined);
