@@ -23,6 +23,9 @@ function laidOutHeight(element: Element): number {
   return row ? lineHeight(row) : VIEWPORT;
 }
 
+/** Called with the layout a browser would paint, before each ResizeObserver report. */
+let beforeReport: (() => void) | undefined;
+
 class FakeResizeObserver {
   private readonly targets = new Set<Element>();
 
@@ -34,6 +37,7 @@ class FakeResizeObserver {
       if (!this.targets.has(target)) {
         return;
       }
+      beforeReport?.();
       const height = laidOutHeight(target);
       const entry = {
         target,
@@ -133,6 +137,28 @@ function settle() {
 const list = () => screen.getByRole('list');
 const rowElement = (text: string) => rowOf(screen.getByText(text));
 
+/** Where the row of each rendered line sits in the viewport, from the offset the List gave it and the scroll offset. */
+function viewportTops() {
+  const scrollTop = list().scrollTop;
+  return new Map(
+    Array.from(document.querySelectorAll<HTMLElement>('[role="row"]'), row => [
+      row.textContent ?? '',
+      parseFloat(row.style.transform.replace('translateY(', '')) - scrollTop
+    ])
+  );
+}
+
+/** Where `line` sits in the viewport or, when it is not rendered, which line is first in view instead. */
+function placeOf(line: string) {
+  const tops = viewportTops();
+  const top = tops.get(line);
+  if (top !== undefined) {
+    return `${line} at ${top}`;
+  }
+  const [first, firstTop] = [...tops].find(([, rowTop]) => rowTop >= 0) ?? ['nothing', 0];
+  return `${line} not rendered; ${first} at ${firstTop}`;
+}
+
 /** Scrolls as the user does, so the list renders and measures the rows that come into view. */
 function scrollListTo(top: number) {
   act(() => {
@@ -154,6 +180,7 @@ describe('TailList rows over the real virtual list', () => {
   });
 
   afterEach(() => {
+    beforeReport = undefined;
     jest.useRealTimers();
     globalThis.ResizeObserver = NoResizeObserver;
     for (const [name] of layout) {
@@ -199,5 +226,32 @@ describe('TailList rows over the real virtual list', () => {
 
     update(buffer(2, 5), 0);
     expect(rowElement('Line 3')).toBe(row);
+  });
+
+  it('keeps the rows in view in place while Auto-scroll is off and lines leave the buffer one at a time', () => {
+    // Lines 0-199 are short and lines from 200 on are tall. The first short lines get measured at the top, then the
+    // view jumps among the tall lines, so most short lines above the view are placed by the List's estimate.
+    const COUNT = 400;
+    const DROPS = 20;
+    const tall = new Set(Array.from({ length: COUNT + DROPS }, (_, seq) => seq).filter(seq => seq >= 200));
+    const { update } = renderTail(buffer(0, COUNT, tall));
+    scrollListTo(220 * SHORT);
+    const [line, top] = [...viewportTops()].find(([, rowTop]) => rowTop >= 0) ?? ['', 0];
+    expect(line).toContain('TALL');
+
+    // Each update adds a line at the end and drops a short, measured line from the head, until about as many tall
+    // lines as short ones are measured. In every layout, only the height of the lines that left may move the line
+    // that was first in view.
+    const places = [];
+    const expected = [];
+    for (let first = 1; first <= DROPS; first++) {
+      const layouts = new Set<string>();
+      beforeReport = () => layouts.add(placeOf(line));
+      update(buffer(first, COUNT, tall));
+      layouts.add(placeOf(line));
+      places.push([...layouts]);
+      expected.push([`${line} at ${top - first * SHORT}`]);
+    }
+    expect(places).toEqual(expected);
   });
 });
