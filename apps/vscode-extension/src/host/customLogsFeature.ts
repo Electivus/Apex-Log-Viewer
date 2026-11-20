@@ -4,6 +4,7 @@ import { CUSTOM_LOG_DOCUMENT_SCHEME, registerCustomLogDocuments } from './utils/
 import { registerCaptureStatusBar } from './customLogsStatusBar';
 import { openCustomLogsConfig } from './utils/customLogsConfig';
 import { getErrorMessage } from './utils/error';
+import { closeTabs, isWebviewTab } from './utils/editorTabs';
 import { logWarn } from './utils/logger';
 import { CustomLogsEditorPanel } from '../panel/CustomLogsEditorPanel';
 import { CustomLogViewerPanel } from '../panel/CustomLogViewerPanel';
@@ -13,14 +14,10 @@ import type { WebviewProviderDiagnosticState } from '../shared/webviewDiagnostic
 
 export const CUSTOM_LOGS_ENABLED_SETTING = 'electivus.apexLogViewer.customLogs.enabled';
 
-/** VS Code 1.145.2 adds this to the view type of a webview tab, though the API says it maps to the panel's. */
-const REPORTED_WEBVIEW_TAB_PREFIX = /^mainThreadWebview-/;
+const customLogViewTypes = new Set([CustomLogsEditorPanel.viewType, CustomLogViewerPanel.viewType]);
 
-function isCustomLogWebviewTab({ input }: vscode.Tab): boolean {
-  const viewTypes = new Set([CustomLogsEditorPanel.viewType, CustomLogViewerPanel.viewType]);
-  return (
-    input instanceof vscode.TabInputWebview && viewTypes.has(input.viewType.replace(REPORTED_WEBVIEW_TAB_PREFIX, ''))
-  );
+function isCustomLogWebviewTab(tab: vscode.Tab): boolean {
+  return isWebviewTab(tab, customLogViewTypes);
 }
 
 function isCustomLogTab(tab: vscode.Tab): boolean {
@@ -28,14 +25,6 @@ function isCustomLogTab(tab: vscode.Tab): boolean {
     (tab.input instanceof vscode.TabInputText && tab.input.uri.scheme === CUSTOM_LOG_DOCUMENT_SCHEME) ||
     isCustomLogWebviewTab(tab)
   );
-}
-
-/** Scans the tab groups because a tab can outlive the extension host whose panel tracked it. */
-function closeTabs(matches: (tab: vscode.Tab) => boolean): void {
-  const tabs = vscode.window.tabGroups.all.flatMap(group => group.tabs).filter(matches);
-  if (tabs.length > 0) {
-    void vscode.window.tabGroups.close(tabs);
-  }
 }
 
 export interface CustomLogsFeature extends vscode.Disposable {
