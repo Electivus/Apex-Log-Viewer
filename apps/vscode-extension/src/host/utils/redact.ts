@@ -415,17 +415,17 @@ function reachRules(text: string, reach: Int32Array): Stretch[] {
  */
 export function redactSecrets(text: string): string {
   const stripped = stripControlSequences(text);
-  const reach = new Int32Array(stripped.length);
-  const unclosed = reachRules(stripped, reach);
+  const raw = new Int32Array(stripped.length);
+  const unclosed = reachRules(stripped, raw);
   const heldAt = heldReach(stripped);
+  const reach = heldAt ?? raw;
   if (heldAt) {
     const heldCovered = coveredBy(heldAt);
     unclosed.push(...reachRules(stripped, heldAt));
-    for (let index = 0; index < reach.length; index++)
-      reach[index] = Math.max(valueAt(reach, index), valueAt(heldAt, index));
     // What the rules replaced beside the held secrets is blanked, so that a shape a held secret falls in starts
-    // where the replaced text ends, as it does once that text reads [redacted].
-    const covered = coveredBy(reach);
+    // where the replaced text ends, as it does once that text reads [redacted]. Only what the rules found with the
+    // held secrets replaced is blanked, so a match on the text as written cannot cut such a shape short.
+    const covered = coveredBy(heldAt);
     let scanned = '';
     for (let index = 0; index < stripped.length; index++) {
       const replaced = valueAt(covered, index + 1) > valueAt(covered, index);
@@ -438,6 +438,8 @@ export function redactSecrets(text: string): string {
         if (valueAt(heldCovered, end) > valueAt(heldCovered, index) && end > valueAt(reach, index)) reach[index] = end;
       }
     }
+    for (let index = 0; index < reach.length; index++)
+      reach[index] = Math.max(valueAt(reach, index), valueAt(raw, index));
   }
   if (unclosed.length > 0) {
     const furthest = furthestShapeEnds(stripped);
