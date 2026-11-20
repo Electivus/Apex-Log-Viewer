@@ -332,16 +332,15 @@ suite('Custom Logs feature switch', () => {
     assert.deepEqual(host.openTabs(), [[`${LONG_FIELD_SCHEME}:/Message - Log-1 #1.txt`]]);
   });
 
-  test('closes the viewer and editor tabs of an earlier extension host in every group when it turns off, and no other webview', () => {
+  test('closes the viewer and editor tabs in every group when it turns off, and no other webview', () => {
     const logViewer = 'electivus.apexLogViewer.logsView.logPanel';
     const foreign = `other.extension.${VIEWER_VIEW_TYPE}`;
-    const host = load({
-      enabled: true,
-      tabGroups: [
-        [webviewTab(VIEWER_VIEW_TYPE), webviewTab(logViewer)],
-        [webviewTab(EDITOR_VIEW_TYPE), webviewTab(foreign), webviewTab(VIEWER_VIEW_TYPE, '')]
-      ]
-    });
+    const host = load({ enabled: true, tabGroups: [[], []] });
+    host.openTab(0, webviewTab(VIEWER_VIEW_TYPE));
+    host.openTab(0, webviewTab(logViewer));
+    host.openTab(1, webviewTab(EDITOR_VIEW_TYPE));
+    host.openTab(1, webviewTab(foreign));
+    host.openTab(1, webviewTab(VIEWER_VIEW_TYPE, ''));
 
     host.change(SETTING, false);
 
