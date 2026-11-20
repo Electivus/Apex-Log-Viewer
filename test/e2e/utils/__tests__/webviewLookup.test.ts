@@ -25,17 +25,21 @@ function contentHtml(copy: string, version: string, content: Content): string {
   return `<body>${parts.join('')}</body>`;
 }
 
-function webviewHostHtml(copy: string, active: Content): string {
-  return `<body><iframe id="active-frame" src="/content?copy=${copy}&v=1&${query(active)}"></iframe>
+function webviewHostHtml(activePath: string, pendingPath?: string): string {
+  return `<body><iframe id="active-frame" src="${activePath}"></iframe>
 <script>
-window.load = (version, content) => new Promise(resolve => {
+${
+  pendingPath
+    ? `window.loadPending = () => new Promise(resolve => {
   const next = document.createElement('iframe');
   next.id = 'pending-frame';
   next.style.visibility = 'hidden';
-  next.src = '/content?copy=${copy}&v=' + version + '&' + new URLSearchParams(content).toString();
+  next.src = '${pendingPath}';
   next.onload = () => resolve();
   document.body.appendChild(next);
-});
+});`
+    : ''
+}
 window.promote = () => {
   document.getElementById('active-frame')?.remove();
   const next = document.getElementById('pending-frame');
@@ -46,66 +50,62 @@ window.dropActive = () => document.getElementById('active-frame').remove();
 </script></body>`;
 }
 
-function query(content: Content): string {
-  return new URLSearchParams({
-    root: String(content.root),
-    button: String(content.button),
-    badge: String(content.badge)
-  }).toString();
-}
-
-function parseContent(params: URLSearchParams): Content {
-  return {
-    root: params.get('root') === 'true',
-    button: params.get('button') === 'true',
-    badge: params.get('badge') === 'true'
-  };
-}
-
-type Workbench = { webviews: { name: string; copy: string; hidden?: boolean; active: Content }[] };
+type Workbench = {
+  webviews: { name: string; copy: string; hidden?: boolean; active: Content; pending?: Content }[];
+};
 
 let browser: Browser;
 let server: http.Server;
 let webviewOrigin: string;
 let workbenchOrigin: string;
-const workbenches = new Map<string, Workbench>();
+const documents = new Map<string, string>();
 
 function serve(req: http.IncomingMessage, res: http.ServerResponse): void {
   const url = new URL(req.url ?? '/', 'http://local');
-  res.setHeader('content-type', 'text/html; charset=utf-8');
-  const workbench = workbenches.get(url.pathname.slice(1));
-  if (workbench) {
-    const frames = workbench.webviews.map(
-      webview =>
-        `<iframe class="webview" name="${webview.name}" style="visibility: ${webview.hidden ? 'hidden' : 'visible'}" ` +
-        `src="${webviewOrigin}/host?copy=${webview.copy}&${query(webview.active)}"></iframe>`
-    );
-    res.end(
-      `<body><script>window.clicked = []; addEventListener('message', e => clicked.push(e.data));</script>${frames.join('')}</body>`
-    );
-  } else if (url.pathname === '/host') {
-    res.end(webviewHostHtml(url.searchParams.get('copy') ?? '', parseContent(url.searchParams)));
-  } else if (url.pathname === '/content') {
-    res.end(
-      contentHtml(url.searchParams.get('copy') ?? '', url.searchParams.get('v') ?? '1', parseContent(url.searchParams))
-    );
-  } else {
+  const html = documents.get(url.pathname);
+  if (html === undefined) {
     res.statusCode = 404;
     res.end();
+    return;
   }
+  res.setHeader('content-type', 'text/html; charset=utf-8');
+  res.end(html);
 }
 
 async function openWorkbench(page: Page, id: string, workbench: Workbench): Promise<void> {
-  workbenches.set(id, workbench);
+  // Render from test-owned data before navigation; requests only select a prebuilt document.
+  const frames = workbench.webviews.map(webview => {
+    const contentPath = `/content/${id}/${webview.copy}`;
+    const activePath = `${contentPath}/1`;
+    documents.set(activePath, contentHtml(webview.copy, '1', webview.active));
+    let pendingPath: string | undefined;
+    if (webview.pending) {
+      pendingPath = `${contentPath}/2`;
+      documents.set(pendingPath, contentHtml(webview.copy, '2', webview.pending));
+    }
+    const hostPath = `/host/${id}/${webview.copy}`;
+    documents.set(hostPath, webviewHostHtml(activePath, pendingPath));
+
+    return (
+      `<iframe class="webview" name="${webview.name}" style="visibility: ${webview.hidden ? 'hidden' : 'visible'}" ` +
+      `src="${webviewOrigin}${hostPath}"></iframe>`
+    );
+  });
+  documents.set(
+    `/${id}`,
+    `<body><script>window.clicked = []; addEventListener('message', e => clicked.push(e.data));</script>${frames.join('')}</body>`
+  );
   await page.goto(`${workbenchOrigin}/${id}`);
   const contentFrames = workbench.webviews.length;
   await playwrightExpect
-    .poll(() => page.frames().filter(frame => frame.url().includes('/content?')).length)
+    .poll(() => page.frames().filter(frame => frame.url().startsWith(`${webviewOrigin}/content/${id}/`)).length)
     .toBe(contentFrames);
 }
 
 function host(page: Page, copy: string) {
-  const frame = page.frames().find(candidate => candidate.url().includes(`/host?copy=${copy}&`));
+  const frame = page
+    .frames()
+    .find(candidate => candidate.url().startsWith(`${webviewOrigin}/host/`) && candidate.url().endsWith(`/${copy}`));
   if (!frame) {
     throw new Error(`No webview host for ${copy}`);
   }
@@ -158,20 +158,13 @@ describe('the Logs lookup that opens Debug Flags', () => {
     await openWorkbench(page, 'swap', {
       webviews: [
         { name: 'panel-webview', copy: 'panel', hidden: true, active: logsContent },
-        { name: 'editor-webview', copy: 'editor', active: logsContent }
+        { name: 'editor-webview', copy: 'editor', active: logsContent, pending: logsContent }
       ]
     });
 
     const logs = await waitForLogsDebugFlagsButton(page, 5_000);
     const editorHost = host(page, 'editor');
-    await editorHost.evaluate(
-      content => (window as unknown as { load: (v: string, c: unknown) => Promise<void> }).load('2', content),
-      {
-        root: 'true',
-        button: 'true',
-        badge: 'false'
-      }
-    );
+    await editorHost.evaluate(() => (window as unknown as { loadPending: () => Promise<void> }).loadPending());
     await editorHost.evaluate(() => (window as unknown as { promote: () => void }).promote());
     await logs.locator(TOOLBAR).first().click({ timeout: 5_000 });
 
@@ -180,17 +173,17 @@ describe('the Logs lookup that opens Debug Flags', () => {
 
   test('does not settle on hidden pending content, and finds it once VS Code promotes it', async () => {
     await openWorkbench(page, 'pending', {
-      webviews: [{ name: 'editor-webview', copy: 'editor', active: { root: true, button: false, badge: false } }]
+      webviews: [
+        {
+          name: 'editor-webview',
+          copy: 'editor',
+          active: { ...logsContent, button: false },
+          pending: logsContent
+        }
+      ]
     });
     const editorHost = host(page, 'editor');
-    await editorHost.evaluate(
-      content => (window as unknown as { load: (v: string, c: unknown) => Promise<void> }).load('2', content),
-      {
-        root: 'true',
-        button: 'true',
-        badge: 'false'
-      }
-    );
+    await editorHost.evaluate(() => (window as unknown as { loadPending: () => Promise<void> }).loadPending());
 
     await expect(waitForLogsDebugFlagsButton(page, 1_500)).rejects.toThrow();
 
