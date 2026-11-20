@@ -150,8 +150,16 @@ class LineHeights {
  * A new object tells the List to rebuild its row positions, a pass over every row. A measurement asks for one only
  * when it differs from the height the List holds for that line, so a new line at the common height costs no pass
  * beyond the one its arrival already made.
+ *
+ * The estimate follows the common height only while the view follows the end. A changed estimate moves every line
+ * not measured yet, and while the user reads above the end, those lines sit above the view and would carry its
+ * content away.
  */
-function useLineRowHeights(filteredIndexes: readonly number[], firstLineSeq: number): DynamicRowHeight {
+function useLineRowHeights(
+  filteredIndexes: readonly number[],
+  firstLineSeq: number,
+  follow: boolean
+): DynamicRowHeight {
   const [heights] = useState(() => new LineHeights(firstLineSeq));
   const [version, setVersion] = useState(0);
   const observerRef = useRef<ResizeObserver | null>(null);
@@ -198,7 +206,7 @@ function useLineRowHeights(filteredIndexes: readonly number[], firstLineSeq: num
 
   const rowHeight = useMemo<DynamicRowHeight>(() => {
     const source = { filteredIndexes, firstLineSeq };
-    const estimate = heights.commonHeight();
+    const estimate = follow ? heights.commonHeight() : estimateRef.current;
     return {
       getAverageRowHeight: () => estimate,
       getRowHeight: index => {
@@ -214,7 +222,7 @@ function useLineRowHeights(filteredIndexes: readonly number[], firstLineSeq: num
       observeRowElements
     };
     // `version` stands for the mutable heights: a new object makes the List read them again.
-  }, [filteredIndexes, firstLineSeq, version, heights, observeRowElements, record]);
+  }, [filteredIndexes, firstLineSeq, follow, version, heights, observeRowElements, record]);
 
   useLayoutEffect(() => {
     estimateRef.current = rowHeight.getAverageRowHeight();
@@ -292,7 +300,7 @@ export function TailList({
     () => ({ lines, filteredIndexes, firstLineSeq, selectedIndex, onSelectIndex, colorize, t }),
     [lines, filteredIndexes, firstLineSeq, selectedIndex, onSelectIndex, colorize, t]
   );
-  const rowHeight = useLineRowHeights(filteredIndexes, firstLineSeq);
+  const rowHeight = useLineRowHeights(filteredIndexes, firstLineSeq, follow);
 
   // The list takes the height the panel leaves under the toolbar. When a short, narrow panel cannot fit a wrapped
   // toolbar, the root scrolls instead and the list keeps its minimum height, so no control or row is clipped.
