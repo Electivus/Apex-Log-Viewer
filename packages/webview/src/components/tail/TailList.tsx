@@ -1,13 +1,14 @@
-import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { decodeLogLine } from '@alv/protocol/logText';
 import type { Messages } from '../../i18n';
-import { List, type ListImperativeAPI } from 'react-window';
-import { cn } from '../../lib/utils';
+import { List, type DynamicRowHeight, type ListImperativeAPI, type RowComponentProps } from 'react-window';
 import { apexLineStyle, categoryStyle, contentHighlightRules, highlightContent, parseApexLine } from '../../utils/tail';
 
 type TailListProps = {
   lines: string[];
   filteredIndexes: number[];
+  /** Sequence number of `lines[0]`: how many lines left the buffer before it since the panel opened. */
+  firstLineSeq: number;
   selectedIndex?: number;
   onSelectIndex: (idx: number) => void;
   colorize: boolean;
@@ -26,9 +27,132 @@ const SELECTED_ROW_BACKGROUND = 'var(--vscode-list-activeSelectionBackground, tr
 /** Distance from the end, in px, that still counts as being at the bottom. */
 const AT_BOTTOM_THRESHOLD = 4;
 
+/** Height a row counts until it is measured, close to one line at the default font. */
+const DEFAULT_ROW_HEIGHT = 18;
+
+const sepStyle: React.CSSProperties = { opacity: 0.4 };
+const timeStyle: React.CSSProperties = { opacity: 0.6 };
+const debugMsgStyle: React.CSSProperties = { color: 'var(--vscode-charts-blue)' };
+
+type TailRowProps = {
+  lines: readonly string[];
+  filteredIndexes: readonly number[];
+  firstLineSeq: number;
+  selectedIndex: number | undefined;
+  onSelectIndex: (idx: number) => void;
+  colorize: boolean;
+  t: Messages;
+};
+
+type LineSeqSource = Pick<TailRowProps, 'filteredIndexes' | 'firstLineSeq'>;
+
+/** A line keeps its sequence number while older lines leave the buffer, so it keys the row and its height. */
+const lineSeqAt = (index: number, { filteredIndexes, firstLineSeq }: LineSeqSource) => {
+  const fullIdx = filteredIndexes[index];
+  return fullIdx === undefined ? undefined : firstLineSeq + fullIdx;
+};
+
+const tailRowKey = (index: number, rowProps: TailRowProps) => lineSeqAt(index, rowProps) ?? `index-${index}`;
+
+/**
+ * Row heights in react-window's dynamic row height protocol, kept per line sequence number, so a line keeps its
+ * height when older lines leave the buffer or a filter moves it. The List measures every row it renders through
+ * `observeRowElements`. The map is mutable so that a measurement does not copy a map that can hold a height for
+ * each of the buffer's lines, up to 200,000.
+ */
+function useLineRowHeights(filteredIndexes: readonly number[], firstLineSeq: number): DynamicRowHeight {
+  const heightsRef = useRef(new Map<number, number>());
+  const [version, setVersion] = useState(0);
+  const observerRef = useRef<ResizeObserver | null>(null);
+
+  const record = useCallback((measured: ReadonlyArray<readonly [number, number]>) => {
+    const heights = heightsRef.current;
+    let changed = false;
+    for (const [seq, size] of measured) {
+      if (heights.get(seq) !== size) {
+        heights.set(seq, size);
+        changed = true;
+      }
+    }
+    if (changed) {
+      setVersion(v => v + 1);
+    }
+  }, []);
+
+  const observeRowElements = useCallback(
+    (elements: Element[] | NodeListOf<Element>) => {
+      observerRef.current ??= new ResizeObserver(entries =>
+        record(
+          entries.flatMap(({ target, borderBoxSize }) => {
+            const seq = Number(target.getAttribute('data-line-seq') ?? Number.NaN);
+            const size = borderBoxSize[0]?.blockSize ?? 0;
+            return Number.isInteger(seq) && size > 0 ? [[seq, Math.ceil(size)] as const] : [];
+          })
+        )
+      );
+      const observer = observerRef.current;
+      const rows = Array.from(elements);
+      rows.forEach(row => observer.observe(row));
+      return () => rows.forEach(row => observer.unobserve(row));
+    },
+    [record]
+  );
+
+  useEffect(() => () => observerRef.current?.disconnect(), []);
+
+  // Lines before the first one left the buffer for good.
+  useEffect(() => {
+    for (const seq of heightsRef.current.keys()) {
+      if (seq < firstLineSeq) {
+        heightsRef.current.delete(seq);
+      }
+    }
+  }, [firstLineSeq]);
+
+  // A new object for each `version` tells the List that the mutable height map changed.
+  return useMemo<DynamicRowHeight>(() => {
+    const source = { filteredIndexes, firstLineSeq };
+    return {
+      getAverageRowHeight: () => DEFAULT_ROW_HEIGHT,
+      getRowHeight: index => {
+        const seq = lineSeqAt(index, source);
+        return seq === undefined ? undefined : heightsRef.current.get(seq);
+      },
+      setRowHeight: (index, size) => {
+        const seq = lineSeqAt(index, source);
+        if (seq !== undefined) {
+          record([[seq, size]]);
+        }
+      },
+      observeRowElements
+    };
+  }, [filteredIndexes, firstLineSeq, version, observeRowElements, record]);
+}
+
+function TailRow({ index, style, ...rowProps }: RowComponentProps<TailRowProps>) {
+  const { lines, filteredIndexes, selectedIndex, onSelectIndex, colorize, t } = rowProps;
+  const fullIdx = filteredIndexes[index];
+  const text = fullIdx === undefined ? undefined : lines[fullIdx];
+  if (fullIdx === undefined || text === undefined) {
+    return null;
+  }
+  return (
+    <div
+      role="row"
+      style={style}
+      data-line-seq={lineSeqAt(index, rowProps)}
+      className="cursor-pointer overflow-hidden border-b border-border/60 transition-colors hover:bg-muted/25"
+      onClick={() => onSelectIndex(fullIdx)}
+    >
+      <RowContent text={text} colorize={colorize} selected={selectedIndex === fullIdx} t={t} />
+    </div>
+  );
+}
+
 export function TailList({
   lines,
   filteredIndexes,
+  firstLineSeq,
   selectedIndex,
   onSelectIndex,
   colorize,
@@ -39,8 +163,6 @@ export function TailList({
   onAtBottomChange,
   virtualListComponent
 }: TailListProps) {
-  const defaultRowHeight = 18; // close to single-line height at default font
-  const rowHeightsRef = useRef<Record<number, number>>({});
   const [height, setHeight] = useState(0);
   const outerRef = useRef<HTMLDivElement | null>(null);
   // react-window publishes its imperative handle before its scroll element exists, so
@@ -72,24 +194,11 @@ export function TailList({
   const prevListElementRef = useRef<HTMLDivElement | null>(null);
   const VirtualList = virtualListComponent ?? List;
 
-  const getItemSize = (index: number) => rowHeightsRef.current[index] ?? defaultRowHeight;
-  // Batch re-render to reflect updated row heights
-  const rafRef = useRef<number | null>(null);
-  const [, forceRender] = useState(0);
-  const scheduleRerender = () => {
-    if (rafRef.current !== null) return;
-    rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = null;
-      forceRender(v => v + 1);
-    });
-  };
-  const setRowHeight = (index: number, size: number) => {
-    const next = Math.max(defaultRowHeight, Math.ceil(size));
-    if (rowHeightsRef.current[index] !== next) {
-      rowHeightsRef.current[index] = next;
-      scheduleRerender();
-    }
-  };
+  const rowProps = useMemo<TailRowProps>(
+    () => ({ lines, filteredIndexes, firstLineSeq, selectedIndex, onSelectIndex, colorize, t }),
+    [lines, filteredIndexes, firstLineSeq, selectedIndex, onSelectIndex, colorize, t]
+  );
+  const rowHeight = useLineRowHeights(filteredIndexes, firstLineSeq);
 
   // The list takes the height the panel leaves under the toolbar. When a short, narrow panel cannot fit a wrapped
   // toolbar, the root scrolls instead and the list keeps its minimum height, so no control or row is clipped.
@@ -108,36 +217,6 @@ export function TailList({
       }
     };
   }, []);
-
-  const itemKey = (index: number) => filteredIndexes[index] ?? index;
-
-  const sepStyle: React.CSSProperties = { opacity: 0.4 };
-  const timeStyle: React.CSSProperties = { opacity: 0.6 };
-  const debugMsgStyle: React.CSSProperties = { color: 'var(--vscode-charts-blue)' };
-
-  const renderRow = ({ index, style }: { index: number; style: React.CSSProperties }) => {
-    const fullIdx = filteredIndexes[index]!;
-    const l = lines[fullIdx]!;
-    return (
-      <div
-        role="row"
-        style={style}
-        className="cursor-pointer overflow-hidden border-b border-border/60 transition-colors hover:bg-muted/25"
-        onClick={() => onSelectIndex(fullIdx)}
-      >
-        <RowContent
-          text={l}
-          colorize={colorize}
-          selected={selectedIndex === fullIdx}
-          sepStyle={sepStyle}
-          timeStyle={timeStyle}
-          debugMsgStyle={debugMsgStyle}
-          t={t}
-          onMeasured={h => setRowHeight(index, h)}
-        />
-      </div>
-    );
-  };
 
   // Pin the view to the end while following. The list's total height is an estimate that
   // grows as rows are rendered and measured, so this runs again after each such change
@@ -241,11 +320,12 @@ export function TailList({
           listRef={setVirtualListRef}
           style={{ height, width: '100%' }}
           rowCount={filteredIndexes.length}
-          rowHeight={(index: number) => getItemSize(index)}
+          rowHeight={rowHeight}
+          rowKey={tailRowKey}
           overscanCount={overscanCount}
-          rowProps={{}}
+          rowProps={rowProps}
           onRowsRendered={onRowsRendered}
-          rowComponent={(props: { index: number; style: React.CSSProperties }) => renderRow(props)}
+          rowComponent={TailRow}
         />
       )}
     </div>
@@ -256,38 +336,13 @@ function RowContent({
   text,
   colorize,
   selected,
-  sepStyle,
-  timeStyle,
-  debugMsgStyle,
-  t,
-  onMeasured
+  t
 }: {
   text: string;
   colorize: boolean;
   selected: boolean;
-  sepStyle: React.CSSProperties;
-  timeStyle: React.CSSProperties;
-  debugMsgStyle: React.CSSProperties;
   t: Messages;
-  onMeasured: (h: number) => void;
 }) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const measure = () => onMeasured((el.scrollHeight || el.getBoundingClientRect().height) + 1);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => {
-      try {
-        ro.disconnect();
-      } catch (e) {
-        console.warn('TailList(RowContent): failed to disconnect ResizeObserver', e);
-      }
-    };
-  }, [text, onMeasured, colorize, selected]);
-
   const commonStyle: React.CSSProperties = {
     whiteSpace: 'pre-wrap',
     // Break a line with no spaces, such as the log's category header, instead of clipping it at the
@@ -303,7 +358,7 @@ function RowContent({
   // Token colors are chosen for the editor background, so a selected row drops them for the selection foreground.
   if (!colorize || selected) {
     return (
-      <div ref={ref} style={commonStyle} className="px-3 py-1.5 text-xs leading-relaxed">
+      <div style={commonStyle} className="px-3 py-1.5 text-xs leading-relaxed">
         {decodeLogLine(text)}
       </div>
     );
@@ -318,7 +373,6 @@ function RowContent({
     const segs = highlightContent(decodeLogLine(text), contentHighlightRules);
     return (
       <div
-        ref={ref}
         style={{
           ...commonStyle,
           ...lineFallback,
@@ -336,7 +390,7 @@ function RowContent({
   }
 
   return (
-    <div ref={ref} style={commonStyle} className="px-3 py-1.5 text-xs leading-relaxed">
+    <div style={commonStyle} className="px-3 py-1.5 text-xs leading-relaxed">
       {parsed.time && (
         <>
           <span style={timeStyle}>{parsed.time}</span>

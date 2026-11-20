@@ -186,6 +186,23 @@ describe('Tail webview App', () => {
     await screen.findByText('USER_DEBUG|keep-this-line');
   });
 
+  it('keeps the row of a line when older lines leave the full buffer', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<TailApp vscode={vscode} messageBus={bus} />);
+    send(bus, { type: 'init', locale: 'en' });
+    // The smallest buffer the panel accepts.
+    send(bus, { type: 'tailConfig', tailBufferSize: 1000 });
+    send(bus, { type: 'tailData', lines: Array.from({ length: 1000 }, (_, index) => `line-${index}`) });
+    const rowOf = (text: string) => screen.getByText(text).closest('[role="row"]');
+    const row = (await screen.findByText('line-5')).closest('[role="row"]');
+
+    send(bus, { type: 'tailData', lines: ['line-1000', 'line-1001', 'line-1002'] });
+
+    expect(screen.queryByText('line-0')).toBeNull();
+    expect(rowOf('line-5')).toBe(row);
+  });
+
   describe('escaped pipes', () => {
     const lines = [
       '10:22:43.0 (959762)|USER_DEBUG|[1]|DEBUG|order=42&#124;status=FAILED',
