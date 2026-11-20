@@ -121,7 +121,7 @@ function resolveRequiredDevHubConfig({ requireConfig }) {
 
 // From the moment the run creates its profile, Ctrl+C must not end the process before the profile is removed.
 // The first Ctrl+C sends SIGINT to the child in progress and starts no other step; a second one sends SIGKILL,
-// or stops waiting for in-process work. Only the run's own child is signaled.
+// or stops waiting for in-process work. Only the run's own child or isolated child group is signaled.
 function watchInterrupts() {
   let presses = 0;
   let stopChild;
@@ -148,9 +148,11 @@ function watchInterrupts() {
       assertNotInterrupted();
       return Promise.race([startWork(), abandoned]);
     },
-    start(file, args, { label = file, input, capture = false, allowFailure = false, env } = {}) {
+    start(file, args, { label = file, input, capture = false, allowFailure = false, env, processGroup = false } = {}) {
       assertNotInterrupted();
+      const detached = processGroup && platform() !== 'win32';
       const child = crossSpawn(file, args, {
+        detached,
         stdio: [input === undefined ? 'ignore' : 'pipe', capture ? 'pipe' : 'inherit', capture ? 'pipe' : 'inherit'],
         ...(env ? { env } : {})
       });
@@ -158,8 +160,10 @@ function watchInterrupts() {
       const stop = signal => {
         if (!running) return;
         try {
-          child.kill(signal);
+          if (detached) process.kill(-child.pid, signal);
+          else child.kill(signal);
         } catch (error) {
+          if (error.code === 'ESRCH') return;
           console.warn(`[test-runner] Could not stop ${label}:`, error.message);
         }
       };
@@ -933,7 +937,9 @@ async function run() {
       `--extensionTestsPath=${extensionTestsPath}`,
       `--extensionDevelopmentPath=${extensionDevelopmentPath}`
     ];
-    const host = interrupts.start(vscodeExecutablePath, launch, { label: 'VS Code test host' });
+    // On POSIX, isolate the host and its helpers from the runner's group so a forced stop can
+    // reach all of them without signaling the runner, the caller, or a concurrent test run.
+    const host = interrupts.start(vscodeExecutablePath, launch, { label: 'VS Code test host', processGroup: true });
     const killer = setTimeout(() => {
       timedOut = true;
       console.error(`\n[test-runner] Timed out after ${Math.round(totalTimeout / 1000)}s. Cleaning up...`);
