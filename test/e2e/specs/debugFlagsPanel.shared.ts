@@ -97,7 +97,9 @@ export async function openDebugFlagsFromLogs(vscodePage: Page): Promise<Locator>
   try {
     logsFrame = await waitForLogsDebugFlagsButton(vscodePage, 60_000);
   } catch {
-    await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Open Logs in Editor Area', { timeoutMs: 90_000 });
+    // Reveal the panel copy instead of opening a second Logs copy in the editor area: the panel keeps its content,
+    // so two copies would make the lookup ambiguous.
+    await runCommandWhenAvailable(vscodePage, 'Apex Logs: Focus on Apex Logs View', { timeoutMs: 90_000 });
     await closeQuickInputIfOpen(vscodePage);
     await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
     await closeQuickInputIfOpen(vscodePage);
