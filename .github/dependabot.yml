@@ -26,6 +26,11 @@ updates:
           - 'react'
           - 'react-dom'
     ignore:
+      # `typescript` stays on 6.x: TypeScript 7 drops the 6.0 compiler API that ts-jest, typescript-eslint,
+      # scripts/gen-l10n.cjs and the editor's tsserver load. Type checks run TypeScript 7 from the
+      # `typescript7` alias (#1406).
+      - dependency-name: 'typescript'
+        versions: ['>=7.0.0 <8.0.0']
       - dependency-name: '@types/node'
         update-types:
           - 'version-update:semver-major'
