@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test';
 import { test, expect } from '../fixtures/alvE2E';
 import { runCommandWhenAvailable } from '../utils/commandPalette';
 import { dismissAllNotifications } from '../utils/notifications';
-import { waitForWebviewFrame } from '../utils/webviews';
+import { webviewWith } from '../utils/webviews';
 
 test.use({ supportExtensionIds: ['salesforce.salesforcedx-vscode-apex-replay-debugger'] });
 
@@ -24,11 +24,8 @@ test('launches replay debugger from logs table without missing-extension toast',
   await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
   await closeQuickInputIfOpen(vscodePage);
 
-  const logsFrame = await waitForWebviewFrame(
-    vscodePage,
-    async frame => await frame.locator('[data-testid="logs-open-debug-flags"]').first().isVisible(),
-    { timeoutMs: 180_000 }
-  );
+  const logsFrame = webviewWith(vscodePage, 'logs-open-debug-flags');
+  await expect(logsFrame.getByTestId('logs-open-debug-flags')).toBeVisible({ timeout: 180_000 });
 
   await expect
     .poll(() => logsFrame.locator('[role="row"][tabindex="0"]').count(), { timeout: 180_000 })

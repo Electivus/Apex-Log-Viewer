@@ -1,4 +1,4 @@
-import { expect, type Frame, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 import { runCommand, runCommandWhenAvailable } from '../utils/commandPalette';
 import { dismissAllNotifications } from '../utils/notifications';
 import {
@@ -6,7 +6,7 @@ import {
   resolveSpecialTraceFlagTarget,
   type SpecialTraceFlagTargetType
 } from '../utils/tooling';
-import { waitForWebviewFrame } from '../utils/webviews';
+import { shownWebview, webviewWith } from '../utils/webviews';
 
 const SPECIAL_TARGET_UI: Record<SpecialTraceFlagTargetType, { buttonTestId: string; expectedLabel: string }> = {
   automatedProcess: {
@@ -30,33 +30,21 @@ async function closeQuickInputIfOpen(page: Page): Promise<void> {
   await widget.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {});
 }
 
-async function waitForLogsDebugFlagsButton(page: Page, timeoutMs: number): Promise<Frame> {
-  return await waitForWebviewFrame(
-    page,
-    async frame => await frame.locator('[data-testid="logs-open-debug-flags"]').first().isVisible(),
-    { timeoutMs }
-  );
+/**
+ * The Logs webview on screen. The verify skill can leave the Logs panel and its editor-area copy open together, and
+ * both hold this button, so this picks the shown copy instead of using `webviewWith`.
+ */
+export async function waitForLogsDebugFlagsButton(page: Page, timeoutMs: number): Promise<Locator> {
+  return await shownWebview(page, '[data-testid="logs-open-debug-flags"]', timeoutMs);
 }
 
-async function waitForDebugFlagsFrame(page: Page, timeoutMs: number): Promise<Frame> {
-  return await waitForWebviewFrame(
-    page,
-    async frame =>
-      (await frame
-        .locator('[data-testid="debug-flags-org-select"]')
-        .first()
-        .isVisible()
-        .catch(() => false)) ||
-      (await frame
-        .locator('[data-testid="debug-flags-user-search"]')
-        .first()
-        .isVisible()
-        .catch(() => false)),
-    { timeoutMs }
-  );
+async function waitForDebugFlagsFrame(page: Page, timeoutMs: number): Promise<Locator> {
+  const debugFlags = webviewWith(page, 'debug-flags-user-search');
+  await expect(debugFlags.getByTestId('debug-flags-user-search')).toBeVisible({ timeout: timeoutMs });
+  return debugFlags;
 }
 
-async function tryWaitForDebugFlagsFrame(page: Page, timeoutMs: number): Promise<Frame | undefined> {
+async function tryWaitForDebugFlagsFrame(page: Page, timeoutMs: number): Promise<Locator | undefined> {
   try {
     return await waitForDebugFlagsFrame(page, timeoutMs);
   } catch {
@@ -103,11 +91,11 @@ async function closeDebugFlagsEditor(page: Page): Promise<void> {
     .toBe(0);
 }
 
-export async function openDebugFlagsFromLogs(vscodePage: Page): Promise<Frame> {
+export async function openDebugFlagsFromLogs(vscodePage: Page): Promise<Locator> {
   await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
   await closeQuickInputIfOpen(vscodePage);
 
-  let logsFrame: Frame;
+  let logsFrame: Locator;
   try {
     logsFrame = await waitForLogsDebugFlagsButton(vscodePage, 60_000);
   } catch {
@@ -145,14 +133,11 @@ export async function openDebugFlagsFromLogs(vscodePage: Page): Promise<Frame> {
  * closed first. Right after `Tail Logs` reveals the panel, a forced click on the button was lost twice in a row, so
  * this clicks with Playwright's actionability checks, then falls back to Enter and a DOM click.
  */
-export async function openDebugFlagsFromTail(vscodePage: Page): Promise<Frame> {
+export async function openDebugFlagsFromTail(vscodePage: Page): Promise<Locator> {
   await closeDebugFlagsEditor(vscodePage);
   await runCommand(vscodePage, 'Electivus Apex Logs: Tail Logs');
-  const tailFrame = await waitForWebviewFrame(
-    vscodePage,
-    async frame => await frame.locator('[data-testid="tail-open-debug-flags"]').first().isVisible(),
-    { timeoutMs: 180_000 }
-  );
+  const tailFrame = webviewWith(vscodePage, 'tail-open-debug-flags');
+  await expect(tailFrame.getByTestId('tail-open-debug-flags')).toBeVisible({ timeout: 180_000 });
   const openDebugFlags = tailFrame.locator('[data-testid="tail-open-debug-flags"]').first();
   await expect(openDebugFlags).toBeEnabled({ timeout: 180_000 });
   await dismissAllNotifications(vscodePage);
@@ -177,7 +162,7 @@ export async function openDebugFlagsFromTail(vscodePage: Page): Promise<Frame> {
 }
 
 export async function assertSpecialTargetBehavior(
-  debugFlagsFrame: Frame,
+  debugFlagsFrame: Locator,
   auth: Awaited<ReturnType<typeof import('../utils/tooling').getOrgAuth>>,
   targetType: SpecialTraceFlagTargetType
 ): Promise<void> {

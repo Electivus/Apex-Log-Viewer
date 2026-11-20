@@ -48,7 +48,7 @@ const reasonsOf = (result: CustomLogCaptureResult): string[] => result.newGaps.m
 async function laterDrain(store: EventStore, atMs: number, events: readonly BusEvent[] = []) {
   const { clock, transport, deps, hub } = setup(store, new ManualClock(atMs));
   const done = hub.watch(store.location, watcher({ follow: false }).watcher, deps);
-  const attempt = await transport.opened(0);
+  const attempt = await transport.opened(0, done);
   attempt.subscribed();
   if (events.length > 0) {
     attempt.events(...events);
@@ -75,7 +75,7 @@ async function budgetStopInBacklog(store: EventStore, now: number) {
   );
   const run = setup(store, new ManualClock(now), { allowance: { remaining: 1_000, max: 25_000 } });
   const done = run.hub.watch(store.location, watcher({ follow: true, initial: 'retained' }).watcher, run.deps);
-  const attempt = await run.transport.opened(0);
+  const attempt = await run.transport.opened(0, done);
   attempt.subscribed();
   attempt.events(...backlog);
   assert.equal(await outcomeOf(done), 'budget');
@@ -124,7 +124,7 @@ test('an abort while catching up after one flush claims nothing past what the fl
     const first = setup(store, new ManualClock(R));
     const w = watcher({ follow: true, initial: 'retained' });
     const done = first.hub.watch(store.location, w.watcher, first.deps);
-    const attempt = await first.transport.opened(0);
+    const attempt = await first.transport.opened(0, done);
     attempt.subscribed();
     attempt.events(busEvent(1, { createdMs: R - 71 * HOUR }));
     await first.clock.advance(250);
@@ -143,7 +143,7 @@ test('a quiet end after replayed events claims nothing past the last one, becaus
     const R = Date.now();
     const first = setup(store, new ManualClock(R));
     const done = first.hub.watch(store.location, watcher({ follow: false, initial: 'retained' }).watcher, first.deps);
-    const attempt = await first.transport.opened(0);
+    const attempt = await first.transport.opened(0, done);
     attempt.subscribed();
     attempt.events(busEvent(1, { createdMs: R - 71 * HOUR }), busEvent(2, { createdMs: R - 71 * HOUR + 1_000 }));
     await first.clock.advance(250);
@@ -184,7 +184,7 @@ for (const [maxDurationMs, gaps] of [
 
       const run = setup(store, new ManualClock(R + DAY));
       const done = run.hub.watch(store.location, watcher({ follow: false, maxDurationMs }).watcher, run.deps);
-      const attempt = await run.transport.opened(0);
+      const attempt = await run.transport.opened(0, done);
       attempt.subscribed();
       await run.clock.advance(maxDurationMs);
       assert.equal(await outcomeOf(done), 'quiet');
@@ -196,11 +196,15 @@ for (const [maxDurationMs, gaps] of [
 }
 
 /** A follow run that opens at `R` over a position stored half an hour earlier, plays `script`, and is stopped. */
-const sessions: { name: string; script(run: Run, R: number): Promise<void>; gaps: string[] }[] = [
+const sessions: {
+  name: string;
+  script(run: Run, R: number, done: Promise<CustomLogCaptureResult>): Promise<void>;
+  gaps: string[];
+}[] = [
   {
     name: 'a quiet stream, connected for 100 hours, confirms the position when the run ends',
-    script: async ({ clock, transport }) => {
-      (await transport.opened(0)).subscribed();
+    script: async ({ clock, transport }, _R, done) => {
+      (await transport.opened(0, done)).subscribed();
       await clock.advance(15_000);
       await clock.advance(100 * HOUR);
     },
@@ -208,8 +212,8 @@ const sessions: { name: string; script(run: Run, R: number): Promise<void>; gaps
   },
   {
     name: 'an event after the silent start does not end the confirmation',
-    script: async ({ clock, transport }, R) => {
-      const attempt = await transport.opened(0);
+    script: async ({ clock, transport }, R, done) => {
+      const attempt = await transport.opened(0, done);
       attempt.subscribed();
       await clock.advance(15_000);
       await clock.advance(HOUR);
@@ -221,8 +225,8 @@ const sessions: { name: string; script(run: Run, R: number): Promise<void>; gaps
   },
   {
     name: 'a connection the transport reports down ends the confirmation at that moment',
-    script: async ({ clock, transport }) => {
-      const attempt = await transport.opened(0);
+    script: async ({ clock, transport }, _R, done) => {
+      const attempt = await transport.opened(0, done);
       attempt.subscribed();
       await clock.advance(15_000);
       await clock.advance(HOUR);
@@ -235,8 +239,8 @@ const sessions: { name: string; script(run: Run, R: number): Promise<void>; gaps
   },
   {
     name: 'a start with a backlog never confirms, however long it stays connected',
-    script: async ({ clock, transport }, R) => {
-      const attempt = await transport.opened(0);
+    script: async ({ clock, transport }, R, done) => {
+      const attempt = await transport.opened(0, done);
       attempt.subscribed();
       attempt.events(busEvent(3, { createdMs: R - 10 * MINUTE }));
       await clock.advance(250);
@@ -256,7 +260,7 @@ for (const session of sessions) {
       const run = setup(store, new ManualClock(R));
       const w: Watch = watcher({ follow: true });
       const done = run.hub.watch(store.location, w.watcher, run.deps);
-      await session.script(run, R);
+      await session.script(run, R, done);
       w.abort();
       assert.equal(await outcomeOf(done), 'aborted');
 

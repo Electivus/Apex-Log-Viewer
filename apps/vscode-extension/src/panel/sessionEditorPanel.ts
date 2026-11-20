@@ -120,6 +120,8 @@ export function createSessionEditorPanel(config: SessionEditorPanelConfig) {
   }
 
   return {
+    viewType: config.viewType,
+
     initialize(extensionContext: vscode.ExtensionContext): void {
       context = extensionContext;
     },

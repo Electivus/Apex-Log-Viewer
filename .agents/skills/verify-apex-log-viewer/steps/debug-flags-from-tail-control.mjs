@@ -15,7 +15,8 @@ export default async function ({ h, expect }) {
   let intercepted;
   try {
     intercepted = await h.openDebugFlagsFromTail().then(
-      frame => ({ returned: true, sameFrame: frame === first }),
+      // The helpers return locators bound to a webview's identity, so the same webview gives the same string.
+      frame => ({ returned: true, sameFrame: String(frame) === String(first) }),
       error => ({ returned: false, error: String(error.message).split('\n')[0] })
     );
   } finally {

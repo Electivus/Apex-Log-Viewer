@@ -1074,6 +1074,16 @@ async function prewarmSlot(targetOrg, pool, slot) {
     };
   }
 
+  if (isSlotReusable(refreshedSlot, Date.now())) {
+    return {
+      slotKey: refreshedSlot.SlotKey__c,
+      scratchAlias: refreshedSlot.ScratchAlias__c,
+      skipped: true,
+      skippedHealthy: true,
+      skipReason: 'slot became reusable after the scan'
+    };
+  }
+
   const startedAt = new Date().toISOString();
   const leaseToken = createMaintenanceLeaseToken(slot.SlotKey__c);
   const maintenanceOwner = createMaintenanceOwnerLabel();
@@ -1255,7 +1265,11 @@ async function prewarmPool(targetOrg, poolKey, options = {}) {
       }
       throw deniedSlotKeys.length > 0 ? new Error(`${error.message} ${deniedSlotsMessage()}`) : error;
     }
-    slotsLeft -= 1;
+    if (result.skippedHealthy) {
+      healthySlots.push(result.slotKey);
+    } else {
+      slotsLeft -= 1;
+    }
     if (result.skipped) {
       console.log(`[scratch-pool] skipped ${result.slotKey} (${result.scratchAlias}): ${result.skipReason}.`);
       continue;

@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { expect, type Frame } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { test } from '../fixtures/alvPoolLease';
 import { runCommandWhenAvailable } from '../utils/commandPalette';
 import { closeQuickInputIfOpen, dismissAllNotifications } from '../utils/notifications';
@@ -9,7 +9,7 @@ import { seedApexLog } from '../utils/seedLog';
 import { createTempWorkspace } from '../utils/tempWorkspace';
 import { getOrgAuth } from '../utils/tooling';
 import { launchVsCode, resolveExtensionDevelopmentPath } from '../utils/vscode';
-import { waitForWebviewFrame } from '../utils/webviews';
+import { webviewWith } from '../utils/webviews';
 import { summarizeQueueWaits, summarizeRefreshCycles } from '../utils/queueWaits';
 
 const repoRoot = path.join(__dirname, '..', '..', '..');
@@ -125,11 +125,8 @@ test('host congestion lab: click-to-start wait in the extension host queue', asy
     const page = launch.page;
     await runCommandWhenAvailable(page, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 180_000 });
     await closeQuickInputIfOpen(page);
-    const frame: Frame = await waitForWebviewFrame(
-      page,
-      async candidate => await candidate.locator('[data-testid="logs-open-debug-flags"]').first().isVisible(),
-      { timeoutMs: 300_000 }
-    );
+    const frame = webviewWith(page, 'logs-open-debug-flags');
+    await expect(frame.getByTestId('logs-open-debug-flags')).toBeVisible({ timeout: 300_000 });
     const refresh = frame.getByRole('button', { name: /^(Refresh|Loading)/ }).first();
     await waitUntil('the initial Logs load', async () => await refresh.isEnabled(), 300_000);
     await page.waitForTimeout(15_000);

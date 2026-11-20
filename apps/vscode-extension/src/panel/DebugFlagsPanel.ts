@@ -42,7 +42,7 @@ interface ShowOptions {
 export class DebugFlagsPanel {
   private static context: vscode.ExtensionContext | undefined;
   private static instance: DebugFlagsPanel | undefined;
-  private static readonly viewType = 'electivus.apexLogViewer.logsView.debugFlagsPanel';
+  static readonly viewType = 'electivus.apexLogViewer.logsView.debugFlagsPanel';
 
   static initialize(context: vscode.ExtensionContext): void {
     this.context = context;

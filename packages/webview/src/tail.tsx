@@ -46,6 +46,21 @@ function readInitialUiState(vscode: VsCodeWebviewApi<WebviewToExtensionMessage>)
   };
 }
 
+/**
+ * The lines the panel holds and the sequence number of the first one. Sequence numbers count every line received
+ * since the panel opened, so a line keeps its number while older lines leave the buffer and after a clear.
+ */
+interface TailBuffer {
+  lines: string[];
+  firstSeq: number;
+}
+
+/** Drops lines from the head until at most `max` remain. */
+function trimBuffer(buffer: TailBuffer, max: number): TailBuffer {
+  const drop = Math.max(0, buffer.lines.length - max);
+  return drop > 0 ? { lines: buffer.lines.slice(drop), firstSeq: buffer.firstSeq + drop } : buffer;
+}
+
 export interface TailAppProps {
   vscode?: VsCodeWebviewApi<WebviewToExtensionMessage>;
   messageBus?: MessageBus;
@@ -61,7 +76,8 @@ export function TailApp({
   const [orgs, setOrgs] = useState<OrgItem[]>([]);
   const [selectedOrg, setSelectedOrg] = useState<string | undefined>(undefined);
   const [running, setRunning] = useState(false);
-  const [lines, setLines] = useState<string[]>([]);
+  const [buffer, setBuffer] = useState<TailBuffer>({ lines: [], firstSeq: 0 });
+  const lines = buffer.lines;
   const [tailMaxLines, setTailMaxLines] = useState(10000);
   const tailMaxLinesRef = useRef(10000);
   const [query, setQuery] = useState(initialUiStateRef.current.query);
@@ -113,19 +129,19 @@ export function TailApp({
       }
       if (msg.type === 'tailData') {
         const incoming = Array.isArray(msg.lines) ? msg.lines : [];
-        setLines(prev => {
-          const merged = prev.length ? prev.concat(incoming) : [...incoming];
-          const drop = Math.max(0, merged.length - tailMaxLinesRef.current);
+        setBuffer(prev => {
+          const merged = { lines: prev.lines.concat(incoming), firstSeq: prev.firstSeq };
+          const next = trimBuffer(merged, tailMaxLinesRef.current);
+          const drop = next.firstSeq - prev.firstSeq;
           if (drop > 0) {
             // Adjust selection to account for trimmed prefix
             setSelectedIndex(idx => (idx === undefined ? undefined : idx - drop >= 0 ? idx - drop : undefined));
-            return merged.slice(drop);
           }
-          return merged;
+          return next;
         });
       }
       if (msg.type === 'tailReset') {
-        setLines([]);
+        setBuffer(prev => ({ lines: [], firstSeq: prev.firstSeq + prev.lines.length }));
       }
       if (msg.type === 'error') {
         setError(msg.message);
@@ -149,13 +165,13 @@ export function TailApp({
 
   useEffect(() => {
     tailMaxLinesRef.current = tailMaxLines;
-    setLines(prev => {
-      const drop = Math.max(0, prev.length - tailMaxLines);
-      if (drop <= 0) {
-        return prev;
+    setBuffer(prev => {
+      const next = trimBuffer(prev, tailMaxLines);
+      const drop = next.firstSeq - prev.firstSeq;
+      if (drop > 0) {
+        setSelectedIndex(idx => (idx === undefined ? undefined : idx - drop >= 0 ? idx - drop : undefined));
       }
-      setSelectedIndex(idx => (idx === undefined ? undefined : idx - drop >= 0 ? idx - drop : undefined));
-      return prev.slice(drop);
+      return next;
     });
   }, [tailMaxLines]);
 
@@ -295,6 +311,7 @@ export function TailApp({
       <TailList
         lines={lines}
         filteredIndexes={filteredIndexes}
+        firstLineSeq={buffer.firstSeq}
         selectedIndex={selectedIndex}
         onSelectIndex={idx => {
           setSelectedIndex(idx);
