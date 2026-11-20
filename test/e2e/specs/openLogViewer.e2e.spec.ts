@@ -1,7 +1,7 @@
 import { test, expect } from '../fixtures/alvE2E';
 import { runCommandWhenAvailable } from '../utils/commandPalette';
 import { closeQuickInputIfOpen, dismissAllNotifications } from '../utils/notifications';
-import { waitForWebviewFrame } from '../utils/webviews';
+import { webviewWith } from '../utils/webviews';
 
 test('searches a gitignored Apex log body and opens it in the Log Viewer panel', async ({ vscodePage, seededLog }) => {
   // Activate the extension by running a contributed command.
@@ -9,11 +9,8 @@ test('searches a gitignored Apex log body and opens it in the Log Viewer panel',
   await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
   await closeQuickInputIfOpen(vscodePage);
 
-  const logsFrame = await waitForWebviewFrame(
-    vscodePage,
-    async frame => await frame.locator('[data-testid="logs-open-debug-flags"]').first().isVisible(),
-    { timeoutMs: 180_000 }
-  );
+  const logsFrame = webviewWith(vscodePage, 'logs-open-debug-flags');
+  await expect(logsFrame.getByTestId('logs-open-debug-flags')).toBeVisible({ timeout: 180_000 });
 
   const searchInput = logsFrame.locator('input[type="search"]').first();
   const rows = logsFrame.locator('[role="row"][tabindex="0"]');
@@ -30,14 +27,8 @@ test('searches a gitignored Apex log body and opens it in the Log Viewer panel',
   await closeQuickInputIfOpen(vscodePage);
   await matchingRow.click();
 
-  // Find the Log Viewer webview by its stable test id.
-  const viewerFrame = await waitForWebviewFrame(
-    vscodePage,
-    async frame => await frame.locator('[data-testid="log-viewer"]').first().isVisible(),
-    { timeoutMs: 180_000 }
-  );
-
-  await expect(viewerFrame.locator('[data-testid="log-viewer"]').first()).toBeVisible();
+  const viewerFrame = webviewWith(vscodePage, 'log-viewer');
+  await expect(viewerFrame.getByTestId('log-viewer')).toBeVisible({ timeout: 180_000 });
 
   // The header lists the file name beside the entry point; it should include the seeded log id (e.g., 07L...log).
   await expect(viewerFrame.locator(`text=${seededLog.logId}`).first()).toBeVisible({ timeout: 60_000 });

@@ -1,7 +1,7 @@
 import { expect, test } from '../fixtures/alvE2E';
 import { ensureE2eTraceFlag, executeAnonymousApex, getOrgAuth } from '../utils/tooling';
 import { runCommand } from '../utils/commandPalette';
-import { waitForWebviewClickTarget, waitForWebviewFrame } from '../utils/webviews';
+import { expectWebviewWithout, waitForWebviewClickTarget, webviewWith } from '../utils/webviews';
 
 test('Tail opened before Logs targets the workspace org and shows a log written right after Start', async ({
   vscodePage,
@@ -11,12 +11,9 @@ test('Tail opened before Logs targets the workspace org and shows a log written 
   await ensureE2eTraceFlag(auth);
 
   await runCommand(vscodePage, 'Electivus Apex Logs: Tail Logs');
-  const tail = await waitForWebviewFrame(
-    vscodePage,
-    async frame => await frame.locator('[data-testid="tail-open-debug-flags"]').first().isVisible(),
-    { timeoutMs: 180_000 }
-  );
-  await expect(tail.getByRole('status')).toHaveCount(0, { timeout: 180_000 });
+  const tail = webviewWith(vscodePage, 'tail-open-debug-flags');
+  await expect(tail.getByTestId('tail-open-debug-flags')).toBeVisible({ timeout: 180_000 });
+  await expectWebviewWithout(tail, vscodePage.getByRole('status'), { timeout: 180_000 });
   await expect(tail.getByRole('combobox').first()).toContainText(scratchAlias, { timeout: 60_000 });
 
   await runCommand(vscodePage, 'View: Toggle Maximized Panel');

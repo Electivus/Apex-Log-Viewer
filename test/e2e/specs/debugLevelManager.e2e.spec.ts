@@ -1,4 +1,4 @@
-import type { Frame } from '@playwright/test';
+import type { Locator } from '@playwright/test';
 import { expect, test } from '../fixtures/alvE2E';
 import {
   deleteDebugLevelByDeveloperName,
@@ -10,7 +10,7 @@ import {
 } from '../utils/tooling';
 import { openDebugFlagsFromLogs } from './debugFlagsPanel.shared';
 
-async function waitForManagerReady(debugFlagsFrame: Frame): Promise<void> {
+async function waitForManagerReady(debugFlagsFrame: Locator): Promise<void> {
   await expect(debugFlagsFrame.locator('[data-testid="debug-level-manager-new"]')).toBeEnabled({ timeout: 120_000 });
   await expect(debugFlagsFrame.locator('[data-testid="debug-level-manager-select"]')).toBeEnabled({ timeout: 120_000 });
 }
@@ -62,7 +62,9 @@ test('creates, updates and deletes DebugLevel records from the manager UI', asyn
     expect(created?.id).toBeTruthy();
 
     await debugFlagsFrame.locator('[data-testid="debug-level-manager-select"]').selectOption(created!.id);
-    await debugFlagsFrame.locator('[data-testid="debug-level-preset-select"]').selectOption('integration-troubleshooting');
+    await debugFlagsFrame
+      .locator('[data-testid="debug-level-preset-select"]')
+      .selectOption('integration-troubleshooting');
     await debugFlagsFrame.locator('[data-testid="debug-level-apply-preset"]').click({ force: true });
     await debugFlagsFrame.locator('[data-testid="debug-level-draft-developer-name"]').fill(updatedDeveloperName);
     await debugFlagsFrame.locator('[data-testid="debug-level-draft-master-label"]').fill(updatedLabel);
@@ -90,9 +92,7 @@ test('creates, updates and deletes DebugLevel records from the manager UI', asyn
     });
     await debugFlagsFrame.locator('[data-testid="debug-level-delete-confirm"]').click({ force: true });
 
-    await expect
-      .poll(async () => await getDebugLevelById(auth, created!.id), { timeout: 60_000 })
-      .toBeUndefined();
+    await expect.poll(async () => await getDebugLevelById(auth, created!.id), { timeout: 60_000 }).toBeUndefined();
   } finally {
     await removeUserDebugTraceFlags(auth, testUser.id).catch(() => {});
     await deleteDebugLevelByDeveloperName(auth, createdDeveloperName).catch(() => {});

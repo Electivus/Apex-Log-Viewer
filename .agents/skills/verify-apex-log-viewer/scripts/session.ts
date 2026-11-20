@@ -26,8 +26,8 @@ import {
   resolveExtensionDevelopmentPath,
   resolveVsCodeLocale
 } from '../../../../test/e2e/utils/vscode';
-import { waitForWebviewFrame } from '../../../../test/e2e/utils/webviews';
 import { openDebugFlagsFromLogs } from '../../../../test/e2e/specs/debugFlagsPanel.shared';
+import { shownWebview } from '../../../../test/e2e/utils/webviews';
 
 type Phase = 'starting' | 'ready' | 'stopping' | 'stopped' | 'failed';
 
@@ -145,22 +145,11 @@ async function shot(name: string, target?: Frame | Locator): Promise<string> {
 }
 
 /**
- * VS Code keeps the webview of a hidden panel or a background tab alive, with its outer iframe at
- * `visibility: hidden`. Playwright's `isVisible` looks only inside the frame, so ask the outer iframe too.
+ * The body of the first webview on screen containing `selector`; see `shownWebview`. It is a locator bound to that
+ * webview, not a `Frame`, so it still works after VS Code replaces the webview's content iframe.
  */
-async function isShown(frame: Frame): Promise<boolean> {
-  const outer = await frame.parentFrame()?.frameElement();
-  const visibility = await outer?.evaluate(element => getComputedStyle(element).visibility);
-  await outer?.dispose();
-  return visibility !== 'hidden';
-}
-
-async function frameWith(selector: string, timeoutMs = 120_000): Promise<Frame> {
-  return await waitForWebviewFrame(
-    requirePage(),
-    async frame => (await frame.locator(selector).first().isVisible()) && (await isShown(frame)),
-    { timeoutMs }
-  );
+async function frameWith(selector: string, timeoutMs = 120_000): Promise<Locator> {
+  return await shownWebview(requirePage(), selector, timeoutMs);
 }
 
 const DEBUG_FLAGS_FRAME = '[data-testid="debug-flags-user-search"]';
@@ -206,7 +195,7 @@ async function closeDebugFlagsEditor(): Promise<void> {
     .toBe(0);
 }
 
-async function openDebugFlagsFromLogsAfterClosing(): Promise<Frame> {
+async function openDebugFlagsFromLogsAfterClosing(): Promise<Locator> {
   await closeDebugFlagsEditor();
   return await openDebugFlagsFromLogs(requirePage());
 }
@@ -215,7 +204,7 @@ async function openDebugFlagsFromLogsAfterClosing(): Promise<Frame> {
  * Right after `Tail Logs` reveals the panel, a forced click on the Tail toolbar is lost (seen twice in a row),
  * so click with Playwright's actionability checks first, then fall back to Enter and a DOM click.
  */
-async function openDebugFlagsFromTailWithRetry(): Promise<Frame> {
+async function openDebugFlagsFromTailWithRetry(): Promise<Locator> {
   const vscodePage = requirePage();
   const alias = state.org?.alias;
   await closeDebugFlagsEditor();
@@ -239,7 +228,7 @@ async function openDebugFlagsFromTailWithRetry(): Promise<Frame> {
     },
     () => button.evaluate((element: HTMLButtonElement) => element.click())
   ];
-  let frame: Frame | undefined;
+  let frame: Locator | undefined;
   for (const attempt of attempts) {
     await attempt().catch(() => {});
     frame = await frameWith(DEBUG_FLAGS_FRAME, 10_000).catch(() => undefined);

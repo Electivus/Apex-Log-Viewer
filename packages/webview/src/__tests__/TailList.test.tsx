@@ -103,6 +103,7 @@ describe('TailList', () => {
       <TailList
         lines={props.lines}
         filteredIndexes={props.filteredIndexes}
+        firstLineSeq={0}
         selectedIndex={undefined}
         onSelectIndex={() => {}}
         colorize={false}
@@ -173,6 +174,7 @@ describe('TailList', () => {
         <TailList
           lines={[header]}
           filteredIndexes={[0]}
+          firstLineSeq={0}
           selectedIndex={undefined}
           onSelectIndex={() => {}}
           colorize={colorize}
@@ -181,8 +183,8 @@ describe('TailList', () => {
           follow={false}
           t={t as any}
           virtualListComponent={
-            function RowsList({ rowComponent: Row }: any) {
-              return <Row index={0} style={{}} />;
+            function RowsList({ rowComponent: Row, rowProps }: any) {
+              return <Row index={0} style={{}} {...rowProps} />;
             } as any
           }
         />
@@ -309,6 +311,7 @@ describe('TailList', () => {
       <TailList
         lines={[line]}
         filteredIndexes={[0]}
+        firstLineSeq={0}
         selectedIndex={selectedIndex}
         onSelectIndex={() => {}}
         colorize
@@ -317,8 +320,8 @@ describe('TailList', () => {
         follow={false}
         t={t as any}
         virtualListComponent={
-          function RowsList({ rowComponent: Row }: any) {
-            return <Row index={0} style={{}} />;
+          function RowsList({ rowComponent: Row, rowProps }: any) {
+            return <Row index={0} style={{}} {...rowProps} />;
           } as any
         }
       />

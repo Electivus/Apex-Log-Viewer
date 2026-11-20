@@ -1,0 +1,257 @@
+import React from 'react';
+import { act, render, screen } from '@testing-library/react';
+
+import { TailList } from '../components/tail/TailList';
+
+/**
+ * The real react-window List over a fake layout: jsdom lays nothing out, so the browser's answers come from here.
+ * A line is SHORT pixels tall, or TALL when its text says so, the list shows VIEWPORT pixels, and a ResizeObserver
+ * reports a size on the next task after `observe`, as a browser does after layout.
+ */
+const VIEWPORT = 200;
+const SHORT = 18;
+const TALL = 54;
+
+const t = { tail: { waiting: 'Waiting for logs…', pressStart: 'Press Start to tail logs.', debugTag: 'debug' } };
+
+const rowOf = (element: Element) => element.closest('[role="row"]');
+const lineHeight = (row: Element) => (row.textContent?.includes('TALL') ? TALL : SHORT);
+const isList = (element: Element) => element.getAttribute('role') === 'list';
+
+function laidOutHeight(element: Element): number {
+  const row = rowOf(element);
+  return row ? lineHeight(row) : VIEWPORT;
+}
+
+/** Called with the layout a browser would paint, before each ResizeObserver report. */
+let beforeReport: (() => void) | undefined;
+
+class FakeResizeObserver {
+  private readonly targets = new Set<Element>();
+
+  constructor(private readonly callback: ResizeObserverCallback) {}
+
+  observe(target: Element) {
+    this.targets.add(target);
+    setTimeout(() => {
+      if (!this.targets.has(target)) {
+        return;
+      }
+      beforeReport?.();
+      const height = laidOutHeight(target);
+      const entry = {
+        target,
+        contentRect: { height, width: 800 },
+        borderBoxSize: [{ blockSize: height, inlineSize: 800 }]
+      } as unknown as ResizeObserverEntry;
+      this.callback([entry], this as unknown as ResizeObserver);
+    });
+  }
+
+  unobserve(target: Element) {
+    this.targets.delete(target);
+  }
+
+  disconnect() {
+    this.targets.clear();
+  }
+}
+
+const layout: Array<[string, PropertyDescriptor]> = [
+  [
+    'offsetHeight',
+    {
+      get: function (this: HTMLElement) {
+        return laidOutHeight(this);
+      }
+    }
+  ],
+  [
+    'clientHeight',
+    {
+      get: function (this: HTMLElement) {
+        return laidOutHeight(this);
+      }
+    }
+  ],
+  [
+    'scrollHeight',
+    {
+      get: function (this: HTMLElement) {
+        if (isList(this)) {
+          const sizer = this.querySelector<HTMLElement>('[data-react-window-sizer]');
+          return parseFloat(sizer?.style.height ?? '0');
+        }
+        // What a browser reads for a row's content: the row without its 1 px bottom border.
+        return rowOf(this) ? laidOutHeight(this) - 1 : VIEWPORT;
+      }
+    }
+  ]
+];
+
+/** A buffer of `count` lines numbered from `first`, as the Tail panel holds it after older lines left. */
+function buffer(first: number, count: number, tall: ReadonlySet<number> = new Set()) {
+  const lines = Array.from({ length: count }, (_, i) => {
+    const seq = first + i;
+    return tall.has(seq) ? `Line ${seq} TALL` : `Line ${seq}`;
+  });
+  return { lines, filteredIndexes: lines.map((_, i) => i), firstLineSeq: first };
+}
+
+type Buffer = ReturnType<typeof buffer>;
+
+function renderTail(initial: Buffer) {
+  const ui = (current: Buffer, selectedIndex?: number) => (
+    <TailList
+      lines={current.lines}
+      filteredIndexes={current.filteredIndexes}
+      firstLineSeq={current.firstLineSeq}
+      selectedIndex={selectedIndex}
+      onSelectIndex={() => {}}
+      colorize={false}
+      running
+      listRef={React.createRef()}
+      follow={false}
+      t={t as any}
+    />
+  );
+  const view = render(ui(initial));
+  settle();
+  return {
+    update: (next: Buffer, selectedIndex?: number) => {
+      view.rerender(ui(next, selectedIndex));
+      settle();
+    }
+  };
+}
+
+/** Runs the ResizeObserver reports and the renders they cause until the layout stops changing. */
+function settle() {
+  for (let frame = 0; frame < 10; frame++) {
+    act(() => {
+      jest.advanceTimersByTime(16);
+    });
+  }
+}
+
+const list = () => screen.getByRole('list');
+const rowElement = (text: string) => rowOf(screen.getByText(text));
+
+/** Where the row of each rendered line sits in the viewport, from the offset the List gave it and the scroll offset. */
+function viewportTops() {
+  const scrollTop = list().scrollTop;
+  return new Map(
+    Array.from(document.querySelectorAll<HTMLElement>('[role="row"]'), row => [
+      row.textContent ?? '',
+      parseFloat(row.style.transform.replace('translateY(', '')) - scrollTop
+    ])
+  );
+}
+
+/** Where `line` sits in the viewport or, when it is not rendered, which line is first in view instead. */
+function placeOf(line: string) {
+  const tops = viewportTops();
+  const top = tops.get(line);
+  if (top !== undefined) {
+    return `${line} at ${top}`;
+  }
+  const [first, firstTop] = [...tops].find(([, rowTop]) => rowTop >= 0) ?? ['nothing', 0];
+  return `${line} not rendered; ${first} at ${firstTop}`;
+}
+
+/** Scrolls as the user does, so the list renders and measures the rows that come into view. */
+function scrollListTo(top: number) {
+  act(() => {
+    list().scrollTop = top;
+    list().dispatchEvent(new Event('scroll'));
+  });
+  settle();
+}
+
+describe('TailList rows over the real virtual list', () => {
+  const NoResizeObserver = globalThis.ResizeObserver;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    globalThis.ResizeObserver = FakeResizeObserver as unknown as typeof ResizeObserver;
+    for (const [name, descriptor] of layout) {
+      Object.defineProperty(HTMLElement.prototype, name, { configurable: true, ...descriptor });
+    }
+  });
+
+  afterEach(() => {
+    beforeReport = undefined;
+    jest.useRealTimers();
+    globalThis.ResizeObserver = NoResizeObserver;
+    for (const [name] of layout) {
+      delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
+    }
+  });
+
+  it('keeps a measured height with its line when older lines leave the buffer', () => {
+    const { update } = renderTail(buffer(0, 40, new Set([0])));
+    for (let top = 0; top <= 40 * SHORT; top += VIEWPORT / 2) {
+      scrollListTo(top);
+    }
+    expect(list().scrollHeight).toBe(TALL + 39 * SHORT);
+    expect(screen.queryByText('Line 0 TALL')).toBeNull();
+
+    // The tall line leaves while it is out of view, so nothing measures the row that takes its place.
+    update(buffer(1, 40, new Set([0])));
+
+    expect(list().scrollHeight).toBe(40 * SHORT);
+  });
+
+  it('keeps the measured height of a line out of view that stays in the buffer', () => {
+    const { update } = renderTail(buffer(0, 40, new Set([0, 1])));
+    for (let top = 0; top <= 40 * SHORT; top += VIEWPORT / 2) {
+      scrollListTo(top);
+    }
+    expect(list().scrollHeight).toBe(2 * TALL + 38 * SHORT);
+
+    // Line 0 leaves; line 1 stays out of view, so only the height kept for it can count.
+    update(buffer(1, 40, new Set([1])));
+
+    expect(screen.queryByText('Line 1 TALL')).toBeNull();
+    expect(list().scrollHeight).toBe(TALL + 39 * SHORT);
+  });
+
+  it('keeps each row element across renders and as older lines leave the buffer', () => {
+    const { update } = renderTail(buffer(0, 5));
+    const row = rowElement('Line 3');
+    expect(row).not.toBeNull();
+
+    update(buffer(0, 6), 1);
+    expect(rowElement('Line 3')).toBe(row);
+
+    update(buffer(2, 5), 0);
+    expect(rowElement('Line 3')).toBe(row);
+  });
+
+  it('keeps the rows in view in place while Auto-scroll is off and lines leave the buffer one at a time', () => {
+    // Lines 0-199 are short and lines from 200 on are tall. The first short lines get measured at the top, then the
+    // view jumps among the tall lines, so most short lines above the view are placed by the List's estimate.
+    const COUNT = 400;
+    const DROPS = 20;
+    const tall = new Set(Array.from({ length: COUNT + DROPS }, (_, seq) => seq).filter(seq => seq >= 200));
+    const { update } = renderTail(buffer(0, COUNT, tall));
+    scrollListTo(220 * SHORT);
+    const [line, top] = [...viewportTops()].find(([, rowTop]) => rowTop >= 0) ?? ['', 0];
+    expect(line).toContain('TALL');
+
+    // Each update adds a line at the end and drops a short, measured line from the head, until about as many tall
+    // lines as short ones are measured. In every layout, only the height of the lines that left may move the line
+    // that was first in view.
+    const places = [];
+    const expected = [];
+    for (let first = 1; first <= DROPS; first++) {
+      const layouts = new Set<string>();
+      beforeReport = () => layouts.add(placeOf(line));
+      update(buffer(first, COUNT, tall));
+      layouts.add(placeOf(line));
+      places.push([...layouts]);
+      expected.push([`${line} at ${top - first * SHORT}`]);
+    }
+    expect(places).toEqual(expected);
+  });
+});
