@@ -42,7 +42,11 @@ for (const scenario of ['pending', 'success', 'reject', 'normal']) {
       const timer = setTimeout;
       const clear = clearTimeout;
       const cleanupTimers = new Set();
-      process.kill = () => { throw Error('Unexpected global process signal'); };
+      let host;
+      process.kill = (pid, signal) => {
+        if (process.platform === 'win32' || pid !== -host?.pid) throw Error('Unexpected global process signal');
+        host.kill(signal);
+      };
       global.setTimeout = (callback, ms, ...args) => {
         if (ms === 30000) record('cleanup-deadline-armed');
         const handle = timer(callback, ms === 30000 ? 50 : ms, ...args);
@@ -68,6 +72,7 @@ for (const scenario of ['pending', 'success', 'reject', 'normal']) {
           }
           if (file !== ${JSON.stringify(path.join(directory, 'code'))}) throw Error('Unexpected spawn');
           child.kill = signal => finish(null, signal);
+          host = child;
           if (scenario === 'normal') setImmediate(() => finish(0, null));
           return child;
         };

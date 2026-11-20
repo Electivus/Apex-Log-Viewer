@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test, type Frame, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { runCommand, runCommandWhenAvailable } from '../utils/commandPalette';
 import {
   DOCS_CUSTOM_LOG_SOURCE,
@@ -22,7 +22,7 @@ import {
   setE2eDebugLevelDatabase
 } from '../utils/tooling';
 import { ensureAuxiliaryBarClosed, launchVsCode, resolveExtensionDevelopmentPath } from '../utils/vscode';
-import { waitForWebviewFrame } from '../utils/webviews';
+import { webviewWith } from '../utils/webviews';
 
 const repoRoot = path.join(__dirname, '..', '..', '..');
 const docsOutputDir = path.join(repoRoot, 'apps', 'vscode-extension', 'media', 'docs');
@@ -99,58 +99,52 @@ async function maximizePanel(page: Page): Promise<void> {
   }
 }
 
-async function waitForLogsFrame(page: Page): Promise<Frame> {
-  return await waitForWebviewFrame(
-    page,
-    async frame => await frame.locator('[data-testid="logs-open-debug-flags"]').first().isVisible(),
-    { timeoutMs: 180_000 }
-  );
+async function waitForLogsFrame(page: Page): Promise<Locator> {
+  const webview = webviewWith(page, 'logs-open-debug-flags');
+  await expect(webview.getByTestId('logs-open-debug-flags')).toBeVisible({ timeout: 180_000 });
+  return webview;
 }
 
-async function waitForViewerFrame(page: Page): Promise<Frame> {
-  return await waitForWebviewFrame(
-    page,
-    async frame => await frame.locator('[data-testid="log-viewer"]').first().isVisible(),
-    { timeoutMs: 180_000 }
-  );
+async function waitForViewerFrame(page: Page): Promise<Locator> {
+  const webview = webviewWith(page, 'log-viewer');
+  await expect(webview.getByTestId('log-viewer')).toBeVisible({ timeout: 180_000 });
+  return webview;
 }
 
-async function waitForDebugFlagsFrame(page: Page): Promise<Frame> {
-  return await waitForWebviewFrame(
-    page,
-    async frame => await frame.locator('[data-testid="debug-level-manager"]').first().isVisible(),
-    { timeoutMs: 180_000 }
-  );
+async function waitForDebugFlagsFrame(page: Page): Promise<Locator> {
+  const webview = webviewWith(page, 'debug-level-manager');
+  await expect(webview.getByTestId('debug-level-manager')).toBeVisible({ timeout: 180_000 });
+  return webview;
 }
 
-async function waitForTailFrame(page: Page): Promise<Frame> {
-  return await waitForWebviewFrame(
-    page,
-    async frame => await frame.locator('[data-testid="tail-open-debug-flags"]').first().isVisible(),
-    { timeoutMs: 180_000 }
-  );
+async function waitForTailFrame(page: Page): Promise<Locator> {
+  const webview = webviewWith(page, 'tail-open-debug-flags');
+  await expect(webview.getByTestId('tail-open-debug-flags')).toBeVisible({ timeout: 180_000 });
+  return webview;
 }
 
-async function waitForCustomLogsFrame(page: Page): Promise<Frame> {
-  return await waitForWebviewFrame(
-    page,
-    async frame => await frame.locator('[data-testid="custom-logs-root"]').first().isVisible(),
-    { timeoutMs: 180_000 }
-  );
+async function waitForCustomLogsFrame(page: Page): Promise<Locator> {
+  const webview = webviewWith(page, 'custom-logs-root');
+  await expect(webview.getByTestId('custom-logs-root')).toBeVisible({ timeout: 180_000 });
+  return webview;
 }
 
-async function captureShot(page: Page, frame: Frame, shot: DocsShot, options?: { keepFocus?: boolean }): Promise<void> {
+async function captureShot(
+  page: Page,
+  webview: Locator,
+  shot: DocsShot,
+  options?: { keepFocus?: boolean }
+): Promise<void> {
   await mkdir(docsOutputDir, { recursive: true });
   await page.setViewportSize(shot.viewport);
   await ensureAuxiliaryBarClosed(page);
   await page.mouse.move(0, 0);
   if (!options?.keepFocus) {
-    await frame.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await webview.evaluate(body => (body.ownerDocument.activeElement as HTMLElement | null)?.blur());
   }
-  const body = frame.locator('body');
-  await body.waitFor({ state: 'visible', timeout: 60_000 });
+  await webview.waitFor({ state: 'visible', timeout: 60_000 });
   await page.waitForTimeout(1_000);
-  await body.screenshot({
+  await webview.screenshot({
     path: path.join(docsOutputDir, shot.fileName),
     animations: 'disabled'
   });
@@ -163,7 +157,7 @@ async function mapDocsCustomLogSource(workspacePath: string): Promise<void> {
   await writeFile(projectPath, JSON.stringify(project, null, 2), 'utf8');
 }
 
-async function ensureTailDebugLevelReady(frame: Frame): Promise<void> {
+async function ensureTailDebugLevelReady(frame: Locator): Promise<void> {
   const debugLevelTrigger = frame.locator('[data-testid="tail-debug-level"]').first();
   await debugLevelTrigger.waitFor({ state: 'visible', timeout: 60_000 });
 
@@ -207,7 +201,7 @@ async function ensureTailDebugLevelReady(frame: Frame): Promise<void> {
   await expect.poll(hasSelectedDebugLevel, { timeout: 30_000 }).toBe(true);
 }
 
-async function prepareLogsHero(page: Page, query: string, options?: { maximizePanel?: boolean }): Promise<Frame> {
+async function prepareLogsHero(page: Page, query: string, options?: { maximizePanel?: boolean }): Promise<Locator> {
   await runCommandWhenAvailable(page, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
   await dismissAllNotifications(page);
   await closeQuickInputIfOpen(page);

@@ -15,6 +15,9 @@ const source = readFileSync(filename, 'utf8');
 for (const platform of ['darwin', 'linux', 'win32']) {
   test(`VS Code cleanup owns only its launch (${platform})`, async () => {
     const executable = '/fixture/.vscode-test/Code';
+    const grouped = platform !== 'win32';
+    const ownedSignal = (pid, signal) =>
+      grouped ? [pid, 'process group', -pid, signal] : [pid, 'launch handle', pid, signal];
     const inventory = new Map([
       [600, '/fixture/Google Chrome/chrome_crashpad_handler'],
       [601, '/fixture/other-electron/chrome_crashpad_handler'],
@@ -56,9 +59,13 @@ for (const platform of ['darwin', 'linux', 'win32']) {
         cwd: () => '/fixture',
         chdir() {},
         kill(target, signal) {
-          signals.push([pid, 'global PID', target, signal]);
-          if (!inventory.has(target)) throw new Error('Synthetic PID does not exist');
-          inventory.delete(target);
+          assert.equal(target, -pid, 'Only the isolated host group may be signaled');
+          assert.ok(grouped, 'Windows does not have POSIX process groups');
+          signals.push([pid, 'process group', target, signal]);
+          if (signal === 'SIGINT') return;
+          if (pid === 704) throw new Error('Synthetic signal failure');
+          inventory.delete(pid);
+          hosts.get(pid).emit('exit', null, signal);
         },
         exit(code) {
           process.exitCode = code;
@@ -73,7 +80,8 @@ for (const platform of ['darwin', 'linux', 'win32']) {
         switch (name) {
           case 'child_process':
             return {
-              spawn(file, args) {
+              spawn(file, args, options) {
+                assert.equal(options.detached, grouped);
                 assert.equal(file, executable, 'Only the synthetic host can be launched');
                 assert.ok(
                   args.includes(
@@ -177,17 +185,14 @@ for (const platform of ['darwin', 'linux', 'win32']) {
     await second.timeOut();
     await second.run;
     assert.equal(second.process.exitCode, 124);
-    assert.deepEqual(signals, [[701, 'launch handle', 701, 'SIGKILL']]);
+    assert.deepEqual(signals, [ownedSignal(701, 'SIGKILL')]);
     assert.deepEqual([...inventory.keys()], [600, 601, 602, 603, 604, 700]);
 
     const [third, fourth] = await Promise.all([start(702), start(703)]);
     third.process.emit('SIGINT');
     third.process.emit('SIGINT');
     await assert.rejects(third.run, /Interrupted/);
-    assert.deepEqual(signals.slice(1), [
-      [702, 'launch handle', 702, 'SIGINT'],
-      [702, 'launch handle', 702, 'SIGKILL']
-    ]);
+    assert.deepEqual(signals.slice(1), [ownedSignal(702, 'SIGINT'), ownedSignal(702, 'SIGKILL')]);
     assert.deepEqual([...inventory.keys()], [600, 601, 602, 603, 604, 700, 703]);
     inventory.delete(703);
     hosts.get(703).emit('exit', 0, null);
@@ -202,7 +207,7 @@ for (const platform of ['darwin', 'linux', 'win32']) {
     hosts.get(704).emit('exit', 0, null);
     await Promise.all([shutdown, last.run]);
     assert.equal(last.process.exitCode, 124);
-    assert.deepEqual(signals.slice(3), [[704, 'launch handle', 704, 'SIGKILL']]);
+    assert.deepEqual(signals.slice(3), [ownedSignal(704, 'SIGKILL')]);
     assert.deepEqual(inventoryReads, [], 'Cleanup must not enumerate even without signaling');
   });
 }

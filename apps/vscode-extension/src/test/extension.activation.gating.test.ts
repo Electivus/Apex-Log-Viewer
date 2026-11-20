@@ -87,6 +87,7 @@ function createExtensionHarness(options: {
       openTextDocument: async () => options.activeDocument
     },
     window: {
+      tabGroups: { all: [] },
       activeTextEditor: options.activeDocument ? { document: options.activeDocument } : undefined,
       registerWebviewViewProvider: (viewId: string, _provider: unknown, options?: any) => {
         webviewProviderRegistrations.push({ viewId, options });
@@ -203,6 +204,7 @@ function createExtensionHarness(options: {
 
   const extension = proxyquireStrict('../extension', {
     vscode: vscodeStub,
+    './host/utils/editorTabs': proxyquireStrict('../host/utils/editorTabs', { vscode: vscodeStub }),
     './provider/SfLogsViewProvider': { SfLogsViewProvider: FakeLogsViewProvider },
     './provider/SfLogTailViewProvider': { SfLogTailViewProvider: FakeTailViewProvider },
     './provider/ApexLogCodeLensProvider': { ApexLogCodeLensProvider: FakeCodeLensProvider },

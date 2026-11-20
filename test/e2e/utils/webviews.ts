@@ -1,88 +1,93 @@
-import type { Frame, Page } from '@playwright/test';
-import { timeE2eStep } from './timing';
+import { expect, type Locator, type Page } from '@playwright/test';
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-export async function waitForWebviewFrame(
-  page: Page,
-  matcher: (frame: Frame) => Promise<boolean>,
-  options?: { timeoutMs?: number }
-): Promise<Frame> {
-  return await timeE2eStep('webview.waitForFrame', async () => {
-    const timeoutMs = options?.timeoutMs ?? 120_000;
-    const deadline = Date.now() + timeoutMs;
-    let sawWebviews = false;
+/**
+ * The body of the one VS Code webview document that contains an element with `testId`.
+ *
+ * Each webview is an iframe whose page holds the content in a nested `iframe#active-frame`. While VS Code loads new
+ * content it keeps a hidden `#pending-frame` beside the active one and renames it to `#active-frame` only after
+ * removing the old one, so anchoring on `#active-frame` never sees the same content twice. `page.frameLocator()`
+ * without a selector searches every frame, so the lookup reaches that nested iframe from the workbench. Locators
+ * chained from the returned body stay inside that document, so a selector that also matches in another open webview
+ * does not collide, and they resolve again on every use, which survives VS Code replacing the content iframe.
+ * If `testId` matches in two webviews at once, for example two Log Viewer tabs, Playwright fails the lookup.
+ */
+export function webviewWith(page: Page, testId: string): Locator {
+  return page
+    .frameLocator()
+    .locator('iframe#active-frame')
+    .contentFrame()
+    .locator('body')
+    .filter({ has: page.getByTestId(testId) });
+}
 
-    const tryFind = async (): Promise<Frame | undefined> => {
-      const allFrames = page.frames();
-      const main = page.mainFrame();
-      const webviewFrames = allFrames.filter(f => /vscode-webview|vscode-webview\.net/i.test(f.url()));
-      if (webviewFrames.length > 0) {
-        sawWebviews = true;
-      }
-      // VS Code webviews often have nested iframes where the outer frame URL matches
-      // vscode-webview*, but the actual content is hosted in a child frame (sometimes
-      // with an about:blank URL). Prefer webview frames, but still scan all non-main
-      // frames so we don't miss the content iframe.
-      const nonMainFrames = allFrames.filter(f => f !== main);
-      const frames = [...webviewFrames, ...nonMainFrames.filter(f => !webviewFrames.includes(f))];
-      for (const frame of frames) {
-        try {
-          if (await matcher(frame)) {
-            return frame;
-          }
-        } catch {
-          // ignore and continue polling
-        }
-      }
-      return undefined;
-    };
+/**
+ * The body of the content document of the webview whose outer iframe is named `name`. VS Code names each webview's
+ * outer iframe by the webview's id, so the locator keeps following that webview, and anchoring on `#active-frame`
+ * makes it resolve again on every use: a content swap moves it to the new document, never to the hidden pending one.
+ */
+function webviewBody(page: Page, name: string): Locator {
+  return page
+    .locator(`iframe.webview[name=${JSON.stringify(name)}]`)
+    .contentFrame()
+    .locator('iframe#active-frame')
+    .contentFrame()
+    .locator('body');
+}
 
-    while (Date.now() < deadline) {
-      const found = await tryFind();
-      if (found) {
-        return found;
+/**
+ * The body of the first webview on screen whose content shows `selector`.
+ *
+ * Use it where two webviews can hold the same content at once, such as the Logs panel and its editor-area copy: there
+ * `webviewWith` fails, because Playwright rejects a frame lookup that matches in more than one frame, even a hidden
+ * one. VS Code keeps the webview of a hidden panel or a background tab alive with its outer iframe at
+ * `visibility: hidden`, so this picks among the outer iframes that are not, and returns a locator bound to that
+ * webview's identity. Unlike a `Frame`, the locator survives VS Code replacing the content iframe.
+ */
+export async function shownWebview(page: Page, selector: string, timeoutMs = 120_000): Promise<Locator> {
+  const deadline = Date.now() + timeoutMs;
+  do {
+    const shownNames = await page
+      .locator('iframe.webview')
+      .evaluateAll(frames =>
+        frames.filter(frame => getComputedStyle(frame).visibility !== 'hidden').map(frame => frame.getAttribute('name'))
+      )
+      .catch(() => []);
+    for (const name of shownNames) {
+      if (!name) {
+        continue;
       }
-      await sleep(250);
-    }
-
-    // One last attempt right after the timeout window, to avoid flaking when the
-    // webview finishes rendering between the final poll and the deadline check.
-    const found = await tryFind();
-    if (found) {
-      return found;
-    }
-
-    // Best-effort diagnostics to make CI failures actionable.
-    try {
-      const main = page.mainFrame();
-      const frames = page.frames().filter(f => f !== main);
-      const lines: string[] = [];
-      for (const frame of frames.slice(0, 25)) {
-        const url = frame.url();
-        const shortUrl = url.length > 180 ? `${url.slice(0, 180)}…` : url;
-        const isWebview = /vscode-webview|vscode-webview\.net/i.test(url);
-        const rowCount = await frame.locator('[role="row"]').count().catch(() => -1);
-        const hasRefresh = await frame.locator('text=Refresh').count().catch(() => -1);
-        if (isWebview || rowCount > 0 || hasRefresh > 0) {
-          lines.push(`- url=${shortUrl} webview=${String(isWebview)} rows=${String(rowCount)} refreshText=${String(hasRefresh)}`);
-        }
-      }
-      if (lines.length) {
-        throw new Error(
-          `${sawWebviews ? 'Timed out waiting for matching webview frame.' : 'Timed out waiting for any webview frame.'}\n` +
-            `Frame diagnostics:\n${lines.join('\n')}`
-        );
-      }
-    } catch (e) {
-      if (e instanceof Error) {
-        throw e;
+      const body = webviewBody(page, name);
+      if (
+        await body
+          .locator(selector)
+          .first()
+          .isVisible()
+          .catch(() => false)
+      ) {
+        return body;
       }
     }
-    throw new Error(sawWebviews ? 'Timed out waiting for matching webview frame.' : 'Timed out waiting for any webview frame.');
-  });
+    await sleep(250);
+  } while (Date.now() < deadline);
+  throw new Error(`No webview on screen showed ${selector} within ${timeoutMs} ms.`);
+}
+
+/**
+ * Asserts that `webview` is present and holds no element matching `inner`, both in the same lookup. A bare
+ * `toHaveCount(0)` on a locator inside a webview also passes when the webview content is gone. `inner` is a selector
+ * or a locator built from the page, such as `page.getByRole('status')`.
+ */
+export async function expectWebviewWithout(
+  webview: Locator,
+  inner: string | Locator,
+  options?: { timeout?: number }
+): Promise<void> {
+  const hasNot = typeof inner === 'string' ? webview.page().locator(inner) : inner;
+  await expect(webview.filter({ hasNot })).toHaveCount(1, options);
 }
 
 type PageBox = { x: number; y: number; width: number; height: number };
