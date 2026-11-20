@@ -230,6 +230,7 @@ function load(options: { enabled: boolean; logsOrg?: string; tabGroups?: Tab[][]
     statusItems,
     quickPick,
     tabCloses,
+    openTab: (group: number, tab: Tab) => void tabGroups[group]!.tabs.push(tab),
     openTabs: () => tabGroups.map(group => group.tabs.map(tab => tab.label))
   };
 }
@@ -353,10 +354,30 @@ suite('Custom Logs feature switch', () => {
     assert.deepEqual(host.openTabs(), [[]]);
   });
 
-  test('keeps the viewer and editor tabs open while the setting stays on', () => {
-    const host = load({ enabled: true, tabGroups: [[webviewTab(VIEWER_VIEW_TYPE), webviewTab(EDITOR_VIEW_TYPE)]] });
+  test('closes the viewer and editor tabs of an earlier extension host when it starts with the setting on, and no other tab', () => {
+    const logViewer = 'electivus.apexLogViewer.logsView.logPanel';
+    const host = load({
+      enabled: true,
+      tabGroups: [
+        [webviewTab(VIEWER_VIEW_TYPE), webviewTab(logViewer)],
+        [
+          webviewTab(EDITOR_VIEW_TYPE),
+          textTab(LONG_FIELD_SCHEME, '/Message - Log-1 #1.txt'),
+          webviewTab(VIEWER_VIEW_TYPE, '')
+        ]
+      ]
+    });
+
+    assert.deepEqual(host.openTabs(), [[logViewer], [`${LONG_FIELD_SCHEME}:/Message - Log-1 #1.txt`]]);
+  });
+
+  test('keeps the viewer and editor tabs it opened while the setting stays on', () => {
+    const host = load({ enabled: true, tabGroups: [[]] });
+    host.openTab(0, webviewTab(VIEWER_VIEW_TYPE));
+    host.openTab(0, webviewTab(EDITOR_VIEW_TYPE));
 
     host.change('electivus.apexLogViewer.logging.trace', true);
+    host.change(SETTING, true);
 
     assert.deepEqual(host.openTabs(), [[VIEWER_VIEW_TYPE, EDITOR_VIEW_TYPE]]);
   });
