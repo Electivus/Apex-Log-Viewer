@@ -21,6 +21,7 @@ delete process.env.HTTP_PROXY;
 const OBJECT = 'ALV_Test_Log__e';
 const SOURCE = 'alv-events';
 const REPLAY = `/event/${OBJECT}`;
+const FIRST_ROW_TIMEOUT_MS = 30_000;
 
 /** The events org's `ALV_Test_Log__e`, mapped with every role the recordings fill. */
 const alvEvents = (fields: Json = {}): Json => ({
@@ -65,7 +66,7 @@ function freshEvents(name: 'single' | 'burst-870') {
   }));
 }
 
-async function eventually(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
+async function eventually(condition: () => boolean, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!condition()) {
     assert.ok(Date.now() < deadline, 'timed out waiting for the condition');
@@ -154,7 +155,7 @@ async function drainUntil(
       { signal: abort.signal, onUpdate: update => updates.push(update) }
     )
     .finally(() => (settled = true));
-  await eventually(() => settled || done(updates), 30_000);
+  await eventually(() => settled || done(updates), FIRST_ROW_TIMEOUT_MS);
   abort.abort();
   return { result: await run, updates };
 }
@@ -381,14 +382,23 @@ test('the facade reports one start and one end per run through onCapture, and ti
 
 test('dispose ends an active follow run, releases its capture lease and closes the stream', async t => {
   const { core, double, scope, location } = await world(t, { events: 'single' });
-  const updates: CustomLogCaptureUpdate[] = [];
+  let resolveFirstRow!: () => void;
+  const firstRow = new Promise<void>(resolve => {
+    resolveFirstRow = resolve;
+  });
   const following = core.customLog.capture(
     { ...scope, follow: true, initial: 'retained' },
     {
-      onUpdate: update => updates.push(update)
+      onUpdate: update => {
+        if (update.rows.length > 0) resolveFirstRow();
+      }
     }
   );
-  await eventually(() => updates.some(update => update.rows.length > 0));
+  const endedEarly = following.then(result =>
+    assert.fail(`Capture ended with ${result.outcome} before streaming a row`)
+  );
+  // Starting capture includes the first durable write, unlike the dispose operation itself.
+  await within(Promise.race([firstRow, endedEarly]), 'the follow run to stream its first row', FIRST_ROW_TIMEOUT_MS);
   const held = await openEventStore(location).openWriter('cli');
   assert.ok('heldBy' in held, 'while the run is active, nobody else captures');
   assert.equal(held.heldBy.surface, 'vscode', 'the lease names the surface the core was created for');
