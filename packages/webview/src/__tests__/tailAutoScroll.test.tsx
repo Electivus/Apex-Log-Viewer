@@ -5,6 +5,45 @@ import type { WebviewToExtensionMessage } from '@alv/protocol/messages';
 import { TailApp } from '../tail';
 import type { VsCodeWebviewApi } from '../vscodeApi';
 
+/** Row heights the virtual list reads. A full read of the buffer is one rebuild of its row position cache. */
+let rowHeightReads = 0;
+
+jest.mock('react-window', () => {
+  const React = require('react');
+  const actual = jest.requireActual('react-window');
+  const counted = new WeakMap<object, unknown>();
+  const counting = (rowHeight: any) => {
+    if (typeof rowHeight === 'function') {
+      return (index: number, props: unknown) => {
+        rowHeightReads++;
+        return rowHeight(index, props);
+      };
+    }
+    if (typeof rowHeight === 'object') {
+      return {
+        ...rowHeight,
+        getRowHeight: (index: number) => {
+          rowHeightReads++;
+          return rowHeight.getRowHeight(index);
+        }
+      };
+    }
+    return rowHeight;
+  };
+  // Keeps the identity of the height source the List is given, so the wrapper itself causes no rebuild.
+  function CountingList(props: any) {
+    const { rowHeight } = props;
+    if (typeof rowHeight !== 'object' && typeof rowHeight !== 'function') {
+      return React.createElement(actual.List, props);
+    }
+    if (!counted.has(rowHeight)) {
+      counted.set(rowHeight, counting(rowHeight));
+    }
+    return React.createElement(actual.List, { ...props, rowHeight: counted.get(rowHeight) });
+  }
+  return { ...actual, List: CountingList };
+});
+
 /**
  * TailApp with the real react-window List over a fake browser layout. Every line is ROW pixels tall, the list shows
  * VIEWPORT pixels, a scroll offset is clamped to the content, and a ResizeObserver and a scroll event arrive on the
@@ -135,7 +174,7 @@ function frames(count: number) {
   }
 }
 
-function openTail({ autoScroll: follow }: { autoScroll: boolean }) {
+function openTail({ autoScroll: follow, bufferSize }: { autoScroll: boolean; bufferSize?: number }) {
   const bus = new EventTarget();
   const vscode: VsCodeWebviewApi<WebviewToExtensionMessage> = {
     postMessage: () => {},
@@ -143,12 +182,17 @@ function openTail({ autoScroll: follow }: { autoScroll: boolean }) {
     setState: () => {}
   };
   render(<TailApp vscode={vscode} messageBus={bus} />);
+  if (bufferSize !== undefined) {
+    act(() => {
+      bus.dispatchEvent(new MessageEvent('message', { data: { type: 'tailConfig', tailBufferSize: bufferSize } }));
+    });
+  }
   const receive = (first: number, count: number) =>
     act(() => {
       const lines = Array.from({ length: count }, (_, i) => `Line ${first + i}`);
       bus.dispatchEvent(new MessageEvent('message', { data: { type: 'tailData', lines } }));
     });
-  receive(0, 40);
+  receive(0, bufferSize ?? 40);
   frames(18);
   return receive;
 }
@@ -178,6 +222,7 @@ describe('Tail Auto-scroll over the real virtual list', () => {
     }
   });
 
+  // Regression test for b9397f86, fixed in b2a99d27: it fails there and passes on main, which never had the bug.
   it('stays at the end when Auto-scroll is turned on while the list still reveals the selected line', () => {
     const receive = openTail({ autoScroll: false });
     fireEvent.click(screen.getByText('Line 1'));
@@ -193,6 +238,7 @@ describe('Tail Auto-scroll over the real virtual list', () => {
     expect(autoScroll()).toBeChecked();
   });
 
+  // Parity control: passes on main and on every commit of this change.
   it('follows the end while measured batches arrive', () => {
     const receive = openTail({ autoScroll: true });
     expect(distanceFromEnd()).toBe(0);
@@ -202,5 +248,25 @@ describe('Tail Auto-scroll over the real virtual list', () => {
 
     expect(distanceFromEnd()).toBe(0);
     expect(autoScroll()).toBeChecked();
+  });
+
+  it('reads each row height once per new line while a full buffer follows the end', () => {
+    const BUFFER = 1000;
+    const receive = openTail({ autoScroll: true, bufferSize: BUFFER });
+    expect(distanceFromEnd()).toBe(0);
+
+    const readsPerLine: number[] = [];
+    for (let line = BUFFER; line < BUFFER + 3; line++) {
+      rowHeightReads = 0;
+      receive(line, 1);
+      frames(20);
+      readsPerLine.push(rowHeightReads);
+    }
+
+    expect(distanceFromEnd()).toBe(0);
+    for (const reads of readsPerLine) {
+      expect(reads).toBeGreaterThan(0);
+      expect(reads).toBeLessThanOrEqual(BUFFER);
+    }
   });
 });
