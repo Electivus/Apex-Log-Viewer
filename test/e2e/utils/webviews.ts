@@ -1,8 +1,23 @@
-import type { Frame, Page } from '@playwright/test';
+import type { Frame, Locator, Page } from '@playwright/test';
 import { timeE2eStep } from './timing';
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * The body of the one webview document that contains an element with `testId`.
+ *
+ * `page.frameLocator()` without a selector searches every frame, including the content iframe VS Code nests inside
+ * each webview iframe. Locators chained from the returned body stay inside that document, so a selector that also
+ * matches in another open webview does not collide. The locator resolves again on every use, which survives VS Code
+ * replacing the webview iframe. If `testId` matches in more than one webview, Playwright fails the lookup.
+ */
+export function webviewWith(page: Page, testId: string): Locator {
+  return page
+    .frameLocator()
+    .locator('body')
+    .filter({ has: page.getByTestId(testId) });
 }
 
 export async function waitForWebviewFrame(
@@ -64,10 +79,18 @@ export async function waitForWebviewFrame(
         const url = frame.url();
         const shortUrl = url.length > 180 ? `${url.slice(0, 180)}…` : url;
         const isWebview = /vscode-webview|vscode-webview\.net/i.test(url);
-        const rowCount = await frame.locator('[role="row"]').count().catch(() => -1);
-        const hasRefresh = await frame.locator('text=Refresh').count().catch(() => -1);
+        const rowCount = await frame
+          .locator('[role="row"]')
+          .count()
+          .catch(() => -1);
+        const hasRefresh = await frame
+          .locator('text=Refresh')
+          .count()
+          .catch(() => -1);
         if (isWebview || rowCount > 0 || hasRefresh > 0) {
-          lines.push(`- url=${shortUrl} webview=${String(isWebview)} rows=${String(rowCount)} refreshText=${String(hasRefresh)}`);
+          lines.push(
+            `- url=${shortUrl} webview=${String(isWebview)} rows=${String(rowCount)} refreshText=${String(hasRefresh)}`
+          );
         }
       }
       if (lines.length) {
@@ -81,7 +104,9 @@ export async function waitForWebviewFrame(
         throw e;
       }
     }
-    throw new Error(sawWebviews ? 'Timed out waiting for matching webview frame.' : 'Timed out waiting for any webview frame.');
+    throw new Error(
+      sawWebviews ? 'Timed out waiting for matching webview frame.' : 'Timed out waiting for any webview frame.'
+    );
   });
 }
 
