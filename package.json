@@ -41,7 +41,7 @@
     "vsce:publish": "node scripts/run-vsce.js publish",
     "vsce:publish:pre": "node scripts/run-vsce.js publish --pre-release",
     "compile-tests": "node -e \"try{require('fs').rmSync('out/test',{recursive:true,force:true})}catch(e){}\" && tsc -p tsconfig.test.json",
-    "watch-tests": "tsc -p tsconfig.test.watch.json -w",
+    "watch-tests": "tsc6 -p tsconfig.test.watch.json -w",
     "pretest": "pnpm run test:linux-deps && pnpm run build:extension && pnpm run compile-tests",
     "test:core": "pnpm run build:core && pnpm --filter @alv/core run test",
     "test:protocol": "pnpm run build:protocol && pnpm --filter @alv/protocol run test",
@@ -142,7 +142,8 @@
     "tailwindcss": "^4.3.5",
     "tailwindcss-animate": "^1.0.7",
     "ts-jest": "^29.4.15",
-    "typescript": "^6.0.3",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "typescript7": "npm:typescript@^7.0.2",
     "undici": "^8.12.3",
     "yaml": "^2.9.1"
   }
