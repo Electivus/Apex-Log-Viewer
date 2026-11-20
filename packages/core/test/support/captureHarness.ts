@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { AsyncLocalStorage, createHook } from 'node:async_hooks';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -86,28 +87,76 @@ export class ManualClock implements CaptureClock {
   }
 }
 
-/** Only stops a hung run from hanging the suite, so it is far above what a run's real file syncs take on a slow disk. */
-const HANG_GUARD_MS = 60_000;
+const HANG_GUARD_MS = 8_000;
+type Progress = { last: number };
+const captureProgress = new AsyncLocalStorage<Progress>();
+const progressDuringStoreCall = new AsyncLocalStorage<Progress>();
+const diskRequests = new Map<number, Progress>();
 
-/** Polls (real time) until `check` holds; the run's file I/O is real, so a test waits for its effect, never for a fixed time. */
+// A single store call (notably openWriter) can perform many slow serial filesystem operations.
+// Observe just those issued by the injected store, not filesystem reads made by assertion polling.
+createHook({
+  init(id, type) {
+    if (type !== 'FSREQPROMISE') return;
+    const progress = progressDuringStoreCall.getStore();
+    if (progress) diskRequests.set(id, progress);
+  },
+  after(id) {
+    const progress = diskRequests.get(id);
+    if (!progress) return;
+    progress.last = performance.now();
+    diskRequests.delete(id);
+  },
+  destroy(id) {
+    diskRequests.delete(id);
+  }
+}).enable();
+
+function duringStoreCall<T>(run: () => Promise<T>): Promise<T> {
+  const progress = captureProgress.getStore();
+  return progress ? progressDuringStoreCall.run(progress, run) : run();
+}
+
+function markProgress(): void {
+  const progress = captureProgress.getStore();
+  if (progress) progress.last = performance.now();
+}
+
+/** Polls the condition; checking it itself does not count as capture progress. */
 export async function until(
   check: () => boolean | Promise<boolean>,
   what: string,
-  timeoutMs = HANG_GUARD_MS
+  stopped?: Promise<never>
 ): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    if (await check()) return;
-    if (Date.now() > deadline) assert.fail(`Timed out waiting for ${what}`);
-    await new Promise<void>(resolve => setTimeout(resolve, 2));
+  const stop = new AbortController();
+  const poll = async (): Promise<void> => {
+    while (!stop.signal.aborted) {
+      if (await check()) return;
+      await new Promise<void>(resolve => setTimeout(resolve, 2));
+    }
+  };
+  try {
+    const pending = poll();
+    await within(stopped ? Promise.race([pending, stopped]) : pending, what);
+  } finally {
+    stop.abort();
   }
 }
 
-/** Rejects when `promise` has not settled after `timeoutMs` of real time, so a run that never stops fails instead of hanging the suite. */
-export async function within<T>(promise: Promise<T>, what: string, timeoutMs = HANG_GUARD_MS): Promise<T> {
+/** In capture tests the budget starts again after observable work; an explicit timeout is always absolute. */
+export async function within<T>(promise: Promise<T>, what: string, timeoutMs?: number): Promise<T> {
+  const startedAt = performance.now();
+  const progress = timeoutMs === undefined ? captureProgress.getStore() : undefined;
+  const budget = timeoutMs ?? HANG_GUARD_MS;
   let timer: NodeJS.Timeout | undefined;
   const expired = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`Timed out waiting for ${what}`)), timeoutMs);
+    const check = (): void => {
+      const last = Math.max(startedAt, progress?.last ?? startedAt);
+      const remaining = budget - (performance.now() - last);
+      if (remaining <= 0) reject(new Error(`Timed out waiting for ${what}`));
+      else timer = setTimeout(check, Math.ceil(remaining));
+    };
+    timer = setTimeout(check, budget);
   });
   try {
     return await Promise.race([promise, expired]);
@@ -172,7 +221,7 @@ export type FakeAttempt = {
 export type FakeTransport = {
   transport: EventTransport;
   attempts: FakeAttempt[];
-  opened(index: number): Promise<FakeAttempt>;
+  opened(index: number, done?: Promise<unknown>): Promise<FakeAttempt>;
 };
 
 /** A scripted stand-in for the CometD adapter. Signals after an abort or a failure are dropped, as the real adapter drops late callbacks. */
@@ -217,10 +266,14 @@ export function fakeTransport(
   return {
     transport,
     attempts,
-    opened: async index => {
-      await until(() => attempts.length > index, `transport open #${index + 1}`);
+    opened: async (index, done) => {
+      const what = `transport open #${index + 1}`;
+      const stopped = done?.then(() => {
+        throw new Error(`Capture ended before ${what}`);
+      });
+      await until(() => attempts.length > index, what, stopped);
       const attempt = attempts[index]!;
-      await attempt.ready;
+      await within(stopped ? Promise.race([attempt.ready, stopped]) : attempt.ready, `readiness of ${what}`);
       return attempt;
     }
   };
@@ -232,7 +285,7 @@ export function fakeTransport(
 export async function withProject(run: (root: string) => Promise<void>): Promise<void> {
   const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'alv-capture-'));
   try {
-    await run(root);
+    await captureProgress.run({ last: performance.now() }, () => run(root));
   } finally {
     await fs.promises.rm(root, { recursive: true, force: true });
   }
@@ -287,27 +340,46 @@ export type WriterHooks = {
   advanced?: (cursor: ReplayCursor) => void;
 };
 
+/** Report work done by capture, not by assertion polling against the same store. */
+function markOnResolve<Args extends unknown[], Result>(run: (...args: Args) => Promise<Result>) {
+  return async (...args: Args): Promise<Result> => {
+    const result = await duringStoreCall(() => run(...args));
+    markProgress();
+    return result;
+  };
+}
+
 /** The same store, whose writers report to `hooks` around `append` and `advance`. */
-export function instrumentStore(store: EventStore, hooks: WriterHooks): EventStore {
+export function instrumentStore(store: EventStore, hooks: WriterHooks = {}): EventStore {
   return {
     ...store,
+    checkpoint: markOnResolve(() => store.checkpoint()),
+    coverage: markOnResolve(() => store.coverage()),
+    gaps: markOnResolve(() => store.gaps()),
     openWriter: async (surface, signal) => {
-      const opened = await store.openWriter(surface, signal);
+      const opened = await duringStoreCall(() => store.openWriter(surface, signal));
+      markProgress();
       if (!('writer' in opened)) return opened;
       const { writer } = opened;
       const wrapped: EventStoreWriter = {
         ...writer,
-        append: async events => {
+        writeDescribe: markOnResolve(describe => writer.writeDescribe(describe)),
+        purge: markOnResolve((days, now) => writer.purge(days, now)),
+        release: markOnResolve(() => writer.release()),
+        openGap: markOnResolve(gap => writer.openGap(gap)),
+        openGapNow: markOnResolve(() => writer.openGapNow()),
+        closeOpenGap: markOnResolve(before => writer.closeOpenGap(before)),
+        append: markOnResolve(async events => {
           await hooks.append?.(events);
           const result = await writer.append(events);
           hooks.appended?.(events);
           return result;
-        },
-        advance: async checkpoint => {
+        }),
+        advance: markOnResolve(async checkpoint => {
           await hooks.advance?.(checkpoint.cursor);
           await writer.advance(checkpoint);
           hooks.advanced?.(checkpoint.cursor);
-        }
+        })
       };
       return { writer: wrapped };
     }
@@ -400,7 +472,7 @@ export function captureDeps(options: DepsOptions): TestDeps {
     },
     openStore: location => {
       calls.opened.push(location);
-      return options.store;
+      return instrumentStore(options.store);
     },
     storeInfo: coverage => storeInfoOf(coverage, options.retentionDays ?? 30),
     readAllowance: async () => {
@@ -450,7 +522,10 @@ export function watcher(
       source: options.source ?? eventSource(),
       params,
       signal: controller.signal,
-      onUpdate: update => updates.push(update)
+      onUpdate: update => {
+        if (updates.at(-1)?.capture.state !== update.capture.state || update.rows.length > 0) markProgress();
+        updates.push(update);
+      }
     },
     abort: () => controller.abort(),
     updates,
