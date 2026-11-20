@@ -427,7 +427,7 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
   test('a held token that starts inside a percent-encoding is replaced, while other characters of it are encoded', async () => {
     // Synthetic values, joined at run time so that secret scanners do not take the source for real tokens.
     const session = ['00DFAKEFAKEFAKE1', 'fakeSession0123'].join('!');
-    const encoded = session.replace('!', '%21');
+    const encoded = ['00DFAKEFAKEFAKE1', 'fakeSession0123'].join('%21');
 
     for (const text of [`q=%${encoded} end`, 'x %41%46%41%4b%45tail-token-0123 y']) {
       const tokens = [session, '1FAKEtail-token-0123'];
