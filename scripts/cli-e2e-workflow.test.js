@@ -609,10 +609,7 @@ test('direct Windows CI requires the Custom Logs panel tests on a separate event
     "${{ !cancelled() && runner.os == 'Windows' && steps.direct-real-org-config.outcome == 'success' }}"
   );
   assert.match(panel.step.run, /tsx \.\.\/\.\.\/test\/e2e\/utils\/runEventsPanel\.ts/);
-  assert.equal(
-    panel.step.env.SF_EVENTS_SCRATCH_POOL_NAME,
-    "${{ vars.SF_EVENTS_SCRATCH_POOL_NAME || 'alv-events-panel-1551' }}"
-  );
+  assert.equal(panel.step.env.SF_SCRATCH_POOL_NAME, general.step.env.SF_SCRATCH_POOL_NAME);
   for (const name of ['SF_DEVHUB_CLIENT_ID', 'SF_DEVHUB_USERNAME', 'SF_DEVHUB_LOGIN_URL', 'SF_DEVHUB_PRIVATE_KEY']) {
     assert.equal(panel.step.env[name], general.step.env[name]);
   }

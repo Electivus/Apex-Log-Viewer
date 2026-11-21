@@ -8,6 +8,7 @@ import { runSfJson } from './sfCli';
 import { ensureScratchOrg, type ScratchOrgResult } from './scratchOrg';
 
 const ROOT = path.resolve(__dirname, '..', '..', '..');
+const EVENTS_POOL = 'alv-events-panel-1551';
 const ARTIFACTS = path.join(ROOT, 'output', 'playwright', 'events-panel');
 const REPORT = path.join(ARTIFACTS, 'events-panel-report.json');
 
@@ -34,11 +35,10 @@ async function main(): Promise<void> {
   try {
     console.log('::group::Prepare dedicated events scratch org');
     try {
-      const pool = process.env.SF_EVENTS_SCRATCH_POOL_NAME?.trim();
-      if (!pool || pool === process.env.SF_SCRATCH_POOL_NAME?.trim()) {
-        throw new Error('SF_EVENTS_SCRATCH_POOL_NAME must select a dedicated events pool.');
+      if (process.env.SF_SCRATCH_POOL_NAME?.trim().toLowerCase() === EVENTS_POOL) {
+        throw new Error('The Custom Logs panel requires a separate events scratch-org pool.');
       }
-      process.env.SF_SCRATCH_POOL_NAME = pool;
+      process.env.SF_SCRATCH_POOL_NAME = EVENTS_POOL;
       process.env.SF_SCRATCH_STRATEGY = 'pool';
       const config = resolveDevHubConfig();
       if (config?.mode !== 'jwt') throw new Error('The events panel requires Dev Hub JWT.');
@@ -54,7 +54,7 @@ async function main(): Promise<void> {
       eventsOrgConfigured();
       scratch.assertLeaseHealthy?.();
       prepared = true;
-      console.log(`Dedicated events scratch org verified in pool ${pool}, slot ${scratch.slotKey}.`);
+      console.log(`Dedicated events scratch org verified in pool ${EVENTS_POOL}, slot ${scratch.slotKey}.`);
     } catch (error) {
       throw new Error(
         `Events scratch org preparation failed: ${error instanceof Error ? error.message : String(error)}`

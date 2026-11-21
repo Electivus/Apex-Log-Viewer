@@ -282,7 +282,7 @@ Every delivery counts against the org's daily allocation (25,000), shared by eve
 
 Windows direct CI runs the panel spec in its own step. It leases an events scratch org through the Dev Hub JWT and prepares and verifies it before Playwright starts. The step fails if preparation fails or the report lacks two passes with zero skips. The JSON report and captures are in `events-panel/` inside the Windows Playwright artifact.
 
-By default that step uses the dedicated one-slot pool `alv-events-panel-1551`. Set `SF_EVENTS_SCRATCH_POOL_NAME` to use a different events pool. Bootstrap that pool once with its JWT identity. The Windows job creates or renews the scratch under the lease.
+That step uses the dedicated one-slot pool `alv-events-panel-1551`. Bootstrap that pool once with its JWT identity. The Windows job creates or renews the scratch under the lease.
 
 ```bash
 pnpm run scratch-pool:bootstrap -- --pool-key alv-events-panel-1551 --target-size 1 --slot-alias-prefix ALV_EVENTS_PANEL_1551 --scratch-duration-days 1 --seed-version alv-events-panel-v1
