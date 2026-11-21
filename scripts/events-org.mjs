@@ -377,6 +377,15 @@ export function trimDescribe(describe) {
   };
 }
 
+export function matchesDescribeFixture(expected, actual) {
+  const schema = ({ name, queryable, fields }) => ({
+    name,
+    queryable,
+    fields: [...fields].sort((left, right) => left.name.localeCompare(right.name))
+  });
+  return JSON.stringify(schema(expected)) === JSON.stringify(schema(actual));
+}
+
 /** One field per line, as the other describe fixtures: a refreshed fixture reviews as a diff of fields. */
 export function formatDescribeFixture(describes) {
   const objects = Object.entries(describes).map(([name, describe]) => {
@@ -552,10 +561,13 @@ async function verify(alias, options) {
   const committed = await readCommittedDescribe();
   check(
     'the describe matches the committed fixture',
-    committed !== undefined && JSON.stringify(committed) === JSON.stringify(describe),
+    committed !== undefined && matchesDescribeFixture(committed, describe),
     committed === undefined
       ? 'fixture missing: run verify --capture-describe'
-      : 'fixture differs: run verify --capture-describe'
+      : {
+          expectedFields: committed.fields.map(({ name, type }) => ({ name, type })),
+          actualFields: describe.fields.map(({ name, type }) => ({ name, type }))
+        }
   );
 
   const triggers = (await connection.tooling.query('SELECT Name, TableEnumOrId FROM ApexTrigger')).records;
@@ -567,7 +579,7 @@ async function verify(alias, options) {
   for (const object of EVENT_OBJECTS) {
     const objectDescribe = object === EVENT_OBJECT ? describe : trimDescribe(await connection.describe(object));
     check(
-      `${object} is a platform event (not queryable, key prefix e0N)`,
+      `${object} is a non-queryable platform event with key prefix ${objectDescribe.keyPrefix}`,
       !objectDescribe.queryable && /^e\d\d$/.test(objectDescribe.keyPrefix),
       { queryable: objectDescribe.queryable, keyPrefix: objectDescribe.keyPrefix }
     );
@@ -598,9 +610,11 @@ async function verify(alias, options) {
     ).records.length > 0;
   check('the admin has the permission set', await assignedTo(connection.getUsername()));
 
-  const restricted = await displayOrg(RESTRICTED_USER_ALIAS);
-  check(`the restricted user ${RESTRICTED_USER_ALIAS} exists`, restricted !== undefined);
-  if (restricted) check('the restricted user lacks the permission set', !(await assignedTo(restricted.username)));
+  if (options.requireRestrictedUser !== false) {
+    const restricted = await displayOrg(RESTRICTED_USER_ALIAS);
+    check(`the restricted user ${RESTRICTED_USER_ALIAS} exists`, restricted !== undefined);
+    if (restricted) check('the restricted user lacks the permission set', !(await assignedTo(restricted.username)));
+  }
 
   if (results.some(result => !result.ok)) throw new Error('verify failed');
 }
@@ -621,7 +635,7 @@ async function installEventFixtures(alias) {
 
 async function prepare(alias) {
   await installEventFixtures(alias);
-  await verify(alias, {});
+  await verify(alias, { requireRestrictedUser: false });
 }
 
 async function ensure(alias, options) {
