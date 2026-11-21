@@ -2,6 +2,7 @@ import { writeSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 
 import { createCometdTransport } from '../../src/customLogs/events/cometd.ts';
+import { COMETD_ABORT_TRACE_PREFIX, cometdAbortMark } from './cometdAbortTrace.ts';
 import { loadSavedOrgs, openConnection } from './salesforceDouble.ts';
 
 /**
@@ -24,16 +25,49 @@ async function main(): Promise<void> {
   loadSavedOrgs();
   const connection = openConnection(username);
   const abort = new AbortController();
+  const trace = process.env.ALV_COMETD_ABORT_TRACE_DIR
+    ? (mark: ReturnType<typeof cometdAbortMark>) =>
+        writeSync(1, COMETD_ABORT_TRACE_PREFIX + JSON.stringify(mark) + '\n')
+    : undefined;
+  if (trace) {
+    type BayeuxMessage = { id?: string; channel?: string; successful?: boolean };
+    const streaming = connection.streaming;
+    const createClient = streaming.createClient.bind(streaming);
+    streaming.createClient = (extensions = []) =>
+      createClient([
+        ...extensions,
+        {
+          outgoing(message: BayeuxMessage, next: (message: BayeuxMessage) => void) {
+            if (message.channel === '/meta/disconnect') {
+              trace(cometdAbortMark('disconnect-sent', { messageId: message.id }));
+            }
+            next(message);
+          },
+          incoming(message: BayeuxMessage, next: (message: BayeuxMessage) => void) {
+            if (message.successful && message.channel === '/meta/disconnect') {
+              trace(cometdAbortMark('ack-received', { messageId: message.id }));
+            }
+            if (message.successful && message.channel === '/meta/handshake') {
+              trace(cometdAbortMark('handshake-received', { messageId: message.id }));
+            }
+            next(message);
+          }
+        }
+      ]);
+  }
   let abortedAt: number | undefined;
   process.on('exit', () => {
     const drained = abortedAt === undefined ? 'never aborted' : String(Math.round(performance.now() - abortedAt));
+    trace?.(cometdAbortMark('child-exit'));
     // Synchronous, because nothing asynchronous runs after `exit`.
     writeSync(1, `drained ${drained}\n`);
   });
   const stop = () => {
     console.log('aborting');
     abortedAt = performance.now();
+    const mark = trace ? cometdAbortMark('abort') : undefined;
     abort.abort();
+    if (mark) trace?.(mark);
   };
   const finished = createCometdTransport().open({
     connection,
@@ -52,6 +86,7 @@ async function main(): Promise<void> {
   });
   if (abortOn === 'start') setTimeout(stop, 30);
   await finished;
+  trace?.(cometdAbortMark('transport-resolved', { activeResources: process.getActiveResourcesInfo() }));
 }
 
 main().catch((error: unknown) => {

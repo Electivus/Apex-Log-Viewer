@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -19,6 +20,7 @@ import {
   type TransportFailure,
   type TransportSignal
 } from '../src/customLogs/events/transport.ts';
+import { COMETD_ABORT_TRACE_PREFIX, cometdAbortMark, type CometdAbortMark } from './support/cometdAbortTrace.ts';
 import { recordedEvents, startBayeuxDouble, type DoubleScript } from './support/cometdDouble.ts';
 import { openConnection, savedOrgsEnv } from './support/salesforceDouble.ts';
 
@@ -460,7 +462,14 @@ test('a process that aborts its subscription exits at once with no socket or tim
   ];
   for (const { name, abortOn, script, maxExitMs, disconnects } of scenarios) {
     await t.test(name, async sub => {
-      const double = await startBayeuxDouble(sub, script);
+      const traceDir = process.env.ALV_COMETD_ABORT_TRACE_DIR;
+      const marks: CometdAbortMark[] = [];
+      const double = await startBayeuxDouble(
+        sub,
+        traceDir
+          ? { ...script, traceDisconnect: (stage, messageId) => marks.push(cometdAbortMark(stage, { messageId })) }
+          : script
+      );
       const child = spawn(
         process.execPath,
         ['--import', 'tsx', path.resolve(__dirname, 'support/cometdAbortChild.ts'), double.username, CHANNEL, abortOn],
@@ -471,19 +480,59 @@ test('a process that aborts its subscription exits at once with no socket or tim
         }
       );
       let output = '';
+      let pendingLine = '';
       let abortedAt = 0;
-      child.stdout.on('data', (chunk: Buffer) => {
-        const lines = chunk.toString();
-        output += lines;
-        if (lines.includes('down')) void double.close();
-        if (lines.includes('aborting')) abortedAt = Date.now();
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (chunk: string) => {
+        output += chunk;
+        const lines = (pendingLine + chunk).split('\n');
+        pendingLine = lines.pop() ?? '';
+        for (const line of lines) {
+          if (line === 'down') void double.close();
+          if (line === 'aborting') abortedAt = Date.now();
+        }
       });
       const killer = setTimeout(() => child.kill('SIGKILL'), 20_000);
-      const code = await new Promise<number | null>(resolve => child.on('close', resolve));
+      const { code, signal } = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(resolve =>
+        child.once('close', (code, signal) => resolve({ code, signal }))
+      );
       clearTimeout(killer);
       const exitedAfter = Date.now() - abortedAt;
       // The child's own event loop emptied this long after the abort; teardown and the pipe come on top.
       const drained = /^drained (\d+)$/m.exec(output)?.[1];
+
+      if (traceDir) {
+        marks.push(cometdAbortMark('child-close'));
+        for (const line of output.split('\n').slice(0, -1)) {
+          if (line.startsWith(COMETD_ABORT_TRACE_PREFIX)) {
+            marks.push(JSON.parse(line.slice(COMETD_ABORT_TRACE_PREFIX.length)) as CometdAbortMark);
+          }
+        }
+        // Both processes use the host's monotonic clock, so the shifted wall clock leaves these marks comparable.
+        marks.sort((a, b) => Number(BigInt(a.monotonicNs) - BigInt(b.monotonicNs)));
+        const clockShiftDays = Number(process.env.ALV_TEST_CLOCK_SHIFT_DAYS ?? 0);
+        mkdirSync(traceDir, { recursive: true });
+        writeFileSync(
+          path.join(traceDir, [clockShiftDays, abortOn, process.pid, child.pid].join('-') + '.json'),
+          JSON.stringify(
+            {
+              scenario: name,
+              clockShiftDays,
+              node: process.version,
+              platform: process.platform,
+              arch: process.arch,
+              code,
+              signal,
+              drainedMs: drained === undefined ? null : Number(drained),
+              maxExitMs,
+              disconnects: double.disconnects,
+              marks
+            },
+            null,
+            2
+          ) + '\n'
+        );
+      }
 
       assert.equal(code, 0);
       assert.ok(drained !== undefined, `the child reported no drain time:\n${output}`);

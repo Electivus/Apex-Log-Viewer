@@ -16,6 +16,10 @@ on:
           - unit
           - integration
           - all
+      cometd_abort_trace:
+        description: 'Collect CometD abort traces on Windows and Ubuntu (#1539)'
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -32,13 +36,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            vscode_platform: linux-x64
-          - os: windows-latest
-            vscode_platform: win32-x64-archive
-          - os: macos-latest
-            vscode_platform: darwin-arm64
+        os: >-
+          ${{ fromJSON(inputs.cometd_abort_trace
+          && '["ubuntu-latest","windows-latest"]'
+          || '["ubuntu-latest","windows-latest","macos-latest"]') }}
     steps:
       - name: Disable Windows autocrlf
         if: runner.os == 'Windows'
@@ -61,7 +62,8 @@ jobs:
         id: vscode-cache
         env:
           VSCODE_TARGET: stable
-          VSCODE_PLATFORM: ${{ matrix.vscode_platform }}
+          VSCODE_PLATFORM: >-
+            ${{ fromJSON('{"ubuntu-latest":"linux-x64","windows-latest":"win32-x64-archive","macos-latest":"darwin-arm64"}')[matrix.os] }}
         run: node scripts/resolve-vscode-cache-metadata.js
 
       - name: Restore VS Code test cache
@@ -98,6 +100,7 @@ jobs:
         shell: bash
         env:
           TEST_SCOPE: ${{ github.event.inputs.scope || 'unit' }}
+          ALV_COMETD_ABORT_TRACE_DIR: ${{ inputs.cometd_abort_trace && format('{0}/cometd-abort-traces', runner.temp) || '' }}
         run: |
           case "${TEST_SCOPE}" in
             unit) pnpm run test:unit:ci ;;
@@ -106,12 +109,20 @@ jobs:
             *) pnpm run test:unit:ci ;;
           esac
 
+      - name: Upload CometD abort traces
+        if: ${{ always() && inputs.cometd_abort_trace }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: cometd-abort-traces-${{ matrix.os }}
+          path: ${{ runner.temp }}/cometd-abort-traces
+          if-no-files-found: warn
+
   smoke_vsix:
     name: VSIX Smoke Test
     needs: build_and_test
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    if: needs.build_and_test.result == 'success'
+    if: needs.build_and_test.result == 'success' && !inputs.cometd_abort_trace
     permissions:
       contents: read
     steps:

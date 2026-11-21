@@ -45,17 +45,20 @@ test('package.json test:scripts includes the PR matrix workflow guard', () => {
   );
 });
 
-test('CI build_and_test covers Ubuntu, Windows, and macOS with matching VS Code cache platforms', () => {
+test('CI normally covers three platforms and a CometD trace dispatch selects Ubuntu and Windows', () => {
   const workflow = readWorkflow('.github/workflows/ci.yml');
   const buildJob = getJob(workflow, 'build_and_test');
-  const matrix = matrixByOs(buildJob);
+  const os = buildJob.strategy?.matrix?.os;
 
   assert.equal(buildJob['timeout-minutes'], 45);
   assert.equal(buildJob.strategy?.['fail-fast'], false);
-  assert.deepEqual(Array.from(matrix.keys()).sort(), ['macos-latest', 'ubuntu-latest', 'windows-latest']);
-  assert.equal(matrix.get('ubuntu-latest')?.vscode_platform, 'linux-x64');
-  assert.equal(matrix.get('windows-latest')?.vscode_platform, 'win32-x64-archive');
-  assert.equal(matrix.get('macos-latest')?.vscode_platform, 'darwin-arm64');
+  assert.equal(workflow.on.workflow_dispatch.inputs.cometd_abort_trace.type, 'boolean');
+  assert.equal(workflow.on.workflow_dispatch.inputs.cometd_abort_trace.default, false);
+  assert.equal(
+    os,
+    '${{ fromJSON(inputs.cometd_abort_trace && \'["ubuntu-latest","windows-latest"]\' ' +
+      '|| \'["ubuntu-latest","windows-latest","macos-latest"]\') }}'
+  );
 });
 
 test('CI disables Windows autocrlf before checkout', () => {
@@ -76,10 +79,24 @@ test('CI resolves VS Code metadata per matrix platform and runs scope dispatch u
   const runTestsStep = getStep(buildJob, 'Run tests').step;
 
   assert.equal(vscodeCacheStep.env?.VSCODE_TARGET, 'stable');
-  assert.equal(vscodeCacheStep.env?.VSCODE_PLATFORM, '${{ matrix.vscode_platform }}');
+  const platforms = {
+    'ubuntu-latest': 'linux-x64',
+    'windows-latest': 'win32-x64-archive',
+    'macos-latest': 'darwin-arm64'
+  };
+  assert.equal(vscodeCacheStep.env?.VSCODE_PLATFORM, "${{ fromJSON('" + JSON.stringify(platforms) + "')[matrix.os] }}");
   assert.equal(runTestsStep.shell, 'bash');
   assert.equal(runTestsStep.env?.TEST_SCOPE, "${{ github.event.inputs.scope || 'unit' }}");
   assert.match(String(runTestsStep.run || ''), /case "\$\{TEST_SCOPE\}" in/);
+
+  const traceUpload = getStep(buildJob, 'Upload CometD abort traces').step;
+  assert.equal(traceUpload.if, '${{ always() && inputs.cometd_abort_trace }}');
+  assert.equal(traceUpload.with?.name, 'cometd-abort-traces-${{ matrix.os }}');
+  assert.equal(traceUpload.with?.path, '${{ runner.temp }}/cometd-abort-traces');
+  assert.match(
+    runTestsStep.env?.ALV_COMETD_ABORT_TRACE_DIR,
+    /inputs\.cometd_abort_trace && format\('\{0\}\/cometd-abort-traces', runner\.temp\)/
+  );
 });
 
 test('CI keeps the VSIX smoke job Ubuntu-only after the cross-OS build matrix succeeds', () => {
@@ -89,7 +106,7 @@ test('CI keeps the VSIX smoke job Ubuntu-only after the cross-OS build matrix su
 
   assert.equal(smokeJob.needs, 'build_and_test');
   assert.equal(smokeJob['runs-on'], 'ubuntu-latest');
-  assert.equal(smokeJob.if, "needs.build_and_test.result == 'success'");
+  assert.equal(smokeJob.if, "needs.build_and_test.result == 'success' && !inputs.cometd_abort_trace");
   assert.equal(vscodeCacheStep.env?.VSCODE_PLATFORM, 'linux-x64');
 });
 
