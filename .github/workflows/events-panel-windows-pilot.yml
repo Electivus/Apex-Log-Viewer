@@ -1,0 +1,101 @@
+name: Windows Custom Logs events pilot
+
+on:
+  push:
+    branches:
+      - codex/1551-windows-events-pilot
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-events-panel-pilot
+  cancel-in-progress: false
+
+jobs:
+  events_panel_windows:
+    name: Custom Logs events panel (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      VSCODE_TEST_VERSION: stable
+      SALESFORCE_CLI_PACKAGE: '@salesforce/cli@2.159.7'
+      SF_SCRATCH_POOL_OWNER: github:${{ github.run_id }}/${{ github.run_attempt }}/events-panel-windows
+    steps:
+      - name: Disable Windows autocrlf
+        run: git config --global core.autocrlf false
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
+
+      - name: Setup Node.js from .nvmrc
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+
+      - name: Resolve VS Code cache metadata
+        id: vscode-cache
+        env:
+          VSCODE_TARGET: stable
+          VSCODE_PLATFORM: win32-x64-archive
+        run: node scripts/resolve-vscode-cache-metadata.js
+
+      - name: Restore VS Code test cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .vscode-test/vscode-*
+          key: vscode-test-${{ runner.os }}-${{ steps.vscode-cache.outputs.version }}-${{ steps.vscode-cache.outputs.build }}
+
+      - name: Resolve Salesforce CLI cache metadata
+        id: sf-cli-cache
+        shell: bash
+        run: node scripts/setup-salesforce-cli.mjs --print-cache-key
+        env:
+          SALESFORCE_CLI_CACHE_KEY_OS: ${{ runner.os }}
+          SALESFORCE_CLI_CACHE_ROOT: ${{ runner.tool_cache }}
+
+      - name: Restore Salesforce CLI cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ steps.sf-cli-cache.outputs.cache-dir }}
+          key: ${{ steps.sf-cli-cache.outputs.cache-key }}
+
+      - name: Setup Salesforce CLI
+        shell: bash
+        run: node scripts/setup-salesforce-cli.mjs
+        env:
+          SALESFORCE_CLI_CACHE_KEY_OS: ${{ runner.os }}
+          SALESFORCE_CLI_CACHE_ROOT: ${{ runner.tool_cache }}
+
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
+
+      - name: Install extension dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Build the VS Code extension
+        run: pnpm run build:vscode
+
+      - name: Prepare the events scratch org and run Custom Logs E2E
+        run: pnpm --filter '@alv/core' exec tsx ../../test/e2e/utils/eventsPanelPilot.ts
+        env:
+          SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
+          SF_DEVHUB_USERNAME: ${{ secrets.SF_DEVHUB_USERNAME }}
+          SF_DEVHUB_LOGIN_URL: ${{ secrets.SF_DEVHUB_LOGIN_URL }}
+          SF_DEVHUB_PRIVATE_KEY: ${{ secrets.SF_DEVHUB_PRIVATE_KEY }}
+
+      - name: Upload Custom Logs panel evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: custom-logs-panel-windows
+          path: output/playwright/
+          if-no-files-found: ignore
