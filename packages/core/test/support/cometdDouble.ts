@@ -242,7 +242,7 @@ export async function startBayeuxDouble(
         }
         if (response.destroyed) return;
         response.writeHead(200, { 'content-type': 'application/json' });
-        response.end(JSON.stringify(replies));
+        const body = JSON.stringify(replies);
         if (traceDisconnect) {
           for (const reply of replies) {
             if (reply.channel === '/meta/disconnect' && reply.successful === true) {
@@ -250,6 +250,7 @@ export async function startBayeuxDouble(
             }
           }
         }
+        response.end(body);
       })();
     });
   });
