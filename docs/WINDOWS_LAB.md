@@ -70,7 +70,7 @@ The lab matches the runner image `windows-2025-vs2026` on the OS (Windows Server
 - **Defender.** The lab keeps real-time protection on. The runner image turns it off. Defender does not block the work, but it slows it. See [Defender](#defender).
 - **Disk.** The checkout is on a 64 GB Standard SSD (E6) C: drive. CI checks out on D:.
 - **pnpm store.** The lab starts with a cold store. CI restores a cache.
-- **Tools.** The lab has only what its bootstrap installs. The runner image has much more.
+- **Tools.** The bootstrap installs Git, Node, pnpm, and the Microsoft Visual C++ Redistributable x64. Jest needs the runtime to load its native resolver on Windows Server.
 - **Windows Update.** The VM has automatic updates off, so that no reboot lands in a test loop.
 
 ## Defender
@@ -94,7 +94,7 @@ The lab runs `Standard_D4s_v4` on demand. `standardDSv5Family` has a quota of 0 
 - SSH uses a key in `~/.config/alv-windows-lab`, and the server offers only `publickey`. The script takes the host key from the VM through `az vm run-command`, so the first connection does not trust an unverified key.
 - A random password for RDP goes only to the macOS Keychain, in the service `alv-windows-lab`, with the lab group as the account, so destroying one lab leaves the password of another.
 - The script hides subscription IDs and IP addresses in the errors it prints.
-- The bootstrap checks the SHA-256 of Git for Windows against a pinned value, and of Node against `SHASUMS256.txt` from nodejs.org. Corepack checks the pnpm package.
+- The bootstrap checks pinned SHA-256 values for Git for Windows and the Visual C++ Redistributable x64. It checks Node against `SHASUMS256.txt` from nodejs.org. Corepack checks the pnpm package.
 
 ## Known limits
 

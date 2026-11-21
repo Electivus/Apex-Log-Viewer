@@ -14,6 +14,10 @@ $GitVersion = '2.56.0.windows.4'
 $GitInstaller = 'Git-2.56.0.4-64-bit.exe'
 $GitSha256 = '4961a4a8cc778d8b6e00a5819e5fe4d078b754555aff7aedc2d77a5d74c2de80'
 
+$VcRuntimeVersion = [version]'14.52.37029.0'
+$VcRuntimeUrl = 'https://download.visualstudio.microsoft.com/download/pr/78d061c5-9ef3-42ab-98ed-3309d1095dc4/9C02C9ED120F671B900E6B9471D890E3B2414117A7E53F4AE2E855466FA2B7C9/VC_redist.x64.exe'
+$VcRuntimeSha256 = '9c02c9ed120f671b900e6b9471d890e3b2414117a7e53f4ae2e855466fa2b7c9'
+
 $LabRoot = 'C:\alv-lab'
 $RepoDir = "$LabRoot\repo"
 $NodeRoot = "$LabRoot\node"
@@ -79,6 +83,30 @@ function Expand-SystemDrive {
   Update-Disk -Number (Get-Partition -DriveLetter C).DiskNumber
   $largest = (Get-PartitionSupportedSize -DriveLetter C).SizeMax
   if ((Get-Partition -DriveLetter C).Size -lt $largest) { Resize-Partition -DriveLetter C -Size $largest }
+}
+
+function Test-VcRuntime {
+  foreach ($name in @('vcruntime140.dll', 'vcruntime140_1.dll')) {
+    $dll = Get-Item -LiteralPath "$env:SystemRoot\System32\$name" -ErrorAction SilentlyContinue
+    if (-not $dll) { return $false }
+    $info = $dll.VersionInfo
+    $version = [version]::new($info.FileMajorPart, $info.FileMinorPart, $info.FileBuildPart, $info.FilePrivatePart)
+    if ($version -lt $VcRuntimeVersion) { return $false }
+  }
+  return $true
+}
+
+function Install-VcRuntime {
+  if (Test-VcRuntime) { return }
+
+  $installer = Get-VerifiedDownload -Url $VcRuntimeUrl -FileName 'VC_redist.x64.exe' -ExpectedSha256 $VcRuntimeSha256
+  $process = Start-Process -FilePath $installer -Wait -PassThru -ArgumentList @('/install', '/quiet', '/norestart')
+  if ($process.ExitCode -notin @(0, 3010)) {
+    throw "Visual C++ Redistributable installer exited with code $($process.ExitCode)"
+  }
+  if (-not (Test-VcRuntime)) {
+    throw "Visual C++ runtime $VcRuntimeVersion is unavailable after installation (installer exit code $($process.ExitCode))."
+  }
 }
 
 function Install-OpenSsh {
@@ -211,6 +239,7 @@ function Invoke-Step {
 
 Invoke-Step 'directories' { Install-LabDirectories }
 Invoke-Step 'system-drive' { Expand-SystemDrive }
+Invoke-Step 'vc-runtime' { Install-VcRuntime }
 Invoke-Step 'openssh' { Install-OpenSsh }
 Invoke-Step 'git' { Install-Git }
 Invoke-Step 'repository' { Sync-Repository }
