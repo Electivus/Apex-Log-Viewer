@@ -8,8 +8,8 @@ import { runSfJson } from './sfCli';
 import { ensureScratchOrg, type ScratchOrgResult } from './scratchOrg';
 
 const ROOT = path.resolve(__dirname, '..', '..', '..');
-const POOL_KEY = 'alv-events-panel-1551';
-const REPORT = path.join(ROOT, 'output', 'playwright', 'events-panel-report.json');
+const ARTIFACTS = path.join(ROOT, 'output', 'playwright', 'events-panel');
+const REPORT = path.join(ARTIFACTS, 'events-panel-report.json');
 
 async function runNode(args: string[], env: NodeJS.ProcessEnv): Promise<void> {
   const child = spawn(process.execPath, args, { cwd: ROOT, env, stdio: 'inherit' });
@@ -19,14 +19,14 @@ async function runNode(args: string[], env: NodeJS.ProcessEnv): Promise<void> {
 
 async function main(): Promise<void> {
   process.chdir(ROOT);
-  process.env.SF_SCRATCH_POOL_NAME = POOL_KEY;
-  process.env.SF_SCRATCH_STRATEGY = 'pool';
   process.env.ALV_E2E_REQUIRE_EVENTS_ORG = '1';
 
   const testEnv = salesforceChildEnv(process.env, {
     PLAYWRIGHT_JSON_OUTPUT_FILE: REPORT,
     PLAYWRIGHT_WORKERS: '1',
-    PLAYWRIGHT_RETRIES: '0'
+    PLAYWRIGHT_RETRIES: '0',
+    PLAYWRIGHT_SHARD: '',
+    PLAYWRIGHT_SHUFFLE: ''
   });
   let scratch: ScratchOrgResult | undefined;
   let prepared = false;
@@ -34,26 +34,15 @@ async function main(): Promise<void> {
   try {
     console.log('::group::Prepare dedicated events scratch org');
     try {
+      const pool = process.env.SF_EVENTS_SCRATCH_POOL_NAME?.trim();
+      if (!pool || pool === process.env.SF_SCRATCH_POOL_NAME?.trim()) {
+        throw new Error('SF_EVENTS_SCRATCH_POOL_NAME must select a dedicated events pool.');
+      }
+      process.env.SF_SCRATCH_POOL_NAME = pool;
+      process.env.SF_SCRATCH_STRATEGY = 'pool';
       const config = resolveDevHubConfig();
-      if (config?.mode !== 'jwt') throw new Error('The events panel pilot requires Dev Hub JWT.');
+      if (config?.mode !== 'jwt') throw new Error('The events panel requires Dev Hub JWT.');
       validateDevHubJwt(config);
-      await runNode(
-        [
-          'scripts/scratch-pool-admin.js',
-          'bootstrap',
-          '--pool-key',
-          POOL_KEY,
-          '--target-size',
-          '1',
-          '--slot-alias-prefix',
-          'ALV_EVENTS_PANEL_1551',
-          '--scratch-duration-days',
-          '1',
-          '--seed-version',
-          'alv-events-panel-v1'
-        ],
-        process.env
-      );
       const definition = JSON.parse(await readFile(path.join(ROOT, 'config/project-scratch-def.events.json'), 'utf8'));
       scratch = await ensureScratchOrg({ poolDefinition: definition });
       const { result } = await runSfJson(['org', 'display', '--target-org', scratch.scratchAlias]);
@@ -65,7 +54,7 @@ async function main(): Promise<void> {
       eventsOrgConfigured();
       scratch.assertLeaseHealthy?.();
       prepared = true;
-      console.log(`Dedicated events scratch org verified in pool slot ${scratch.slotKey}.`);
+      console.log(`Dedicated events scratch org verified in pool ${pool}, slot ${scratch.slotKey}.`);
     } catch (error) {
       throw new Error(
         `Events scratch org preparation failed: ${error instanceof Error ? error.message : String(error)}`
@@ -74,17 +63,23 @@ async function main(): Promise<void> {
       console.log('::endgroup::');
     }
 
-    await mkdir(path.dirname(REPORT), { recursive: true });
+    await mkdir(ARTIFACTS, { recursive: true });
     await rm(REPORT, { force: true });
     await runNode(
-      ['scripts/run-playwright-e2e.js', 'specs/customLogEventsPanel.e2e.spec.ts', '--reporter=list,json'],
+      [
+        'scripts/run-playwright-e2e.js',
+        'specs/customLogEventsPanel.e2e.spec.ts',
+        '--reporter=list,json',
+        '--output',
+        path.join(ARTIFACTS, 'test-results')
+      ],
       testEnv
     );
     scratch.assertLeaseHealthy?.();
     const { stats } = JSON.parse(await readFile(REPORT, 'utf8'));
     if (stats?.expected !== 2 || stats.skipped !== 0 || stats.unexpected !== 0 || stats.flaky !== 0) {
       throw new Error(
-        `The Custom Logs panel pilot requires two passing tests without skips. Stats: ${JSON.stringify(stats)}`
+        `The Custom Logs panel requires two passing tests without skips. Stats: ${JSON.stringify(stats)}`
       );
     }
     console.log('Custom Logs panel: two tests passed, zero skipped.');

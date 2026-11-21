@@ -36,14 +36,13 @@ function displayEventsOrg() {
 }
 
 /**
- * True when this machine has the `alv-events` scratch org authenticated. Pool-only CI has not, so the events
- * specs skip there without any other configuration.
+ * True when this machine has the `alv-events` scratch org authenticated.
  */
 export function eventsOrgConfigured(): boolean {
   const result = displayEventsOrg();
   const configured = !result.error && result.status === 0;
   if (!configured && process.env.ALV_E2E_REQUIRE_EVENTS_ORG === '1') {
-    throw new Error('The dedicated alv-events scratch org is required by the Custom Logs E2E pilot.');
+    throw new Error('The dedicated alv-events scratch org is required by the Custom Logs panel tests.');
   }
   return configured;
 }

@@ -356,6 +356,7 @@ jobs:
           echo "ALV_CI_AUTH_HOME=$auth_home" >> "$GITHUB_ENV"
 
       - name: Require scratch-org pool configuration
+        id: direct-real-org-config
         run: node scripts/check-real-org-config.js
         env:
           SF_SCRATCH_POOL_NAME: ${{ env.SCRATCH_POOL_NAME }}
@@ -409,6 +410,7 @@ jobs:
           node scripts/run-playwright-e2e.js
         env:
           DIRECT_E2E_OS: ${{ matrix.os.artifact_suffix }}
+          ALV_E2E_EXCLUDE_EVENTS_PANEL: ${{ runner.os == 'Windows' && '1' || '' }}
           VSCODE_TEST_VERSION: ${{ env.VSCODE_TEST_VERSION }}
           PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
           SF_SCRATCH_STRATEGY: ${{ env.SCRATCH_STRATEGY }}
@@ -426,6 +428,19 @@ jobs:
           SF_DEVHUB_PRIVATE_KEY: ${{ secrets.SF_DEVHUB_PRIVATE_KEY }}
           SF_SCRATCH_DURATION: ${{ env.SF_SCRATCH_DURATION }}
           SF_TEST_KEEP_ORG: ${{ env.SF_TEST_KEEP_ORG }}
+
+      - name: Run Custom Logs events panel E2E
+        if: ${{ !cancelled() && runner.os == 'Windows' && steps.direct-real-org-config.outcome == 'success' }}
+        run: pnpm --filter '@alv/core' exec tsx ../../test/e2e/utils/runEventsPanel.ts
+        env:
+          SF_EVENTS_SCRATCH_POOL_NAME: ${{ vars.SF_EVENTS_SCRATCH_POOL_NAME || 'alv-events-panel-1551' }}
+          SF_SCRATCH_POOL_NAME: ${{ env.SCRATCH_POOL_NAME }}
+          SF_SCRATCH_POOL_OWNER: github:${{ github.run_id }}/${{ github.run_attempt }}/events-panel-windows
+          SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS: ${{ vars.SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS }}
+          SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
+          SF_DEVHUB_USERNAME: ${{ secrets.SF_DEVHUB_USERNAME }}
+          SF_DEVHUB_LOGIN_URL: ${{ secrets.SF_DEVHUB_LOGIN_URL }}
+          SF_DEVHUB_PRIVATE_KEY: ${{ secrets.SF_DEVHUB_PRIVATE_KEY }}
 
       - name: Upload Playwright artifacts
         if: ${{ !cancelled() }}
