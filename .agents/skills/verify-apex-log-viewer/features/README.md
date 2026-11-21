@@ -26,6 +26,10 @@ This directory is the maintained source for verifying the user-facing behavior o
 - Report each feature ID with the entry point you used, for example "`logs-search` via the panel search box".
 - If an entry point cannot be reached, report the attempted step and the unmet precondition. Do not report it as verified through a different path.
 
+## Editor tabs after an extension-host restart
+
+**Developer: Restart Extension Host** closes the previous host's Apex Log Viewer, Debug Flags, Logs editor and Tail editor tabs on activation. With Custom Logs enabled, its list editor and transaction viewers close too. A pinned raw `.log` and Custom Logs long-field text tabs are not part of that cleanup. To verify, open the tabs, pin the raw text preview, take a whole-window shot, restart the host and capture which tabs remain. Run `doctor` again, then reopen a feature through its normal entry point and assert the new webview works. This is not the same as **Developer: Reload Window**.
+
 ## Features
 
 | Feature                                         | File                               | Canned steps                                                                     | Last driven                                                                                                                                                              |

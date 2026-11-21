@@ -36,15 +36,19 @@ node $V start --idle-minutes 60
 node $V start --locale pt-br    # VS Code and the extension in Brazilian Portuguese
 ```
 
-On a Mac with the private operator configuration from `docs/DEVHUB_LOCAL.md`, use its JWT launcher instead of a cached Dev Hub alias:
+On a Mac with the private operator configuration from [docs/DEVHUB_LOCAL.md](../../../docs/DEVHUB_LOCAL.md), use its JWT launcher instead of a cached Dev Hub alias. If a test run prompts for the macOS Keychain, put `export SF_USE_GENERIC_UNIX_KEYCHAIN=true` in that private configuration. Use a fresh CLI home for the run so Salesforce CLI stores its encryption key and test auth separately; do not switch backends on an existing auth directory or copy it into the test home.
 
 ```bash
+# In the same Bash shell, from the repo root, with V set as above.
+source "${XDG_CONFIG_HOME:-$HOME/.config}/electivus/apex-log-viewer/e2e-macos.sh"
 bash scripts/run-macos-e2e.sh verify
-bash scripts/run-macos-e2e.sh run -- node "$V" start
-node "$V" doctor
+pnpm run build
+verify_home=$(mktemp -d "${TMPDIR:-/tmp}/alv-verify-sf.XXXXXX")
+bash scripts/run-macos-e2e.sh run -- env HOME="$verify_home" node "$V" start --no-build
+bash scripts/run-macos-e2e.sh run -- env HOME="$verify_home" node "$V" doctor
 ```
 
-The wrapper selects the configured pool and verifies the dedicated JWT identity. It does not repair the administrator's expired alias login or change the default Dev Hub. Later `run`, `sf`, `doctor` and `stop` calls use the session normally.
+The wrapper selects the configured pool and verifies the dedicated JWT identity; it does not change the default Dev Hub. A later plain `doctor` cannot see the wrapper's JWT inputs and can report a Dev Hub preflight failure even while the session is healthy. Run it through the wrapper for the full preflight. Prefix later `run`, `sf` and `stop` calls with `env HOME="$verify_home"` in the configured shell. That keeps CLI auth and `sf --linked` on the same settings as at launch. Remove only the temporary CLI home after `stop` has released the slot and the evidence is confirmed.
 
 The session is ready when `start` prints a JSON block containing `"ready": true`, along with the org (`alias`, `username`, `instanceUrl`, `strategy` of `pool`, `single` or `existing`), the workspace path, the seeded `marker`/`logId` and `evidenceDir`. The same state is in `output/verify/session/session.json` (`"phase": "ready"`), which also holds the VS Code profile's `userDataDir`. A warm start takes about 25 s to 1 minute. Creating the single scratch, or the first run in a fresh container, which downloads VS Code into `.vscode-test/`, adds more. `start` waits up to 15 minutes. If the host dies first, `start` prints the tail of `host.out` and exits 1. A host that has not reached ready after 15 minutes stops itself and releases its lease.
 
