@@ -47,8 +47,9 @@ function webviewBody(page: Page, name: string): Locator {
  * `visibility: hidden`, so this picks among the outer iframes that are not, and returns a locator bound to that
  * webview's identity. Unlike a `Frame`, the locator survives VS Code replacing the content iframe. It polls every
  * 250 ms. `timeoutMs` is the cutoff for starting a new poll, not for the call: the first poll always runs, and a poll
- * still running at the cutoff finishes and can return its webview after `timeoutMs`. The call rejects when a poll
- * ends empty at or after the cutoff.
+ * still running at the cutoff finishes and can return its webview after `timeoutMs`. The call rejects in two ways:
+ * when that poll ends empty after the cutoff, at once; when a poll ends empty before the cutoff and less than 250 ms
+ * remain, after sleeping until the cutoff, without polling again.
  */
 export async function shownWebview(page: Page, selector: string, timeoutMs = 120_000): Promise<Locator> {
   const deadline = Date.now() + timeoutMs;
