@@ -451,6 +451,56 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     assert.ok(!trace.includes('FAKE-surrogate-'), 'the trace carries no held token');
   });
 
+  test('a held token that starts or ends inside a surrogate pair is replaced with all of the pair', async () => {
+    for (const [token, text] of [
+      ['FAKE-surrogate-\uD83D', 'FAKE-surrogate-\uD83D\uDE00'],
+      ['\uDE00FAKE-surrogate-', '\uD83D\uDE00FAKE-surrogate-']
+    ] as const) {
+      const { shown, trace } = await shownAfterHolding([token], `Request failed with ${text} end`);
+
+      assert.match(
+        shown,
+        /request failed with \[redacted\] end/i,
+        `${JSON.stringify(token)}: the error replaces the pair`
+      );
+      assert.ok(!/[\uD800-\uDFFF]/.test(shown), `${JSON.stringify(token)}: the error carries no half of the pair`);
+      assert.ok(!/[\uD800-\uDFFF]/.test(trace), `${JSON.stringify(token)}: the trace carries no half of the pair`);
+    }
+  });
+
+  test('held tokens that cover a secret name up to half of a surrogate pair leave the value replaced, in either hold order', async () => {
+    const shorter = 'FAKE-HELD-0123';
+    const longer = 'HELD-0123sid=\uD83D';
+
+    for (const value of ['\uD83D\uDE00FAKEtail', '%F0%9F%98%80FAKEtail']) {
+      for (const order of [
+        [shorter, longer],
+        [longer, shorter]
+      ]) {
+        const { shown, trace } = await shownAfterHolding(order, `Request failed with ${shorter}sid=${value} end`);
+        const held = `held as ${order.map(token => JSON.stringify(token)).join(', ')}, value ${JSON.stringify(value)}`;
+
+        assert.match(shown, /request failed with/i, 'the error still says what sf reported');
+        assert.ok(!shown.includes('FAKEtail'), `${held}: the error carries no named value`);
+        assert.ok(!trace.includes('FAKEtail'), `${held}: the trace carries no named value`);
+        assert.ok(!shown.includes('HELD-0123'), `${held}: the error carries no held token`);
+      }
+    }
+  });
+
+  test('a failing sf that prints a held token and 150,000 named values fails with each of them replaced', async () => {
+    const token = 'FAKE-held-01';
+
+    const { shown, trace } = await shownAfterHolding([token], `${token} ${'sid=x '.repeat(150_000)}`);
+
+    assert.ok(shown.includes('sid=[redacted]'), 'the error still shows what sf printed');
+    assert.ok(
+      !shown.includes(token) && !trace.includes(token),
+      'neither the error nor the trace carries the held token'
+    );
+    assert.ok(!shown.includes('=x') && !trace.includes('=x'), 'neither the error nor the trace carries a named value');
+  });
+
   test('a held token inside a JSON Web Token leaves no part of the JSON Web Token', async () => {
     // Synthetic segments, joined at run time so that secret scanners do not take the source for a real token.
     const [header, payload, signature] = [
