@@ -368,17 +368,31 @@ function useLineRowHeights(
 
   useEffect(() => {
     heights.forgetBefore(firstLineSeq);
-    // A measured line that left can change the most common height too. With no measured line left, as when the whole
-    // buffer was replaced, the next measurements pick the estimate up anyway.
+    // A measured line that left can change the most common height too. The rows this update rendered are measured
+    // over the next frame, and a measurement that asks for a new object picks the new estimate up, so a new object
+    // is built here only when none was by the frame after. With no measured line left, as when the whole buffer was
+    // replaced, the next measurements pick the estimate up anyway.
     const committed = committedRef.current;
     if (
-      followRef.current &&
-      committed &&
-      heights.measuredLines > 0 &&
-      heights.commonHeight() !== committed.getAverageRowHeight()
+      !followRef.current ||
+      !committed ||
+      heights.measuredLines === 0 ||
+      heights.commonHeight() === committed.getAverageRowHeight()
     ) {
-      setVersion(v => v + 1);
+      return;
     }
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        if (
+          followRef.current &&
+          committedRef.current === committed &&
+          heights.commonHeight() !== committed.getAverageRowHeight()
+        ) {
+          setVersion(v => v + 1);
+        }
+      });
+    });
+    return () => cancelAnimationFrame(frame);
   }, [heights, firstLineSeq]);
 
   const rowHeight = useMemo<LineRowHeight>(() => {
