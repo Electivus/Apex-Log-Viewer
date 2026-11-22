@@ -120,7 +120,12 @@ export function LogsTable({
   return (
     <div className="relative min-h-[148px] min-w-0 flex-1">
       <div ref={setScroller} className="absolute inset-0 overflow-auto scroll-pt-[29px]">
-        <div style={{ minWidth: minWidthPx }}>
+        <div
+          role="table"
+          aria-label={t.logsTable?.label ?? 'Apex logs'}
+          aria-rowcount={rows.length + 1}
+          style={{ minWidth: minWidthPx }}
+        >
           <LogsHeader
             t={t}
             sortBy={sortBy}
@@ -151,6 +156,7 @@ export function LogsTable({
                 <LogRow
                   key={row.Id}
                   r={row}
+                  ariaRowIndex={index + 2}
                   logHead={logHead}
                   matchSnippet={matchSnippets[row.Id]}
                   columns={columns}
