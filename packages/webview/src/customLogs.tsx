@@ -53,13 +53,11 @@ function buildReadyMessage(): CustomLogsFromWebviewMessage {
 export interface CustomLogsAppProps {
   vscode?: VsCodeWebviewApi<CustomLogsFromWebviewMessage>;
   messageBus?: MessageBus;
-  virtualListComponent?: React.ComponentProps<typeof CustomLogsTable>['virtualListComponent'];
 }
 
 export function CustomLogsApp({
   vscode = getDefaultVsCodeApi<CustomLogsFromWebviewMessage>(),
-  messageBus = getDefaultMessageBus(),
-  virtualListComponent
+  messageBus = getDefaultMessageBus()
 }: CustomLogsAppProps = {}) {
   const [initialUiState] = useState(() => readPayloadUiState(vscode.getState()));
   const [view, dispatch] = useReducer(reduceCustomLogsView, initialCustomLogsView);
@@ -341,7 +339,6 @@ export function CustomLogsApp({
                 onOpen={row => post({ type: 'customLogsOpenLog', logId: row.id })}
                 onToggleColumn={workbench.toggleColumn}
                 onRemoveColumn={workbench.removeColumn}
-                virtualListComponent={virtualListComponent}
               />
               <LoadingOverlay show={loading && rows.length === 0} label={t.loading} />
             </div>
