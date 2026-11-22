@@ -529,6 +529,31 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     }
   });
 
+  test('a JSON Web Token or refresh token is replaced to the end of its run, after a Bearer or on its own', async () => {
+    const jwt = ['eyJhbGciOiJSUzI1NiJ9', 'eyJzdWIiOiJGQUtFLXN1YmplY3QifQ', 'FAKEsignatureFAKEsignature0123'].join('.');
+    const session = ['00D000000000001', 'AQFakeSession'].join('!');
+    for (const suffix of ['%', '&', '@']) {
+      for (const value of [jwt, SHAPED_REFRESH, `abcdefghijkl${session}`]) {
+        const { shown, trace } = await shownFor('stderr', `Request failed: Bearer ${value}${suffix}TAIL end`);
+
+        assert.match(
+          shown,
+          /request failed: Bearer \[redacted\] end/i,
+          `${value}${suffix}: the error replaces all of it`
+        );
+        assert.ok(!trace.includes('TAIL'), `${value}${suffix}: the trace carries no part of it`);
+      }
+    }
+    for (const suffix of ['%', '&', '@', ':', '|', '#', '~']) {
+      for (const value of [jwt, SHAPED_REFRESH]) {
+        const { shown, trace } = await shownFor('stderr', `Request failed with ${value}${suffix}TAIL end`);
+
+        assert.match(shown, /request failed with \[redacted\] end/i, `${value}${suffix}: the error replaces all of it`);
+        assert.ok(!trace.includes('TAIL'), `${value}${suffix}: the trace carries no part of it`);
+      }
+    }
+  });
+
   test('a named secret that a token shape with a held session runs past is replaced to the end of the shape', async () => {
     const session = 'FAKEsession0123456789';
     const shaped = ['00D000000000001', session].join('!');
