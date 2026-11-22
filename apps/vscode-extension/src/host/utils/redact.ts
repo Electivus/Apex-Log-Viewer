@@ -42,6 +42,16 @@ const SECRET_KEY_NAMES = [
 
 const SECRET_KEYS = new Set(SECRET_KEY_NAMES.toLowerCase().split('|'));
 
+/** Text shaped like a Salesforce credential, whoever printed it. */
+const TOKEN_SHAPES: readonly RegExp[] = [
+  // An access token: the 15- or 18-character org id, "!", then the session.
+  /\b00D[A-Za-z0-9]{12,15}![^\s"'`,;()[\]{}<>]{8,}/g,
+  // A refresh token.
+  /\b5Aep8[A-Za-z0-9._]{20,}/g,
+  // A JSON Web Token.
+  /\beyJ(?<!\beyJ[\w-]*?eyJ)[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}/g
+];
+
 /**
  * A character a credential may hold, as written or percent-encoded: one of a bearer token (RFC 6750 `b64token`:
  * letters, digits, `-._~+/` and `=` padding), the `!` of a session id, or the `%` that starts an escape. Any other,
@@ -49,13 +59,9 @@ const SECRET_KEYS = new Set(SECRET_KEY_NAMES.toLowerCase().split('|'));
  */
 const VALUE_RUN = '[A-Za-z0-9._~+/=!%-]';
 
-/** Text shaped like a Salesforce credential, whoever printed it. */
-const TOKEN_SHAPES: readonly RegExp[] = [
-  // An access token: the 15- or 18-character org id, "!", then the session.
-  /\b00D[A-Za-z0-9]{12,15}![^\s"'`,;()[\]{}<>]{8,}/g,
-  // A refresh token, to the end of its run.
+/** A refresh token or JSON Web Token, the latter also with padded parts, to the end of its run of credential characters. */
+const CREDENTIAL_RUNS: readonly RegExp[] = [
   new RegExp(String.raw`\b5Aep8[A-Za-z0-9._]{20,}${VALUE_RUN}*`, 'g'),
-  // A JSON Web Token, also with padded parts, to the end of its run.
   new RegExp(String.raw`\beyJ(?<!\beyJ[\w-]*?eyJ)[\w-]{8,}=*\.[\w-]{8,}=*\.[\w-]{8,}${VALUE_RUN}*`, 'g')
 ];
 
@@ -511,10 +517,10 @@ function heldReach(text: string): Int32Array | undefined {
   return reach.some(end => end > 0) ? reach : undefined;
 }
 
-/** For each place of `text`, where the furthest token shape of the text as written that starts there or before it ends. */
-function furthestShapeEnds(text: string): Int32Array {
+/** For each place of `text`, where the furthest of `shapes` in the text as written that starts there or before it ends. */
+function furthestShapeEnds(text: string, shapes: readonly RegExp[] = TOKEN_SHAPES): Int32Array {
   const furthest = new Int32Array(text.length);
-  for (const shape of TOKEN_SHAPES) {
+  for (const shape of shapes) {
     for (const { index, 0: match } of text.matchAll(shape)) {
       furthest[index] = Math.max(valueAt(furthest, index), index + match.length);
     }
@@ -574,6 +580,42 @@ function reachRules(text: string, reach: Int32Array): Stretch[] {
 }
 
 /**
+ * Raises `reach` to the end of each credential's run of credential characters: a refresh token or JSON Web Token in
+ * `text` as written, or with the held secrets of `heldAt` replaced, and an `unclosed` value in which a credential
+ * shape starts. It reads only `text`, `heldAt` and `unclosed`, never what other rules replaced, and only raises
+ * `reach`, so every place the rules before it replace stays replaced.
+ */
+function extendCredentials(
+  text: string,
+  heldAt: Int32Array | undefined,
+  unclosed: readonly Stretch[],
+  reach: Int32Array
+): void {
+  const raise = (start: number, end: number) => {
+    if (end > valueAt(reach, start)) reach[start] = end;
+  };
+  for (const shape of CREDENTIAL_RUNS) {
+    for (const { index, 0: match } of text.matchAll(shape)) raise(index, index + match.length);
+  }
+  if (heldAt) {
+    const masked = spliced(text, heldAt);
+    for (const shape of CREDENTIAL_RUNS) {
+      for (const { index, 0: match } of masked.masked.matchAll(shape)) {
+        raise(masked.starts[index] ?? 0, masked.ends[index + match.length - 1] ?? 0);
+      }
+    }
+  }
+  if (unclosed.length === 0) return;
+  const furthest = furthestShapeEnds(text, CREDENTIAL_RUNS);
+  const ends = runEnds(text);
+  const shapes = shapeStartsBefore(text);
+  for (const { start, end } of unclosed) {
+    raise(start, valueAt(furthest, end - 1));
+    if (valueAt(shapes, end) > valueAt(shapes, start)) raise(start, valueAt(ends, end - 1));
+  }
+}
+
+/**
  * `text` with every held secret, every token-shaped string and every secret-named value replaced, after its
  * control sequences are removed. Where held secrets occur, the union of their places is replaced at once, so a secret
  * that begins or overlaps another leaves no part of either. The rules run on the text as written, so a held secret
@@ -588,6 +630,7 @@ export function redactSecrets(text: string): string {
   const raw = new Int32Array(stripped.length);
   const unclosed = reachRules(stripped, raw);
   const heldAt = heldReach(stripped);
+  const heldOnly = heldAt && Int32Array.from(heldAt);
   const reach = heldAt ?? raw;
   if (heldAt) {
     const heldCovered = coveredBy(heldAt);
@@ -613,13 +656,8 @@ export function redactSecrets(text: string): string {
   }
   if (unclosed.length > 0) {
     const furthest = furthestShapeEnds(stripped);
-    const ends = runEnds(stripped);
-    const shapes = shapeStartsBefore(stripped);
-    for (const { start, end } of unclosed) {
-      reach[start] = Math.max(valueAt(reach, start), valueAt(furthest, end - 1));
-      if (valueAt(shapes, end) > valueAt(shapes, start))
-        reach[start] = Math.max(valueAt(reach, start), valueAt(ends, end - 1));
-    }
+    for (const { start, end } of unclosed) reach[start] = Math.max(valueAt(reach, start), valueAt(furthest, end - 1));
   }
+  extendCredentials(stripped, heldOnly, unclosed, reach);
   return reach.some(end => end > 0) ? spliced(stripped, reach).masked : stripped;
 }
