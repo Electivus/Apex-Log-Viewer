@@ -38,6 +38,12 @@ function webviewBody(page: Page, name: string): Locator {
     .locator('body');
 }
 
+/** The time source of `shownWebview`: `now()` in ms, and a sleep of `ms`. */
+export type LookupClock = { now(): number; sleep(ms: number): Promise<void> };
+
+/** The default clock of `shownWebview`: `Date.now` and this module's `sleep`. Exported for its test. */
+export const systemClock: LookupClock = { now: () => Date.now(), sleep };
+
 /**
  * The body of the first webview on screen whose content shows `selector`.
  *
@@ -49,14 +55,11 @@ function webviewBody(page: Page, name: string): Locator {
  * 250 ms. `timeoutMs` is the cutoff for starting a new poll, not for the call: the first poll always runs, and a poll
  * still running at the cutoff finishes and can return its webview after `timeoutMs`. After a poll that finds nothing,
  * the helper sleeps for 250 ms or for the time left before the cutoff, whichever is shorter (no time when the cutoff
- * has passed), and only then reads the clock: before the cutoff it polls again, at or after it it rejects. So it never
- * rejects before the cutoff, and how long after depends on when the sleep's timer fires. `clock` replaces `Date.now`
- * and the sleep, for tests.
+ * has passed): it reads the clock to compute the delay, awaits the sleep (even when the delay is zero), then reads the
+ * clock again to decide whether to poll or reject for timeout. Before the cutoff it polls again, at or after it it
+ * rejects. So it never rejects before the cutoff, and how long after depends on when the sleep's timer fires. `clock`
+ * replaces `Date.now` and the sleep, for tests.
  */
-export type LookupClock = { now(): number; sleep(ms: number): Promise<void> };
-
-const systemClock: LookupClock = { now: () => Date.now(), sleep };
-
 export async function shownWebview(
   page: Page,
   selector: string,
