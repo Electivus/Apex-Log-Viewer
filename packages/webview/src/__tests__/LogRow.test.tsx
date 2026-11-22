@@ -37,6 +37,7 @@ function renderRow({
   render(
     <LogRow
       r={row}
+      ariaRowIndex={2}
       logHead={logHead}
       matchSnippet={matchSnippet}
       locale="en-US"

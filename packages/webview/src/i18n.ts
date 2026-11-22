@@ -68,6 +68,10 @@ export type Messages = {
     size: string;
     match?: string;
   };
+  logsTable?: {
+    label: string;
+    actions: string;
+  };
   columnsConfig?: {
     button: string;
     title: string;
@@ -212,6 +216,10 @@ const en: Messages = {
     status: 'Status',
     size: 'Size',
     match: 'Match'
+  },
+  logsTable: {
+    label: 'Apex logs',
+    actions: 'Actions'
   },
   columnsConfig: {
     button: 'Columns',
@@ -359,6 +367,10 @@ const ptBR: Messages = {
     status: 'Status',
     size: 'Tamanho',
     match: 'Trecho'
+  },
+  logsTable: {
+    label: 'Logs Apex',
+    actions: 'Ações'
   },
   columnsConfig: {
     button: 'Colunas',

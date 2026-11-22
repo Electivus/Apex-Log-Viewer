@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import type { ApexLogRow } from '@alv/protocol/types';
 import { LogsTable } from '../components/LogsTable';
@@ -203,6 +203,55 @@ describe('LogsTable', () => {
         perf.mockRestore();
       } finally {
         jest.useRealTimers();
+      }
+    });
+  });
+
+  describe('accessible structure', () => {
+    it('groups the header and the rows in one table whose rows hold cells under matching column headers', () => {
+      renderTable({ rows: createRows(3), hasSearchText: false });
+      const table = screen.getByRole('table', { name: 'Apex logs' });
+      const [header, ...dataRows] = within(table).getAllByRole('row');
+      expect(dataRows).toHaveLength(3);
+      const headers = within(header!).getAllByRole('columnheader');
+      expect(headers.map(h => h.textContent)).toEqual([
+        'User',
+        'Application',
+        'Operation',
+        'Time',
+        'Duration',
+        'Status',
+        'Size',
+        'Actions'
+      ]);
+      for (const row of dataRows) {
+        expect(within(row).getAllByRole('cell')).toHaveLength(headers.length);
+      }
+      expect(
+        within(within(dataRows[0]!).getAllByRole('cell').at(-1)!).getByRole('button', { name: 'Open' })
+      ).toBeTruthy();
+    });
+
+    it('tells assistive technology the logical position of each rendered row out of all rows', () => {
+      const { container } = renderTable({ rows: createRows(10_000) });
+      const table = screen.getByRole('table');
+      expect(table).toHaveAttribute('aria-rowcount', '10001');
+      const surface = container.querySelector('.overflow-auto') as HTMLElement;
+      const body = within(table).getAllByRole('row')[1]!.parentElement!;
+      // jsdom lays nothing out; the virtualizer reads the scroll position from where the rows' box sits.
+      jest
+        .spyOn(body, 'getBoundingClientRect')
+        .mockImplementation(() => ({ top: 29 - surface.scrollTop, left: 0, width: 800, height: 0 }) as DOMRect);
+      surface.scrollTop = 5000 * LOG_ROW_HEIGHT_PX;
+      act(() => {
+        surface.dispatchEvent(new Event('scroll'));
+      });
+      const [header, ...dataRows] = within(table).getAllByRole('row');
+      expect(header).toHaveAttribute('aria-rowindex', '1');
+      expect(dataRows.length).toBeLessThan(100);
+      expect(dataRows.some(row => Number(row.getAttribute('data-log-id')) >= 4990)).toBe(true);
+      for (const row of dataRows) {
+        expect(row).toHaveAttribute('aria-rowindex', String(Number(row.getAttribute('data-log-id')) + 2));
       }
     });
   });

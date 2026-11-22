@@ -11,6 +11,8 @@ import { cn } from '../../lib/utils';
 
 type Props = {
   r: ApexLogRow;
+  /** 1-based position among all rows of the table, counting the header row as 1. */
+  ariaRowIndex: number;
   logHead: LogHeadMap;
   matchSnippet?: { text: string; ranges: SnippetRanges };
   columns: LogsColumnKey[];
@@ -65,6 +67,7 @@ function Snippet({ snippet }: { snippet?: { text: string; ranges: SnippetRanges 
 
 export function LogRow({
   r,
+  ariaRowIndex,
   logHead,
   matchSnippet,
   columns,
@@ -120,21 +123,21 @@ export function LogRow({
       case 'user': {
         const name = r.LogUser?.Name ?? '';
         return (
-          <div key={key} className={CELL} title={name}>
+          <div key={key} role="cell" className={CELL} title={name}>
             {name}
           </div>
         );
       }
       case 'application':
         return (
-          <div key={key} className={CELL} title={r.Application}>
+          <div key={key} role="cell" className={CELL} title={r.Application}>
             {r.Application}
           </div>
         );
       case 'operation': {
         const { head, tail } = splitOperation(r.Operation ?? '');
         return (
-          <div key={key} className="flex min-w-0 overflow-hidden px-2" title={r.Operation}>
+          <div key={key} role="cell" className="flex min-w-0 overflow-hidden px-2" title={r.Operation}>
             <span className="min-w-0 truncate">{head}</span>
             {tail && <span className="max-w-full shrink-0 truncate">{tail}</span>}
           </div>
@@ -143,14 +146,14 @@ export function LogRow({
       case 'time': {
         const time = new Date(r.StartTime).toLocaleString(locale);
         return (
-          <div key={key} className={CELL} title={time}>
+          <div key={key} role="cell" className={CELL} title={time}>
             {time}
           </div>
         );
       }
       case 'duration':
         return (
-          <div key={key} className={CELL}>
+          <div key={key} role="cell" className={CELL}>
             {formatDuration(r.DurationMilliseconds)}
           </div>
         );
@@ -158,6 +161,7 @@ export function LogRow({
         return (
           <div
             key={key}
+            role="cell"
             className="flex min-w-0 items-center gap-1.5 overflow-hidden px-2"
             title={[r.Status, primaryReason].filter(Boolean).join(' · ')}
           >
@@ -182,7 +186,10 @@ export function LogRow({
               <Badge
                 data-testid="logs-reason-badge"
                 variant="secondary"
-                className={cn(BADGE, 'min-w-14 max-w-[45%] shrink-[100] border-border/70 bg-muted/70 text-muted-foreground')}
+                className={cn(
+                  BADGE,
+                  'min-w-14 max-w-[45%] shrink-[100] border-border/70 bg-muted/70 text-muted-foreground'
+                )}
                 title={primaryReason}
               >
                 <span className="truncate">{primaryReason}</span>
@@ -192,13 +199,13 @@ export function LogRow({
         );
       case 'size':
         return (
-          <div key={key} className={cn(CELL, 'text-right tabular-nums')}>
+          <div key={key} role="cell" className={cn(CELL, 'text-right tabular-nums')}>
             {formatBytes(r.LogLength)}
           </div>
         );
       case 'match':
         return (
-          <div key={key} className={cn(CELL, 'text-muted-foreground')} title={matchSnippet?.text ?? ''}>
+          <div key={key} role="cell" className={cn(CELL, 'text-muted-foreground')} title={matchSnippet?.text ?? ''}>
             <Snippet snippet={matchSnippet} />
           </div>
         );
@@ -208,6 +215,7 @@ export function LogRow({
   return (
     <div
       role="row"
+      aria-rowindex={ariaRowIndex}
       data-log-id={r.Id}
       tabIndex={0}
       onClick={handleClick}
@@ -222,6 +230,7 @@ export function LogRow({
     >
       {columns.map(renderCell)}
       <div
+        role="cell"
         className={cn(
           'sticky right-0 z-[1] flex items-center justify-center gap-1 self-stretch border-l border-border/40',
           ROW_SURFACE

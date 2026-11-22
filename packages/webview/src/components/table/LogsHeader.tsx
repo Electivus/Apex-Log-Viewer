@@ -152,11 +152,14 @@ export function LogsHeader({
     <div className="sticky top-0 z-10 border-b border-border bg-card">
       <div
         role="row"
+        aria-rowindex={1}
         style={{ gridTemplateColumns: gridTemplate, minWidth: minWidthPx }}
         className="grid h-7 items-stretch"
       >
         {columns.map(key => renderColumnHeader(key))}
-        <div aria-hidden="true" className="sticky right-0 z-[1] border-l border-border/40 bg-card" />
+        <div role="columnheader" className="sticky right-0 z-[1] border-l border-border/40 bg-card">
+          <span className="sr-only">{t.logsTable?.actions ?? 'Actions'}</span>
+        </div>
       </div>
     </div>
   );
