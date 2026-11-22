@@ -136,6 +136,145 @@ describe('LogsTable', () => {
     expect(screen.queryByText('Match')).toBeNull();
   });
 
+  describe('the body of the grid', () => {
+    function scrollTo(scroller: HTMLElement, top: number) {
+      scroller.scrollTop = top;
+      act(() => {
+        scroller.dispatchEvent(new Event('scroll'));
+      });
+    }
+
+    it('renders only the rows near the viewport of a long list', () => {
+      renderTable({ rows: createRows(500) });
+      const rendered = screen.getAllByRole('row').length - 1;
+      expect(rendered).toBeGreaterThan(0);
+      expect(rendered).toBeLessThan(100);
+    });
+
+    it('keeps the header and rows in one scroller sharing one column template, so they stay aligned', () => {
+      const { container } = renderTable({ rows: createRows(5) });
+      const surface = container.querySelector('.overflow-auto') as HTMLElement;
+      const [header, firstRow] = screen.getAllByRole('row');
+      expect(surface).toContainElement(header);
+      expect(surface).toContainElement(firstRow);
+      expect(header.style.gridTemplateColumns).not.toBe('');
+      expect(firstRow.style.gridTemplateColumns).toBe(header.style.gridTemplateColumns);
+    });
+
+    it('fills its parent with the scroller', () => {
+      const { container } = renderTable({ rows: createRows(5) });
+      const surface = container.querySelector('.overflow-auto') as HTMLElement;
+      expect(surface.className).toContain('absolute');
+      expect(surface.className).toContain('inset-0');
+      expect(surface.parentElement?.className).toContain('flex-1');
+    });
+
+    it('reserves room under the sticky header when a focused row is scrolled into view', () => {
+      const { container } = renderTable({ rows: createRows(5) });
+      const surface = container.querySelector('.overflow-auto') as HTMLElement;
+      expect(surface.className).toContain('scroll-pt-[29px]');
+    });
+
+    it('renders extra rows while scrolling fast and returns to the idle amount once scrolling stops', () => {
+      jest.useFakeTimers();
+      try {
+        let now = 0;
+        const perf = jest.spyOn(performance, 'now').mockImplementation(() => now);
+        const { container } = renderTable({ rows: createRows(500) });
+        const surface = container.querySelector('.overflow-auto') as HTMLElement;
+        const count = () => screen.getAllByRole('row').length;
+        const base = count();
+        for (const [dt, dy] of [
+          [20, 10], // slow
+          [20, 30], // > 0.4 px/ms
+          [20, 60], // > 1 px/ms
+          [20, 100], // > 2 px/ms
+          [20, 100]
+        ]) {
+          now += dt;
+          scrollTo(surface, surface.scrollTop + dy);
+        }
+        const fast = count();
+        expect(fast).toBeGreaterThan(base);
+        act(() => {
+          jest.advanceTimersByTime(300);
+        });
+        expect(count()).toBe(base);
+        perf.mockRestore();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  describe('user actions', () => {
+    function renderWith(handlers: { onSort?: any; onOpen?: any; onReplay?: any }) {
+      return render(
+        <LogsTable
+          rows={createRows(3)}
+          logHead={{}}
+          matchSnippets={{}}
+          t={t as any}
+          onOpen={handlers.onOpen ?? (() => {})}
+          onReplay={handlers.onReplay ?? (() => {})}
+          locale="en-US"
+          sortBy="time"
+          sortDir="desc"
+          onSort={handlers.onSort ?? (() => {})}
+          columnsConfig={defaultColumnsConfig as any}
+          onColumnsConfigChange={() => {}}
+          fullLogSearchEnabled={false}
+          hasSearchText={false}
+        />
+      );
+    }
+
+    it('sorts by the column whose header is clicked and marks the active sort', () => {
+      const onSort = jest.fn();
+      renderWith({ onSort });
+      fireEvent.click(screen.getByText('Operation'));
+      expect(onSort).toHaveBeenCalledWith('operation');
+      expect(document.querySelector('[aria-sort="descending"]')).not.toBeNull();
+    });
+
+    it('opens and replays the log of the row whose buttons are used', () => {
+      const onOpen = jest.fn();
+      const onReplay = jest.fn();
+      renderWith({ onOpen, onReplay });
+      fireEvent.click(screen.getAllByRole('button', { name: 'Open' })[1]);
+      expect(onOpen).toHaveBeenCalledWith('1');
+      fireEvent.click(screen.getAllByRole('button', { name: 'Replay' })[2]);
+      expect(onReplay).toHaveBeenCalledWith('2');
+    });
+
+    it('does not shrink a column below its minimum when dragged narrower', () => {
+      const widths: number[] = [];
+      render(
+        <LogsTable
+          rows={createRows(1)}
+          logHead={{}}
+          matchSnippets={{}}
+          t={t as any}
+          onOpen={() => {}}
+          onReplay={() => {}}
+          locale="en-US"
+          sortBy="time"
+          sortDir="desc"
+          onSort={() => {}}
+          columnsConfig={defaultColumnsConfig as any}
+          onColumnsConfigChange={(updater: any) => widths.push(updater(defaultColumnsConfig).widths.user)}
+          fullLogSearchEnabled={false}
+          hasSearchText={false}
+        />
+      );
+      fireEvent.pointerDown(screen.getByRole('separator', { name: 'Resize User' }), { pointerId: 1, clientX: 500 });
+      act(() => {
+        window.dispatchEvent(new MouseEvent('pointermove', { clientX: 0 }));
+      });
+      expect(widths[0]).toBe(130);
+    });
+  });
+
   describe('column widths', () => {
     function renderResizable(widths: Record<string, number>) {
       const state = { config: { ...defaultColumnsConfig, widths } as any, persisted: [] as boolean[] };
