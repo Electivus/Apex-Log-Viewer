@@ -141,6 +141,47 @@ class LineHeights {
   }
 }
 
+/** How many of the newest measured lines give the height of a line that just arrived at the end. */
+const RECENT_LINES = 8;
+/** How many rows from the end the newest measured lines are looked for in. */
+const RECENT_ROWS = 256;
+
+/**
+ * The newest measured line among the last rows, and the height most common among the measured lines just before the
+ * end. A tie goes to the height of the older lines: when heights alternate line by line, the RECENT_LINES lines tie,
+ * and the oldest of them, an even count back, has the height of the line that comes next.
+ */
+function recentHeight(heights: LineHeights, rows: LineSeqSource) {
+  const lines = new Map<number, number>();
+  let newestSeq: number | undefined;
+  let height = 0;
+  let most = 0;
+  let measured = 0;
+  const stop = Math.max(0, rows.filteredIndexes.length - RECENT_ROWS);
+  for (let index = rows.filteredIndexes.length - 1; index >= stop && measured < RECENT_LINES; index--) {
+    const seq = lineSeqAt(index, rows);
+    const size = seq === undefined ? undefined : heights.get(seq);
+    if (seq === undefined || size === undefined) {
+      continue;
+    }
+    newestSeq ??= seq;
+    measured++;
+    const count = (lines.get(size) ?? 0) + 1;
+    lines.set(size, count);
+    if (count >= most) {
+      most = count;
+      height = size;
+    }
+  }
+  return newestSeq === undefined ? undefined : { newestSeq, height };
+}
+
+/** react-window's dynamic row height protocol, with the rows it covers and the height it gives each line. */
+type LineRowHeight = DynamicRowHeight & {
+  rows: LineSeqSource;
+  heightOf: (seq: number) => number;
+};
+
 /**
  * Row heights in react-window's dynamic row height protocol, kept per line sequence number, so a line keeps its
  * height when older lines leave the buffer or a filter moves it. The List measures every row it renders through
@@ -148,8 +189,9 @@ class LineHeights {
  * each of the buffer's lines, up to 200,000.
  *
  * A new object tells the List to rebuild its row positions, a pass over every row. A measurement asks for one only
- * when it differs from the height the List holds for that line, so a new line at the common height costs no pass
- * beyond the one its arrival already made.
+ * when it differs from the height the List holds for that line. While the view follows the end, a line newer than
+ * every measured line counts the height most common among the lines just before it, so a new line that is as tall as
+ * them costs no pass beyond the one its arrival already made. Other lines not measured yet count the estimate.
  *
  * While the view does not follow the end, the content in view keeps its place. The estimate stays where it was, since
  * a changed estimate moves every line not measured yet, and those lines sit above the view. When lines leave the head
@@ -164,16 +206,14 @@ function useLineRowHeights(
   const [heights] = useState(() => new LineHeights(firstLineSeq));
   const [version, setVersion] = useState(0);
   const observerRef = useRef<ResizeObserver | null>(null);
-  /** The height the committed object gives a line that is not measured yet. */
-  const estimateRef = useRef(DEFAULT_ROW_HEIGHT);
-  /** The rows of the committed object, so the lines that leave its head can be found. */
-  const committedRef = useRef<LineSeqSource>({ filteredIndexes, firstLineSeq });
+  /** The object the List was last rendered with. */
+  const committedRef = useRef<LineRowHeight | null>(null);
 
   const record = useCallback(
     (measured: ReadonlyArray<readonly [number, number]>) => {
       let moved = false;
       for (const [seq, size] of measured) {
-        const held = heights.get(seq) ?? estimateRef.current;
+        const held = committedRef.current?.heightOf(seq) ?? DEFAULT_ROW_HEIGHT;
         heights.set(seq, size);
         moved ||= held !== size;
       }
@@ -207,17 +247,24 @@ function useLineRowHeights(
 
   useEffect(() => heights.forgetBefore(firstLineSeq), [heights, firstLineSeq]);
 
-  const rowHeight = useMemo<DynamicRowHeight>(() => {
-    const source = { filteredIndexes, firstLineSeq };
-    const estimate = follow ? heights.commonHeight() : estimateRef.current;
+  const rowHeight = useMemo<LineRowHeight>(() => {
+    const rows = { filteredIndexes, firstLineSeq };
+    const estimate = follow
+      ? heights.commonHeight()
+      : (committedRef.current?.getAverageRowHeight() ?? DEFAULT_ROW_HEIGHT);
+    const recent = follow ? recentHeight(heights, rows) : undefined;
+    const measuredOrRecent = (seq: number) =>
+      heights.get(seq) ?? (recent && seq > recent.newestSeq ? recent.height : undefined);
     return {
+      rows,
+      heightOf: seq => measuredOrRecent(seq) ?? estimate,
       getAverageRowHeight: () => estimate,
       getRowHeight: index => {
-        const seq = lineSeqAt(index, source);
-        return seq === undefined ? undefined : heights.get(seq);
+        const seq = lineSeqAt(index, rows);
+        return seq === undefined ? undefined : measuredOrRecent(seq);
       },
       setRowHeight: (index, size) => {
-        const seq = lineSeqAt(index, source);
+        const seq = lineSeqAt(index, rows);
         if (seq !== undefined) {
           record([[seq, size]]);
         }
@@ -229,16 +276,16 @@ function useLineRowHeights(
 
   useLayoutEffect(() => {
     const committed = committedRef.current;
-    committedRef.current = { filteredIndexes, firstLineSeq };
-    if (firstLineSeq > committed.firstLineSeq) {
+    committedRef.current = rowHeight;
+    if (committed && firstLineSeq > committed.rows.firstLineSeq) {
       // The rows that left, at the heights the previous object gave them. Their heights are forgotten after paint.
       let left = 0;
-      for (const fullIdx of committed.filteredIndexes) {
-        const seq = committed.firstLineSeq + fullIdx;
+      for (const fullIdx of committed.rows.filteredIndexes) {
+        const seq = committed.rows.firstLineSeq + fullIdx;
         if (seq >= firstLineSeq) {
           break;
         }
-        left += heights.get(seq) ?? estimateRef.current;
+        left += committed.heightOf(seq);
       }
       if (!follow && listElement && left > 0) {
         listElement.scrollTop -= left;
@@ -247,8 +294,7 @@ function useLineRowHeights(
         listElement.dispatchEvent(new Event('scroll'));
       }
     }
-    estimateRef.current = rowHeight.getAverageRowHeight();
-  }, [rowHeight, filteredIndexes, firstLineSeq, follow, heights, listElement]);
+  }, [rowHeight, firstLineSeq, follow, heights, listElement]);
 
   return rowHeight;
 }
