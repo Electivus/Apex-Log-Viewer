@@ -317,4 +317,56 @@ describe('TailList rows over the real virtual list', () => {
 
     expect([...layouts]).toEqual([`${line} at ${top}`]);
   });
+
+  it('keeps the rows in view in place while Auto-scroll is off and rows above them get measured late', () => {
+    // Lines 270-291 are tall and were never rendered, so the List places them at the estimate. The view sits a few
+    // rows below them, then one update drops 40 lines from the head. Making up for those lines is not a scroll by the
+    // user: it must not render more rows above the view, and a tall row that does get measured there must not move
+    // the rows in view.
+    const COUNT = 400;
+    const tall = new Set(Array.from({ length: 22 }, (_, i) => 270 + i));
+    const { update } = renderTail(buffer(0, COUNT, tall));
+    scrollListTo(320 * SHORT);
+    act(() => {
+      jest.advanceTimersByTime(2000);
+    });
+    scrollListTo(300 * SHORT + 3);
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
+    const [line, top] = [...viewportTops()].find(([, rowTop]) => rowTop + SHORT > 0) ?? ['', 0];
+    expect(line).toBe('Line 300');
+
+    const layouts = new Set<string>();
+    beforeReport = () => layouts.add(placeOf(line));
+    update(buffer(40, COUNT, tall));
+    layouts.add(placeOf(line));
+
+    expect([...layouts]).toEqual([`${line} at ${top}`]);
+  });
+
+  it('keeps the rows in view in place while Auto-scroll is off and the user scrolls up over taller rows', () => {
+    // Lines 260-301 are tall and were never rendered. The user scrolls up by one row, so a row that comes
+    // in above the view is measured taller than the List placed it, and the row the user reads moves by the scroll only.
+    const COUNT = 400;
+    const tall = new Set(Array.from({ length: 42 }, (_, i) => 260 + i));
+    renderTail(buffer(0, COUNT, tall));
+    scrollListTo(330 * SHORT);
+    act(() => {
+      jest.advanceTimersByTime(2000);
+    });
+    scrollListTo(310 * SHORT);
+    act(() => {
+      jest.advanceTimersByTime(2000);
+    });
+    const [line, top] = [...viewportTops()].find(([, rowTop]) => rowTop >= 0) ?? ['', 0];
+
+    // The user moves up by one short row: the line moves down by exactly that much, whatever gets measured above it.
+    const layouts = new Set<string>();
+    beforeReport = () => layouts.add(placeOf(line));
+    scrollListTo(list().scrollTop - SHORT);
+    layouts.add(placeOf(line));
+
+    expect([...layouts]).toEqual([`${line} at ${top + SHORT}`]);
+  });
 });
