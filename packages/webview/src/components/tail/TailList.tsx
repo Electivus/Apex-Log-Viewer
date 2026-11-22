@@ -141,6 +141,28 @@ class LineHeights {
   }
 }
 
+type ScrollOffsetBeforeUpdateProps = {
+  element: HTMLElement | null;
+  offset: React.RefObject<number | undefined>;
+};
+
+/**
+ * Reads the list's scroll offset before React changes the DOM. When the list gets shorter under the offset, the browser
+ * pulls the offset back as soon as the new layout is read, so only here does it still say where the rows in view were.
+ */
+class ScrollOffsetBeforeUpdate extends React.Component<ScrollOffsetBeforeUpdateProps> {
+  override getSnapshotBeforeUpdate() {
+    this.props.offset.current = this.props.element?.scrollTop;
+    return null;
+  }
+
+  override componentDidUpdate() {}
+
+  override render() {
+    return null;
+  }
+}
+
 /**
  * Row heights in react-window's dynamic row height protocol, kept per line sequence number, so a line keeps its
  * height when older lines leave the buffer or a filter moves it. The List measures every row it renders through
@@ -159,7 +181,9 @@ function useLineRowHeights(
   filteredIndexes: readonly number[],
   firstLineSeq: number,
   follow: boolean,
-  listElement: HTMLElement | null
+  listElement: HTMLElement | null,
+  /** The list's scroll offset before this update changed the DOM, from `ScrollOffsetBeforeUpdate`. */
+  offsetBeforeRef: React.RefObject<number | undefined>
 ): DynamicRowHeight {
   const [heights] = useState(() => new LineHeights(firstLineSeq));
   const [version, setVersion] = useState(0);
@@ -241,14 +265,14 @@ function useLineRowHeights(
         left += heights.get(seq) ?? estimateRef.current;
       }
       if (!follow && listElement && left > 0) {
-        listElement.scrollTop -= left;
+        listElement.scrollTop = (offsetBeforeRef.current ?? listElement.scrollTop) - left;
         // The List picked its rows for the old offset, before this effect. The browser's scroll event would only
         // reach it on the next frame, so after a large trim that frame would show no rows; tell it now.
         listElement.dispatchEvent(new Event('scroll'));
       }
     }
     estimateRef.current = rowHeight.getAverageRowHeight();
-  }, [rowHeight, filteredIndexes, firstLineSeq, follow, heights, listElement]);
+  }, [rowHeight, filteredIndexes, firstLineSeq, follow, heights, listElement, offsetBeforeRef]);
 
   return rowHeight;
 }
@@ -322,7 +346,8 @@ export function TailList({
     () => ({ lines, filteredIndexes, firstLineSeq, selectedIndex, onSelectIndex, colorize, t }),
     [lines, filteredIndexes, firstLineSeq, selectedIndex, onSelectIndex, colorize, t]
   );
-  const rowHeight = useLineRowHeights(filteredIndexes, firstLineSeq, follow, listElement);
+  const offsetBeforeRef = useRef<number | undefined>(undefined);
+  const rowHeight = useLineRowHeights(filteredIndexes, firstLineSeq, follow, listElement, offsetBeforeRef);
 
   // The list takes the height the panel leaves under the toolbar. When a short, narrow panel cannot fit a wrapped
   // toolbar, the root scrolls instead and the list keeps its minimum height, so no control or row is clipped.
@@ -446,17 +471,20 @@ export function TailList({
           {running ? (t.tail?.waiting ?? 'Waiting for logs…') : (t.tail?.pressStart ?? 'Press Start to tail logs.')}
         </p>
       ) : (
-        <VirtualList
-          listRef={setVirtualListRef}
-          style={{ height, width: '100%' }}
-          rowCount={filteredIndexes.length}
-          rowHeight={rowHeight}
-          rowKey={tailRowKey}
-          overscanCount={overscanCount}
-          rowProps={rowProps}
-          onRowsRendered={onRowsRendered}
-          rowComponent={TailRow}
-        />
+        <>
+          <ScrollOffsetBeforeUpdate element={listElement} offset={offsetBeforeRef} />
+          <VirtualList
+            listRef={setVirtualListRef}
+            style={{ height, width: '100%' }}
+            rowCount={filteredIndexes.length}
+            rowHeight={rowHeight}
+            rowKey={tailRowKey}
+            overscanCount={overscanCount}
+            rowProps={rowProps}
+            onRowsRendered={onRowsRendered}
+            rowComponent={TailRow}
+          />
+        </>
       )}
     </div>
   );
