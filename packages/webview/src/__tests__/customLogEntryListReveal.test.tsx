@@ -8,11 +8,13 @@ import { getMessages } from '../i18n';
 import { buildEntryColumns } from '../utils/customLogs/entries';
 
 /**
- * The real react-window List over a fake layout: jsdom lays nothing out, so the browser's answers come from here.
- * Rows are as tall as `rowHeight` says, the list shows VIEWPORT pixels, and a ResizeObserver reports a size on
- * the next task after `observe`, as a browser does after layout.
+ * The real react-window virtualizer over a fake layout: jsdom lays nothing out, so the browser's answers come from
+ * here. Rows are as tall as `rowHeight` says, the scroller shows VIEWPORT pixels, its sticky header covers the top
+ * HEADER of them (the scroller's `scroll-padding-top`), and a ResizeObserver reports a size on the next task after
+ * `observe`, as a browser does after layout.
  */
 const VIEWPORT = 300;
+const HEADER = 25;
 let rowHeight: (entryId: string) => number = () => 26;
 let scrolls: Array<{ at: number; top: number }> = [];
 
@@ -20,13 +22,22 @@ const entryIdIn = (element: Element) =>
   (element.matches('[data-entry-id]') ? element : element.querySelector('[data-entry-id]'))?.getAttribute(
     'data-entry-id'
   ) ?? undefined;
-const isList = (element: Element) => element.getAttribute('role') === 'list';
+const isScroller = (element: Element) => element.classList.contains('overflow-auto');
+
+/** The rows' box: the last child of the scroller's one content div, below the sticky header. */
+const isBody = (element: Element) => {
+  const scroller = element.parentElement?.parentElement;
+  return !!scroller && isScroller(scroller) && element.parentElement.lastElementChild === element;
+};
 
 function laidOutHeight(element: Element): number {
-  if (isList(element)) {
+  if (isScroller(element)) {
     return VIEWPORT;
   }
-  const entryId = entryIdIn(element);
+  if (isBody(element)) {
+    return parseFloat((element as HTMLElement).style.height || '0');
+  }
+  const entryId = element.hasAttribute('data-index') ? entryIdIn(element) : undefined;
   return entryId ? rowHeight(entryId) : 0;
 }
 
@@ -91,7 +102,7 @@ const layout: Array<[string, PropertyDescriptor]> = [
     'clientHeight',
     {
       get: function (this: HTMLElement) {
-        return isList(this) ? VIEWPORT : 0;
+        return isScroller(this) || isBody(this) ? laidOutHeight(this) : 0;
       }
     }
   ],
@@ -99,12 +110,23 @@ const layout: Array<[string, PropertyDescriptor]> = [
     'scrollHeight',
     {
       get: function (this: HTMLElement) {
-        if (isList(this)) {
-          const sizer = this.querySelector<HTMLElement>('[data-react-window-sizer]');
-          return parseFloat(sizer?.style.height ?? '0');
+        if (isScroller(this)) {
+          const body = this.firstElementChild?.lastElementChild as HTMLElement | null;
+          return HEADER + parseFloat(body?.style.height ?? '0');
         }
         // What a browser reads for a row: its height without the 1 px bottom border.
         return Math.max(0, laidOutHeight(this) - 1);
+      }
+    }
+  ],
+  [
+    // Where the box sits against the scroller, which is how the virtualizer learns how far the rows have scrolled.
+    'getBoundingClientRect',
+    {
+      value: function (this: HTMLElement) {
+        const top = isBody(this) ? HEADER - this.parentElement!.parentElement!.scrollTop : 0;
+        const height = laidOutHeight(this);
+        return { top, bottom: top + height, left: 0, right: 800, width: 800, height, x: 0, y: top };
       }
     }
   ],
@@ -173,7 +195,7 @@ function openTarget() {
   view.rerender(renderList({ id: target.id, generation: 1 }));
 }
 
-const list = () => screen.getByRole('list');
+const list = () => screen.getByRole('grid').querySelector<HTMLElement>('.overflow-auto')!;
 
 /** Frames of 16 ms, each its own act, so React renders between them as a browser would. */
 function frames(count: number, eachFrame?: () => void) {
@@ -185,24 +207,30 @@ function frames(count: number, eachFrame?: () => void) {
   }
 }
 
-/** Where the target row lies against the list's viewport, from the offsets the List laid it out at. */
+/** Where the target row lies against the part of the viewport the sticky header leaves, from the offsets it was laid out at. */
 function placementOf(entry: CustomLogEntry): string {
   const row = list().querySelector(`[data-entry-id="${entry.id}"]`)?.parentElement;
   if (!row) {
     return 'not rendered';
   }
-  const top = Number(/translateY\((-?[\d.]+)px\)/.exec(row.style.transform)?.[1]);
+  // Rows sit below the header in the scroller, so a row at `top` is at `HEADER + top` from the scroller's top.
+  const top = HEADER + parseFloat(row.style.top);
   const bottom = top + rowHeight(entry.id);
   const { scrollTop } = list();
-  return top >= scrollTop && bottom <= scrollTop + VIEWPORT
+  return top >= scrollTop + HEADER && bottom <= scrollTop + VIEWPORT
     ? 'in view'
-    : `at ${top}-${bottom}, viewport ${scrollTop}-${scrollTop + VIEWPORT}`;
+    : `at ${top}-${bottom}, visible ${scrollTop + HEADER}-${scrollTop + VIEWPORT}`;
 }
 
 describe('revealing an entry in the entry list', () => {
   const NoResizeObserver = globalThis.ResizeObserver;
 
+  let paddingRule: HTMLStyleElement;
+
   beforeEach(() => {
+    // The component's Tailwind class, which no stylesheet defines in jsdom, but the virtualizer reads when it aligns.
+    paddingRule = document.head.appendChild(document.createElement('style'));
+    paddingRule.textContent = `.scroll-pt-\\[25px\\] { scroll-padding-top: ${HEADER}px; }`;
     jest.useFakeTimers();
     scrolls = [];
     rowHeight = () => 60;
@@ -213,6 +241,7 @@ describe('revealing an entry in the entry list', () => {
   });
 
   afterEach(() => {
+    paddingRule.remove();
     jest.useRealTimers();
     globalThis.ResizeObserver = NoResizeObserver;
     for (const [name] of layout) {

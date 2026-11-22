@@ -5,7 +5,6 @@ import { cn } from '../../lib/utils';
 import type { DataColumn, LogColumn, SortState } from '../../utils/customLogs/columns';
 import { fillTemplate } from '../../utils/customLogs/format';
 import type { DiscoveredField, PayloadFieldType } from '../../utils/customLogs/payloadRows';
-import { SCROLLBAR_GUTTER } from '../table/useVirtualListElement';
 import { ColumnHeaderMenu } from './ColumnHeaderMenu';
 import { PAYLOAD_TYPE_LABEL_KEY, PayloadFieldPicker } from './PayloadFieldPicker';
 
@@ -41,10 +40,9 @@ type CustomLogsColumnsHeaderProps = {
   onSort: (columnId: string, dir?: 'asc' | 'desc') => void;
   onToggleColumn: (path: string) => void;
   onRemoveColumn: (path: string) => void;
-  headerRef?: React.Ref<HTMLDivElement>;
 };
 
-/** The header row both lists share: sortable cells, the JSON column menu and the `+ Field` picker. */
+/** The header row both lists share, sticky at the top of the grid's one scroller: sortable cells, the JSON column menu and the `+ Field` picker. */
 export function CustomLogsColumnsHeader({
   t,
   columns,
@@ -57,15 +55,10 @@ export function CustomLogsColumnsHeader({
   lockedColumns,
   onSort,
   onToggleColumn,
-  onRemoveColumn,
-  headerRef
+  onRemoveColumn
 }: CustomLogsColumnsHeaderProps) {
   return (
-    <div
-      ref={headerRef}
-      role="row"
-      className={cn('shrink-0 overflow-hidden border-b border-border bg-card/70', SCROLLBAR_GUTTER)}
-    >
+    <div role="row" className="sticky top-0 z-10 border-b border-border bg-card">
       <div
         style={{ display: 'grid', gridTemplateColumns: gridTemplate, minWidth: totalWidth }}
         className="h-6 items-stretch"

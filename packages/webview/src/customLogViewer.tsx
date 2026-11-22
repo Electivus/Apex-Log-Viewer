@@ -65,13 +65,11 @@ function toggled<T>(set: ReadonlySet<T>, value: T): Set<T> {
 export interface CustomLogViewerAppProps {
   vscode?: VsCodeWebviewApi<CustomLogViewerFromWebviewMessage>;
   messageBus?: MessageBus;
-  virtualListComponent?: React.ComponentProps<typeof CustomLogEntryList>['virtualListComponent'];
 }
 
 export function CustomLogViewerApp({
   vscode = getDefaultVsCodeApi<CustomLogViewerFromWebviewMessage>(),
-  messageBus = getDefaultMessageBus(),
-  virtualListComponent
+  messageBus = getDefaultMessageBus()
 }: CustomLogViewerAppProps = {}) {
   const [initialUiState] = useState(() => readPayloadUiState(vscode.getState()));
   const [locale, setLocale] = useState('en');
@@ -360,7 +358,6 @@ export function CustomLogViewerApp({
             onToggleColumn={workbench.toggleColumn}
             onRemoveColumn={workbench.removeColumn}
             reveal={reveal}
-            virtualListComponent={virtualListComponent}
           />
           <LoadingOverlay show={loading.entries && entries.length === 0} label={t.viewer.loading} />
         </div>

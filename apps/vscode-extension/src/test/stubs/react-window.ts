@@ -43,9 +43,14 @@ export function useVirtualizer(_options: {
   count: number;
   element: HTMLElement | null;
   scrollElement?: HTMLElement | 'window' | null;
-  itemSize: number;
+  itemSize: number | DynamicRowHeight;
   overscanCount?: number;
   defaultSize?: number;
-}): { items: VirtualItem[]; totalSize: number } {
-  return { items: [], totalSize: 0 };
+}): {
+  items: VirtualItem[];
+  totalSize: number;
+  measureElement: (element: Element | null) => void;
+  scrollToIndex: (opts: { align?: Align; behavior?: 'auto' | 'instant' | 'smooth'; index: number }) => void;
+} {
+  return { items: [], totalSize: 0, measureElement: () => {}, scrollToIndex: () => {} };
 }
