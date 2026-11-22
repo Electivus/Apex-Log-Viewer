@@ -151,20 +151,23 @@ class LineHeights {
  * when it differs from the height the List holds for that line, so a new line at the common height costs no pass
  * beyond the one its arrival already made.
  *
- * The estimate follows the common height only while the view follows the end. A changed estimate moves every line
- * not measured yet, and while the user reads above the end, those lines sit above the view and would carry its
- * content away.
+ * While the view does not follow the end, the content in view keeps its place. The estimate stays where it was, since
+ * a changed estimate moves every line not measured yet, and those lines sit above the view. When lines leave the head
+ * of the buffer, the scroll offset drops by the height the List held for them.
  */
 function useLineRowHeights(
   filteredIndexes: readonly number[],
   firstLineSeq: number,
-  follow: boolean
+  follow: boolean,
+  listElement: HTMLElement | null
 ): DynamicRowHeight {
   const [heights] = useState(() => new LineHeights(firstLineSeq));
   const [version, setVersion] = useState(0);
   const observerRef = useRef<ResizeObserver | null>(null);
   /** The height the committed object gives a line that is not measured yet. */
   const estimateRef = useRef(DEFAULT_ROW_HEIGHT);
+  /** The rows of the committed object, so the lines that leave its head can be found. */
+  const committedRef = useRef<LineSeqSource>({ filteredIndexes, firstLineSeq });
 
   const record = useCallback(
     (measured: ReadonlyArray<readonly [number, number]>) => {
@@ -225,8 +228,27 @@ function useLineRowHeights(
   }, [filteredIndexes, firstLineSeq, follow, version, heights, observeRowElements, record]);
 
   useLayoutEffect(() => {
+    const committed = committedRef.current;
+    committedRef.current = { filteredIndexes, firstLineSeq };
+    if (firstLineSeq > committed.firstLineSeq) {
+      // The rows that left, at the heights the previous object gave them. Their heights are forgotten after paint.
+      let left = 0;
+      for (const fullIdx of committed.filteredIndexes) {
+        const seq = committed.firstLineSeq + fullIdx;
+        if (seq >= firstLineSeq) {
+          break;
+        }
+        left += heights.get(seq) ?? estimateRef.current;
+      }
+      if (!follow && listElement && left > 0) {
+        listElement.scrollTop -= left;
+        // The List picked its rows for the old offset, before this effect. The browser's scroll event would only
+        // reach it on the next frame, so after a large trim that frame would show no rows; tell it now.
+        listElement.dispatchEvent(new Event('scroll'));
+      }
+    }
     estimateRef.current = rowHeight.getAverageRowHeight();
-  }, [rowHeight]);
+  }, [rowHeight, filteredIndexes, firstLineSeq, follow, heights, listElement]);
 
   return rowHeight;
 }
@@ -300,7 +322,7 @@ export function TailList({
     () => ({ lines, filteredIndexes, firstLineSeq, selectedIndex, onSelectIndex, colorize, t }),
     [lines, filteredIndexes, firstLineSeq, selectedIndex, onSelectIndex, colorize, t]
   );
-  const rowHeight = useLineRowHeights(filteredIndexes, firstLineSeq, follow);
+  const rowHeight = useLineRowHeights(filteredIndexes, firstLineSeq, follow, listElement);
 
   // The list takes the height the panel leaves under the toolbar. When a short, narrow panel cannot fit a wrapped
   // toolbar, the root scrolls instead and the list keeps its minimum height, so no control or row is clipped.
