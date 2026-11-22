@@ -15,6 +15,16 @@ const SHAPED_TOKEN = ['00D000000000001', 'AQ4AQFakeTokenForRedactionTests.012345
 /** Shaped like a Salesforce refresh token. */
 const SHAPED_REFRESH = ['5Aep8', '61FakeRefreshTokenForRedactionTests0123456789'].join('');
 
+/**
+ * A JSON Web Token signed with HS256 whose three parts have no digit: its header and payload spell some characters as
+ * JSON escapes, and the payload was varied until the signature had no digit either.
+ */
+const DIGIT_FREE_JWT = [
+  'eyJcdTAwNjFcdTAwNmNcdTAwNjciCTogICJcdTAwNDhTXHUwMDMyNTYiCSwJInRcdTAwNzlcdTAwNzAiCTogIkpcdTAwNTdcdTAwNTQifQ',
+  'eyJcdTAwNzNcdTAwNzVcdTAwNjIiIDogInhcdTAwNjlcdTAwNjdjXHUwMDZiXHUwMDZieXlcdTAwNzdmIiAJLCAgImlcdTAwNzNzIiAJOiAJImZcdTAwNjlcdTAwNzhcdTAwNzRcdTAwNzVcdTAwNzJcdTAwNjUifQ',
+  'xMTOcdkPkdCxXDwFPnZeGwG-vBUkVbCNMuGBdbGtwVY'
+].join('.');
+
 const ORG: SourceOrg = {
   username: 'dev@example.com',
   instanceUrl: 'https://dev.my.salesforce.com',
@@ -551,6 +561,36 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
         assert.match(shown, /request failed with \[redacted\] end/i, `${value}${suffix}: the error replaces all of it`);
         assert.ok(!trace.includes('TAIL'), `${value}${suffix}: the trace carries no part of it`);
       }
+    }
+  });
+
+  test('a signed JSON Web Token without a digit is replaced to the end of its run after a Bearer', async () => {
+    assert.ok(!/\d/.test(DIGIT_FREE_JWT));
+    for (const suffix of ['%2FTAIL', '%TAIL', '&TAIL', '@TAIL', ':TAIL', '|TAIL', '#TAIL', '~TAIL']) {
+      for (const body of [
+        `Request failed: Bearer ${DIGIT_FREE_JWT}${suffix} end`,
+        `Request failed: ${DIGIT_FREE_JWT}${suffix} end`
+      ]) {
+        const { shown, trace } = await shownFor('stderr', body);
+
+        assert.match(shown, /request failed: (Bearer )?\[redacted\] end/i, `${body}: the error replaces all of it`);
+        assert.ok(!trace.includes('TAIL'), `${body}: the trace carries no part of it`);
+      }
+    }
+  });
+
+  test('an OAuth challenge with a digit in its scope keeps the log field after it', async () => {
+    const fields = [
+      ['USER_DEBUG|[12]|DEBUG|WWW-Authenticate: Bearer scope=orders.v2.read', '|HTTP_403'],
+      ['USER_DEBUG|[13]|DEBUG|WWW-Authenticate: Bearer scope=api.v58.write', '%20required'],
+      ['CALLOUT_RESPONSE|[14]|WWW-Authenticate: Bearer error=insufficient_scope2', '&retry=true'],
+      ['EXCEPTION_THROWN|[15]|WWW-Authenticate: Bearer realm=example2.com', '@example.com']
+    ];
+    for (const [before, after] of fields) {
+      const { shown, trace } = await shownFor('stderr', `${before}${after} end`);
+
+      assert.ok(shown.includes(`${after} end`), `${before}${after}: the error keeps ${after}`);
+      assert.ok(trace.includes(`${after} end`), `${before}${after}: the trace keeps ${after}`);
     }
   });
 
