@@ -47,12 +47,23 @@ function webviewBody(page: Page, name: string): Locator {
  * `visibility: hidden`, so this picks among the outer iframes that are not, and returns a locator bound to that
  * webview's identity. Unlike a `Frame`, the locator survives VS Code replacing the content iframe. It polls every
  * 250 ms. `timeoutMs` is the cutoff for starting a new poll, not for the call: the first poll always runs, and a poll
- * still running at the cutoff finishes and can return its webview after `timeoutMs`. The call rejects in two ways:
- * when that poll ends empty after the cutoff, at once; when a poll ends empty before the cutoff and less than 250 ms
- * remain, after sleeping until the cutoff, without polling again.
+ * still running at the cutoff finishes and can return its webview after `timeoutMs`. After a poll that finds nothing,
+ * the helper sleeps for 250 ms or for the time left before the cutoff, whichever is shorter (no time when the cutoff
+ * has passed), and only then reads the clock: before the cutoff it polls again, at or after it it rejects. So it never
+ * rejects before the cutoff, and how long after depends on when the sleep's timer fires. `clock` replaces `Date.now`
+ * and the sleep, for tests.
  */
-export async function shownWebview(page: Page, selector: string, timeoutMs = 120_000): Promise<Locator> {
-  const deadline = Date.now() + timeoutMs;
+export type LookupClock = { now(): number; sleep(ms: number): Promise<void> };
+
+const systemClock: LookupClock = { now: () => Date.now(), sleep };
+
+export async function shownWebview(
+  page: Page,
+  selector: string,
+  timeoutMs = 120_000,
+  clock: LookupClock = systemClock
+): Promise<Locator> {
+  const deadline = clock.now() + timeoutMs;
   do {
     const shownNames = await page
       .locator('iframe.webview')
@@ -75,8 +86,8 @@ export async function shownWebview(page: Page, selector: string, timeoutMs = 120
         return body;
       }
     }
-    await sleep(Math.min(250, Math.max(0, deadline - Date.now())));
-  } while (Date.now() < deadline);
+    await clock.sleep(Math.min(250, Math.max(0, deadline - clock.now())));
+  } while (clock.now() < deadline);
   throw new Error(`No webview on screen showed ${selector} within ${timeoutMs} ms.`);
 }
 

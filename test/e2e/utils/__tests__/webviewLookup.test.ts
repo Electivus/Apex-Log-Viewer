@@ -2,7 +2,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { chromium, expect as playwrightExpect, type Browser, type Page } from '@playwright/test';
 import { waitForDebugFlagsFrame, waitForLogsDebugFlagsButton } from '../../specs/debugFlagsPanel.shared';
-import { expectWebviewWithout, shownWebview, webviewWith } from '../webviews';
+import { expectWebviewWithout, shownWebview, webviewWith, type LookupClock } from '../webviews';
 
 /**
  * A synthetic workbench shaped like VS Code's: each webview is an `iframe.webview` named by its id, whose page holds the
@@ -207,84 +207,118 @@ describe('the Logs lookup that opens Debug Flags', () => {
 });
 
 describe('shownWebview', () => {
-  test('gives up once its timeout has passed', async () => {
-    await openWorkbench(page, 'deadline', { webviews: [{ name: 'logs-webview', copy: 'logs', active: logsContent }] });
-
-    const started = Date.now();
-    await expect(shownWebview(page, '[data-testid="absent"]', 10)).rejects.toThrow('within 10 ms');
-    expect(Date.now() - started).toBeLessThan(200);
-  });
-
-  type Poll = { start: number; end: number };
-
   /**
-   * Records every poll of `shownWebview` on the workbench page. Each poll lists the outer iframes with one
-   * `getComputedStyle` call per iframe in the page's main world, so with one webview each call is one poll. When
-   * `holdFirstPollMs` is set, the first poll keeps the page busy for that long, measured from its own start.
+   * A fake clock for `shownWebview`, so the tests read the deadline from the clock the helper reads, not from wall
+   * time. Time moves only when the helper sleeps (by what it asks for plus `lateMs`, a timer that fires late) and when
+   * the workbench page runs a poll (by `pollMs`). Each poll lists the outer iframes with one `getComputedStyle` call
+   * per iframe in the page's main world; with one webview, the wrapper below reports each call as one poll. It then
+   * keeps the page busy for 100 ms, so the report reaches the test before the poll's result reaches the helper.
    */
-  async function recordPolls(holdFirstPollMs = 0): Promise<() => Promise<Poll[]>> {
-    await page.evaluate(holdMs => {
-      const w = window as unknown as { polls: Poll[] };
-      w.polls = [];
-      const original = window.getComputedStyle.bind(window);
-      window.getComputedStyle = (element: Element, pseudo?: string | null) => {
-        const start = Date.now();
-        if (w.polls.length === 0 && holdMs > 0) {
-          while (Date.now() < start + holdMs) {
-            // Busy: the poll is in progress.
-          }
+  async function deadlineBench(id: string, { pollMs, lateMs = 0 }: { pollMs: number; lateMs?: number }) {
+    let time = 0;
+    let polls = 0;
+    const sleeps: number[] = [];
+    const clock: LookupClock = {
+      now: () => time,
+      sleep: async ms => {
+        sleeps.push(ms);
+        if (sleeps.length > 20) {
+          throw new Error('runaway: the helper kept sleeping past 20 sleeps');
         }
-        w.polls.push({ start, end: Date.now() });
+        time += ms + lateMs;
+      }
+    };
+    await page.exposeFunction('reportPoll', () => {
+      polls += 1;
+      time += pollMs;
+    });
+    await openWorkbench(page, id, { webviews: [{ name: 'logs-webview', copy: 'logs', active: logsContent }] });
+    await page.evaluate(() => {
+      const original = window.getComputedStyle.bind(window);
+      const report = (window as unknown as { reportPoll: () => void }).reportPoll;
+      window.getComputedStyle = (element: Element, pseudo?: string | null) => {
+        void report();
+        const end = Date.now() + 100;
+        while (Date.now() < end) {
+          // Busy, so the report is delivered before the poll returns.
+        }
         return original(element, pseudo);
       };
-    }, holdFirstPollMs);
-    return () => page.evaluate(() => (window as unknown as { polls: Poll[] }).polls);
+    });
+    return {
+      clock,
+      result: () => ({ polls, sleeps: [...sleeps], time })
+    };
   }
 
-  const CUTOFF_MS = 2_000;
+  async function rejection(promise: Promise<unknown>, bench: { result: () => { time: number } }) {
+    return await promise.then(
+      () => 'resolved',
+      (error: Error) => ({ message: error.message, at: bench.result().time })
+    );
+  }
 
-  test('lets the poll in progress at the cutoff return the webview it finds', async () => {
-    await openWorkbench(page, 'late-hit', { webviews: [{ name: 'logs-webview', copy: 'logs', active: logsContent }] });
-    const polls = await recordPolls(CUTOFF_MS + 500);
+  test('returns the webview found by the poll still running when the cutoff passes', async () => {
+    const bench = await deadlineBench('late-hit', { pollMs: 150 });
 
-    const before = Date.now();
-    const logs = await shownWebview(page, TOOLBAR, CUTOFF_MS);
-    const recorded = await polls();
+    const logs = await shownWebview(page, TOOLBAR, 100, bench.clock);
 
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0]!.start).toBeLessThan(before + CUTOFF_MS);
-    expect(recorded[0]!.end).toBeGreaterThan(before + CUTOFF_MS);
+    expect(bench.result()).toEqual({ polls: 1, sleeps: [], time: 150 });
     await playwrightExpect(logs.locator(TOOLBAR)).toBeVisible({ timeout: 5_000 });
   });
 
-  test('starts no poll after the poll in progress at the cutoff ends empty', async () => {
-    await openWorkbench(page, 'late-miss', { webviews: [{ name: 'logs-webview', copy: 'logs', active: logsContent }] });
-    const polls = await recordPolls(CUTOFF_MS + 500);
+  describe.each([0, 220, 600])('with the sleep timer firing %i ms late', lateMs => {
+    test('rejects after the poll still running at the cutoff ends empty, with no wait and no other poll', async () => {
+      const bench = await deadlineBench('late-miss', { pollMs: 150, lateMs });
 
-    const before = Date.now();
-    await expect(shownWebview(page, '[data-testid="absent"]', CUTOFF_MS)).rejects.toThrow(`within ${CUTOFF_MS} ms`);
-    const recorded = await polls();
+      const outcome = await rejection(shownWebview(page, '[data-testid="absent"]', 100, bench.clock), bench);
 
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0]!.start).toBeLessThan(before + CUTOFF_MS);
-    expect(recorded[0]!.end).toBeGreaterThan(before + CUTOFF_MS);
+      expect(outcome).toEqual({ message: expect.stringContaining('within 100 ms'), at: 150 + lateMs });
+      expect(bench.result()).toMatchObject({ polls: 1, sleeps: [0] });
+    });
+
+    test('sleeps until the cutoff after a poll ends empty with less than 250 ms left, then rejects', async () => {
+      const bench = await deadlineBench('short-left', { pollMs: 10, lateMs });
+
+      const outcome = await rejection(shownWebview(page, '[data-testid="absent"]', 100, bench.clock), bench);
+
+      expect(outcome).toEqual({ message: expect.stringContaining('within 100 ms'), at: 100 + lateMs });
+      expect(bench.result()).toMatchObject({ polls: 1, sleeps: [90] });
+    });
+
+    test('sleeps exactly 250 ms when 250 ms are left, then rejects', async () => {
+      const bench = await deadlineBench('exact-left', { pollMs: 10, lateMs });
+
+      const outcome = await rejection(shownWebview(page, '[data-testid="absent"]', 260, bench.clock), bench);
+
+      expect(outcome).toEqual({ message: expect.stringContaining('within 260 ms'), at: 260 + lateMs });
+      expect(bench.result()).toMatchObject({ polls: 1, sleeps: [250] });
+    });
   });
 
-  test('waits for the cutoff after a poll that ends empty before it, and rejects without another poll', async () => {
-    await openWorkbench(page, 'early-miss', {
-      webviews: [{ name: 'logs-webview', copy: 'logs', active: logsContent }]
-    });
-    const polls = await recordPolls();
+  test.each([
+    // Polls at 0, 260 and 520 (each takes 10 ms); sleeps 250, 250, then the 70 ms left; rejects at 600.
+    { lateMs: 0, polls: 3, sleeps: [250, 250, 70], at: 600 },
+    // The first sleep ends at 480: one more poll, then the 110 ms left, ending at 820.
+    { lateMs: 220, polls: 2, sleeps: [250, 110], at: 820 },
+    // The first sleep ends at 860, past the cutoff: no other poll.
+    { lateMs: 600, polls: 1, sleeps: [250], at: 860 }
+  ])(
+    'polls again every 250 ms while more than 250 ms are left (timer $lateMs ms late)',
+    async ({ lateMs, polls, sleeps, at }) => {
+      const bench = await deadlineBench('long-left', { pollMs: 10, lateMs });
 
-    // Shorter than the 250 ms poll interval, so the poll that ends empty is followed by the sleep to the cutoff.
-    const cutoffMs = 240;
-    const before = Date.now();
-    await expect(shownWebview(page, '[data-testid="absent"]', cutoffMs)).rejects.toThrow(`within ${cutoffMs} ms`);
-    const rejectedAt = Date.now();
-    const recorded = await polls();
+      const outcome = await rejection(shownWebview(page, '[data-testid="absent"]', 600, bench.clock), bench);
 
-    expect(recorded).toHaveLength(1);
-    expect(rejectedAt).toBeGreaterThanOrEqual(before + cutoffMs);
+      expect(outcome).toEqual({ message: expect.stringContaining('within 600 ms'), at });
+      expect(bench.result()).toMatchObject({ polls, sleeps });
+    }
+  );
+
+  test('gives up on the system clock once its timeout has passed', async () => {
+    await openWorkbench(page, 'deadline', { webviews: [{ name: 'logs-webview', copy: 'logs', active: logsContent }] });
+
+    await expect(shownWebview(page, '[data-testid="absent"]', 10)).rejects.toThrow('within 10 ms');
   });
 });
 
