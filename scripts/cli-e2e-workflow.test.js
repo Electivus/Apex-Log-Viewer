@@ -598,6 +598,24 @@ test('direct real-org Playwright workflow uploads OS-specific artifacts and keep
   assert.equal(uploadExtensionStep.step.with?.path, 'output/playwright/');
 });
 
+test('direct Windows CI requires the Custom Logs panel tests on a separate events pool', () => {
+  const workflow = readWorkflow();
+  const general = getDirectWorkflowStep(workflow, 'Run Playwright E2E');
+  const panel = getDirectWorkflowStep(workflow, 'Run Custom Logs events panel E2E');
+  const upload = getDirectWorkflowStep(workflow, 'Upload Playwright artifacts');
+  assert.equal(general.step.env.ALV_E2E_EXCLUDE_EVENTS_PANEL, "${{ runner.os == 'Windows' && '1' || '' }}");
+  assert.equal(
+    panel.step.if,
+    "${{ !cancelled() && runner.os == 'Windows' && steps.direct-real-org-config.outcome == 'success' }}"
+  );
+  assert.match(panel.step.run, /tsx \.\.\/\.\.\/test\/e2e\/utils\/runEventsPanel\.ts/);
+  assert.equal(panel.step.env.SF_SCRATCH_POOL_NAME, general.step.env.SF_SCRATCH_POOL_NAME);
+  for (const name of ['SF_DEVHUB_CLIENT_ID', 'SF_DEVHUB_USERNAME', 'SF_DEVHUB_LOGIN_URL', 'SF_DEVHUB_PRIVATE_KEY']) {
+    assert.equal(panel.step.env[name], general.step.env[name]);
+  }
+  assert.ok(general.index < panel.index && panel.index < upload.index);
+});
+
 test('direct E2E jobs install with the frozen pnpm lock and build in the same job', () => {
   const workflow = readWorkflow();
   const job = getWorkflowJob(workflow, 'playwright_e2e_os_matrix');

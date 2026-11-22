@@ -388,9 +388,10 @@ function buildPoolScratchDefinition(options: {
   definitionHash: string;
   seedVersion: string;
   snapshotName?: string;
+  definition?: Record<string, unknown>;
 }): Record<string, unknown> {
   return {
-    ...buildBaseScratchDefinition({ snapshotName: options.snapshotName }),
+    ...(options.definition ?? buildBaseScratchDefinition({ snapshotName: options.snapshotName })),
     alvPoolKey__c: options.poolKey,
     alvSlotKey__c: options.slotKey,
     alvDefinitionHash__c: options.definitionHash,
@@ -779,11 +780,16 @@ async function getPoolConfig(auth: OrgAuth, poolKey: string): Promise<PoolConfig
 
 async function resolveEffectivePoolBaseline(
   auth: OrgAuth,
-  poolKey: string
+  poolKey: string,
+  definition?: Record<string, unknown>
 ): Promise<{ definitionHash: string; seedVersion: string; snapshotName?: string }> {
   const poolConfig = await getPoolConfig(auth, poolKey);
   const snapshotName = resolvePoolSnapshotName() || poolConfig?.snapshotName;
   const seedVersion = resolvePoolSeedVersion() || poolConfig?.seedVersion || 'alv-e2e-baseline-v1';
+  if (definition) {
+    if (snapshotName) throw new Error('A custom scratch definition requires a pool without a snapshot.');
+    return { definitionHash: createDefinitionHash(definition), seedVersion };
+  }
   return {
     definitionHash: poolConfig?.definitionHash || createDefinitionHash(buildBaseScratchDefinition({ snapshotName })),
     seedVersion,
@@ -976,15 +982,18 @@ async function ensureSingleScratchOrg(devHub: DevHubSession): Promise<ScratchOrg
 
 type DeniedPoolSlot = { slotKey: string; reason: string; release: () => Promise<void> };
 
-async function ensurePooledScratchOrg(devHub: DevHubSession): Promise<ScratchOrgResult> {
+async function ensurePooledScratchOrg(
+  devHub: DevHubSession,
+  definition?: Record<string, unknown>
+): Promise<ScratchOrgResult> {
   const devHubAuth = await getOrgAuth(devHub.targetOrg, { forceRefresh: true, env: devHub.env });
-  const requestedBaseline = await resolveEffectivePoolBaseline(devHubAuth, resolvePoolKey());
+  const requestedBaseline = await resolveEffectivePoolBaseline(devHubAuth, resolvePoolKey(), definition);
   // Acquire assigns the lowest free slot needing a scratch org, so a released denied slot would come straight
   // back. Each one stays leased until this runner holds a slot it can use.
   const deniedSlots: DeniedPoolSlot[] = [];
   try {
     for (;;) {
-      const slot = await leasePoolSlot(devHub, devHubAuth, requestedBaseline);
+      const slot = await leasePoolSlot(devHub, devHubAuth, requestedBaseline, definition);
       if (!('reason' in slot)) {
         return slot;
       }
@@ -1007,7 +1016,8 @@ async function ensurePooledScratchOrg(devHub: DevHubSession): Promise<ScratchOrg
 async function leasePoolSlot(
   devHub: DevHubSession,
   devHubAuth: OrgAuth,
-  requestedBaseline: Awaited<ReturnType<typeof resolveEffectivePoolBaseline>>
+  requestedBaseline: Awaited<ReturnType<typeof resolveEffectivePoolBaseline>>,
+  definition?: Record<string, unknown>
 ): Promise<ScratchOrgResult | DeniedPoolSlot> {
   const devHubAlias = devHub.targetOrg;
   const poolKey = resolvePoolKey();
@@ -1151,7 +1161,8 @@ async function leasePoolSlot(
           slotKey,
           definitionHash: effectiveDefinitionHash,
           seedVersion: effectiveSeedVersion,
-          snapshotName: effectiveSnapshotName
+          snapshotName: effectiveSnapshotName,
+          definition
         })
       );
       try {
@@ -1219,13 +1230,19 @@ async function leasePoolSlot(
   }
 }
 
-export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
+export async function ensureScratchOrg(
+  options: { poolDefinition?: Record<string, unknown> } = {}
+): Promise<ScratchOrgResult> {
   return await timeE2eStep('scratch.ensure', async () => {
+    const strategy = resolveScratchStrategy();
+    if (options.poolDefinition && strategy !== 'pool') {
+      throw new Error('A custom scratch definition requires a dedicated scratch-org pool.');
+    }
     const devHub = await authenticateDevHub(resolveDevHubConfig(process.env, { allowLocalAlias: true }), runSfJson);
     try {
       const result =
-        resolveScratchStrategy() === 'pool'
-          ? await ensurePooledScratchOrg(devHub)
+        strategy === 'pool'
+          ? await ensurePooledScratchOrg(devHub, options.poolDefinition)
           : await ensureSingleScratchOrg(devHub);
       return {
         ...result,
