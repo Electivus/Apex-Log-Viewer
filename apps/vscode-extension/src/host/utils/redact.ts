@@ -92,8 +92,8 @@ const NAMED_SECRETS: readonly RegExp[] = [
 /** Every secret the extension received in this session. The process keeps it until it exits. */
 const held = new Set<string>();
 
-/** The finder for `held`, built again on the first redaction after a new secret is held. */
-let finder: Finder | undefined;
+/** The finders for `held`, built again on the first redaction after a new secret is held. */
+let finders: Finder[] | undefined;
 
 /**
  * Holds `value`, a secret the extension received, so that `redactSecrets` replaces it for the rest of the session.
@@ -104,7 +104,7 @@ export function holdSecret(value: unknown): void {
   const secret = stripControlSequences(value).trim();
   if (secret.length < MIN_HELD_LENGTH || /\s/.test(secret) || held.has(secret)) return;
   held.add(secret);
-  finder = undefined;
+  finders = undefined;
 }
 
 /** Holds every string under a secret-named key anywhere in `value`, such as a parsed `sf --json` answer. */
@@ -185,14 +185,30 @@ function encodedPointAt(text: string, index: number): number {
 /** How long the percent-encoding of `point` is, in characters: three for each of its UTF-8 bytes. */
 const encodedWidth = (point: number): number => 3 * (point < 0x80 ? 1 : point < 0x800 ? 2 : point < 0x10000 ? 3 : 4);
 
+const isHighSurrogate = (unit: number): boolean => unit >= 0xd800 && unit <= 0xdbff;
+const isLowSurrogate = (unit: number): boolean => unit >= 0xdc00 && unit <= 0xdfff;
+
+/** Whether `index` of `text` falls between the two halves of a surrogate pair. */
+const splitsPair = (text: string, index: number): boolean =>
+  isHighSurrogate(text.charCodeAt(index - 1)) && isLowSurrogate(text.charCodeAt(index));
+
+/** Added to each half of a surrogate pair read by code points, so that no half of a pair reads as a lone surrogate. */
+const PAIRED = 0x10000;
+
+/** The unit at `index` of `text`, plus `PAIRED` when it is read by code points and is half of a surrogate pair. */
+const unitAt = (text: string, index: number, byCodePoints: boolean): number =>
+  text.charCodeAt(index) + (byCodePoints && (splitsPair(text, index) || splitsPair(text, index + 1)) ? PAIRED : 0);
+
 /**
  * A text read one UTF-16 unit at a time, with the stretch `[start, end)` of the text each one came from. Read as
  * written, each unit is its own stretch. Read decoded, from the first character on, each well-formed percent-encoded
- * character gives its units, which share the stretch of its encoding, and every other character is itself.
+ * character gives its units, which share the stretch of its encoding, and every other character is itself. Read by
+ * code points, each half of a surrogate pair has `PAIRED` added, so a held secret read the same way is found where
+ * the text has its code points, and never from or up to the middle of a pair.
  */
 type Reading = { units: Int32Array; starts: Int32Array; ends: Int32Array; length: number };
 
-function readingOf(text: string, decoded: boolean): Reading {
+function readingOf(text: string, decoded: boolean, byCodePoints: boolean): Reading {
   const units = new Int32Array(text.length);
   const starts = new Int32Array(text.length);
   const ends = new Int32Array(text.length);
@@ -205,14 +221,15 @@ function readingOf(text: string, decoded: boolean): Reading {
   for (let index = 0; index < text.length;) {
     const point = decoded ? encodedPointAt(text, index) : -1;
     if (point < 0) {
-      add(text.charCodeAt(index), index, index + 1);
+      add(unitAt(text, index, byCodePoints), index, index + 1);
       index++;
       continue;
     }
     const end = index + encodedWidth(point);
     if (point > 0xffff) {
-      add(0xd800 + ((point - 0x10000) >> 10), index, end);
-      add(0xdc00 + ((point - 0x10000) & 0x3ff), index, end);
+      const paired = byCodePoints ? PAIRED : 0;
+      add(0xd800 + ((point - 0x10000) >> 10) + paired, index, end);
+      add(0xdc00 + ((point - 0x10000) & 0x3ff) + paired, index, end);
     } else {
       add(point, index, end);
     }
@@ -227,6 +244,8 @@ function readingOf(text: string, decoded: boolean): Reading {
  * edge goes on the unit's symbol, its index among the units that held secrets use.
  */
 type Finder = {
+  /** Whether the automaton reads held secrets and text by code points: see `readingOf`. */
+  byCodePoints: boolean;
   symbols: Map<number, number>;
   /**
    * For each node, the symbol of its edge to the node numbered right after it, or -1. The nodes that only one secret
@@ -250,14 +269,15 @@ type EncodingIndex = { entered: Int32Array; edges: Map<number, { starts: Int32Ar
 /** `%` and the hex digits: the characters a percent-encoding is written with. */
 const ENCODING_UNITS = [...'%0123456789abcdefABCDEF'].map(character => character.charCodeAt(0));
 
-function finderOf(secrets: ReadonlySet<string>): Finder {
+function finderOf(secrets: ReadonlySet<string>, byCodePoints: boolean): Finder {
   const units = [...secrets].map(secret =>
-    Array.from({ length: secret.length }, (_, index) => secret.charCodeAt(secret.length - 1 - index))
+    Array.from({ length: secret.length }, (_, index) => unitAt(secret, secret.length - 1 - index, byCodePoints))
   );
   const size = units.reduce((total, secret) => total + secret.length, 1);
   const symbols = new Map<number, number>();
   for (const unit of units.flat()) if (!symbols.has(unit)) symbols.set(unit, symbols.size);
   const finder: Finder = {
+    byCodePoints,
     symbols,
     chain: new Int32Array(size).fill(-1),
     edges: new Map(),
@@ -499,22 +519,51 @@ function coveredBy(reach: Int32Array): Int32Array {
   return covered;
 }
 
-/**
- * Where held secrets occur in `text`, as `reach`: as written, or as a reader that starts at any place of the text,
- * takes the rest of a percent-encoding it starts in as written, and decodes the well-formed percent-encodings after
- * it, reads it. Each reading is fed once through the automaton, and each character of an encoding once more as the
- * start of a reader. Undefined when none occurs.
- */
-function heldReach(text: string): Int32Array | undefined {
-  if (held.size === 0) return undefined;
-  finder ??= finderOf(held);
-  const reach = new Int32Array(text.length);
-  reachSecrets(finder, text, readingOf(text, false), reach);
-  if (text.includes('%')) {
-    finder.encodings ??= encodingIndexOf(finder);
-    reachSecrets(finder, text, readingOf(text, true), reach);
+/** `reach`, with each stretch that starts or ends between the two halves of a surrogate pair of `text` widened to it. */
+function wholePairs(text: string, reach: Int32Array): Int32Array {
+  for (let start = 0; start < reach.length; start++) {
+    const end = valueAt(reach, start);
+    if (end === 0) continue;
+    const from = splitsPair(text, start) ? start - 1 : start;
+    reach[from] = Math.max(valueAt(reach, from), splitsPair(text, end) ? end + 1 : end);
   }
-  return reach.some(end => end > 0) ? reach : undefined;
+  return reach;
+}
+
+/**
+ * The finders for `secrets`. One reads by UTF-16 units, so a secret that ends in the first half of a surrogate pair
+ * is found where the text has that half. When a secret starts or ends inside a pair, another reads by code points: a
+ * match by units can then run over the name of a secret-named value that the rules find only beside the matches by
+ * code points. Without such a secret, both find the same places.
+ */
+function findersOf(secrets: ReadonlySet<string>): Finder[] {
+  const byUnits = finderOf(secrets, false);
+  const cutsPairs = [...secrets].some(
+    secret => isLowSurrogate(secret.charCodeAt(0)) || isHighSurrogate(secret.charCodeAt(secret.length - 1))
+  );
+  return cutsPairs ? [byUnits, finderOf(secrets, true)] : [byUnits];
+}
+
+/**
+ * Where held secrets occur in `text`, as one `reach` for each finder that finds any: as written, or as a reader that
+ * starts at any place of the text, takes the rest of a percent-encoding it starts in as written, and decodes the
+ * well-formed percent-encodings after it, reads it. Each reading is fed once through each automaton, and each
+ * character of an encoding once more as the start of a reader.
+ */
+function heldReaches(text: string): Int32Array[] {
+  if (held.size === 0) return [];
+  finders ??= findersOf(held);
+  const reaches: Int32Array[] = [];
+  for (const finder of finders) {
+    const reach = new Int32Array(text.length);
+    reachSecrets(finder, text, readingOf(text, false, finder.byCodePoints), reach);
+    if (text.includes('%')) {
+      finder.encodings ??= encodingIndexOf(finder);
+      reachSecrets(finder, text, readingOf(text, true, finder.byCodePoints), reach);
+    }
+    if (reach.some(end => end > 0)) reaches.push(reach);
+  }
+  return reaches;
 }
 
 /** For each place of `text`, where the furthest of `shapes` in the text as written that starts there or before it ends. */
@@ -627,14 +676,14 @@ function extendCredentials(
  */
 export function redactSecrets(text: string): string {
   const stripped = stripControlSequences(text);
-  const raw = new Int32Array(stripped.length);
-  const unclosed = reachRules(stripped, raw);
-  const heldAt = heldReach(stripped);
-  const heldOnly = heldAt && Int32Array.from(heldAt);
-  const reach = heldAt ?? raw;
-  if (heldAt) {
+  const reach = new Int32Array(stripped.length);
+  const unclosed = reachRules(stripped, reach);
+  const reaches = heldReaches(stripped);
+  // Where the held secrets alone occur, before the rules below raise these reaches, for `extendCredentials`.
+  const heldOnly = reaches.map(heldAt => Int32Array.from(heldAt));
+  for (const heldAt of reaches) {
     const heldCovered = coveredBy(heldAt);
-    unclosed.push(...reachRules(stripped, heldAt));
+    for (const stretch of reachRules(stripped, heldAt)) unclosed.push(stretch);
     // What the rules replaced beside the held secrets is blanked, so that a shape a held secret falls in starts
     // where the replaced text ends, as it does once that text reads [redacted]. Only what the rules found with the
     // held secrets replaced is blanked, so a match on the text as written cannot cut such a shape short.
@@ -648,16 +697,19 @@ export function redactSecrets(text: string): string {
     for (const shape of TOKEN_SHAPES) {
       for (const { index, 0: match } of scanned.matchAll(shape)) {
         const end = index + match.length;
-        if (valueAt(heldCovered, end) > valueAt(heldCovered, index) && end > valueAt(reach, index)) reach[index] = end;
+        if (valueAt(heldCovered, end) > valueAt(heldCovered, index) && end > valueAt(heldAt, index))
+          heldAt[index] = end;
       }
     }
     for (let index = 0; index < reach.length; index++)
-      reach[index] = Math.max(valueAt(reach, index), valueAt(raw, index));
+      reach[index] = Math.max(valueAt(reach, index), valueAt(heldAt, index));
   }
   if (unclosed.length > 0) {
     const furthest = furthestShapeEnds(stripped);
     for (const { start, end } of unclosed) reach[start] = Math.max(valueAt(reach, start), valueAt(furthest, end - 1));
   }
-  extendCredentials(stripped, heldOnly, unclosed, reach);
-  return reach.some(end => end > 0) ? spliced(stripped, reach).masked : stripped;
+  const [firstHeld, ...otherHeld] = heldOnly;
+  extendCredentials(stripped, firstHeld, unclosed, reach);
+  for (const copy of otherHeld) extendCredentials(stripped, copy, [], reach);
+  return reach.some(end => end > 0) ? spliced(stripped, wholePairs(stripped, reach)).masked : stripped;
 }

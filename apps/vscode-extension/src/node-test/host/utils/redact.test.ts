@@ -75,4 +75,37 @@ suite('held token search', () => {
       assert.ok(!redact.redactSecrets(text).includes('[redacted]'), `${text.length} characters: nothing is held there`)
     );
   });
+
+  test('held tokens that end in the first half of a surrogate pair are looked for in moves that grow linearly', () => {
+    const letters = syntheticLetters(1040);
+    const redact = freshRedact();
+    for (let length = 12; length < 12 + 1024; length++) redact.holdSecret(`${letters.slice(0, length)}\uD83D`);
+
+    const texts = [128, 256, 512, 1024].map(count => {
+      const token = letters.slice(0, count);
+      return `${token}😀 ${percentEncoded(token)}\uD83D end`;
+    });
+    assertLinearMoves(redact, texts, 4, text =>
+      assert.equal(
+        redact.redactSecrets(text),
+        '[redacted] [redacted] end',
+        `${text.length} characters: each token is replaced, the first with all of its pair`
+      )
+    );
+  });
+});
+
+suite('a long text', () => {
+  test('a held token and 150,000 named values, 900,013 characters, come back with each of them replaced', () => {
+    const redact = freshRedact();
+    redact.holdSecret('FAKE-held-01');
+    const text = `FAKE-held-01 ${'sid=x '.repeat(150_000)}`;
+    assert.equal(text.length, 900_013);
+
+    const shown = redact.redactSecrets(text);
+
+    assert.ok(!shown.includes('FAKE-held-01'), 'the held token is replaced');
+    assert.ok(!shown.includes('=x'), 'every named value is replaced');
+    assert.equal(shown.split('sid=[redacted]').length - 1, 150_000, 'each name stays, with its value replaced');
+  });
 });
