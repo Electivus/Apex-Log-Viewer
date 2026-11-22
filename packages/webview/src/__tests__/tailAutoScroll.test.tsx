@@ -405,4 +405,35 @@ describe('Tail Auto-scroll over the real virtual list', () => {
     expect(autoScroll()).not.toBeChecked();
     expect(list().scrollHeight).toBe(expected);
   });
+
+  it('keeps the heights it predicted for lines not measured yet once Auto-scroll is turned off', () => {
+    // Most measured lines are short and the newest ones tall, so a batch of tall lines arrives at the tall height,
+    // and only the rows at the end get measured. Turning Auto-scroll off must not give the others another height.
+    const BUFFER = 1000;
+    const receive = openTail({
+      autoScroll: false,
+      bufferSize: BUFFER,
+      text: seq => (seq >= 600 ? `Line ${seq} TALL` : `Line ${seq}`)
+    });
+    for (let top = 0; top <= 300 * ROW; top += VIEWPORT / 2) {
+      act(() => {
+        list().scrollTop = top;
+      });
+      frames(3);
+    }
+    fireEvent.click(autoScroll());
+    frames(20);
+    readsPerNewLine(receive, BUFFER, 5);
+    receive(BUFFER + 5, 60);
+    frames(20);
+    expect(distanceFromEnd()).toBe(0);
+    const height = list().scrollHeight;
+
+    fireEvent.click(autoScroll());
+    frames(20);
+
+    expect(autoScroll()).not.toBeChecked();
+    expect(list().scrollHeight).toBe(height);
+    expect(distanceFromEnd()).toBe(0);
+  });
 });
