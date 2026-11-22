@@ -377,7 +377,13 @@ describe('Tail Auto-scroll over the real virtual list', () => {
     expect(readsPerLine).toEqual(readsPerLine.map((_, k) => (isTall(first + k) ? 2 * BUFFER : BUFFER)));
   });
 
-  it('counts the most common measured height for the lines not measured yet once Auto-scroll is turned off', () => {
+  /** The measured heights of the buffer's lines, from `first` on, and their mean, rounded. */
+  function measuredFrom(first: number) {
+    const sizes = [...measuredHeights].filter(([seq]) => seq >= first).map(([, size]) => size);
+    return Math.round(sizes.reduce((a, b) => a + b, 0) / sizes.length);
+  }
+
+  it('counts the mean measured height for the lines not measured yet once Auto-scroll is turned off', () => {
     // Lines 0-89 and 750-999 are tall, the others short, and the end is in view, so the measured lines are tall. Short
     // lines then arrive one by one, and the view pauses as soon as most measured lines are short.
     const BUFFER = 1000;
@@ -395,12 +401,13 @@ describe('Tail Auto-scroll over the real virtual list', () => {
       next++;
     }
 
+    const mean = measuredFrom(next - BUFFER);
     fireEvent.click(autoScroll());
     frames(20);
 
     let expected = 0;
     for (let seq = next - BUFFER; seq < next; seq++) {
-      expected += measuredHeights.get(seq) ?? ROW;
+      expected += measuredHeights.get(seq) ?? mean;
     }
     expect(autoScroll()).not.toBeChecked();
     expect(list().scrollHeight).toBe(expected);
@@ -408,7 +415,8 @@ describe('Tail Auto-scroll over the real virtual list', () => {
 
   it('keeps the heights it predicted for lines not measured yet once Auto-scroll is turned off', () => {
     // Most measured lines are short and the newest ones tall, so a batch of tall lines arrives at the tall height,
-    // and only the rows at the end get measured. Turning Auto-scroll off must not give the others another height.
+    // and only the rows at the end get measured. Turning Auto-scroll off must not give the others another height:
+    // only the lines with neither a measurement nor a prediction take the mean measured height.
     const BUFFER = 1000;
     const receive = openTail({
       autoScroll: false,
@@ -427,13 +435,70 @@ describe('Tail Auto-scroll over the real virtual list', () => {
     receive(BUFFER + 5, 60);
     frames(20);
     expect(distanceFromEnd()).toBe(0);
-    const height = list().scrollHeight;
+    const last = BUFFER + 65;
+    const mean = measuredFrom(last - BUFFER);
+    let expected = 0;
+    for (let seq = last - BUFFER; seq < last; seq++) {
+      expected += measuredHeights.get(seq) ?? (seq >= BUFFER + 5 ? TALL_ROW : mean);
+    }
 
     fireEvent.click(autoScroll());
     frames(20);
 
     expect(autoScroll()).not.toBeChecked();
-    expect(list().scrollHeight).toBe(height);
+    expect(list().scrollHeight).toBe(expected);
     expect(distanceFromEnd()).toBe(0);
+  });
+
+  it('counts the mean measured height and keeps the line in view when Auto-scroll goes off with every other line tall', () => {
+    // As many measured lines are short as tall, so the most common height is a coin toss; the mean is not.
+    const BUFFER = 1000;
+    const receive = openTail({
+      autoScroll: true,
+      bufferSize: BUFFER,
+      text: seq => (seq % 2 ? `Line ${seq} TALL` : `Line ${seq}`)
+    });
+    readsPerNewLine(receive, BUFFER, 4);
+    const last = BUFFER + 4;
+    const rowsBefore = () =>
+      Array.from(document.querySelectorAll<HTMLElement>('[role="row"]'), row => [
+        row.textContent ?? '',
+        parseFloat(row.style.transform.replace('translateY(', '')) - list().scrollTop
+      ]);
+    const inView = rowsBefore().filter(([, top]) => (top as number) >= 0 && (top as number) < VIEWPORT);
+    // The mean of the lines measured when the view stops following.
+    const mean = measuredFrom(last - BUFFER);
+
+    fireEvent.click(autoScroll());
+    frames(20);
+
+    let expected = 0;
+    for (let seq = last - BUFFER; seq < last; seq++) {
+      expected += measuredHeights.get(seq) ?? mean;
+    }
+    // The List sums row positions in floating point.
+    expect(list().scrollHeight).toBeCloseTo(expected, 6);
+    expect(rowsBefore().filter(([, top]) => (top as number) >= 0 && (top as number) < VIEWPORT)).toEqual(inView);
+  });
+
+  it('costs at most one extra pass when a run of tall lines ends (bound)', () => {
+    // Nine tall lines every 40. Once nine tall lines in a row are measured, a new line is predicted tall, so the first
+    // short line after the run costs one extra pass. No other line costs more than it does with the common height.
+    const BUFFER = 1000;
+    const isTall = (seq: number) => seq % 40 < 9;
+    const receive = openTail({
+      autoScroll: true,
+      bufferSize: BUFFER,
+      text: seq => (isTall(seq) ? `Line ${seq} TALL` : `Line ${seq}`)
+    });
+    readsPerNewLine(receive, BUFFER, 12);
+
+    const first = BUFFER + 12;
+    const readsPerLine = readsPerNewLine(receive, first, 80);
+
+    expect(distanceFromEnd()).toBe(0);
+    expect(readsPerLine).toEqual(
+      readsPerLine.map((_, k) => (isTall(first + k) || (first + k) % 40 === 9 ? 2 * BUFFER : BUFFER))
+    );
   });
 });
