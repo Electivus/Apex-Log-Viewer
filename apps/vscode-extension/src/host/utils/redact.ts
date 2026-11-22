@@ -53,6 +53,30 @@ const TOKEN_SHAPES: readonly RegExp[] = [
 ];
 
 /**
+ * A character a credential may hold, as written or percent-encoded: one of a bearer token (RFC 6750 `b64token`:
+ * letters, digits, `-._~+/` and `=` padding), the `!` of a session id, or the `%` that starts an escape. Any other,
+ * such as the `|` of a log field, the `\` of a JSON escape, `&`, `@`, `:` or `#`, ends the credential.
+ */
+const VALUE_RUN = '[A-Za-z0-9._~+/=!%-]';
+
+/** A refresh token or JSON Web Token, the latter also with padded parts, to the end of its run of credential characters. */
+const CREDENTIAL_RUNS: readonly RegExp[] = [
+  new RegExp(String.raw`\b5Aep8[A-Za-z0-9._]{20,}${VALUE_RUN}*`, 'g'),
+  new RegExp(String.raw`\beyJ(?<!\beyJ[\w-]*?eyJ)[\w-]{8,}=*\.[\w-]{8,}=*\.[\w-]{8,}${VALUE_RUN}*`, 'g')
+];
+
+/**
+ * The shortest text of each credential shape. A session id may start glued to the text before it, as in a `Bearer`
+ * value `abcdefghijkl00D…!…`; a JSON Web Token or refresh token starts a word, so a dotted name such as
+ * `monkeyJumped.configuration.propertyName` is no token.
+ */
+const SHAPE_STARTS: readonly RegExp[] = [
+  /00D[A-Za-z0-9]{12,15}![^\s"'`,;()[\]{}<>]{8}/g,
+  /\b5Aep8[A-Za-z0-9._]{20}/g,
+  /\beyJ(?<!\beyJ[\w-]*?eyJ)[\w-]{8,}=*\.[\w-]{8,}=*\.[\w-]{8}/g
+];
+
+/**
  * Text that names its secret before it: the secret is the second group, after the name in the first, and its
  * replacement keeps the name and the closing third group, when there is one.
  */
@@ -542,10 +566,10 @@ function heldReaches(text: string): Int32Array[] {
   return reaches;
 }
 
-/** For each place of `text`, where the furthest token shape of the text as written that starts there or before it ends. */
-function furthestShapeEnds(text: string): Int32Array {
+/** For each place of `text`, where the furthest of `shapes` in the text as written that starts there or before it ends. */
+function furthestShapeEnds(text: string, shapes: readonly RegExp[] = TOKEN_SHAPES): Int32Array {
   const furthest = new Int32Array(text.length);
-  for (const shape of TOKEN_SHAPES) {
+  for (const shape of shapes) {
     for (const { index, 0: match } of text.matchAll(shape)) {
       furthest[index] = Math.max(valueAt(furthest, index), index + match.length);
     }
@@ -554,6 +578,26 @@ function furthestShapeEnds(text: string): Int32Array {
     furthest[index] = Math.max(valueAt(furthest, index), valueAt(furthest, index - 1));
   }
   return furthest;
+}
+
+/** For each place of `text`, how many credential shapes start before it. */
+function shapeStartsBefore(text: string): Int32Array {
+  const before = new Int32Array(text.length + 1);
+  for (const shape of SHAPE_STARTS) {
+    for (const { index } of text.matchAll(shape)) before[index + 1] = valueAt(before, index + 1) + 1;
+  }
+  for (let index = 1; index < before.length; index++)
+    before[index] = valueAt(before, index) + valueAt(before, index - 1);
+  return before;
+}
+
+/** For each place of `text`, where the run of credential characters it falls in ends, or the next place outside one. */
+function runEnds(text: string): Int32Array {
+  const ends = Int32Array.from({ length: text.length }, (_, index) => index + 1);
+  for (const { index, 0: run } of text.matchAll(new RegExp(`${VALUE_RUN}+`, 'g'))) {
+    ends.fill(index + run.length, index, index + run.length);
+  }
+  return ends;
 }
 
 type Stretch = { start: number; end: number };
@@ -585,18 +629,59 @@ function reachRules(text: string, reach: Int32Array): Stretch[] {
 }
 
 /**
+ * Raises `reach` to the end of each credential's run of credential characters: a refresh token or JSON Web Token in
+ * `text` as written, or with the held secrets of `heldAt` replaced, and an `unclosed` value in which a credential
+ * shape starts. It reads only `text`, `heldAt` and `unclosed`, never what other rules replaced, and only raises
+ * `reach`, so every place the rules before it replace stays replaced.
+ */
+function extendCredentials(
+  text: string,
+  heldAt: Int32Array | undefined,
+  unclosed: readonly Stretch[],
+  reach: Int32Array
+): void {
+  const raise = (start: number, end: number) => {
+    if (end > valueAt(reach, start)) reach[start] = end;
+  };
+  for (const shape of CREDENTIAL_RUNS) {
+    for (const { index, 0: match } of text.matchAll(shape)) raise(index, index + match.length);
+  }
+  if (heldAt) {
+    const masked = spliced(text, heldAt);
+    for (const shape of CREDENTIAL_RUNS) {
+      for (const { index, 0: match } of masked.masked.matchAll(shape)) {
+        raise(masked.starts[index] ?? 0, masked.ends[index + match.length - 1] ?? 0);
+      }
+    }
+  }
+  if (unclosed.length === 0) return;
+  const furthest = furthestShapeEnds(text, CREDENTIAL_RUNS);
+  const ends = runEnds(text);
+  const shapes = shapeStartsBefore(text);
+  for (const { start, end } of unclosed) {
+    raise(start, valueAt(furthest, end - 1));
+    if (valueAt(shapes, end) > valueAt(shapes, start)) raise(start, valueAt(ends, end - 1));
+  }
+}
+
+/**
  * `text` with every held secret, every token-shaped string and every secret-named value replaced, after its
  * control sequences are removed. Where held secrets occur, the union of their places is replaced at once, so a secret
  * that begins or overlaps another leaves no part of either. The rules run on the text as written, so a held secret
  * that covers part of a secret's name leaves the secret replaced, and again with the held secrets replaced, where
  * they can end a name. A value that only its name marks, with nothing to close it, is replaced to the end of every
- * token shape that runs past it, and a token shape that a held secret falls in is replaced whole.
+ * token shape that runs past it, and to the end of its run of credential characters when a credential shape starts in
+ * it, so a word or an OAuth scope after "Bearer" leaves the field after it, and a token shape that a held secret falls
+ * in is replaced whole.
  */
 export function redactSecrets(text: string): string {
   const stripped = stripControlSequences(text);
   const reach = new Int32Array(stripped.length);
   const unclosed = reachRules(stripped, reach);
-  for (const heldAt of heldReaches(stripped)) {
+  const reaches = heldReaches(stripped);
+  // Where the held secrets alone occur, before the rules below raise these reaches, for `extendCredentials`.
+  const heldOnly = reaches.map(heldAt => Int32Array.from(heldAt));
+  for (const heldAt of reaches) {
     const heldCovered = coveredBy(heldAt);
     for (const stretch of reachRules(stripped, heldAt)) unclosed.push(stretch);
     // What the rules replaced beside the held secrets is blanked, so that a shape a held secret falls in starts
@@ -623,5 +708,8 @@ export function redactSecrets(text: string): string {
     const furthest = furthestShapeEnds(stripped);
     for (const { start, end } of unclosed) reach[start] = Math.max(valueAt(reach, start), valueAt(furthest, end - 1));
   }
+  const [firstHeld, ...otherHeld] = heldOnly;
+  extendCredentials(stripped, firstHeld, unclosed, reach);
+  for (const copy of otherHeld) extendCredentials(stripped, copy, [], reach);
   return reach.some(end => end > 0) ? spliced(stripped, wholePairs(stripped, reach)).masked : stripped;
 }
