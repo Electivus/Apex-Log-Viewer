@@ -43,11 +43,11 @@ const SECRET_KEY_NAMES = [
 const SECRET_KEYS = new Set(SECRET_KEY_NAMES.toLowerCase().split('|'));
 
 /**
- * A character a credential may run on, literal or percent-encoded: every one but a space, a quote, a comma, a
- * semicolon, a bracket, a `|` that separates log fields, a `\` that starts a JSON escape such as `\n` or `\"`, and an
- * `&` that starts the next `name=` parameter.
+ * A character a credential may hold, as written or percent-encoded: one of a bearer token (RFC 6750 `b64token`:
+ * letters, digits, `-._~+/` and `=` padding), the `!` of a session id, or the `%` that starts an escape. Any other,
+ * such as the `|` of a log field, the `\` of a JSON escape, `&`, `@`, `:` or `#`, ends the credential.
  */
-const VALUE_RUN = String.raw`(?:[^\s"'\`,;()[\]{}<>|\\&]|&(?![\w.-]+=))`;
+const VALUE_RUN = '[A-Za-z0-9._~+/=!%-]';
 
 /** Text shaped like a Salesforce credential, whoever printed it. */
 const TOKEN_SHAPES: readonly RegExp[] = [

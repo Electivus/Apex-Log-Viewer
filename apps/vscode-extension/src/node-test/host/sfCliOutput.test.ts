@@ -542,8 +542,8 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
   test('a JSON Web Token or refresh token is replaced to the end of its run, after a Bearer or on its own', async () => {
     const jwt = ['eyJhbGciOiJSUzI1NiJ9', 'eyJzdWIiOiJGQUtFLXN1YmplY3QifQ', 'FAKEsignatureFAKEsignature0123'].join('.');
     const session = ['00D000000000001', 'AQFakeSession'].join('!');
-    for (const suffix of ['%', '&', '@']) {
-      for (const value of [jwt, SHAPED_REFRESH, `abcdefghijkl${session}`]) {
+    for (const value of [jwt, SHAPED_REFRESH, `abcdefghijkl${session}`]) {
+      for (const suffix of ['%', '~']) {
         const { shown, trace } = await shownFor('stderr', `Request failed: Bearer ${value}${suffix}TAIL end`);
 
         assert.match(
@@ -553,20 +553,33 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
         );
         assert.ok(!trace.includes('TAIL'), `${value}${suffix}: the trace carries no part of it`);
       }
+      // A character no credential holds ends it, and the text after it stays, as on main.
+      for (const suffix of ['&', '@', ':', '|', '#']) {
+        const { shown, trace } = await shownFor('stderr', `Request failed: Bearer ${value}${suffix}TAIL end`);
+
+        assert.ok(shown.includes(`Bearer [redacted]${suffix}TAIL end`), `${value}${suffix}: the error keeps the rest`);
+        assert.ok(!shown.includes(value) && !trace.includes(value), `${value}${suffix}: no part of the value is left`);
+      }
     }
-    for (const suffix of ['%', '&', '@', ':', '|', '#', '~']) {
-      for (const value of [jwt, SHAPED_REFRESH]) {
+    for (const value of [jwt, SHAPED_REFRESH]) {
+      for (const suffix of ['%', '~']) {
         const { shown, trace } = await shownFor('stderr', `Request failed with ${value}${suffix}TAIL end`);
 
         assert.match(shown, /request failed with \[redacted\] end/i, `${value}${suffix}: the error replaces all of it`);
         assert.ok(!trace.includes('TAIL'), `${value}${suffix}: the trace carries no part of it`);
+      }
+      for (const suffix of ['&', '@', ':', '|', '#']) {
+        const { shown, trace } = await shownFor('stderr', `Request failed with ${value}${suffix}TAIL end`);
+
+        assert.ok(shown.includes(`with [redacted]${suffix}TAIL end`), `${value}${suffix}: the error keeps the rest`);
+        assert.ok(!shown.includes(value) && !trace.includes(value), `${value}${suffix}: no part of the value is left`);
       }
     }
   });
 
   test('a signed JSON Web Token without a digit is replaced to the end of its run after a Bearer', async () => {
     assert.ok(!/\d/.test(DIGIT_FREE_JWT));
-    for (const suffix of ['%2FTAIL', '%TAIL', '&TAIL', '@TAIL', ':TAIL', '|TAIL', '#TAIL', '~TAIL']) {
+    for (const suffix of ['%2FTAIL', '%TAIL', '~TAIL', '/TAIL', '+TAIL', '==%3DTAIL']) {
       for (const body of [
         `Request failed: Bearer ${DIGIT_FREE_JWT}${suffix} end`,
         `Request failed: ${DIGIT_FREE_JWT}${suffix} end`
