@@ -621,10 +621,23 @@ async function verify(alias, options) {
 
 async function installEventFixtures(alias) {
   const connection = await connect(alias);
-  await sfJson(['project', 'deploy', 'start', '--source-dir', 'force-app', '--target-org', alias, '--wait', '20'], {
-    cwd: ORG_PROJECT_DIR,
-    timeoutMs: 25 * 60 * 1000
-  });
+  // A pooled org keeps the fixtures an earlier runner deployed, and this runner's source tracking reads them as
+  // conflicts. The org only ever holds these fixtures, so the deploy overwrites whatever is there.
+  await sfJson(
+    [
+      'project',
+      'deploy',
+      'start',
+      '--source-dir',
+      'force-app',
+      '--target-org',
+      alias,
+      '--wait',
+      '20',
+      '--ignore-conflicts'
+    ],
+    { cwd: ORG_PROJECT_DIR, timeoutMs: 25 * 60 * 1000 }
+  );
   const assigned = await connection.query(
     `SELECT Id FROM PermissionSetAssignment WHERE PermissionSet.Name = '${PERMISSION_SET}' AND Assignee.Username = '${soql(connection.getUsername())}'`
   );
