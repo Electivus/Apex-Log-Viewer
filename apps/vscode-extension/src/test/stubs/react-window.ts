@@ -36,3 +36,16 @@ export function List(props: any) {
     }
   });
 }
+
+export type VirtualItem = { index: number; offset: number; size: number };
+
+export function useVirtualizer(_options: {
+  count: number;
+  element: HTMLElement | null;
+  scrollElement?: HTMLElement | 'window' | null;
+  itemSize: number;
+  overscanCount?: number;
+  defaultSize?: number;
+}): { items: VirtualItem[]; totalSize: number } {
+  return { items: [], totalSize: 0 };
+}

@@ -1,7 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import { LogsTable } from '../components/LogsTable';
 import { CustomLogEntryList } from '../components/custom-logs/CustomLogEntryList';
 import { SCROLLBAR_GUTTER } from '../components/table/useVirtualListElement';
 import { getMessages } from '../i18n';
@@ -50,47 +49,6 @@ function scrollHorizontally(element: HTMLElement, left: number) {
     element.scrollLeft = left;
     fireEvent.scroll(element);
   });
-}
-
-function mountLogs() {
-  const view = render(
-    <LogsTable
-      rows={[{ Id: '07L000000000001AAA', StartTime: '2026-11-05T10:00:00.000Z', LogLength: 10 } as any]}
-      logHead={{}}
-      matchSnippets={{}}
-      t={{ columns: {}, open: 'Open', replay: 'Replay' } as any}
-      onOpen={() => {}}
-      onReplay={() => {}}
-      locale="en-US"
-      sortBy="time"
-      sortDir="asc"
-      onSort={() => {}}
-      columnsConfig={
-        {
-          order: ['user', 'application', 'operation', 'time', 'duration', 'status', 'size', 'match'],
-          visibility: {
-            user: true,
-            application: true,
-            operation: true,
-            time: true,
-            duration: true,
-            status: true,
-            size: true,
-            match: false
-          },
-          widths: {}
-        } as any
-      }
-      onColumnsConfigChange={() => {}}
-      fullLogSearchEnabled={false}
-      hasSearchText={false}
-    />
-  );
-  return {
-    ...view,
-    body: screen.getByTestId('virtual-list'),
-    header: screen.getAllByRole('row')[0]!.parentElement as HTMLElement
-  };
 }
 
 function mountCustomLogs() {
@@ -147,7 +105,6 @@ function mountEntries() {
 }
 
 describe.each([
-  { name: 'Logs', mount: mountLogs },
   { name: 'Custom Logs', mount: mountCustomLogs },
   { name: 'Custom Log entries', mount: mountEntries }
 ])('$name table headers', ({ mount }) => {

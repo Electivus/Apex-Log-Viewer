@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { List } from 'react-window';
+import { useVirtualizer } from 'react-window';
 import type { ApexLogRow } from '@alv/protocol/types';
 import type { LogsColumnKey, NormalizedLogsColumnsConfig } from '@alv/protocol/logsColumns';
 import type { LogDiagnostic } from '@alv/protocol/logTriage';
@@ -11,7 +11,6 @@ import {
 } from '../utils/logsColumns';
 import { LogsHeader } from './table/LogsHeader';
 import { LogRow } from './table/LogRow';
-import { SCROLLBAR_GUTTER, syncHeaderScroll, useVirtualListElement } from './table/useVirtualListElement';
 
 export type LogHeadEntry = {
   hasErrors?: boolean;
@@ -20,30 +19,6 @@ export type LogHeadEntry = {
 };
 
 export type LogHeadMap = Record<string, LogHeadEntry>;
-
-type ListRowProps = {
-  rows: ApexLogRow[];
-  logHead: LogHeadMap;
-  matchSnippets: Record<string, { text: string; ranges: [number, number][] }>;
-  columns: LogsColumnKey[];
-  locale: string;
-  t: any;
-  onOpen: (logId: string) => void;
-  onReplay: (logId: string) => void;
-  gridTemplate: string;
-  minWidthPx: number;
-};
-
-type VirtualRowArgs = ListRowProps & {
-  index: number;
-  style: React.CSSProperties;
-};
-
-function VirtualLogRow({ index, style, rows, logHead, matchSnippets, ...rowProps }: VirtualRowArgs) {
-  const row = rows[index];
-  if (!row) return null;
-  return <LogRow r={row} logHead={logHead} matchSnippet={matchSnippets[row.Id]} style={style} {...rowProps} />;
-}
 
 export function LogsTable({
   rows,
@@ -58,7 +33,6 @@ export function LogsTable({
   onSort,
   columnsConfig,
   onColumnsConfigChange,
-  virtualListComponent,
   fullLogSearchEnabled,
   hasSearchText,
   emptyMessage
@@ -78,20 +52,18 @@ export function LogsTable({
     updater: (prev: NormalizedLogsColumnsConfig) => NormalizedLogsColumnsConfig,
     options?: { persist?: boolean }
   ) => void;
-  virtualListComponent?: typeof List;
   fullLogSearchEnabled: boolean;
   hasSearchText: boolean;
   emptyMessage?: string;
 }) {
-  const { setListRef, element: listElement } = useVirtualListElement();
-  const headerRef = useRef<HTMLDivElement | null>(null);
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+  const [body, setBody] = useState<HTMLDivElement | null>(null);
   const [overscanCount, setOverscanCount] = useState<number>(8);
   const overscanBaseRef = useRef<number>(8);
   const overscanLastTopRef = useRef<number>(0);
   const overscanLastTsRef = useRef<number>(0);
   const overscanDecayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const overscanLastSetRef = useRef<number>(8);
-  const VirtualList = virtualListComponent ?? List;
   const columns = useMemo(
     () => getVisibleLogsColumns(columnsConfig, { fullLogSearchEnabled, hasSearchText }),
     [columnsConfig, fullLogSearchEnabled, hasSearchText]
@@ -101,22 +73,22 @@ export function LogsTable({
     [columns, columnsConfig.widths]
   );
 
-  const listRowProps = useMemo<ListRowProps>(
-    () => ({ rows, logHead, matchSnippets, columns, locale, t, onOpen, onReplay, gridTemplate, minWidthPx }),
-    [rows, logHead, matchSnippets, columns, locale, t, onOpen, onReplay, gridTemplate, minWidthPx]
-  );
+  const { items, totalSize } = useVirtualizer({
+    count: rows.length,
+    element: body,
+    scrollElement: scroller,
+    itemSize: LOG_ROW_HEIGHT_PX,
+    overscanCount,
+    defaultSize: 600
+  });
 
   useEffect(() => {
-    const el = listElement;
-    const header = headerRef.current;
-    if (!el || !header) return;
-    syncHeaderScroll(el, header);
-    const onHeaderScroll = () => syncHeaderScroll(header, el);
+    const el = scroller;
+    if (!el) return;
     const onScroll = () => {
       const now = performance.now();
       const dt = now - (overscanLastTsRef.current || now);
       const dy = Math.abs(el.scrollTop - (overscanLastTopRef.current || 0));
-      syncHeaderScroll(el, header);
       if (dt > 16) {
         const v = dy / dt; // px per ms
         let next = overscanBaseRef.current;
@@ -140,58 +112,69 @@ export function LogsTable({
       overscanLastTopRef.current = el.scrollTop;
     };
     el.addEventListener('scroll', onScroll, { passive: true });
-    header.addEventListener('scroll', onHeaderScroll, { passive: true });
     return () => {
       el.removeEventListener('scroll', onScroll);
-      header.removeEventListener('scroll', onHeaderScroll);
     };
-  }, [listElement]);
+  }, [scroller]);
 
   return (
-    <div className="flex min-h-[148px] min-w-0 flex-1 flex-col">
-      <LogsHeader
-        ref={headerRef}
-        t={t}
-        sortBy={sortBy}
-        sortDir={sortDir}
-        onSort={onSort}
-        gridTemplate={gridTemplate}
-        minWidthPx={minWidthPx}
-        columns={columns}
-        onResizeColumn={(key, widthPx, options) => {
-          const minWidth = LOGS_COLUMN_MIN_WIDTH_PX[key];
-          const clamped = Math.max(minWidth, Math.floor(widthPx));
-          onColumnsConfigChange(prev => ({ ...prev, widths: { ...prev.widths, [key]: clamped } }), {
-            persist: options.persist
-          });
-        }}
-        onClearColumnWidth={key => {
-          onColumnsConfigChange(prev => {
-            const { [key]: _removed, ...rest } = prev.widths;
-            return { ...prev, widths: rest };
-          });
-        }}
-      />
-      <div className="relative min-h-[120px] flex-1">
-        <VirtualList
-          className={SCROLLBAR_GUTTER}
-          style={{ height: '100%', width: '100%' }}
-          rowCount={rows.length}
-          rowHeight={LOG_ROW_HEIGHT_PX}
-          listRef={setListRef}
-          rowProps={listRowProps}
-          overscanCount={overscanCount}
-          rowComponent={VirtualLogRow}
-        />
-        {emptyMessage && (
-          <p
-            data-testid="logs-empty-message"
-            className="absolute inset-x-0 top-0 m-3 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
-          >
-            {emptyMessage}
-          </p>
-        )}
+    <div className="relative min-h-[148px] min-w-0 flex-1">
+      <div ref={setScroller} className="absolute inset-0 overflow-auto scroll-pt-[29px]">
+        <div style={{ minWidth: minWidthPx }}>
+          <LogsHeader
+            t={t}
+            sortBy={sortBy}
+            sortDir={sortDir}
+            onSort={onSort}
+            gridTemplate={gridTemplate}
+            minWidthPx={minWidthPx}
+            columns={columns}
+            onResizeColumn={(key, widthPx, options) => {
+              const minWidth = LOGS_COLUMN_MIN_WIDTH_PX[key];
+              const clamped = Math.max(minWidth, Math.floor(widthPx));
+              onColumnsConfigChange(prev => ({ ...prev, widths: { ...prev.widths, [key]: clamped } }), {
+                persist: options.persist
+              });
+            }}
+            onClearColumnWidth={key => {
+              onColumnsConfigChange(prev => {
+                const { [key]: _removed, ...rest } = prev.widths;
+                return { ...prev, widths: rest };
+              });
+            }}
+          />
+          <div ref={setBody} className="relative" style={{ height: totalSize }}>
+            {items.map(({ index, offset, size }) => {
+              const row = rows[index];
+              if (!row) return null;
+              return (
+                <LogRow
+                  key={row.Id}
+                  r={row}
+                  logHead={logHead}
+                  matchSnippet={matchSnippets[row.Id]}
+                  columns={columns}
+                  locale={locale}
+                  t={t}
+                  onOpen={onOpen}
+                  onReplay={onReplay}
+                  gridTemplate={gridTemplate}
+                  minWidthPx={minWidthPx}
+                  style={{ position: 'absolute', top: offset, left: 0, right: 0, height: size }}
+                />
+              );
+            })}
+          </div>
+        </div>
       </div>
+      {emptyMessage && (
+        <p
+          data-testid="logs-empty-message"
+          className="absolute inset-x-0 top-7 m-3 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+        >
+          {emptyMessage}
+        </p>
+      )}
     </div>
   );
 }
