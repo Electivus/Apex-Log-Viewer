@@ -85,6 +85,9 @@ function scrolled(element: HTMLElement) {
   });
 }
 
+/** The height each line was last measured at, by line sequence number. */
+const measuredHeights = new Map<number, number>();
+
 class FakeResizeObserver {
   private readonly targets = new Set<Element>();
 
@@ -97,6 +100,10 @@ class FakeResizeObserver {
         return;
       }
       const height = isRow(target) ? rowHeightOf(target) : VIEWPORT;
+      const seq = Number(target.getAttribute('data-line-seq') ?? Number.NaN);
+      if (Number.isInteger(seq)) {
+        measuredHeights.set(seq, height);
+      }
       const entry = {
         target,
         contentRect: { height, width: 800 },
@@ -217,6 +224,7 @@ describe('Tail Auto-scroll over the real virtual list', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     pendingScrollEvents.clear();
+    measuredHeights.clear();
     globalThis.ResizeObserver = FakeResizeObserver as unknown as typeof ResizeObserver;
     Object.defineProperties(HTMLElement.prototype, layout);
   });
@@ -331,5 +339,68 @@ describe('Tail Auto-scroll over the real virtual list', () => {
 
     expect(distanceFromEnd()).toBe(0);
     expect(readsPerLine).toEqual(readsPerLine.map(() => BUFFER));
+  });
+
+  it('reads each row height once per new line when two tall lines and three short ones repeat', () => {
+    const BUFFER = 1000;
+    const receive = openTail({
+      autoScroll: true,
+      bufferSize: BUFFER,
+      text: seq => (seq % 5 < 2 ? `Line ${seq} TALL` : `Line ${seq}`)
+    });
+    readsPerNewLine(receive, BUFFER, 10);
+
+    const readsPerLine = readsPerNewLine(receive, BUFFER + 10, 10);
+
+    expect(distanceFromEnd()).toBe(0);
+    expect(readsPerLine).toEqual(readsPerLine.map(() => BUFFER));
+  });
+
+  it('reads each row height no more often than the most common height asks for when tall lines come in bursts', () => {
+    // Six tall lines every 40. The newest lines follow no short pattern across a burst, so a new line counts the
+    // buffer's common height, the short one: a short line costs one pass and a tall one two, never more.
+    const BUFFER = 1000;
+    const isTall = (seq: number) => seq % 40 < 6;
+    const receive = openTail({
+      autoScroll: true,
+      bufferSize: BUFFER,
+      text: seq => (isTall(seq) ? `Line ${seq} TALL` : `Line ${seq}`)
+    });
+    readsPerNewLine(receive, BUFFER, 12);
+
+    const first = BUFFER + 12;
+    const readsPerLine = readsPerNewLine(receive, first, 80);
+
+    expect(distanceFromEnd()).toBe(0);
+    expect(readsPerLine).toEqual(readsPerLine.map((_, k) => (isTall(first + k) ? 2 * BUFFER : BUFFER)));
+  });
+
+  it('counts the most common measured height for the lines not measured yet once Auto-scroll is turned off', () => {
+    // Lines 0-89 and 750-999 are tall, the others short, and the end is in view, so the measured lines are tall. Short
+    // lines then arrive one by one, and the view pauses as soon as most measured lines are short.
+    const BUFFER = 1000;
+    const receive = openTail({
+      autoScroll: true,
+      bufferSize: BUFFER,
+      text: seq => (seq < 90 || (seq >= 750 && seq < BUFFER) ? `Line ${seq} TALL` : `Line ${seq}`)
+    });
+    let next = BUFFER;
+    const measuredShort = () => [...measuredHeights].filter(([seq, height]) => seq >= next - BUFFER && height === ROW);
+    const measuredTall = () =>
+      [...measuredHeights].filter(([seq, height]) => seq >= next - BUFFER && height === TALL_ROW);
+    while (measuredShort().length <= measuredTall().length) {
+      readsPerNewLine(receive, next, 1);
+      next++;
+    }
+
+    fireEvent.click(autoScroll());
+    frames(20);
+
+    let expected = 0;
+    for (let seq = next - BUFFER; seq < next; seq++) {
+      expected += measuredHeights.get(seq) ?? ROW;
+    }
+    expect(autoScroll()).not.toBeChecked();
+    expect(list().scrollHeight).toBe(expected);
   });
 });
