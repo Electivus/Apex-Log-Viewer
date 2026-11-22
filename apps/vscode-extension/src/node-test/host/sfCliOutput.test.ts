@@ -15,6 +15,16 @@ const SHAPED_TOKEN = ['00D000000000001', 'AQ4AQFakeTokenForRedactionTests.012345
 /** Shaped like a Salesforce refresh token. */
 const SHAPED_REFRESH = ['5Aep8', '61FakeRefreshTokenForRedactionTests0123456789'].join('');
 
+/**
+ * A JSON Web Token signed with HS256 whose three parts have no digit: its header and payload spell some characters as
+ * JSON escapes, and the payload was varied until the signature had no digit either.
+ */
+const DIGIT_FREE_JWT = [
+  'eyJcdTAwNjFcdTAwNmNcdTAwNjciCTogICJcdTAwNDhTXHUwMDMyNTYiCSwJInRcdTAwNzlcdTAwNzAiCTogIkpcdTAwNTdcdTAwNTQifQ',
+  'eyJcdTAwNzNcdTAwNzVcdTAwNjIiIDogInhcdTAwNjlcdTAwNjdjXHUwMDZiXHUwMDZieXlcdTAwNzdmIiAJLCAgImlcdTAwNzNzIiAJOiAJImZcdTAwNjlcdTAwNzhcdTAwNzRcdTAwNzVcdTAwNzJcdTAwNjUifQ',
+  'xMTOcdkPkdCxXDwFPnZeGwG-vBUkVbCNMuGBdbGtwVY'
+].join('.');
+
 const ORG: SourceOrg = {
   username: 'dev@example.com',
   instanceUrl: 'https://dev.my.salesforce.com',
@@ -525,6 +535,171 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
           `${place}, ${value}: the error replaces all of it`
         );
         assert.ok(!trace.includes('TAIL'), `${place}, ${value}: the trace carries no part of it`);
+      }
+    }
+  });
+
+  test('a JSON Web Token or refresh token is replaced to the end of its run, after a Bearer or on its own', async () => {
+    const jwt = ['eyJhbGciOiJSUzI1NiJ9', 'eyJzdWIiOiJGQUtFLXN1YmplY3QifQ', 'FAKEsignatureFAKEsignature0123'].join('.');
+    const session = ['00D000000000001', 'AQFakeSession'].join('!');
+    for (const value of [jwt, SHAPED_REFRESH, `abcdefghijkl${session}`]) {
+      for (const suffix of ['%', '~']) {
+        const { shown, trace } = await shownFor('stderr', `Request failed: Bearer ${value}${suffix}TAIL end`);
+
+        assert.match(
+          shown,
+          /request failed: Bearer \[redacted\] end/i,
+          `${value}${suffix}: the error replaces all of it`
+        );
+        assert.ok(!trace.includes('TAIL'), `${value}${suffix}: the trace carries no part of it`);
+      }
+      // A character no credential holds ends it, and the text after it stays, as on main.
+      for (const suffix of ['&', '@', ':', '|', '#']) {
+        const { shown, trace } = await shownFor('stderr', `Request failed: Bearer ${value}${suffix}TAIL end`);
+
+        assert.ok(shown.includes(`Bearer [redacted]${suffix}TAIL end`), `${value}${suffix}: the error keeps the rest`);
+        assert.ok(!shown.includes(value) && !trace.includes(value), `${value}${suffix}: no part of the value is left`);
+      }
+    }
+    for (const value of [jwt, SHAPED_REFRESH]) {
+      for (const suffix of ['%', '~']) {
+        const { shown, trace } = await shownFor('stderr', `Request failed with ${value}${suffix}TAIL end`);
+
+        assert.match(shown, /request failed with \[redacted\] end/i, `${value}${suffix}: the error replaces all of it`);
+        assert.ok(!trace.includes('TAIL'), `${value}${suffix}: the trace carries no part of it`);
+      }
+      for (const suffix of ['&', '@', ':', '|', '#']) {
+        const { shown, trace } = await shownFor('stderr', `Request failed with ${value}${suffix}TAIL end`);
+
+        assert.ok(shown.includes(`with [redacted]${suffix}TAIL end`), `${value}${suffix}: the error keeps the rest`);
+        assert.ok(!shown.includes(value) && !trace.includes(value), `${value}${suffix}: no part of the value is left`);
+      }
+    }
+  });
+
+  test('a signed JSON Web Token without a digit is replaced to the end of its run, after a Bearer or on its own', async () => {
+    assert.ok(!/\d/.test(DIGIT_FREE_JWT));
+    for (const suffix of ['%2FTAIL', '%TAIL', '~TAIL', '/TAIL', '+TAIL', '==%3DTAIL']) {
+      for (const body of [
+        `Request failed: Bearer ${DIGIT_FREE_JWT}${suffix} end`,
+        `Request failed: ${DIGIT_FREE_JWT}${suffix} end`
+      ]) {
+        const { shown, trace } = await shownFor('stderr', body);
+
+        assert.match(shown, /request failed: (Bearer )?\[redacted\] end/i, `${body}: the error replaces all of it`);
+        assert.ok(!trace.includes('TAIL'), `${body}: the trace carries no part of it`);
+      }
+    }
+  });
+
+  // A control: main keeps these fields too, and this test guards against replacing more than a credential.
+  test('an OAuth challenge with a digit in its scope keeps the log field after it, as on main', async () => {
+    const fields = [
+      ['USER_DEBUG|[12]|DEBUG|WWW-Authenticate: Bearer scope=orders.v2.read', '|HTTP_403'],
+      ['USER_DEBUG|[13]|DEBUG|WWW-Authenticate: Bearer scope=api.v58.write', '%20required'],
+      ['CALLOUT_RESPONSE|[14]|WWW-Authenticate: Bearer error=insufficient_scope2', '&retry=true'],
+      ['EXCEPTION_THROWN|[15]|WWW-Authenticate: Bearer realm=example2.com', '@example.com']
+    ];
+    for (const [before, after] of fields) {
+      const { shown, trace } = await shownFor('stderr', `${before}${after} end`);
+
+      assert.ok(shown.includes(`${after} end`), `${before}${after}: the error keeps ${after}`);
+      assert.ok(trace.includes(`${after} end`), `${before}${after}: the trace keeps ${after}`);
+    }
+  });
+
+  // A control: main keeps these fields too, and this test guards against replacing more than a credential.
+  test('a word after Bearer leaves the fields after it in place, and token-free log lines stay as written, as on main', async () => {
+    const fields = [
+      ['12:00:01.123 (1234567)|USER_DEBUG|[12]|DEBUG|Bearer authentication', '|DISABLED'],
+      ['USER_DEBUG|[30]|DEBUG|Missing Bearer authorization', '&scope=api'],
+      ['USER_DEBUG|[31]|DEBUG|Bearer authentication', '%20required'],
+      ['USER_DEBUG|[32]|DEBUG|Bearer authentication', '@example.com'],
+      ['USER_DEBUG|[33]|DEBUG|Bearer authentication', ':12:00:01']
+    ];
+    for (const [before, after] of fields) {
+      const { shown, trace } = await shownFor('stderr', `${before}${after} end`);
+
+      assert.ok(shown.includes(`${after} end`), `${before}${after}: the error keeps ${after}`);
+      assert.ok(trace.includes(`${after} end`), `${before}${after}: the trace keeps ${after}`);
+    }
+    const lines = [
+      '12:00:01.123 (1234567)|USER_DEBUG|[12]|DEBUG|status=200|elapsed=12ms',
+      'CALLOUT_REQUEST|[45]|System.HttpRequest[Endpoint=https://api.example.com/v1/items?limit=10&offset=20, Method=GET]',
+      'HEAP_ALLOCATE|[EXTERNAL]|Bytes:12',
+      'Warning: no default org is set for dev@example.com|scratch'
+    ];
+    for (const line of lines) {
+      const { shown, trace } = await shownFor('stderr', line);
+
+      assert.ok(shown.includes(line), `${line}: the error keeps the line`);
+      assert.ok(trace.includes(line), `${line}: the trace keeps the line`);
+    }
+  });
+
+  /** A JSON Web Token made up for these tests. */
+  const FAKE_JWT = ['eyJFAKEheader', 'FAKEpayload', 'FAKEsignature'].join('.');
+
+  test('the error code after a JSON Web Token or refresh token stays past the bar that ends a log field', async () => {
+    for (const value of [FAKE_JWT, SHAPED_REFRESH]) {
+      for (const body of [`Request failed with ${value}|ERROR:INVALID_GRANT`, `Bearer ${value}|ERROR:INVALID_GRANT`]) {
+        const { shown, trace } = await shownFor('stderr', body);
+
+        assert.ok(shown.includes('[redacted]|ERROR:INVALID_GRANT'), `${body}: the error keeps the code`);
+        assert.ok(trace.includes('[redacted]|ERROR:INVALID_GRANT'), `${body}: the trace keeps the code`);
+        assert.ok(!shown.includes(value) && !trace.includes(value), `${body}: no part of the value is left`);
+      }
+    }
+  });
+
+  // JSON.stringify writes the newline and the quote as the escapes \n and \", which sf prints as written.
+  test('the error code after a JSON Web Token or refresh token stays past a \\n escape in the JSON of sf', async () => {
+    for (const value of [FAKE_JWT, SHAPED_REFRESH]) {
+      const { shown, trace } = await shownFor('json', `${value}\nINVALID_GRANT`);
+
+      assert.ok(shown.includes(String.raw`[redacted]\nINVALID_GRANT`), `${value}: the error keeps the code`);
+      assert.ok(!shown.includes(value) && !trace.includes(value), `${value}: no part of the value is left`);
+    }
+  });
+
+  test('a \\" escape after a JSON Web Token or refresh token keeps its backslash in the JSON of sf', async () => {
+    for (const value of [FAKE_JWT, SHAPED_REFRESH]) {
+      const { shown, trace } = await shownFor('json', `${value}"INVALID_GRANT`);
+
+      assert.ok(shown.includes(String.raw`[redacted]\"INVALID_GRANT`), `${value}: the error keeps the escape`);
+      assert.ok(!shown.includes(value) && !trace.includes(value), `${value}: no part of the value is left`);
+    }
+  });
+
+  test('the parameter after a JSON Web Token or refresh token in a query string stays', async () => {
+    for (const value of [FAKE_JWT, SHAPED_REFRESH]) {
+      const { shown, trace } = await shownFor('stderr', `GET /callback?opaque=${value}&status=403 end`);
+
+      assert.ok(shown.includes('?opaque=[redacted]&status=403 end'), `${value}: the error keeps the next parameter`);
+      assert.ok(trace.includes('?opaque=[redacted]&status=403 end'), `${value}: the trace keeps the next parameter`);
+    }
+  });
+
+  test('a JSON Web Token with padded parts is replaced to the end of its run, after a Bearer or on its own', async () => {
+    const padded = ['eyJFAKEheader==', 'FAKEpayload==', 'FAKEsignature'].join('.');
+    for (const body of [`Request failed: Bearer ${padded}%TAIL end`, `Request failed: ${padded}%TAIL end`]) {
+      const { shown, trace } = await shownFor('stderr', body);
+
+      assert.match(shown, /request failed: (Bearer )?\[redacted\] end/i, `${body}: the error replaces all of it`);
+      assert.ok(!trace.includes('TAIL') && !trace.includes('FAKEpayload'), `${body}: the trace carries no part of it`);
+    }
+  });
+
+  test('a session id that starts in the run after a JSON Web Token or refresh token is still replaced to its end', async () => {
+    const heldValue = 'force://FAKEheldvalue';
+    const session = `00D000000000001!${heldValue}@FAKEtrailing`;
+    for (const value of [FAKE_JWT, SHAPED_REFRESH]) {
+      for (const body of [`Request failed with ${value}%${session} end`, `Bearer ${value}%${session} end`]) {
+        const { shown, trace } = await shownAfterHolding([heldValue], body);
+
+        assert.ok(!shown.includes('FAKEtrailing'), `${value}: the error carries no part of the session id`);
+        assert.ok(!trace.includes('FAKEtrailing'), `${value}: the trace carries no part of the session id`);
+        assert.ok(shown.includes('[redacted] end'), `${value}: the error keeps the text after it`);
       }
     }
   });
