@@ -57,13 +57,16 @@ const tailRowKey = (index: number, rowProps: TailRowProps) => lineSeqAt(index, r
 /**
  * Measured row heights by line sequence number. It also counts the lines at each height, so that a line not measured
  * yet can count the most common height: most log lines fit on one row, so a new line usually measures what it was
- * counted at, and its measurement moves no row.
+ * counted at, and its measurement moves no row. The most common height changes only when another height counts more
+ * lines, not on a tie, so a buffer that holds as many lines of two heights keeps one estimate.
  */
 class LineHeights {
   private readonly bySeq = new Map<number, number>();
   private readonly linesByHeight = new Map<number, number>();
   /** The most common height, or undefined until it is worked out again. */
   private common: number | undefined;
+  /** The highest sequence number measured, while that line is in the buffer. */
+  private newest: number | undefined;
 
   constructor(private firstSeq: number) {}
 
@@ -73,6 +76,10 @@ class LineHeights {
 
   get measuredLines() {
     return this.bySeq.size;
+  }
+
+  get newestSeq() {
+    return this.newest;
   }
 
   commonHeight() {
@@ -96,6 +103,7 @@ class LineHeights {
     if (previous !== undefined) {
       this.uncount(previous);
     }
+    this.newest = Math.max(this.newest ?? seq, seq);
     this.bySeq.set(seq, height);
     const lines = (this.linesByHeight.get(height) ?? 0) + 1;
     this.linesByHeight.set(height, lines);
@@ -111,6 +119,9 @@ class LineHeights {
   forgetBefore(firstSeq: number) {
     const from = this.firstSeq;
     this.firstSeq = firstSeq;
+    if (this.newest !== undefined && this.newest < firstSeq) {
+      this.newest = undefined;
+    }
     if (firstSeq - from <= this.bySeq.size) {
       for (let seq = from; seq < firstSeq; seq++) {
         this.delete(seq);
@@ -140,7 +151,16 @@ class LineHeights {
       this.linesByHeight.delete(height);
     }
     if (height === this.common) {
-      this.common = undefined;
+      // The common height stays while no other height counts more lines.
+      for (const other of this.linesByHeight.values()) {
+        if (lines === 0 || other > lines) {
+          this.common = undefined;
+          break;
+        }
+      }
+      if (this.linesByHeight.size === 0) {
+        this.common = undefined;
+      }
     }
   }
 }
@@ -160,12 +180,29 @@ const RECENT_ROWS = 256;
  */
 function predictNewRows(heights: LineHeights, rows: LineSeqSource): ReadonlyMap<number, number> | undefined {
   const count = rows.filteredIndexes.length;
+  const newestSeq = heights.newestSeq;
+  if (newestSeq === undefined) {
+    return undefined;
+  }
   const sizeAt = (index: number) => {
     const seq = lineSeqAt(index, rows);
     return seq === undefined ? undefined : heights.get(seq);
   };
+  // The last row whose line is not newer than the newest measured line, found without reading a height.
+  let low = 0;
+  let high = count - 1;
+  let newest = -1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if ((lineSeqAt(middle, rows) ?? Infinity) <= newestSeq) {
+      newest = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  // A filter can hide the newest measured line, so the newest measured row can sit a little further back.
   const stop = Math.max(0, count - RECENT_ROWS);
-  let newest = count - 1;
   while (newest >= stop && sizeAt(newest) === undefined) {
     newest--;
   }
