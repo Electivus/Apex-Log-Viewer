@@ -554,6 +554,34 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     }
   });
 
+  test('a word after Bearer leaves the fields after it in place, and token-free log lines stay as written', async () => {
+    const fields = [
+      ['12:00:01.123 (1234567)|USER_DEBUG|[12]|DEBUG|Bearer authentication', '|DISABLED'],
+      ['USER_DEBUG|[30]|DEBUG|Missing Bearer authorization', '&scope=api'],
+      ['USER_DEBUG|[31]|DEBUG|Bearer authentication', '%20required'],
+      ['USER_DEBUG|[32]|DEBUG|Bearer authentication', '@example.com'],
+      ['USER_DEBUG|[33]|DEBUG|Bearer authentication', ':12:00:01']
+    ];
+    for (const [before, after] of fields) {
+      const { shown, trace } = await shownFor('stderr', `${before}${after} end`);
+
+      assert.ok(shown.includes(`${after} end`), `${before}${after}: the error keeps ${after}`);
+      assert.ok(trace.includes(`${after} end`), `${before}${after}: the trace keeps ${after}`);
+    }
+    const lines = [
+      '12:00:01.123 (1234567)|USER_DEBUG|[12]|DEBUG|status=200|elapsed=12ms',
+      'CALLOUT_REQUEST|[45]|System.HttpRequest[Endpoint=https://api.example.com/v1/items?limit=10&offset=20, Method=GET]',
+      'HEAP_ALLOCATE|[EXTERNAL]|Bytes:12',
+      'Warning: no default org is set for dev@example.com|scratch'
+    ];
+    for (const line of lines) {
+      const { shown, trace } = await shownFor('stderr', line);
+
+      assert.ok(shown.includes(line), `${line}: the error keeps the line`);
+      assert.ok(trace.includes(line), `${line}: the trace keeps the line`);
+    }
+  });
+
   test('a named secret that a token shape with a held session runs past is replaced to the end of the shape', async () => {
     const session = 'FAKEsession0123456789';
     const shaped = ['00D000000000001', session].join('!');
