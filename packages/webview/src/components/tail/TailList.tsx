@@ -164,6 +164,21 @@ class ScrollOffsetBeforeUpdate extends React.Component<ScrollOffsetBeforeUpdateP
 }
 
 /**
+ * Where the List placed a row, from the `translateY` offset react-window 2.5 gives each row it renders, or undefined
+ * when the row carries none.
+ */
+function rowOffset(row: Element) {
+  const match = /translateY\((-?[\d.]+)px\)/.exec((row as HTMLElement).style?.transform ?? '');
+  return match ? Number(match[1]) : undefined;
+}
+
+/** A row's measured height, and where its top sat in the viewport at the height the List held for it. */
+type Measurement = readonly [seq: number, size: number, viewportTop?: number];
+
+/** Moves the list's scroll offset from `from` to `to` for a reason other than the user's scroll. */
+type MoveScroll = (element: HTMLElement, from: number, to: number) => void;
+
+/**
  * Row heights in react-window's dynamic row height protocol, kept per line sequence number, so a line keeps its
  * height when older lines leave the buffer or a filter moves it. The List measures every row it renders through
  * `observeRowElements`. The heights are mutable so that a measurement does not copy a map that can hold a height for
@@ -174,8 +189,9 @@ class ScrollOffsetBeforeUpdate extends React.Component<ScrollOffsetBeforeUpdateP
  * beyond the one its arrival already made.
  *
  * While the view does not follow the end, the content in view keeps its place. The estimate stays where it was, since
- * a changed estimate moves every line not measured yet, and those lines sit above the view. When lines leave the head
- * of the buffer, the scroll offset drops by the height the List held for them.
+ * a changed estimate moves every line not measured yet, and those lines sit above the view. Whatever changes the
+ * height above the view moves the scroll offset by the same amount: lines that leave the head of the buffer, at the
+ * height the List held for them, and rows above the view measured at another height than the List held.
  */
 function useLineRowHeights(
   filteredIndexes: readonly number[],
@@ -183,7 +199,8 @@ function useLineRowHeights(
   follow: boolean,
   listElement: HTMLElement | null,
   /** The list's scroll offset before this update changed the DOM, from `ScrollOffsetBeforeUpdate`. */
-  offsetBeforeRef: React.RefObject<number | undefined>
+  offsetBeforeRef: React.RefObject<number | undefined>,
+  moveScroll: MoveScroll
 ): DynamicRowHeight {
   const [heights] = useState(() => new LineHeights(firstLineSeq));
   const [version, setVersion] = useState(0);
@@ -192,14 +209,24 @@ function useLineRowHeights(
   const estimateRef = useRef(DEFAULT_ROW_HEIGHT);
   /** The rows of the committed object, so the lines that leave its head can be found. */
   const committedRef = useRef<LineSeqSource>({ filteredIndexes, firstLineSeq });
+  const followRef = useRef(follow);
+  const listElementRef = useRef(listElement);
+  /** How much taller the rows above the view were measured than the committed object holds them. */
+  const growthAboveRef = useRef(0);
 
   const record = useCallback(
-    (measured: ReadonlyArray<readonly [number, number]>) => {
+    (measured: ReadonlyArray<Measurement>) => {
       let moved = false;
-      for (const [seq, size] of measured) {
+      for (const [seq, size, viewportTop] of measured) {
         const held = heights.get(seq) ?? estimateRef.current;
         heights.set(seq, size);
-        moved ||= held !== size;
+        if (held === size) {
+          continue;
+        }
+        moved = true;
+        if (!followRef.current && viewportTop !== undefined && viewportTop + held <= 0) {
+          growthAboveRef.current += size - held;
+        }
       }
       if (moved) {
         setVersion(v => v + 1);
@@ -210,15 +237,18 @@ function useLineRowHeights(
 
   const observeRowElements = useCallback(
     (elements: Element[] | NodeListOf<Element>) => {
-      observerRef.current ??= new ResizeObserver(entries =>
+      observerRef.current ??= new ResizeObserver(entries => {
+        const scrollTop = listElementRef.current?.scrollTop;
         record(
           entries.flatMap(({ target, borderBoxSize }) => {
             const seq = Number(target.getAttribute('data-line-seq') ?? Number.NaN);
             const size = borderBoxSize[0]?.blockSize ?? 0;
-            return Number.isInteger(seq) && size > 0 ? [[seq, Math.ceil(size)] as const] : [];
+            const offset = rowOffset(target);
+            const viewportTop = offset === undefined || scrollTop === undefined ? undefined : offset - scrollTop;
+            return Number.isInteger(seq) && size > 0 ? [[seq, Math.ceil(size), viewportTop] as const] : [];
           })
-        )
-      );
+        );
+      });
       const observer = observerRef.current;
       const rows = Array.from(elements);
       rows.forEach(row => observer.observe(row));
@@ -252,27 +282,31 @@ function useLineRowHeights(
   }, [filteredIndexes, firstLineSeq, follow, version, heights, observeRowElements, record]);
 
   useLayoutEffect(() => {
+    followRef.current = follow;
+    listElementRef.current = listElement;
     const committed = committedRef.current;
     committedRef.current = { filteredIndexes, firstLineSeq };
-    if (firstLineSeq > committed.firstLineSeq) {
+    const growthAbove = growthAboveRef.current;
+    growthAboveRef.current = 0;
+    if (!follow && listElement) {
       // The rows that left, at the heights the previous object gave them. Their heights are forgotten after paint.
       let left = 0;
-      for (const fullIdx of committed.filteredIndexes) {
-        const seq = committed.firstLineSeq + fullIdx;
-        if (seq >= firstLineSeq) {
-          break;
+      if (firstLineSeq > committed.firstLineSeq) {
+        for (const fullIdx of committed.filteredIndexes) {
+          const seq = committed.firstLineSeq + fullIdx;
+          if (seq >= firstLineSeq) {
+            break;
+          }
+          left += heights.get(seq) ?? estimateRef.current;
         }
-        left += heights.get(seq) ?? estimateRef.current;
       }
-      if (!follow && listElement && left > 0) {
-        listElement.scrollTop = (offsetBeforeRef.current ?? listElement.scrollTop) - left;
-        // The List picked its rows for the old offset, before this effect. The browser's scroll event would only
-        // reach it on the next frame, so after a large trim that frame would show no rows; tell it now.
-        listElement.dispatchEvent(new Event('scroll'));
+      if (left !== growthAbove) {
+        const from = offsetBeforeRef.current ?? listElement.scrollTop;
+        moveScroll(listElement, from, from - left + growthAbove);
       }
     }
     estimateRef.current = rowHeight.getAverageRowHeight();
-  }, [rowHeight, filteredIndexes, firstLineSeq, follow, heights, listElement, offsetBeforeRef]);
+  }, [rowHeight, filteredIndexes, firstLineSeq, follow, heights, listElement, offsetBeforeRef, moveScroll]);
 
   return rowHeight;
 }
@@ -347,7 +381,19 @@ export function TailList({
     [lines, filteredIndexes, firstLineSeq, selectedIndex, onSelectIndex, colorize, t]
   );
   const offsetBeforeRef = useRef<number | undefined>(undefined);
-  const rowHeight = useLineRowHeights(filteredIndexes, firstLineSeq, follow, listElement, offsetBeforeRef);
+  // Only the user scrolls the list as far as the scroll listeners below can tell: a move made here shifts the offsets
+  // they last saw by the same amount, so it neither reads as a fast scroll that widens the overscan nor undoes a
+  // scroll of the user's that is still on its way.
+  const moveScroll = useCallback<MoveScroll>((element, from, to) => {
+    element.scrollTop = to;
+    const moved = element.scrollTop - from;
+    overscanLastTopRef.current += moved;
+    lastTopRef.current += moved;
+    // The List picked its rows for the old offset, before this effect. The browser's scroll event would only reach
+    // it on the next frame, so after a large move that frame would show no rows; tell it now.
+    element.dispatchEvent(new Event('scroll'));
+  }, []);
+  const rowHeight = useLineRowHeights(filteredIndexes, firstLineSeq, follow, listElement, offsetBeforeRef, moveScroll);
 
   // The list takes the height the panel leaves under the toolbar. When a short, narrow panel cannot fit a wrapped
   // toolbar, the root scrolls instead and the list keeps its minimum height, so no control or row is clipped.
