@@ -1,8 +1,8 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { chromium, expect as playwrightExpect, type Browser, type Page } from '@playwright/test';
-import { waitForLogsDebugFlagsButton } from '../../specs/debugFlagsPanel.shared';
-import { expectWebviewWithout, webviewWith } from '../webviews';
+import { waitForDebugFlagsFrame, waitForLogsDebugFlagsButton } from '../../specs/debugFlagsPanel.shared';
+import { expectWebviewWithout, shownWebview, webviewWith } from '../webviews';
 
 /**
  * A synthetic workbench shaped like VS Code's: each webview is an `iframe.webview` named by its id, whose page holds the
@@ -12,7 +12,7 @@ import { expectWebviewWithout, webviewWith } from '../webviews';
 
 const TOOLBAR = '[data-testid="logs-open-debug-flags"]';
 
-type Content = { root: boolean; button: boolean; badge: boolean };
+type Content = { root: boolean; button: boolean; badge: boolean; orgSelect?: boolean; userSearch?: boolean };
 
 function contentHtml(copy: string, version: string, content: Content): string {
   const parts = [
@@ -20,7 +20,9 @@ function contentHtml(copy: string, version: string, content: Content): string {
     content.button
       ? `<button data-testid="logs-open-debug-flags" onclick="top.postMessage('${copy}-v${version}', '*')">Debug flags</button>`
       : '',
-    content.badge ? '<span data-testid="logs-error-badge">Error</span>' : ''
+    content.badge ? '<span data-testid="logs-error-badge">Error</span>' : '',
+    content.orgSelect ? '<div data-testid="debug-flags-org-select">default-org</div>' : '',
+    content.userSearch ? '<input data-testid="debug-flags-user-search" type="search">' : ''
   ];
   return `<body>${parts.join('')}</body>`;
 }
@@ -113,6 +115,11 @@ function host(page: Page, copy: string) {
 }
 
 const logsContent: Content = { root: true, button: true, badge: false };
+const noLogs: Content = { root: false, button: false, badge: false };
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 beforeAll(async () => {
   server = http.createServer(serve);
@@ -171,7 +178,7 @@ describe('the Logs lookup that opens Debug Flags', () => {
     expect(await page.evaluate(() => (window as unknown as { clicked: string[] }).clicked)).toEqual(['editor-v2']);
   });
 
-  test('does not settle on hidden pending content, and finds it once VS Code promotes it', async () => {
+  test('one call waits while the content is pending and returns it once VS Code promotes it', async () => {
     await openWorkbench(page, 'pending', {
       webviews: [
         {
@@ -185,12 +192,62 @@ describe('the Logs lookup that opens Debug Flags', () => {
     const editorHost = host(page, 'editor');
     await editorHost.evaluate(() => (window as unknown as { loadPending: () => Promise<void> }).loadPending());
 
-    await expect(waitForLogsDebugFlagsButton(page, 1_500)).rejects.toThrow();
+    let settled = false;
+    const lookup = waitForLogsDebugFlagsButton(page, 10_000).finally(() => {
+      settled = true;
+    });
+    await sleep(1_500);
+    expect(settled).toBe(false);
 
     await editorHost.evaluate(() => (window as unknown as { promote: () => void }).promote());
-    const logs = await waitForLogsDebugFlagsButton(page, 5_000);
+    const logs = await lookup;
     await logs.locator(TOOLBAR).first().click({ timeout: 5_000 });
     expect(await page.evaluate(() => (window as unknown as { clicked: string[] }).clicked)).toEqual(['editor-v2']);
+  });
+});
+
+describe('shownWebview', () => {
+  test('gives up once its timeout has passed', async () => {
+    await openWorkbench(page, 'deadline', { webviews: [{ name: 'logs-webview', copy: 'logs', active: logsContent }] });
+
+    const started = Date.now();
+    await expect(shownWebview(page, '[data-testid="absent"]', 10)).rejects.toThrow('within 10 ms');
+    expect(Date.now() - started).toBeLessThan(200);
+  });
+});
+
+describe('webviewWith', () => {
+  test('rejects a test id that two webviews hold, even when one of them is hidden', async () => {
+    await openWorkbench(page, 'ambiguous', {
+      webviews: [
+        { name: 'panel-webview', copy: 'panel', hidden: true, active: logsContent },
+        { name: 'editor-webview', copy: 'editor', active: logsContent }
+      ]
+    });
+
+    await expect(webviewWith(page, 'logs-open-debug-flags').locator(TOOLBAR).click({ timeout: 5_000 })).rejects.toThrow(
+      'matched elements in multiple frames'
+    );
+    expect(await page.evaluate(() => (window as unknown as { clicked: string[] }).clicked)).toEqual([]);
+  });
+});
+
+describe('the Debug Flags editor lookup', () => {
+  test('finds the editor by its user search', async () => {
+    await openWorkbench(page, 'flags', {
+      webviews: [{ name: 'flags-webview', copy: 'flags', active: { ...noLogs, orgSelect: true, userSearch: true } }]
+    });
+
+    const flags = await waitForDebugFlagsFrame(page, 5_000);
+    await playwrightExpect(flags.getByTestId('debug-flags-org-select')).toHaveText('default-org');
+  });
+
+  test('does not accept a document that shows only the org select', async () => {
+    await openWorkbench(page, 'org-only', {
+      webviews: [{ name: 'flags-webview', copy: 'flags', active: { ...noLogs, orgSelect: true } }]
+    });
+
+    await expect(waitForDebugFlagsFrame(page, 1_000)).rejects.toThrow();
   });
 });
 

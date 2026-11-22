@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { resolveElectivusPluginInvocation } from '../cli/utils/cli';
 
 const execFileAsync = promisify(execFile);
+const crossSpawn = require('cross-spawn');
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 const EVENTS_ORG_SCRIPT = path.join(REPO_ROOT, 'scripts', 'events-org.mjs');
 const TRANSPORT_PROBE = path.join(__dirname, 'eventsTransportProbe.mjs');
@@ -25,16 +26,25 @@ export const DELIVERIES_PER_RUN = 600;
 
 const sfBinary = (): string => process.env.ALV_SF_BIN_PATH || 'sf';
 
+function displayEventsOrg() {
+  return crossSpawn.sync(sfBinary(), ['org', 'display', '--target-org', EVENTS_ORG_ALIAS, '--json'], {
+    encoding: 'utf8',
+    env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+    timeout: 90_000,
+    windowsHide: true
+  });
+}
+
 /**
- * True when this machine has the `alv-events` scratch org authenticated. Pool-only CI has not, so the events
- * specs skip there without any other configuration.
+ * True when this machine has the `alv-events` scratch org authenticated.
  */
 export function eventsOrgConfigured(): boolean {
-  const result = spawnSync(sfBinary(), ['org', 'display', '--target-org', EVENTS_ORG_ALIAS, '--json'], {
-    encoding: 'utf8',
-    timeout: 90_000
-  });
-  return !result.error && result.status === 0;
+  const result = displayEventsOrg();
+  const configured = !result.error && result.status === 0;
+  if (!configured && process.env.ALV_E2E_REQUIRE_EVENTS_ORG === '1') {
+    throw new Error('The dedicated alv-events scratch org is required by the Custom Logs panel tests.');
+  }
+  return configured;
 }
 
 export function lastJsonLine(stdout: string): any {
@@ -417,11 +427,7 @@ let cachedUsername: string | undefined;
 /** The username behind `alv-events`: what a command needs to find the store without an org connection. */
 export function eventsOrgUsername(): string {
   if (cachedUsername) return cachedUsername;
-  const result = spawnSync(sfBinary(), ['org', 'display', '--target-org', EVENTS_ORG_ALIAS, '--json'], {
-    encoding: 'utf8',
-    env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
-    timeout: 90_000
-  });
+  const result = displayEventsOrg();
   const username = envelopeOf(result.stdout)?.result?.username;
   if (typeof username !== 'string') throw new Error('sf org display did not return a username for alv-events');
   cachedUsername = username;
