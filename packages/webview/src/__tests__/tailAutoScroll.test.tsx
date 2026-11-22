@@ -45,16 +45,19 @@ jest.mock('react-window', () => {
 });
 
 /**
- * TailApp with the real react-window List over a fake browser layout. Every line is ROW pixels tall, the list shows
- * VIEWPORT pixels, a scroll offset is clamped to the content, and a ResizeObserver and a scroll event arrive on the
- * next frame, as in a browser.
+ * TailApp with the real react-window List over a fake browser layout. A line is ROW pixels tall, or TALL_ROW when its
+ * text says TALL, the list shows VIEWPORT pixels, a scroll offset is clamped to the content, and a ResizeObserver and
+ * a scroll event arrive on the next frame, as in a browser.
  */
 const ROW = 32;
+const TALL_ROW = 3 * ROW;
 const VIEWPORT = 200;
 
 const isList = (element: HTMLElement) => element.getAttribute('role') === 'list';
-const isRow = (element: Element) => element.closest('[role="row"]') !== null;
-const ownHeight = (element: HTMLElement) => (isRow(element) ? ROW : VIEWPORT);
+const rowOf = (element: Element) => element.closest('[role="row"]');
+const isRow = (element: Element) => rowOf(element) !== null;
+const rowHeightOf = (element: Element) => (rowOf(element)?.textContent?.includes('TALL') ? TALL_ROW : ROW);
+const ownHeight = (element: HTMLElement) => (isRow(element) ? rowHeightOf(element) : VIEWPORT);
 const laidOutHeight = (element: HTMLElement) => parseFloat(element.style.height) || ownHeight(element);
 
 function contentHeight(list: HTMLElement) {
@@ -93,7 +96,7 @@ class FakeResizeObserver {
       if (!this.targets.has(target)) {
         return;
       }
-      const height = isRow(target) ? ROW : VIEWPORT;
+      const height = isRow(target) ? rowHeightOf(target) : VIEWPORT;
       const entry = {
         target,
         contentRect: { height, width: 800 },
@@ -132,7 +135,7 @@ const layout: PropertyDescriptorMap = {
         return contentHeight(this);
       }
       // What a browser reads for a row's content: the row without its 1 px bottom border.
-      return isRow(this) ? ROW - 1 : VIEWPORT;
+      return isRow(this) ? rowHeightOf(this) - 1 : VIEWPORT;
     }
   },
   scrollTop: {
@@ -174,7 +177,15 @@ function frames(count: number) {
   }
 }
 
-function openTail({ autoScroll: follow, bufferSize }: { autoScroll: boolean; bufferSize?: number }) {
+function openTail({
+  autoScroll: follow,
+  bufferSize,
+  text = seq => `Line ${seq}`
+}: {
+  autoScroll: boolean;
+  bufferSize?: number;
+  text?: (seq: number) => string;
+}) {
   const bus = new EventTarget();
   const vscode: VsCodeWebviewApi<WebviewToExtensionMessage> = {
     postMessage: () => {},
@@ -189,7 +200,7 @@ function openTail({ autoScroll: follow, bufferSize }: { autoScroll: boolean; buf
   }
   const receive = (first: number, count: number) =>
     act(() => {
-      const lines = Array.from({ length: count }, (_, i) => `Line ${first + i}`);
+      const lines = Array.from({ length: count }, (_, i) => text(first + i));
       bus.dispatchEvent(new MessageEvent('message', { data: { type: 'tailData', lines } }));
     });
   receive(0, bufferSize ?? 40);
@@ -268,5 +279,57 @@ describe('Tail Auto-scroll over the real virtual list', () => {
       expect(reads).toBeGreaterThan(0);
       expect(reads).toBeLessThanOrEqual(BUFFER);
     }
+  });
+
+  /** Streams `count` lines into a full buffer that follows the end, and returns the row heights read per line. */
+  function readsPerNewLine(receive: ReturnType<typeof openTail>, first: number, count: number) {
+    const readsPerLine: number[] = [];
+    for (let line = first; line < first + count; line++) {
+      rowHeightReads = 0;
+      receive(line, 1);
+      frames(20);
+      readsPerLine.push(rowHeightReads);
+    }
+    return readsPerLine;
+  }
+
+  it('reads each row height once per new line as tall as the lines just before it', () => {
+    // Lines 0-599 are short and lines from 600 on are tall. The first 120 short lines get measured, then the view
+    // follows the end, where it measures a few tall ones, so most measured lines are short.
+    const BUFFER = 1000;
+    const receive = openTail({
+      autoScroll: false,
+      bufferSize: BUFFER,
+      text: seq => (seq >= 600 ? `Line ${seq} TALL` : `Line ${seq}`)
+    });
+    for (let top = 0; top <= 120 * ROW; top += VIEWPORT / 2) {
+      act(() => {
+        list().scrollTop = top;
+      });
+      frames(3);
+    }
+    fireEvent.click(autoScroll());
+    frames(20);
+    expect(distanceFromEnd()).toBe(0);
+
+    const readsPerLine = readsPerNewLine(receive, BUFFER, 5);
+
+    expect(distanceFromEnd()).toBe(0);
+    expect(readsPerLine).toEqual(readsPerLine.map(() => BUFFER));
+  });
+
+  it('reads each row height once per new line when every other line is tall', () => {
+    const BUFFER = 1000;
+    const receive = openTail({
+      autoScroll: true,
+      bufferSize: BUFFER,
+      text: seq => (seq % 2 ? `Line ${seq} TALL` : `Line ${seq}`)
+    });
+    expect(distanceFromEnd()).toBe(0);
+
+    const readsPerLine = readsPerNewLine(receive, BUFFER, 6);
+
+    expect(distanceFromEnd()).toBe(0);
+    expect(readsPerLine).toEqual(readsPerLine.map(() => BUFFER));
   });
 });
