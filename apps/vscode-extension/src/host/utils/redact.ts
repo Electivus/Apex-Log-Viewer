@@ -539,7 +539,8 @@ function reachRules(text: string, reach: Int32Array): Stretch[] {
  * that begins or overlaps another leaves no part of either. The rules run on the text as written, so a held secret
  * that covers part of a secret's name leaves the secret replaced, and again with the held secrets replaced, where
  * they can end a name. A value that only its name marks, with nothing to close it, is replaced to the end of its run
- * of token characters, as every token shape is, and a token shape that a held secret falls in is replaced whole.
+ * of token characters when it has a digit, so a word after "Bearer" leaves the field after it, and a token shape that
+ * a held secret falls in is replaced whole.
  */
 export function redactSecrets(text: string): string {
   const stripped = stripControlSequences(text);
@@ -571,7 +572,10 @@ export function redactSecrets(text: string): string {
   }
   if (unclosed.length > 0) {
     const ends = runEnds(stripped);
-    for (const { start, end } of unclosed) reach[start] = Math.max(valueAt(reach, start), valueAt(ends, end - 1));
+    for (const { start, end } of unclosed) {
+      if (/\d/.test(stripped.slice(start, end)))
+        reach[start] = Math.max(valueAt(reach, start), valueAt(ends, end - 1));
+    }
   }
   return reach.some(end => end > 0) ? spliced(stripped, reach).masked : stripped;
 }
