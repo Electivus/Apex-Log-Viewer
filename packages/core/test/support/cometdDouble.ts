@@ -55,7 +55,7 @@ export type DoubleScript = {
    * one gets the reply Salesforce gives an expired session. Default: every token succeeds.
    */
   acceptsHandshake?: (token: string, handshake: number) => boolean;
-  traceDisconnect?: (stage: 'disconnect-received' | 'ack-sent', messageId: string | undefined) => void;
+  traceMeta?: (stage: 'received' | 'replied', channel: string, messageId: string | undefined) => void;
 };
 
 export type BayeuxDouble = {
@@ -230,12 +230,8 @@ export async function startBayeuxDouble(
     request.on('end', () => {
       void (async () => {
         const messages = JSON.parse(Buffer.concat(chunks).toString('utf8')) as BayeuxMessage[];
-        const traceDisconnect = script.traceDisconnect;
-        if (traceDisconnect) {
-          for (const message of messages) {
-            if (message.channel === '/meta/disconnect') traceDisconnect('disconnect-received', message.id);
-          }
-        }
+        const traceMeta = script.traceMeta;
+        for (const message of messages) traceMeta?.('received', message.channel, message.id);
         const replies: Record<string, unknown>[] = [];
         for (const message of messages) {
           replies.push(...(await answer(message, response, token)));
@@ -243,12 +239,8 @@ export async function startBayeuxDouble(
         if (response.destroyed) return;
         response.writeHead(200, { 'content-type': 'application/json' });
         const body = JSON.stringify(replies);
-        if (traceDisconnect) {
-          for (const reply of replies) {
-            if (reply.channel === '/meta/disconnect' && reply.successful === true) {
-              traceDisconnect('ack-sent', typeof reply.id === 'string' ? reply.id : undefined);
-            }
-          }
+        for (const reply of replies) {
+          traceMeta?.('replied', String(reply.channel), typeof reply.id === 'string' ? reply.id : undefined);
         }
         response.end(body);
       })();

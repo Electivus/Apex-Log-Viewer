@@ -38,18 +38,11 @@ async function main(): Promise<void> {
         ...extensions,
         {
           outgoing(message: BayeuxMessage, next: (message: BayeuxMessage) => void) {
-            if (message.channel === '/meta/disconnect') {
-              trace(cometdAbortMark('disconnect-sent', { messageId: message.id }));
-            }
+            trace(cometdAbortMark(`child:sent:${message.channel}`, { messageId: message.id }));
             next(message);
           },
           incoming(message: BayeuxMessage, next: (message: BayeuxMessage) => void) {
-            if (message.successful && message.channel === '/meta/disconnect') {
-              trace(cometdAbortMark('ack-received', { messageId: message.id }));
-            }
-            if (message.successful && message.channel === '/meta/handshake') {
-              trace(cometdAbortMark('handshake-received', { messageId: message.id }));
-            }
+            trace(cometdAbortMark(`child:received:${message.channel}`, { messageId: message.id }));
             next(message);
           }
         }

@@ -20,7 +20,7 @@ import {
   type TransportFailure,
   type TransportSignal
 } from '../src/customLogs/events/transport.ts';
-import { COMETD_ABORT_TRACE_PREFIX, cometdAbortMark, type CometdAbortMark } from './support/cometdAbortTrace.ts';
+import { COMETD_ABORT_TRACE_PREFIX, cometdAbortMark, resetLoopDelay, type CometdAbortMark } from './support/cometdAbortTrace.ts';
 import { recordedEvents, startBayeuxDouble, type DoubleScript } from './support/cometdDouble.ts';
 import { openConnection, savedOrgsEnv } from './support/salesforceDouble.ts';
 
@@ -464,10 +464,15 @@ test('a process that aborts its subscription exits at once with no socket or tim
     await t.test(name, async sub => {
       const traceDir = process.env.ALV_COMETD_ABORT_TRACE_DIR;
       const marks: CometdAbortMark[] = [];
+      resetLoopDelay();
       const double = await startBayeuxDouble(
         sub,
         traceDir
-          ? { ...script, traceDisconnect: (stage, messageId) => marks.push(cometdAbortMark(stage, { messageId })) }
+          ? {
+              ...script,
+              traceMeta: (stage, channel, messageId) =>
+                marks.push(cometdAbortMark(`double:${stage}:${channel}`, { messageId }))
+            }
           : script
       );
       const child = spawn(
@@ -489,7 +494,10 @@ test('a process that aborts its subscription exits at once with no socket or tim
         pendingLine = lines.pop() ?? '';
         for (const line of lines) {
           if (line === 'down') void double.close();
-          if (line === 'aborting') abortedAt = Date.now();
+          if (line === 'aborting') {
+            abortedAt = Date.now();
+            if (traceDir) marks.push(cometdAbortMark('parent:aborting-read'));
+          }
         }
       });
       const killer = setTimeout(() => child.kill('SIGKILL'), 20_000);

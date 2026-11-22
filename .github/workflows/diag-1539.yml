@@ -1,0 +1,52 @@
+name: Diag 1539 CometD abort sweep
+
+on:
+  push:
+    branches: [diag/issue-1539]
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    name: Shifted-clock sweep (${{ matrix.os }} #${{ matrix.shard }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - name: Disable Windows autocrlf
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build:core
+      - name: Loop the shifted-clock sweep
+        shell: bash
+        env:
+          ALV_COMETD_ABORT_TRACE_DIR: ${{ runner.temp }}/diag/traces
+        run: |
+          out="${RUNNER_TEMP}/diag"
+          mkdir -p "$out"
+          for i in $(seq 15); do
+            if node scripts/test-shifted-clock.mjs > "$out/sweep-$i.txt" 2>&1; then
+              echo "sweep $i PASS"; rm "$out/sweep-$i.txt"
+            else
+              echo "sweep $i FAIL"; grep -E "FAIL|not ok|error:" "$out/sweep-$i.txt" | head -20
+            fi
+          done
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: diag-${{ matrix.os }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/diag
+          if-no-files-found: warn
