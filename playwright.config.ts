@@ -13,6 +13,7 @@ const timeouts = resolvePlaywrightTimeouts();
 
 export default defineConfig({
   testDir: path.join(__dirname, 'test', 'e2e', 'specs'),
+  testIgnore: process.env.ALV_E2E_EXCLUDE_EVENTS_PANEL === '1' ? '**/customLogEventsPanel.e2e.spec.ts' : undefined,
   fullyParallel: parallelism.fullyParallel,
   workers: parallelism.workers,
   timeout: timeouts.testTimeoutMs,

@@ -38,7 +38,12 @@ export async function waitForLogsDebugFlagsButton(page: Page, timeoutMs: number)
   return await shownWebview(page, '[data-testid="logs-open-debug-flags"]', timeoutMs);
 }
 
-async function waitForDebugFlagsFrame(page: Page, timeoutMs: number): Promise<Locator> {
+/**
+ * The Apex Debug Flags editor, recognized by its user search. The editor renders the search beside the org select, so
+ * the org select alone is not taken as the editor: the callers use the search next, and `countDebugFlagsFrames` and
+ * the verify skill key on the same test id to tell that the editor is closed.
+ */
+export async function waitForDebugFlagsFrame(page: Page, timeoutMs: number): Promise<Locator> {
   const debugFlags = webviewWith(page, 'debug-flags-user-search');
   await expect(debugFlags.getByTestId('debug-flags-user-search')).toBeVisible({ timeout: timeoutMs });
   return debugFlags;
