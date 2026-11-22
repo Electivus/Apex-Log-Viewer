@@ -334,8 +334,10 @@ describe('Tail Auto-scroll over the real virtual list', () => {
       text: seq => (seq % 2 ? `Line ${seq} TALL` : `Line ${seq}`)
     });
     expect(distanceFromEnd()).toBe(0);
+    // The first new lines get the rows at the end measured, until the newest measured rows show the pattern.
+    readsPerNewLine(receive, BUFFER, 4);
 
-    const readsPerLine = readsPerNewLine(receive, BUFFER, 6);
+    const readsPerLine = readsPerNewLine(receive, BUFFER + 4, 6);
 
     expect(distanceFromEnd()).toBe(0);
     expect(readsPerLine).toEqual(readsPerLine.map(() => BUFFER));

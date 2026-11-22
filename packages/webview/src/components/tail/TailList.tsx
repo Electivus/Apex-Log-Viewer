@@ -141,6 +141,65 @@ class LineHeights {
   }
 }
 
+/** How many of the newest measured rows have to repeat a pattern before the rows after them get its heights. */
+const PATTERN_ROWS = 8;
+/** The longest pattern looked for, in rows: two wrapped lines then three short ones repeat every 5. */
+const LONGEST_PERIOD = 5;
+/** How many rows from the end the newest measured row is looked for in. */
+const RECENT_ROWS = 256;
+
+/**
+ * Heights for the rows after the newest measured row, when it is among the last RECENT_ROWS rows and the newest
+ * PATTERN_ROWS measured rows each have the height of the row `period` rows before them, for a period of at most
+ * LONGEST_PERIOD rows: all alike, alternating, or two wrapped lines then three short ones. The shortest such period
+ * gives the heights. With no such pattern there is no prediction, and those rows count the estimate.
+ */
+function predictNewRows(heights: LineHeights, rows: LineSeqSource): ReadonlyMap<number, number> | undefined {
+  const count = rows.filteredIndexes.length;
+  const sizeAt = (index: number) => {
+    const seq = lineSeqAt(index, rows);
+    return seq === undefined ? undefined : heights.get(seq);
+  };
+  const stop = Math.max(0, count - RECENT_ROWS);
+  let newest = count - 1;
+  while (newest >= stop && sizeAt(newest) === undefined) {
+    newest--;
+  }
+  if (newest < stop) {
+    return undefined;
+  }
+  // The newest measured rows, newest first, as far back as they are measured one after another.
+  const sizes: number[] = [];
+  for (let index = newest; index >= 0 && sizes.length < PATTERN_ROWS + LONGEST_PERIOD; index--) {
+    const size = sizeAt(index);
+    if (size === undefined) {
+      break;
+    }
+    sizes.push(size);
+  }
+  for (let period = 1; period <= LONGEST_PERIOD && sizes.length >= PATTERN_ROWS + period; period++) {
+    if (sizes.slice(0, PATTERN_ROWS).every((size, i) => size === sizes[i + period])) {
+      const predicted = new Map<number, number>();
+      for (let index = newest + 1; index < count; index++) {
+        const seq = lineSeqAt(index, rows);
+        // The row `ahead` rows after the newest repeats the measured row a whole number of periods before it.
+        const size = sizes[(period - ((index - newest) % period)) % period];
+        if (seq !== undefined && size !== undefined) {
+          predicted.set(seq, size);
+        }
+      }
+      return predicted;
+    }
+  }
+  return undefined;
+}
+
+/** react-window's dynamic row height protocol, with the rows it covers and the height it gives each line. */
+type LineRowHeight = DynamicRowHeight & {
+  rows: LineSeqSource;
+  heightOf: (seq: number) => number;
+};
+
 type ScrollOffsetBeforeUpdateProps = {
   element: HTMLElement | null;
   offset: React.RefObject<number | undefined>;
@@ -185,8 +244,11 @@ type MoveScroll = (element: HTMLElement, from: number, to: number) => void;
  * each of the buffer's lines, up to 200,000.
  *
  * A new object tells the List to rebuild its row positions, a pass over every row. A measurement asks for one only
- * when it differs from the height the List holds for that line, so a new line at the common height costs no pass
- * beyond the one its arrival already made.
+ * when it differs from the height the List holds for that line, so a new line counted at its height costs no pass
+ * beyond the one its arrival already made. While the view follows the end, the rows after the newest measured one
+ * count the heights of the pattern the newest measured rows repeat, if any (`predictNewRows`); other lines not
+ * measured yet count the estimate, the most common measured height. A measurement that changes the most common
+ * height also asks for a new object, so the estimate the view keeps when it stops following is the current one.
  *
  * While the view does not follow the end, the content in view keeps its place. The estimate stays where it was, since
  * a changed estimate moves every line not measured yet, and those lines sit above the view. Whatever changes the
@@ -205,10 +267,8 @@ function useLineRowHeights(
   const [heights] = useState(() => new LineHeights(firstLineSeq));
   const [version, setVersion] = useState(0);
   const observerRef = useRef<ResizeObserver | null>(null);
-  /** The height the committed object gives a line that is not measured yet. */
-  const estimateRef = useRef(DEFAULT_ROW_HEIGHT);
-  /** The rows of the committed object, so the lines that leave its head can be found. */
-  const committedRef = useRef<LineSeqSource>({ filteredIndexes, firstLineSeq });
+  /** The object the List was last rendered with. */
+  const committedRef = useRef<LineRowHeight | null>(null);
   const followRef = useRef(follow);
   const listElementRef = useRef(listElement);
   /** How much taller the rows above the view were measured than the committed object holds them. */
@@ -216,9 +276,10 @@ function useLineRowHeights(
 
   const record = useCallback(
     (measured: ReadonlyArray<Measurement>) => {
+      const committed = committedRef.current;
       let moved = false;
       for (const [seq, size, viewportTop] of measured) {
-        const held = heights.get(seq) ?? estimateRef.current;
+        const held = committed?.heightOf(seq) ?? DEFAULT_ROW_HEIGHT;
         heights.set(seq, size);
         if (held === size) {
           continue;
@@ -228,6 +289,8 @@ function useLineRowHeights(
           growthAboveRef.current += size - held;
         }
       }
+      // While following, a changed common height is picked up now, not only when a measurement misses.
+      moved ||= followRef.current && committed !== null && heights.commonHeight() !== committed.getAverageRowHeight();
       if (moved) {
         setVersion(v => v + 1);
       }
@@ -261,17 +324,23 @@ function useLineRowHeights(
 
   useEffect(() => heights.forgetBefore(firstLineSeq), [heights, firstLineSeq]);
 
-  const rowHeight = useMemo<DynamicRowHeight>(() => {
-    const source = { filteredIndexes, firstLineSeq };
-    const estimate = follow ? heights.commonHeight() : estimateRef.current;
+  const rowHeight = useMemo<LineRowHeight>(() => {
+    const rows = { filteredIndexes, firstLineSeq };
+    const estimate = follow
+      ? heights.commonHeight()
+      : (committedRef.current?.getAverageRowHeight() ?? DEFAULT_ROW_HEIGHT);
+    const predicted = follow ? predictNewRows(heights, rows) : undefined;
+    const known = (seq: number) => heights.get(seq) ?? predicted?.get(seq);
     return {
+      rows,
+      heightOf: seq => known(seq) ?? estimate,
       getAverageRowHeight: () => estimate,
       getRowHeight: index => {
-        const seq = lineSeqAt(index, source);
-        return seq === undefined ? undefined : heights.get(seq);
+        const seq = lineSeqAt(index, rows);
+        return seq === undefined ? undefined : known(seq);
       },
       setRowHeight: (index, size) => {
-        const seq = lineSeqAt(index, source);
+        const seq = lineSeqAt(index, rows);
         if (seq !== undefined) {
           record([[seq, size]]);
         }
@@ -285,19 +354,19 @@ function useLineRowHeights(
     followRef.current = follow;
     listElementRef.current = listElement;
     const committed = committedRef.current;
-    committedRef.current = { filteredIndexes, firstLineSeq };
+    committedRef.current = rowHeight;
     const growthAbove = growthAboveRef.current;
     growthAboveRef.current = 0;
     if (!follow && listElement) {
       // The rows that left, at the heights the previous object gave them. Their heights are forgotten after paint.
       let left = 0;
-      if (firstLineSeq > committed.firstLineSeq) {
-        for (const fullIdx of committed.filteredIndexes) {
-          const seq = committed.firstLineSeq + fullIdx;
+      if (committed && firstLineSeq > committed.rows.firstLineSeq) {
+        for (const fullIdx of committed.rows.filteredIndexes) {
+          const seq = committed.rows.firstLineSeq + fullIdx;
           if (seq >= firstLineSeq) {
             break;
           }
-          left += heights.get(seq) ?? estimateRef.current;
+          left += committed.heightOf(seq);
         }
       }
       if (left !== growthAbove) {
@@ -305,8 +374,7 @@ function useLineRowHeights(
         moveScroll(listElement, from, from - left + growthAbove);
       }
     }
-    estimateRef.current = rowHeight.getAverageRowHeight();
-  }, [rowHeight, filteredIndexes, firstLineSeq, follow, heights, listElement, offsetBeforeRef, moveScroll]);
+  }, [rowHeight, firstLineSeq, follow, listElement, offsetBeforeRef, moveScroll]);
 
   return rowHeight;
 }
