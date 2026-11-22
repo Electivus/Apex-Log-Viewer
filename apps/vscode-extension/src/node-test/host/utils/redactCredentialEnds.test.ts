@@ -26,7 +26,7 @@ function seeded(seed: number): (below: number) => number {
 const B64URL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 
 suite('where a credential the redaction replaces ends', () => {
-  test('the error code after a credential and a character no credential holds stays, for every such character', () => {
+  test('the error code after a credential and a printable ASCII separator, tab, CR or LF that no credential holds stays', () => {
     assert.deepEqual(
       ENDERS.filter(character => '&@:|#\\'.includes(character)).sort(),
       ['#', '&', ':', '@', '\\', '|'],
