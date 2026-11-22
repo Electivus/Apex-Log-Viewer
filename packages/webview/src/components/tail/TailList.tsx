@@ -71,6 +71,10 @@ class LineHeights {
     return this.bySeq.get(seq);
   }
 
+  get measuredLines() {
+    return this.bySeq.size;
+  }
+
   commonHeight() {
     if (this.common === undefined) {
       let most = 0;
@@ -322,7 +326,20 @@ function useLineRowHeights(
 
   useEffect(() => () => observerRef.current?.disconnect(), []);
 
-  useEffect(() => heights.forgetBefore(firstLineSeq), [heights, firstLineSeq]);
+  useEffect(() => {
+    heights.forgetBefore(firstLineSeq);
+    // A measured line that left can change the most common height too. With no measured line left, as when the whole
+    // buffer was replaced, the next measurements pick the estimate up anyway.
+    const committed = committedRef.current;
+    if (
+      followRef.current &&
+      committed &&
+      heights.measuredLines > 0 &&
+      heights.commonHeight() !== committed.getAverageRowHeight()
+    ) {
+      setVersion(v => v + 1);
+    }
+  }, [heights, firstLineSeq]);
 
   const rowHeight = useMemo<LineRowHeight>(() => {
     const rows = { filteredIndexes, firstLineSeq };
