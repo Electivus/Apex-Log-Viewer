@@ -33,14 +33,20 @@ suite('where a credential the redaction replaces ends', () => {
       'the characters of the #1534 report that end a credential are among those tried'
     );
     const pick = seeded(0x1534);
-    const one = <T,>(items: readonly T[]): T => items[pick(items.length)] as T;
+    const one = <T>(items: readonly T[]): T => items[pick(items.length)] as T;
     const run = (alphabet: string, min: number, max: number) =>
       Array.from({ length: min + pick(max - min + 1) }, () => one([...alphabet])).join('');
     const credentials: Array<() => { prefix: string; value: string }> = [
-      () => ({ prefix: pick(2) ? 'Bearer ' : 'sent ', value: `eyJ${run(B64URL, 8, 24)}.${run(B64URL, 8, 24)}.${run(B64URL, 8, 40)}` }),
+      () => ({
+        prefix: pick(2) ? 'Bearer ' : 'sent ',
+        value: `eyJ${run(B64URL, 8, 24)}.${run(B64URL, 8, 24)}.${run(B64URL, 8, 40)}`
+      }),
       () => ({ prefix: 'Bearer ', value: `eyJ${run(B64URL, 8, 16)}==.${run(B64URL, 8, 16)}=.${run(B64URL, 8, 16)}` }),
       () => ({ prefix: pick(2) ? 'Bearer ' : 'sent ', value: `5Aep8${run(B64URL.replace('-', '.'), 20, 60)}` }),
-      () => ({ prefix: 'Bearer ', value: `abcdefghijkl00D${run('0123456789', 12, 12)}!${run(B64URL.replace('-', '.'), 8, 40)}` })
+      () => ({
+        prefix: 'Bearer ',
+        value: `abcdefghijkl00D${run('0123456789', 12, 12)}!${run(B64URL.replace('-', '.'), 8, 40)}`
+      })
     ];
     for (let index = 0; index < 4000; index++) {
       const { prefix, value } = one(credentials)();

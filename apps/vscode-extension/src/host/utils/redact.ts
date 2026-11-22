@@ -578,9 +578,10 @@ function reachRules(text: string, reach: Int32Array): Stretch[] {
  * control sequences are removed. Where held secrets occur, the union of their places is replaced at once, so a secret
  * that begins or overlaps another leaves no part of either. The rules run on the text as written, so a held secret
  * that covers part of a secret's name leaves the secret replaced, and again with the held secrets replaced, where
- * they can end a name. A value that only its name marks, with nothing to close it, is replaced to the end of its run
- * of token characters when a credential shape starts in it, so a word or an OAuth scope after "Bearer" leaves the
- * field after it, and a token shape that a held secret falls in is replaced whole.
+ * they can end a name. A value that only its name marks, with nothing to close it, is replaced to the end of every
+ * token shape that runs past it, and to the end of its run of credential characters when a credential shape starts in
+ * it, so a word or an OAuth scope after "Bearer" leaves the field after it, and a token shape that a held secret falls
+ * in is replaced whole.
  */
 export function redactSecrets(text: string): string {
   const stripped = stripControlSequences(text);
