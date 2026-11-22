@@ -40,8 +40,10 @@ export async function waitForLogsDebugFlagsButton(page: Page, timeoutMs: number)
 
 /**
  * The Apex Debug Flags editor, recognized by its user search. The editor renders the search beside the org select, so
- * the org select alone is not taken as the editor: the callers use the search next, and `countDebugFlagsFrames` and
- * the verify skill key on the same test id to tell that the editor is closed.
+ * the org select alone is not taken as the editor. The search is the marker that identifies the editor, which always
+ * renders it, not a control every caller uses: the filter and panel specs use it next, while the special targets and
+ * debug level specs go straight to their own controls. `countDebugFlagsFrames` and the verify skill key on the same
+ * test id to tell that the editor is closed.
  */
 export async function waitForDebugFlagsFrame(page: Page, timeoutMs: number): Promise<Locator> {
   const debugFlags = webviewWith(page, 'debug-flags-user-search');

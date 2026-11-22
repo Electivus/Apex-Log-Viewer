@@ -38,6 +38,12 @@ function webviewBody(page: Page, name: string): Locator {
     .locator('body');
 }
 
+/** The time source of `shownWebview`: `now()` in ms, and a sleep of `ms`. */
+export type LookupClock = { now(): number; sleep(ms: number): Promise<void> };
+
+/** The default clock of `shownWebview`: `Date.now` and this module's `sleep`. Exported for its test. */
+export const systemClock: LookupClock = { now: () => Date.now(), sleep };
+
 /**
  * The body of the first webview on screen whose content shows `selector`.
  *
@@ -46,10 +52,21 @@ function webviewBody(page: Page, name: string): Locator {
  * one. VS Code keeps the webview of a hidden panel or a background tab alive with its outer iframe at
  * `visibility: hidden`, so this picks among the outer iframes that are not, and returns a locator bound to that
  * webview's identity. Unlike a `Frame`, the locator survives VS Code replacing the content iframe. It polls every
- * 250 ms and fails once `timeoutMs` has passed, after the check in progress returns.
+ * 250 ms. `timeoutMs` is the cutoff for starting a new poll, not for the call: the first poll always runs, and a poll
+ * still running at the cutoff finishes and can return its webview after `timeoutMs`. After a poll that finds nothing,
+ * the helper sleeps for 250 ms or for the time left before the cutoff, whichever is shorter (no time when the cutoff
+ * has passed): it reads the clock to compute the delay, awaits the sleep (even when the delay is zero), then reads the
+ * clock again to decide whether to poll or reject for timeout. Before the cutoff it polls again, at or after it it
+ * rejects. So it never rejects before the cutoff, and how long after depends on when the sleep's timer fires. `clock`
+ * replaces `Date.now` and the sleep, for tests.
  */
-export async function shownWebview(page: Page, selector: string, timeoutMs = 120_000): Promise<Locator> {
-  const deadline = Date.now() + timeoutMs;
+export async function shownWebview(
+  page: Page,
+  selector: string,
+  timeoutMs = 120_000,
+  clock: LookupClock = systemClock
+): Promise<Locator> {
+  const deadline = clock.now() + timeoutMs;
   do {
     const shownNames = await page
       .locator('iframe.webview')
@@ -72,8 +89,8 @@ export async function shownWebview(page: Page, selector: string, timeoutMs = 120
         return body;
       }
     }
-    await sleep(Math.min(250, Math.max(0, deadline - Date.now())));
-  } while (Date.now() < deadline);
+    await clock.sleep(Math.min(250, Math.max(0, deadline - clock.now())));
+  } while (clock.now() < deadline);
   throw new Error(`No webview on screen showed ${selector} within ${timeoutMs} ms.`);
 }
 
