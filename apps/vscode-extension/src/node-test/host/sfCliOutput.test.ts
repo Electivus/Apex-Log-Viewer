@@ -577,7 +577,7 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     }
   });
 
-  test('a signed JSON Web Token without a digit is replaced to the end of its run after a Bearer', async () => {
+  test('a signed JSON Web Token without a digit is replaced to the end of its run, after a Bearer or on its own', async () => {
     assert.ok(!/\d/.test(DIGIT_FREE_JWT));
     for (const suffix of ['%2FTAIL', '%TAIL', '~TAIL', '/TAIL', '+TAIL', '==%3DTAIL']) {
       for (const body of [
