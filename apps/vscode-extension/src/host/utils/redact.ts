@@ -42,17 +42,21 @@ const SECRET_KEY_NAMES = [
 
 const SECRET_KEYS = new Set(SECRET_KEY_NAMES.toLowerCase().split('|'));
 
-/** A character a token may run on: every one but a space, a quote, a comma, a semicolon and a bracket. */
-const TOKEN_RUN = String.raw`[^\s"'\`,;()[\]{}<>]`;
+/**
+ * A character a credential may run on, literal or percent-encoded: every one but a space, a quote, a comma, a
+ * semicolon, a bracket, a `|` that separates log fields, a `\` that starts a JSON escape such as `\n` or `\"`, and an
+ * `&` that starts the next `name=` parameter.
+ */
+const VALUE_RUN = String.raw`(?:[^\s"'\`,;()[\]{}<>|\\&]|&(?![\w.-]+=))`;
 
-/** Text shaped like a Salesforce credential, whoever printed it, to the end of the run it starts. */
+/** Text shaped like a Salesforce credential, whoever printed it. */
 const TOKEN_SHAPES: readonly RegExp[] = [
   // An access token: the 15- or 18-character org id, "!", then the session.
-  new RegExp(String.raw`\b00D[A-Za-z0-9]{12,15}!${TOKEN_RUN}{8,}`, 'g'),
-  // A refresh token.
-  new RegExp(String.raw`\b5Aep8[A-Za-z0-9._]{20,}${TOKEN_RUN}*`, 'g'),
-  // A JSON Web Token.
-  new RegExp(String.raw`\beyJ(?<!\beyJ[\w-]*?eyJ)[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}${TOKEN_RUN}*`, 'g')
+  /\b00D[A-Za-z0-9]{12,15}![^\s"'`,;()[\]{}<>]{8,}/g,
+  // A refresh token, to the end of its run.
+  new RegExp(String.raw`\b5Aep8[A-Za-z0-9._]{20,}${VALUE_RUN}*`, 'g'),
+  // A JSON Web Token, also with padded parts, to the end of its run.
+  new RegExp(String.raw`\beyJ(?<!\beyJ[\w-]*?eyJ)[\w-]{8,}=*\.[\w-]{8,}=*\.[\w-]{8,}${VALUE_RUN}*`, 'g')
 ];
 
 /**
@@ -61,9 +65,9 @@ const TOKEN_SHAPES: readonly RegExp[] = [
  * `monkeyJumped.configuration.propertyName` is no token.
  */
 const SHAPE_STARTS: readonly RegExp[] = [
-  new RegExp(String.raw`00D[A-Za-z0-9]{12,15}!${TOKEN_RUN}{8}`, 'g'),
+  /00D[A-Za-z0-9]{12,15}![^\s"'`,;()[\]{}<>]{8}/g,
   /\b5Aep8[A-Za-z0-9._]{20}/g,
-  /\beyJ(?<!\beyJ[\w-]*?eyJ)[\w-]{8,}\.[\w-]{8,}\.[\w-]{8}/g
+  /\beyJ(?<!\beyJ[\w-]*?eyJ)[\w-]{8,}=*\.[\w-]{8,}=*\.[\w-]{8}/g
 ];
 
 /**
@@ -507,6 +511,20 @@ function heldReach(text: string): Int32Array | undefined {
   return reach.some(end => end > 0) ? reach : undefined;
 }
 
+/** For each place of `text`, where the furthest token shape of the text as written that starts there or before it ends. */
+function furthestShapeEnds(text: string): Int32Array {
+  const furthest = new Int32Array(text.length);
+  for (const shape of TOKEN_SHAPES) {
+    for (const { index, 0: match } of text.matchAll(shape)) {
+      furthest[index] = Math.max(valueAt(furthest, index), index + match.length);
+    }
+  }
+  for (let index = 1; index < furthest.length; index++) {
+    furthest[index] = Math.max(valueAt(furthest, index), valueAt(furthest, index - 1));
+  }
+  return furthest;
+}
+
 /** For each place of `text`, how many credential shapes start before it. */
 function shapeStartsBefore(text: string): Int32Array {
   const before = new Int32Array(text.length + 1);
@@ -518,10 +536,10 @@ function shapeStartsBefore(text: string): Int32Array {
   return before;
 }
 
-/** For each place of `text`, where the run of token characters it falls in ends, or the next place outside one. */
+/** For each place of `text`, where the run of credential characters it falls in ends, or the next place outside one. */
 function runEnds(text: string): Int32Array {
   const ends = Int32Array.from({ length: text.length }, (_, index) => index + 1);
-  for (const { index, 0: run } of text.matchAll(new RegExp(`${TOKEN_RUN}+`, 'g'))) {
+  for (const { index, 0: run } of text.matchAll(new RegExp(`${VALUE_RUN}+`, 'g'))) {
     ends.fill(index + run.length, index, index + run.length);
   }
   return ends;
@@ -593,9 +611,11 @@ export function redactSecrets(text: string): string {
       reach[index] = Math.max(valueAt(reach, index), valueAt(raw, index));
   }
   if (unclosed.length > 0) {
+    const furthest = furthestShapeEnds(stripped);
     const ends = runEnds(stripped);
     const shapes = shapeStartsBefore(stripped);
     for (const { start, end } of unclosed) {
+      reach[start] = Math.max(valueAt(reach, start), valueAt(furthest, end - 1));
       if (valueAt(shapes, end) > valueAt(shapes, start))
         reach[start] = Math.max(valueAt(reach, start), valueAt(ends, end - 1));
     }
