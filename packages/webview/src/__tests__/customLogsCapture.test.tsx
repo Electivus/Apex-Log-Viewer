@@ -21,30 +21,14 @@ import {
   send
 } from './customLogsTestKit';
 
-const mockScroller = Object.assign(new EventTarget(), { scrollTop: 0, scrollLeft: 0 });
+afterEach(removeMountSequenceMeta);
 
-jest.mock('react-window', () => {
-  const React = require('react');
-  return {
-    List: ({ listRef, rowCount, rowHeight, rowComponent, rowProps, style, className }: any) => {
-      const items = Array.from({ length: rowCount }).map((_: unknown, index: number) =>
-        React.createElement(
-          React.Fragment,
-          { key: index },
-          rowComponent({ ...rowProps, index, style: { height: rowHeight } })
-        )
-      );
-      // Like react-window's List: the handle reaches object and callback refs alike.
-      React.useImperativeHandle(listRef, () => ({ element: mockScroller, scrollToRow: () => {} }), []);
-      return React.createElement('div', { 'data-testid': 'virtual-list', style, className }, items);
-    }
-  };
-});
-
-afterEach(() => {
-  removeMountSequenceMeta();
-  mockScroller.scrollTop = 0;
-});
+/** The grid's scroller, which jsdom lays out nowhere, so its scroll offset is a plain number the test sets and reads. */
+function scrollerAt(scrollTop: number) {
+  const scroller = grid().querySelector('[role="row"]')!.closest<HTMLElement>('.overflow-auto')!;
+  Object.defineProperty(scroller, 'scrollTop', { configurable: true, writable: true, value: scrollTop });
+  return scroller;
+}
 
 const BASE_MS = 1_790_000_000_000;
 
@@ -351,7 +335,7 @@ describe('live rows', () => {
 
   it('keep the row at the top of the viewport where it is when they arrive above it', () => {
     const { bus } = mountEvents(stored);
-    mockScroller.scrollTop = 48;
+    const scroller = scrollerAt(48);
 
     send(bus, {
       type: 'customLogsLiveRows',
@@ -360,24 +344,26 @@ describe('live rows', () => {
     });
 
     expect(listedTitles().slice(0, 2)).toEqual(['live 70', 'live 60']);
-    expect(mockScroller.scrollTop).toBe(48 + 2 * 24);
+    expect(scroller.scrollTop).toBe(48 + 2 * 24);
   });
 
   it('follow the newest row when the list is scrolled to the top', () => {
     const { bus } = mountEvents(stored);
 
+    const scroller = scrollerAt(0);
+
     send(bus, { type: 'customLogsLiveRows', rows: [eventRow(70, 'live 70')], payloadFields: [] });
 
-    expect(mockScroller.scrollTop).toBe(0);
+    expect(scroller.scrollTop).toBe(0);
   });
 
   it('leave the viewport alone when they land below the first visible row', () => {
     const { bus } = mountEvents(stored);
-    mockScroller.scrollTop = 24;
+    const scroller = scrollerAt(24);
 
     send(bus, { type: 'customLogsLiveRows', rows: [eventRow(25, 'live 25')], payloadFields: [] });
 
-    expect(mockScroller.scrollTop).toBe(24);
+    expect(scroller.scrollTop).toBe(24);
   });
 
   it('keep the selected row selected', () => {

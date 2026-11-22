@@ -1,5 +1,4 @@
 import React, { useMemo } from 'react';
-import { List } from 'react-window';
 import { TriangleAlert } from 'lucide-react';
 import type { CustomLogRow } from '@alv/protocol/customLogsTypes';
 import type { CustomLogsMessages } from '../../i18n';
@@ -11,7 +10,7 @@ import { CustomLogsColumnsHeader, columnGrid } from './CustomLogsColumnsHeader';
 import { ExtraCell } from './ExtraCell';
 import { LevelBadge } from './LevelBadge';
 import { PayloadCell } from './PayloadCell';
-import { SCROLLBAR_GUTTER } from '../table/useVirtualListElement';
+import { GridScroller } from './CustomLogsGridScroller';
 import { useGridList } from './useGridList';
 import { useLiveAnchor } from './useLiveAnchor';
 
@@ -32,7 +31,6 @@ type CustomLogsTableProps = {
   onOpen: (row: CustomLogRow) => void;
   onToggleColumn: (path: string) => void;
   onRemoveColumn: (path: string) => void;
-  virtualListComponent?: typeof List;
 };
 
 type RowProps = {
@@ -40,7 +38,6 @@ type RowProps = {
   rows: readonly CustomLogRow[];
   columns: readonly TableColumn[];
   gridTemplate: string;
-  totalWidth: number;
   selectedId: string | undefined;
   firstPayloadColumnId: string | undefined;
   onSelect: (row: CustomLogRow) => void;
@@ -118,7 +115,6 @@ function CustomLogRowView({
   rows,
   columns,
   gridTemplate,
-  totalWidth,
   selectedId,
   firstPayloadColumnId,
   onSelect,
@@ -135,7 +131,7 @@ function CustomLogRowView({
       aria-selected={selected}
       aria-rowindex={index + 1}
       data-row-id={row.id}
-      style={{ ...style, display: 'grid', gridTemplateColumns: gridTemplate, minWidth: totalWidth }}
+      style={{ ...style, display: 'grid', gridTemplateColumns: gridTemplate }}
       className={cn(
         'cursor-pointer items-center border-b border-border/40 text-xs hover:bg-muted/40',
         selected &&
@@ -167,20 +163,18 @@ export function CustomLogsTable({
   onSelect,
   onOpen,
   onToggleColumn,
-  onRemoveColumn,
-  virtualListComponent
+  onRemoveColumn
 }: CustomLogsTableProps) {
-  const VirtualList = virtualListComponent ?? List;
-  const { listRef, setListRef, headerRef, onKeyDown } = useGridList(rows, selectedId, onSelect, onOpen);
-  useLiveAnchor(rows, ROW_HEIGHT, listRef);
+  const { scroller, setScroller, setBody, virtualItems, totalSize, onKeyDown } = useGridList(
+    rows,
+    selectedId,
+    onSelect,
+    { itemSize: ROW_HEIGHT, overscanCount: 10, onOpen }
+  );
+  useLiveAnchor(rows, ROW_HEIGHT, scroller);
 
   const { gridTemplate, totalWidth } = useMemo(() => columnGrid(columns), [columns]);
   const firstPayloadColumnId = useMemo(() => columns.find(column => column.kind === 'payload')?.id, [columns]);
-
-  const rowProps = useMemo<RowProps>(
-    () => ({ t, rows, columns, gridTemplate, totalWidth, selectedId, firstPayloadColumnId, onSelect, onOpen }),
-    [t, rows, columns, gridTemplate, totalWidth, selectedId, firstPayloadColumnId, onSelect, onOpen]
-  );
 
   return (
     <div
@@ -191,33 +185,44 @@ export function CustomLogsTable({
       className="flex min-h-0 min-w-0 flex-1 flex-col focus-visible:outline-none"
       onKeyDown={onKeyDown}
     >
-      <CustomLogsColumnsHeader
-        headerRef={headerRef}
-        t={t}
-        columns={columns}
-        gridTemplate={gridTemplate}
+      <GridScroller
+        setScroller={setScroller}
+        setBody={setBody}
         totalWidth={totalWidth}
-        sort={sort}
-        loadedCount={rows.length}
-        discovered={discovered}
-        activeColumns={activeColumns}
-        lockedColumns={lockedColumns}
-        onSort={onSort}
-        onToggleColumn={onToggleColumn}
-        onRemoveColumn={onRemoveColumn}
-      />
-      <div className="relative min-h-0 flex-1">
-        <VirtualList
-          listRef={setListRef}
-          className={SCROLLBAR_GUTTER}
-          style={{ height: '100%', width: '100%' }}
-          rowCount={rows.length}
-          rowHeight={ROW_HEIGHT}
-          overscanCount={10}
-          rowProps={rowProps}
-          rowComponent={CustomLogRowView}
-        />
-      </div>
+        totalSize={totalSize}
+        header={
+          <CustomLogsColumnsHeader
+            t={t}
+            columns={columns}
+            gridTemplate={gridTemplate}
+            totalWidth={totalWidth}
+            sort={sort}
+            loadedCount={rows.length}
+            discovered={discovered}
+            activeColumns={activeColumns}
+            lockedColumns={lockedColumns}
+            onSort={onSort}
+            onToggleColumn={onToggleColumn}
+            onRemoveColumn={onRemoveColumn}
+          />
+        }
+      >
+        {virtualItems.map(({ index, offset, size }) => (
+          <CustomLogRowView
+            key={rows[index]?.id ?? index}
+            index={index}
+            style={{ position: 'absolute', top: offset, left: 0, right: 0, height: size }}
+            t={t}
+            rows={rows}
+            columns={columns}
+            gridTemplate={gridTemplate}
+            selectedId={selectedId}
+            firstPayloadColumnId={firstPayloadColumnId}
+            onSelect={onSelect}
+            onOpen={onOpen}
+          />
+        ))}
+      </GridScroller>
     </div>
   );
 }

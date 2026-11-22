@@ -18,140 +18,146 @@ type Props = {
   onClearColumnWidth: (key: LogsColumnKey) => void;
 };
 
-export const LogsHeader = React.forwardRef<HTMLDivElement, Props>(
-  ({ t, sortBy, sortDir, onSort, gridTemplate, minWidthPx, columns, onResizeColumn, onClearColumnWidth }, ref) => {
-    const renderSortIcon = (key: SortKey) => {
-      if (sortBy !== key) {
-        return <ChevronsUpDown className="h-3.5 w-3.5 opacity-50" aria-hidden="true" />;
-      }
-      return sortDir === 'asc' ? (
-        <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
-      ) : (
-        <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
-      );
+export function LogsHeader({
+  t,
+  sortBy,
+  sortDir,
+  onSort,
+  gridTemplate,
+  minWidthPx,
+  columns,
+  onResizeColumn,
+  onClearColumnWidth
+}: Props) {
+  const renderSortIcon = (key: SortKey) => {
+    if (sortBy !== key) {
+      return <ChevronsUpDown className="h-3.5 w-3.5 opacity-50" aria-hidden="true" />;
+    }
+    return sortDir === 'asc' ? (
+      <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
+    ) : (
+      <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
+    );
+  };
+
+  const ariaSort = (key: SortKey): 'none' | 'ascending' | 'descending' => {
+    if (sortBy !== key) return 'none';
+    return sortDir === 'asc' ? 'ascending' : 'descending';
+  };
+
+  const headerClass = 'flex min-w-0 items-center gap-1 px-2 text-[11px] font-semibold text-muted-foreground';
+
+  const isSortableColumn = (key: LogsColumnKey): key is SortKey => key !== 'match';
+
+  const alignForColumn = (key: LogsColumnKey): 'start' | 'end' => (key === 'size' ? 'end' : 'start');
+
+  const startResize = (key: LogsColumnKey, e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const handle = e.currentTarget;
+    const cell = handle.parentElement as HTMLElement | null;
+    if (!cell) return;
+
+    const minWidth = LOGS_COLUMN_MIN_WIDTH_PX[key] ?? 80;
+    const startX = e.clientX;
+    const startWidth = cell.getBoundingClientRect().width;
+    let lastWidth = Math.max(minWidth, Math.round(startWidth));
+
+    const prevCursor = document.body.style.cursor;
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    try {
+      handle.setPointerCapture(e.pointerId);
+    } catch {}
+
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX;
+      const next = Math.max(minWidth, Math.round(startWidth + dx));
+      lastWidth = next;
+      onResizeColumn(key, next, { persist: false });
     };
 
-    const ariaSort = (key: SortKey): 'none' | 'ascending' | 'descending' => {
-      if (sortBy !== key) return 'none';
-      return sortDir === 'asc' ? 'ascending' : 'descending';
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevUserSelect;
     };
 
-    const headerClass = 'flex min-w-0 items-center gap-1 px-2 text-[11px] font-semibold text-muted-foreground';
-
-    const isSortableColumn = (key: LogsColumnKey): key is SortKey => key !== 'match';
-
-    const alignForColumn = (key: LogsColumnKey): 'start' | 'end' => (key === 'size' ? 'end' : 'start');
-
-    const startResize = (key: LogsColumnKey, e: React.PointerEvent<HTMLDivElement>) => {
-      if (e.button !== 0) return;
-      e.preventDefault();
-      e.stopPropagation();
-
-      const handle = e.currentTarget;
-      const cell = handle.parentElement as HTMLElement | null;
-      if (!cell) return;
-
-      const minWidth = LOGS_COLUMN_MIN_WIDTH_PX[key] ?? 80;
-      const startX = e.clientX;
-      const startWidth = cell.getBoundingClientRect().width;
-      let lastWidth = Math.max(minWidth, Math.round(startWidth));
-
-      const prevCursor = document.body.style.cursor;
-      const prevUserSelect = document.body.style.userSelect;
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-
-      try {
-        handle.setPointerCapture(e.pointerId);
-      } catch {}
-
-      const onMove = (ev: PointerEvent) => {
-        const dx = ev.clientX - startX;
-        const next = Math.max(minWidth, Math.round(startWidth + dx));
-        lastWidth = next;
-        onResizeColumn(key, next, { persist: false });
-      };
-
-      const cleanup = () => {
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
-        window.removeEventListener('pointercancel', onUp);
-        document.body.style.cursor = prevCursor;
-        document.body.style.userSelect = prevUserSelect;
-      };
-
-      const onUp = () => {
-        onResizeColumn(key, lastWidth, { persist: true });
-        cleanup();
-      };
-
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onUp);
-      window.addEventListener('pointercancel', onUp);
+    const onUp = () => {
+      onResizeColumn(key, lastWidth, { persist: true });
+      cleanup();
     };
 
-    const renderColumnHeader = (key: LogsColumnKey) => {
-      const label = getLogsColumnLabel(key, t);
-      const align = alignForColumn(key);
-      const justifyClass = align === 'end' ? 'justify-end text-right' : 'justify-start text-left';
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  };
 
-      return (
-        <div
-          key={key}
-          role="columnheader"
-          aria-sort={isSortableColumn(key) ? ariaSort(key) : undefined}
-          className={cn(headerClass, 'group relative', justifyClass)}
-        >
-          {isSortableColumn(key) ? (
-            <button
-              type="button"
-              onClick={() => onSort(key)}
-              className={cn(
-                'flex h-full w-full min-w-0 items-center gap-1 text-[11px] font-semibold transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring',
-                justifyClass
-              )}
-            >
-              <span className="truncate">{label}</span>
-              {renderSortIcon(key)}
-            </button>
-          ) : (
-            <span className="truncate">{label}</span>
-          )}
-
-          <div
-            role="separator"
-            aria-label={(t.columnsConfig?.resizeColumn ?? 'Resize {column}').replace('{column}', label)}
-            aria-orientation="vertical"
-            onPointerDown={e => startResize(key, e)}
-            onDoubleClick={e => {
-              e.preventDefault();
-              e.stopPropagation();
-              onClearColumnWidth(key);
-            }}
-            className={cn(
-              'absolute right-0 top-0 flex h-full w-2 touch-none select-none items-center justify-center',
-              'cursor-col-resize'
-            )}
-          >
-            <div className="h-[60%] w-px bg-border opacity-0 transition-opacity group-hover:opacity-100" />
-          </div>
-        </div>
-      );
-    };
+  const renderColumnHeader = (key: LogsColumnKey) => {
+    const label = getLogsColumnLabel(key, t);
+    const align = alignForColumn(key);
+    const justifyClass = align === 'end' ? 'justify-end text-right' : 'justify-start text-left';
 
     return (
-      <div ref={ref} className="shrink-0 overflow-x-hidden overflow-y-scroll border-b border-border bg-card">
+      <div
+        key={key}
+        role="columnheader"
+        aria-sort={isSortableColumn(key) ? ariaSort(key) : undefined}
+        className={cn(headerClass, 'group relative', justifyClass)}
+      >
+        {isSortableColumn(key) ? (
+          <button
+            type="button"
+            onClick={() => onSort(key)}
+            className={cn(
+              'flex h-full w-full min-w-0 items-center gap-1 text-[11px] font-semibold transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring',
+              justifyClass
+            )}
+          >
+            <span className="truncate">{label}</span>
+            {renderSortIcon(key)}
+          </button>
+        ) : (
+          <span className="truncate">{label}</span>
+        )}
+
         <div
-          role="row"
-          style={{ gridTemplateColumns: gridTemplate, minWidth: minWidthPx }}
-          className="grid h-7 items-stretch"
+          role="separator"
+          aria-label={(t.columnsConfig?.resizeColumn ?? 'Resize {column}').replace('{column}', label)}
+          aria-orientation="vertical"
+          onPointerDown={e => startResize(key, e)}
+          onDoubleClick={e => {
+            e.preventDefault();
+            e.stopPropagation();
+            onClearColumnWidth(key);
+          }}
+          className={cn(
+            'absolute right-0 top-0 flex h-full w-2 touch-none select-none items-center justify-center',
+            'cursor-col-resize'
+          )}
         >
-          {columns.map(key => renderColumnHeader(key))}
-          <div aria-hidden="true" className="sticky right-0 z-[1] border-l border-border/40 bg-card" />
+          <div className="h-[60%] w-px bg-border opacity-0 transition-opacity group-hover:opacity-100" />
         </div>
       </div>
     );
-  }
-);
+  };
 
-LogsHeader.displayName = 'LogsHeader';
+  return (
+    <div className="sticky top-0 z-10 border-b border-border bg-card">
+      <div
+        role="row"
+        style={{ gridTemplateColumns: gridTemplate, minWidth: minWidthPx }}
+        className="grid h-7 items-stretch"
+      >
+        {columns.map(key => renderColumnHeader(key))}
+        <div aria-hidden="true" className="sticky right-0 z-[1] border-l border-border/40 bg-card" />
+      </div>
+    </div>
+  );
+}

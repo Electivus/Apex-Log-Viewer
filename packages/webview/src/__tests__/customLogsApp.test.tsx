@@ -26,29 +26,6 @@ import {
   withNativeSelects
 } from './customLogsTestKit';
 
-jest.mock('react-window', () => {
-  const React = require('react');
-  return {
-    List: ({ listRef, rowCount, rowHeight, rowComponent, rowProps, style, className }: any) => {
-      const items = Array.from({ length: rowCount }).map((_: unknown, index: number) =>
-        React.createElement(
-          React.Fragment,
-          { key: index },
-          rowComponent({
-            ...rowProps,
-            index,
-            style: { height: typeof rowHeight === 'function' ? rowHeight(index) : rowHeight }
-          })
-        )
-      );
-      const api = { element: null, scrollToRow: () => {} };
-      // Like react-window's List: the handle reaches object and callback refs alike.
-      React.useImperativeHandle(listRef, () => api, []);
-      return React.createElement('div', { 'data-testid': 'virtual-list', style, className }, items);
-    }
-  };
-});
-
 afterEach(removeMountSequenceMeta);
 
 const auditLog: CustomLogSourceView = {

@@ -1,5 +1,4 @@
-import { useLayoutEffect, useRef, type RefObject } from 'react';
-import type { ListImperativeAPI } from 'react-window';
+import { useLayoutEffect, useRef } from 'react';
 
 /**
  * Where the scroll offset must go so the row at the top of the viewport stays where it is after rows were
@@ -37,22 +36,17 @@ export function anchoredScrollTop(params: {
  * position moves down by the height of the rows inserted above the first visible one, so the row under the
  * cursor does not move. Selection is by id already, so it survives the merge.
  */
-export function useLiveAnchor(
-  rows: readonly { id: string }[],
-  rowHeight: number,
-  listRef: RefObject<ListImperativeAPI | null>
-): void {
+export function useLiveAnchor(rows: readonly { id: string }[], rowHeight: number, scroller: HTMLElement | null): void {
   const previous = useRef(rows);
   useLayoutEffect(() => {
     const before = previous.current;
     previous.current = rows;
-    const element = listRef.current?.element;
-    if (!element || before === rows) {
+    if (!scroller || before === rows) {
       return;
     }
-    const scrollTop = anchoredScrollTop({ previous: before, rows, scrollTop: element.scrollTop, rowHeight });
+    const scrollTop = anchoredScrollTop({ previous: before, rows, scrollTop: scroller.scrollTop, rowHeight });
     if (scrollTop !== undefined) {
-      element.scrollTop = scrollTop;
+      scroller.scrollTop = scrollTop;
     }
-  }, [listRef, rowHeight, rows]);
+  }, [rowHeight, rows, scroller]);
 }
