@@ -56,6 +56,17 @@ const TOKEN_SHAPES: readonly RegExp[] = [
 ];
 
 /**
+ * The shortest text of each credential shape. A session id may start glued to the text before it, as in a `Bearer`
+ * value `abcdefghijkl00D…!…`; a JSON Web Token or refresh token starts a word, so a dotted name such as
+ * `monkeyJumped.configuration.propertyName` is no token.
+ */
+const SHAPE_STARTS: readonly RegExp[] = [
+  new RegExp(String.raw`00D[A-Za-z0-9]{12,15}!${TOKEN_RUN}{8}`, 'g'),
+  /\b5Aep8[A-Za-z0-9._]{20}/g,
+  /\beyJ(?<!\beyJ[\w-]*?eyJ)[\w-]{8,}\.[\w-]{8,}\.[\w-]{8}/g
+];
+
+/**
  * Text that names its secret before it: the secret is the second group, after the name in the first, and its
  * replacement keeps the name and the closing third group, when there is one.
  */
@@ -496,6 +507,17 @@ function heldReach(text: string): Int32Array | undefined {
   return reach.some(end => end > 0) ? reach : undefined;
 }
 
+/** For each place of `text`, how many credential shapes start before it. */
+function shapeStartsBefore(text: string): Int32Array {
+  const before = new Int32Array(text.length + 1);
+  for (const shape of SHAPE_STARTS) {
+    for (const { index } of text.matchAll(shape)) before[index + 1] = valueAt(before, index + 1) + 1;
+  }
+  for (let index = 1; index < before.length; index++)
+    before[index] = valueAt(before, index) + valueAt(before, index - 1);
+  return before;
+}
+
 /** For each place of `text`, where the run of token characters it falls in ends, or the next place outside one. */
 function runEnds(text: string): Int32Array {
   const ends = Int32Array.from({ length: text.length }, (_, index) => index + 1);
@@ -539,8 +561,8 @@ function reachRules(text: string, reach: Int32Array): Stretch[] {
  * that begins or overlaps another leaves no part of either. The rules run on the text as written, so a held secret
  * that covers part of a secret's name leaves the secret replaced, and again with the held secrets replaced, where
  * they can end a name. A value that only its name marks, with nothing to close it, is replaced to the end of its run
- * of token characters when it has a digit, so a word after "Bearer" leaves the field after it, and a token shape that
- * a held secret falls in is replaced whole.
+ * of token characters when a credential shape starts in it, so a word or an OAuth scope after "Bearer" leaves the
+ * field after it, and a token shape that a held secret falls in is replaced whole.
  */
 export function redactSecrets(text: string): string {
   const stripped = stripControlSequences(text);
@@ -572,8 +594,9 @@ export function redactSecrets(text: string): string {
   }
   if (unclosed.length > 0) {
     const ends = runEnds(stripped);
+    const shapes = shapeStartsBefore(stripped);
     for (const { start, end } of unclosed) {
-      if (/\d/.test(stripped.slice(start, end)))
+      if (valueAt(shapes, end) > valueAt(shapes, start))
         reach[start] = Math.max(valueAt(reach, start), valueAt(ends, end - 1));
     }
   }
