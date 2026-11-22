@@ -46,7 +46,9 @@ function webviewBody(page: Page, name: string): Locator {
  * one. VS Code keeps the webview of a hidden panel or a background tab alive with its outer iframe at
  * `visibility: hidden`, so this picks among the outer iframes that are not, and returns a locator bound to that
  * webview's identity. Unlike a `Frame`, the locator survives VS Code replacing the content iframe. It polls every
- * 250 ms and fails once `timeoutMs` has passed, after the check in progress returns.
+ * 250 ms. `timeoutMs` is the cutoff for starting a new poll, not for the call: the first poll always runs, and a poll
+ * still running at the cutoff finishes and can return its webview after `timeoutMs`. The call rejects when a poll
+ * ends empty at or after the cutoff.
  */
 export async function shownWebview(page: Page, selector: string, timeoutMs = 120_000): Promise<Locator> {
   const deadline = Date.now() + timeoutMs;

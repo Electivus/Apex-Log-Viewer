@@ -214,6 +214,47 @@ describe('shownWebview', () => {
     await expect(shownWebview(page, '[data-testid="absent"]', 10)).rejects.toThrow('within 10 ms');
     expect(Date.now() - started).toBeLessThan(200);
   });
+
+  /** Holds the workbench page's main thread, where each poll lists the webviews, for `ms` from its next task. */
+  async function blockWorkbench(ms: number): Promise<void> {
+    await page.evaluate(ms => {
+      setTimeout(() => {
+        const end = Date.now() + ms;
+        while (Date.now() < end) {
+          // busy
+        }
+      }, 0);
+    }, ms);
+  }
+
+  test('lets a poll started before the cutoff return the webview it finds after the cutoff', async () => {
+    await openWorkbench(page, 'late-hit', { webviews: [{ name: 'logs-webview', copy: 'logs', active: logsContent }] });
+
+    await blockWorkbench(500);
+    const started = Date.now();
+    const logs = await shownWebview(page, TOOLBAR, 50);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(400);
+    await playwrightExpect(logs.locator(TOOLBAR)).toBeVisible({ timeout: 5_000 });
+  });
+
+  test('starts no poll after the cutoff, even when the content shows up right after the last one', async () => {
+    await openWorkbench(page, 'late-content', {
+      webviews: [{ name: 'logs-webview', copy: 'logs', active: logsContent }]
+    });
+    const content = page.frames().find(frame => frame.url().startsWith(`${webviewOrigin}/content/late-content/logs/`));
+    await content!.evaluate(() => {
+      setTimeout(() => {
+        const late = document.createElement('div');
+        late.dataset.testid = 'late';
+        late.textContent = 'late';
+        document.body.appendChild(late);
+      }, 3_000);
+    });
+
+    await blockWorkbench(500);
+    await expect(shownWebview(page, '[data-testid="late"]', 50)).rejects.toThrow('within 50 ms');
+    await playwrightExpect(webviewWith(page, 'late').getByTestId('late')).toBeVisible({ timeout: 10_000 });
+  });
 });
 
 describe('webviewWith', () => {
