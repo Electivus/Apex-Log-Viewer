@@ -154,7 +154,7 @@ describe('LogsTable', () => {
     it('keeps the header and rows in one scroller sharing one column template, so they stay aligned', () => {
       const { container } = renderTable({ rows: createRows(5) });
       const surface = container.querySelector('.overflow-auto') as HTMLElement;
-      const [header, firstRow] = screen.getAllByRole('row');
+      const [header, firstRow] = screen.getAllByRole('row') as [HTMLElement, HTMLElement];
       expect(surface).toContainElement(header);
       expect(surface).toContainElement(firstRow);
       expect(header.style.gridTemplateColumns).not.toBe('');
@@ -190,7 +190,7 @@ describe('LogsTable', () => {
           [20, 60], // > 1 px/ms
           [20, 100], // > 2 px/ms
           [20, 100]
-        ]) {
+        ] as [number, number][]) {
           now += dt;
           scrollTo(surface, surface.scrollTop + dy);
         }
@@ -241,9 +241,9 @@ describe('LogsTable', () => {
       const onOpen = jest.fn();
       const onReplay = jest.fn();
       renderWith({ onOpen, onReplay });
-      fireEvent.click(screen.getAllByRole('button', { name: 'Open' })[1]);
+      fireEvent.click(screen.getAllByRole('button', { name: 'Open' })[1]!);
       expect(onOpen).toHaveBeenCalledWith('1');
-      fireEvent.click(screen.getAllByRole('button', { name: 'Replay' })[2]);
+      fireEvent.click(screen.getAllByRole('button', { name: 'Replay' })[2]!);
       expect(onReplay).toHaveBeenCalledWith('2');
     });
 
