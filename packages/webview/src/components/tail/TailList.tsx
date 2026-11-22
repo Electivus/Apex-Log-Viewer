@@ -201,6 +201,8 @@ function predictNewRows(heights: LineHeights, rows: LineSeqSource): ReadonlyMap<
 /** react-window's dynamic row height protocol, with the rows it covers and the height it gives each line. */
 type LineRowHeight = DynamicRowHeight & {
   rows: LineSeqSource;
+  /** The heights given to rows not measured yet after the newest measured one, from `predictNewRows`. */
+  predicted: ReadonlyMap<number, number> | undefined;
   heightOf: (seq: number) => number;
 };
 
@@ -252,7 +254,8 @@ type MoveScroll = (element: HTMLElement, from: number, to: number) => void;
  * beyond the one its arrival already made. While the view follows the end, the rows after the newest measured one
  * count the heights of the pattern the newest measured rows repeat, if any (`predictNewRows`); other lines not
  * measured yet count the estimate, the most common measured height. A measurement that changes the most common
- * height also asks for a new object, so the estimate the view keeps when it stops following is the current one.
+ * height also asks for a new object, so the estimate the view keeps when it stops following is the current one;
+ * the predicted heights stay too, so no row above the view changes height when it stops.
  *
  * While the view does not follow the end, the content in view keeps its place. The estimate stays where it was, since
  * a changed estimate moves every line not measured yet, and those lines sit above the view. Whatever changes the
@@ -346,10 +349,12 @@ function useLineRowHeights(
     const estimate = follow
       ? heights.commonHeight()
       : (committedRef.current?.getAverageRowHeight() ?? DEFAULT_ROW_HEIGHT);
-    const predicted = follow ? predictNewRows(heights, rows) : undefined;
+    // While the view does not follow, the rows keep the heights the List already holds for them, predictions included.
+    const predicted = follow ? predictNewRows(heights, rows) : committedRef.current?.predicted;
     const known = (seq: number) => heights.get(seq) ?? predicted?.get(seq);
     return {
       rows,
+      predicted,
       heightOf: seq => known(seq) ?? estimate,
       getAverageRowHeight: () => estimate,
       getRowHeight: index => {
