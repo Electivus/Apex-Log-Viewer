@@ -248,31 +248,38 @@ describe('TailList rows over the real virtual list', () => {
     expect(rowElement('Line 3')).toBe(row);
   });
 
-  it('keeps the rows in view in place while Auto-scroll is off and lines leave the buffer one at a time', () => {
-    // Lines 0-199 are short and lines from 200 on are tall. The first short lines get measured at the top, then the
-    // view jumps among the tall lines, so most short lines above the view are placed by the List's estimate.
-    const COUNT = 400;
-    const DROPS = 20;
-    const tall = new Set(Array.from({ length: COUNT + DROPS }, (_, seq) => seq).filter(seq => seq >= 200));
-    const { update } = renderTail(buffer(0, COUNT, tall));
-    scrollListTo(220 * SHORT);
-    const [line, top] = [...viewportTops()].find(([, rowTop]) => rowTop >= 0) ?? ['', 0];
-    expect(line).toContain('TALL');
+  // The first lines get measured at the top, then the view jumps far below, so most lines above the view are placed
+  // by the List's estimate. Lines from 200 on tall: the lines that leave are short and measured. Every other line
+  // tall: the lines that leave alternate, as in #1564.
+  it.each([
+    ['from line 200 on', (seq: number) => seq >= 200],
+    ['every other line', (seq: number) => seq % 2 === 1]
+  ])(
+    'keeps the rows in view in place while Auto-scroll is off and lines leave the buffer one at a time, tall %s',
+    (_, isTall) => {
+      const COUNT = 400;
+      const DROPS = 20;
+      const tall = new Set(Array.from({ length: COUNT + DROPS }, (_, seq) => seq).filter(isTall));
+      const { update } = renderTail(buffer(0, COUNT, tall));
+      scrollListTo(220 * SHORT);
+      const [line, top] = [...viewportTops()].find(([, rowTop]) => rowTop >= 0) ?? ['', 0];
+      expect(line).toMatch(/^Line \d+/);
 
-    // Each update adds a line at the end and drops a short, measured line from the head, until about as many tall
-    // lines as short ones are measured. In every layout, the line that was first in view stays where it was.
-    const places = [];
-    const expected = [];
-    for (let first = 1; first <= DROPS; first++) {
-      const layouts = new Set<string>();
-      beforeReport = () => layouts.add(placeOf(line));
-      update(buffer(first, COUNT, tall));
-      layouts.add(placeOf(line));
-      places.push([...layouts]);
-      expected.push([`${line} at ${top}`]);
+      // Each update adds a line at the end and drops one from the head. In every layout, the line that was first in
+      // view stays where it was.
+      const places = [];
+      const expected = [];
+      for (let first = 1; first <= DROPS; first++) {
+        const layouts = new Set<string>();
+        beforeReport = () => layouts.add(placeOf(line));
+        update(buffer(first, COUNT, tall));
+        layouts.add(placeOf(line));
+        places.push([...layouts]);
+        expected.push([`${line} at ${top}`]);
+      }
+      expect(places).toEqual(expected);
     }
-    expect(places).toEqual(expected);
-  });
+  );
 
   it('keeps the rows in view in place at the end while Auto-scroll is off and the list shrinks', () => {
     // The filter hides the new line, so the line that leaves the head makes the list one row shorter, and the

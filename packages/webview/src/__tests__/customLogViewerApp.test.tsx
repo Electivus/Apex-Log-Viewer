@@ -20,26 +20,14 @@ import { CustomLogViewerApp } from '../customLogViewer';
 const mockScrolledRows: number[] = [];
 
 jest.mock('react-window', () => {
-  const React = require('react');
+  const actual = jest.requireActual('react-window');
   return {
-    // Like react-window's List over dynamic row heights: each row is laid out at its measured height, or at the
-    // average before it measured, and the rendered rows go to `observeRowElements` after every render.
-    List: ({ listRef, rowCount, rowHeight, rowComponent, rowProps, style, className }: any) => {
-      const listElement = React.useRef(null);
-      const items = Array.from({ length: rowCount }).map((_: unknown, index: number) =>
-        React.createElement(rowComponent, {
-          key: index,
-          ...rowProps,
-          index,
-          style: { height: rowHeight.getRowHeight(index) ?? rowHeight.getAverageRowHeight() }
-        })
-      );
-      React.useLayoutEffect(() => rowHeight.observeRowElements(Array.from(listElement.current.children)));
-      const api = { element: null, scrollToRow: ({ index }: { index: number }) => mockScrolledRows.push(index) };
-      // Like react-window's List: the handle reaches object and callback refs alike.
-      React.useImperativeHandle(listRef, () => api, []);
-      return React.createElement('div', { ref: listElement, 'data-testid': 'virtual-list', style, className }, items);
-    }
+    ...actual,
+    // The real virtualizer lays out nothing in jsdom, so the reveal is observed as the index it asked to scroll to.
+    useVirtualizer: (options: unknown) => ({
+      ...actual.useVirtualizer(options),
+      scrollToIndex: ({ index }: { index: number }) => mockScrolledRows.push(index)
+    })
   };
 });
 
@@ -440,7 +428,16 @@ describe('Custom Log viewer app', () => {
 
   describe('row heights', () => {
     const nextFrame = () => act(async () => await new Promise(resolve => setTimeout(resolve, 20)));
-    const heightOf = (id: string) => (rowOf(id).parentElement as HTMLElement).style.height;
+    // The virtualizer places each row at the measured heights above it, so a row's height is the distance to the
+    // row below it, or to the end of the list for the last row.
+    const topOf = (id: string) => parseFloat((rowOf(id).parentElement as HTMLElement).style.top);
+    const heightOf = (id: string) => {
+      const below = shownIds()[shownIds().indexOf(id) + 1];
+      const end = below
+        ? topOf(below)
+        : parseFloat((rowOf(id).parentElement!.parentElement as HTMLElement).style.height);
+      return `${end - topOf(id)}px`;
+    };
     const NoResizeObserver = globalThis.ResizeObserver;
 
     beforeEach(() => {
@@ -449,6 +446,9 @@ describe('Custom Log viewer app', () => {
         constructor(private readonly callback: ResizeObserverCallback) {}
         observe(target: Element) {
           const entryId = target.querySelector('[data-entry-id]')?.getAttribute('data-entry-id');
+          if (!entryId) {
+            return; // the scroller and the rows' box keep the virtualizer's default size
+          }
           const blockSize = entryId === entryIds.start ? 61 : 26;
           setTimeout(() =>
             this.callback(

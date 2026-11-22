@@ -1,17 +1,9 @@
 import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import type { List } from 'react-window';
 import type { ApexLogRow } from '@alv/protocol/types';
 import { LogsTable } from '../components/LogsTable';
 import { LOG_ROW_HEIGHT_PX } from '../utils/logsColumns';
-
-type CapturedList = {
-  outer?: HTMLDivElement | null;
-  onRowsRendered?: (args: { startIndex: number; stopIndex: number }) => void;
-  overscanCount?: number;
-  rowHeight?: unknown;
-};
 
 function createRows(n: number): ApexLogRow[] {
   return Array.from({ length: n }, (_, i) => ({
@@ -59,56 +51,18 @@ const defaultColumnsConfig = {
   widths: {}
 } as const;
 
-function createVirtualList(captured: CapturedList): typeof List {
-  return function VirtualList({
-    listRef,
-    rowCount,
-    rowHeight,
-    rowComponent,
-    rowProps,
-    style,
-    overscanCount,
-    onRowsRendered
-  }: any) {
-    captured.overscanCount = overscanCount;
-    captured.onRowsRendered = onRowsRendered;
-    captured.rowHeight = rowHeight;
-    return (
-      <div
-        style={style}
-        ref={el => {
-          captured.outer = el as HTMLDivElement | null;
-          const api = { element: el, scrollToRow: () => {} };
-          if (typeof listRef === 'function') {
-            listRef(api);
-          } else if (listRef && typeof listRef === 'object' && 'current' in listRef) {
-            (listRef as { current: unknown }).current = api;
-          }
-        }}
-      >
-        {Array.from({ length: rowCount }).map((_, index) => (
-          <div key={index}>{rowComponent({ ...rowProps, index, style: { height: rowHeight } })}</div>
-        ))}
-      </div>
-    );
-  } as unknown as typeof List;
-}
-
 describe('LogsTable', () => {
   function renderTable({
     rows = createRows(10),
-    captured,
     fullLogSearchEnabled = true,
     hasSearchText = true,
     emptyMessage
   }: {
     rows?: ApexLogRow[];
-    captured: CapturedList;
     fullLogSearchEnabled?: boolean;
     hasSearchText?: boolean;
     emptyMessage?: string;
   }) {
-    const virtualList = createVirtualList(captured);
     const baseProps = {
       rows,
       logHead: {},
@@ -126,7 +80,6 @@ describe('LogsTable', () => {
     const view = render(
       <LogsTable
         {...baseProps}
-        virtualListComponent={virtualList}
         fullLogSearchEnabled={fullLogSearchEnabled}
         hasSearchText={hasSearchText}
         emptyMessage={emptyMessage}
@@ -135,70 +88,26 @@ describe('LogsTable', () => {
     return view;
   }
 
-  it('does not provide pagination hooks via onRowsRendered', () => {
-    const captured: CapturedList = {};
-    renderTable({ rows: createRows(30), captured });
-    expect(captured.onRowsRendered).toBeUndefined();
-  });
-
   it('gives every row the same fixed height, so nothing is measured', () => {
-    const captured: CapturedList = {};
-    renderTable({ rows: createRows(30), captured });
-    expect(captured.rowHeight).toBe(LOG_ROW_HEIGHT_PX);
+    renderTable({ rows: createRows(30) });
     expect(LOG_ROW_HEIGHT_PX).toBe(28);
-  });
-
-  it('fills the height its parent gives it instead of reading the window', () => {
-    const captured: CapturedList = {};
-    renderTable({ captured });
-    expect(captured.outer?.style.height).toBe('100%');
+    expect(screen.getAllByRole('row')[1]).toHaveStyle({ height: `${LOG_ROW_HEIGHT_PX}px` });
   });
 
   it('shows its message where the rows would be', () => {
-    const captured: CapturedList = {};
-    renderTable({ rows: [], captured, emptyMessage: 'No logs found.' });
+    renderTable({ rows: [], emptyMessage: 'No logs found.' });
     expect(screen.getByTestId('logs-empty-message')).toHaveTextContent('No logs found.');
     expect(screen.getByText('Operation')).toBeInTheDocument();
   });
 
-  it('adjusts overscan while scrolling quickly', async () => {
-    const captured: CapturedList = {};
-    renderTable({ rows: createRows(5), captured });
-    const outer = captured.outer as HTMLDivElement;
-    const originalNow = performance.now.bind(performance);
-    let now = 0;
-    (performance as any).now = () => now;
-
-    await act(async () => {
-      outer.scrollTop = 50;
-      fireEvent.scroll(outer);
-      now += 20;
-      outer.scrollTop = 100;
-      fireEvent.scroll(outer);
-      now += 20;
-      outer.scrollTop = 200;
-      fireEvent.scroll(outer);
-      await Promise.resolve();
-    });
-    expect(captured.overscanCount as number).toBeGreaterThan(8);
-
-    await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 250));
-    });
-    expect(captured.overscanCount).toBe(8);
-    (performance as any).now = originalNow;
-  });
-
   it('shows the Match column while the search has text', () => {
-    const captured: CapturedList = {};
-    renderTable({ captured, fullLogSearchEnabled: true, hasSearchText: true });
+    renderTable({ fullLogSearchEnabled: true, hasSearchText: true });
     expect(screen.queryByText(deprecatedColumnLabel)).toBeNull();
     expect(screen.getByText('Match')).toBeInTheDocument();
   });
 
   it('leaves the Match column out when the search is empty and brings it back with the next search', () => {
-    const captured: CapturedList = {};
-    const view = renderTable({ captured, hasSearchText: false });
+    const view = renderTable({ hasSearchText: false });
     expect(screen.queryByText('Match')).toBeNull();
     view.rerender(
       <LogsTable
@@ -214,7 +123,6 @@ describe('LogsTable', () => {
         onSort={() => {}}
         columnsConfig={defaultColumnsConfig as any}
         onColumnsConfigChange={() => {}}
-        virtualListComponent={createVirtualList(captured)}
         fullLogSearchEnabled={true}
         hasSearchText={true}
       />
@@ -223,10 +131,148 @@ describe('LogsTable', () => {
   });
 
   it('hides both deprecated code unit and match when full log search is disabled', () => {
-    const captured: CapturedList = {};
-    renderTable({ captured, fullLogSearchEnabled: false });
+    renderTable({ fullLogSearchEnabled: false });
     expect(screen.queryByText(deprecatedColumnLabel)).toBeNull();
     expect(screen.queryByText('Match')).toBeNull();
+  });
+
+  describe('the body of the grid', () => {
+    function scrollTo(scroller: HTMLElement, top: number) {
+      scroller.scrollTop = top;
+      act(() => {
+        scroller.dispatchEvent(new Event('scroll'));
+      });
+    }
+
+    it('renders only the rows near the viewport of a long list', () => {
+      renderTable({ rows: createRows(500) });
+      const rendered = screen.getAllByRole('row').length - 1;
+      expect(rendered).toBeGreaterThan(0);
+      expect(rendered).toBeLessThan(100);
+    });
+
+    it('keeps the header and rows in one scroller sharing one column template, so they stay aligned', () => {
+      const { container } = renderTable({ rows: createRows(5) });
+      const surface = container.querySelector('.overflow-auto') as HTMLElement;
+      const [header, firstRow] = screen.getAllByRole('row') as [HTMLElement, HTMLElement];
+      expect(surface).toContainElement(header);
+      expect(surface).toContainElement(firstRow);
+      expect(header.style.gridTemplateColumns).not.toBe('');
+      expect(firstRow.style.gridTemplateColumns).toBe(header.style.gridTemplateColumns);
+    });
+
+    it('fills its parent with the scroller', () => {
+      const { container } = renderTable({ rows: createRows(5) });
+      const surface = container.querySelector('.overflow-auto') as HTMLElement;
+      expect(surface.className).toContain('absolute');
+      expect(surface.className).toContain('inset-0');
+      expect(surface.parentElement?.className).toContain('flex-1');
+    });
+
+    it('reserves room under the sticky header when a focused row is scrolled into view', () => {
+      const { container } = renderTable({ rows: createRows(5) });
+      const surface = container.querySelector('.overflow-auto') as HTMLElement;
+      expect(surface.className).toContain('scroll-pt-[29px]');
+    });
+
+    it('renders extra rows while scrolling fast and returns to the idle amount once scrolling stops', () => {
+      jest.useFakeTimers();
+      try {
+        let now = 0;
+        const perf = jest.spyOn(performance, 'now').mockImplementation(() => now);
+        const { container } = renderTable({ rows: createRows(500) });
+        const surface = container.querySelector('.overflow-auto') as HTMLElement;
+        const count = () => screen.getAllByRole('row').length;
+        const base = count();
+        for (const [dt, dy] of [
+          [20, 10], // slow
+          [20, 30], // > 0.4 px/ms
+          [20, 60], // > 1 px/ms
+          [20, 100], // > 2 px/ms
+          [20, 100]
+        ] as [number, number][]) {
+          now += dt;
+          scrollTo(surface, surface.scrollTop + dy);
+        }
+        const fast = count();
+        expect(fast).toBeGreaterThan(base);
+        act(() => {
+          jest.advanceTimersByTime(300);
+        });
+        expect(count()).toBe(base);
+        perf.mockRestore();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  describe('user actions', () => {
+    function renderWith(handlers: { onSort?: any; onOpen?: any; onReplay?: any }) {
+      return render(
+        <LogsTable
+          rows={createRows(3)}
+          logHead={{}}
+          matchSnippets={{}}
+          t={t as any}
+          onOpen={handlers.onOpen ?? (() => {})}
+          onReplay={handlers.onReplay ?? (() => {})}
+          locale="en-US"
+          sortBy="time"
+          sortDir="desc"
+          onSort={handlers.onSort ?? (() => {})}
+          columnsConfig={defaultColumnsConfig as any}
+          onColumnsConfigChange={() => {}}
+          fullLogSearchEnabled={false}
+          hasSearchText={false}
+        />
+      );
+    }
+
+    it('sorts by the column whose header is clicked and marks the active sort', () => {
+      const onSort = jest.fn();
+      renderWith({ onSort });
+      fireEvent.click(screen.getByText('Operation'));
+      expect(onSort).toHaveBeenCalledWith('operation');
+      expect(document.querySelector('[aria-sort="descending"]')).not.toBeNull();
+    });
+
+    it('opens and replays the log of the row whose buttons are used', () => {
+      const onOpen = jest.fn();
+      const onReplay = jest.fn();
+      renderWith({ onOpen, onReplay });
+      fireEvent.click(screen.getAllByRole('button', { name: 'Open' })[1]!);
+      expect(onOpen).toHaveBeenCalledWith('1');
+      fireEvent.click(screen.getAllByRole('button', { name: 'Replay' })[2]!);
+      expect(onReplay).toHaveBeenCalledWith('2');
+    });
+
+    it('does not shrink a column below its minimum when dragged narrower', () => {
+      const widths: number[] = [];
+      render(
+        <LogsTable
+          rows={createRows(1)}
+          logHead={{}}
+          matchSnippets={{}}
+          t={t as any}
+          onOpen={() => {}}
+          onReplay={() => {}}
+          locale="en-US"
+          sortBy="time"
+          sortDir="desc"
+          onSort={() => {}}
+          columnsConfig={defaultColumnsConfig as any}
+          onColumnsConfigChange={(updater: any) => widths.push(updater(defaultColumnsConfig).widths.user)}
+          fullLogSearchEnabled={false}
+          hasSearchText={false}
+        />
+      );
+      fireEvent.pointerDown(screen.getByRole('separator', { name: 'Resize User' }), { pointerId: 1, clientX: 500 });
+      act(() => {
+        window.dispatchEvent(new MouseEvent('pointermove', { clientX: 0 }));
+      });
+      expect(widths[0]).toBe(130);
+    });
   });
 
   describe('column widths', () => {

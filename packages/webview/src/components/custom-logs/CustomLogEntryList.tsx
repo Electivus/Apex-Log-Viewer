@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { List, type DynamicRowHeight } from 'react-window';
+import type { DynamicRowHeight } from 'react-window';
 import type { CustomLogEntry } from '@alv/protocol/customLogsTypes';
 import type { CustomLogsMessages } from '../../i18n';
 import { cn } from '../../lib/utils';
@@ -11,7 +11,7 @@ import { CustomLogsColumnsHeader, columnGrid } from './CustomLogsColumnsHeader';
 import { ExtraCell } from './ExtraCell';
 import { LevelBadge } from './LevelBadge';
 import { PayloadCell } from './PayloadCell';
-import { SCROLLBAR_GUTTER } from '../table/useVirtualListElement';
+import { GridScroller } from './CustomLogsGridScroller';
 import { useGridList, type RevealRequest } from './useGridList';
 
 const DEFAULT_ROW_HEIGHT = 26;
@@ -21,7 +21,6 @@ type EntryRowProps = {
   entries: readonly CustomLogEntry[];
   columns: readonly EntryColumn[];
   gridTemplate: string;
-  totalWidth: number;
   selectedId: string | undefined;
   firstPayloadColumnId: string | undefined;
   onSelect: (entry: CustomLogEntry) => void;
@@ -35,8 +34,8 @@ const entryIdOf = (row: Element) => row.querySelector('[data-entry-id]')?.getAtt
 
 /**
  * Row heights in react-window's dynamic row height protocol, kept per entry so a filter or sort that moves a row
- * keeps its height. The List measures every row it renders through `observeRowElements`, and with dynamic heights
- * its `scrollToRow` keeps following the row while the rows around it measure and the list resizes. A row not yet
+ * keeps its height. The virtualizer measures every row it renders through `observeRowElements`, and with dynamic
+ * heights its `scrollToIndex` keeps following the row while the rows around it measure and the list resizes. A row not yet
  * measured counts DEFAULT_ROW_HEIGHT, not the average, so measuring the rows in view never moves them.
  */
 function useEntryRowHeights(entries: readonly CustomLogEntry[]): DynamicRowHeight {
@@ -95,28 +94,32 @@ function useEntryRowHeights(entries: readonly CustomLogEntry[]): DynamicRowHeigh
 
 function EntryRowView({
   index,
-  style,
+  offset,
+  measureElement,
   t,
   entries,
   columns,
   gridTemplate,
-  totalWidth,
   selectedId,
   firstPayloadColumnId,
   onSelect
-}: EntryRowProps & { index: number; style: React.CSSProperties }) {
+}: EntryRowProps & { index: number; offset: number; measureElement: (element: Element | null) => void }) {
   const entry = entries[index];
   if (!entry) {
     return null;
   }
   const selected = entry.id === selectedId;
   return (
-    <div style={{ ...style, minHeight: DEFAULT_ROW_HEIGHT }}>
+    <div
+      ref={measureElement}
+      data-index={index}
+      style={{ position: 'absolute', top: offset, left: 0, right: 0, minHeight: DEFAULT_ROW_HEIGHT }}
+    >
       <div
         role="row"
         aria-selected={selected}
         data-entry-id={entry.id}
-        style={{ display: 'grid', gridTemplateColumns: gridTemplate, minWidth: totalWidth }}
+        style={{ display: 'grid', gridTemplateColumns: gridTemplate }}
         className={cn(
           'cursor-pointer items-start border-b border-border/40 py-[3px] text-xs hover:bg-muted/40',
           entry.system && 'opacity-60',
@@ -199,7 +202,6 @@ type CustomLogEntryListProps = {
   onRemoveColumn: (path: string) => void;
   /** The entry the list opened, scrolled into view once it shows. */
   reveal?: RevealRequest;
-  virtualListComponent?: typeof List;
 };
 
 /** The entries of one transaction, following the LogEntryList pattern: measured row heights over a virtual list. */
@@ -216,20 +218,18 @@ export function CustomLogEntryList({
   onSelect,
   onToggleColumn,
   onRemoveColumn,
-  reveal,
-  virtualListComponent
+  reveal
 }: CustomLogEntryListProps) {
-  const VirtualList = virtualListComponent ?? List;
-  const { setListRef, headerRef, onKeyDown } = useGridList(entries, selectedId, onSelect, undefined, reveal);
   const rowHeight = useEntryRowHeights(entries);
+  const { setScroller, setBody, virtualItems, measureElement, totalSize, onKeyDown } = useGridList(
+    entries,
+    selectedId,
+    onSelect,
+    { itemSize: rowHeight, overscanCount: 12, reveal }
+  );
 
   const { gridTemplate, totalWidth } = useMemo(() => columnGrid(columns), [columns]);
   const firstPayloadColumnId = useMemo(() => columns.find(column => column.kind === 'payload')?.id, [columns]);
-
-  const rowProps = useMemo<EntryRowProps>(
-    () => ({ t, entries, columns, gridTemplate, totalWidth, selectedId, firstPayloadColumnId, onSelect }),
-    [t, entries, columns, gridTemplate, totalWidth, selectedId, firstPayloadColumnId, onSelect]
-  );
 
   return (
     <div
@@ -240,33 +240,44 @@ export function CustomLogEntryList({
       className="flex min-h-0 min-w-0 flex-1 flex-col focus-visible:outline-none"
       onKeyDown={onKeyDown}
     >
-      <CustomLogsColumnsHeader
-        headerRef={headerRef}
-        t={t}
-        columns={columns}
-        gridTemplate={gridTemplate}
+      <GridScroller
+        setScroller={setScroller}
+        setBody={setBody}
         totalWidth={totalWidth}
-        sort={sort}
-        loadedCount={entries.length}
-        discovered={discovered}
-        activeColumns={activeColumns}
-        lockedColumns={lockedColumns}
-        onSort={onSort}
-        onToggleColumn={onToggleColumn}
-        onRemoveColumn={onRemoveColumn}
-      />
-      <div className="relative min-h-0 flex-1">
-        <VirtualList
-          listRef={setListRef}
-          className={SCROLLBAR_GUTTER}
-          style={{ height: '100%', width: '100%' }}
-          rowCount={entries.length}
-          rowHeight={rowHeight}
-          overscanCount={12}
-          rowProps={rowProps}
-          rowComponent={EntryRowView}
-        />
-      </div>
+        totalSize={totalSize}
+        header={
+          <CustomLogsColumnsHeader
+            t={t}
+            columns={columns}
+            gridTemplate={gridTemplate}
+            totalWidth={totalWidth}
+            sort={sort}
+            loadedCount={entries.length}
+            discovered={discovered}
+            activeColumns={activeColumns}
+            lockedColumns={lockedColumns}
+            onSort={onSort}
+            onToggleColumn={onToggleColumn}
+            onRemoveColumn={onRemoveColumn}
+          />
+        }
+      >
+        {virtualItems.map(({ index, offset }) => (
+          <EntryRowView
+            key={entries[index]?.id ?? index}
+            index={index}
+            offset={offset}
+            measureElement={measureElement}
+            t={t}
+            entries={entries}
+            columns={columns}
+            gridTemplate={gridTemplate}
+            selectedId={selectedId}
+            firstPayloadColumnId={firstPayloadColumnId}
+            onSelect={onSelect}
+          />
+        ))}
+      </GridScroller>
     </div>
   );
 }

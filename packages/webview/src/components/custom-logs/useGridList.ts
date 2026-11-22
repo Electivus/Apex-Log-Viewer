@@ -1,50 +1,46 @@
-import React, { useCallback, useEffect, useRef } from 'react';
-
-import { syncHeaderScroll, useVirtualListElement } from '../table/useVirtualListElement';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useVirtualizer, type DynamicRowHeight } from 'react-window';
 
 /** Scroll `id` into view once it is among the items. A new `generation` asks again for the same id. */
 export type RevealRequest = { id: string; generation: number };
 
 /**
- * What the two virtual grids share: the header scrolls with the body, and Arrow keys move the selection
- * through the visible items. `onOpen` adds Enter for a grid whose rows open something, and `reveal` scrolls
- * an item into view on request. Pass `setListRef` as the List's `listRef`; `listRef` is for imperative calls
- * such as `scrollToRow`.
+ * What the two virtual grids share. The header and the rows live in one scroller (`setScroller`), so horizontal
+ * scroll and the scrollbar cannot misalign them; `setBody` is the rows' box. Arrow keys move the selection
+ * through the items, `onOpen` adds Enter for a grid whose rows open something, and `reveal` scrolls an item
+ * into view on request. Both reveals stop below the sticky header through the scroller's `scroll-padding-top`.
  */
 export function useGridList<T extends { id: string }>(
   items: readonly T[],
   selectedId: string | undefined,
   onSelect: (item: T) => void,
-  onOpen?: (item: T) => void,
-  reveal?: RevealRequest
+  options: {
+    itemSize: number | DynamicRowHeight;
+    overscanCount: number;
+    onOpen?: (item: T) => void;
+    reveal?: RevealRequest;
+  }
 ) {
-  const { listRef, setListRef, element } = useVirtualListElement();
-  const headerRef = useRef<HTMLDivElement | null>(null);
+  const { itemSize, overscanCount, onOpen, reveal } = options;
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+  const [body, setBody] = useState<HTMLDivElement | null>(null);
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    element: body,
+    scrollElement: scroller,
+    itemSize,
+    overscanCount,
+    defaultSize: 600
+  });
+  const scrollToIndexRef = useRef(virtualizer.scrollToIndex);
+  scrollToIndexRef.current = virtualizer.scrollToIndex;
 
-  useEffect(() => {
-    const header = headerRef.current;
-    if (!element || !header) {
-      return;
-    }
-    const syncHeader = () => syncHeaderScroll(element, header);
-    const syncBody = () => syncHeaderScroll(header, element);
-    syncHeader();
-    element.addEventListener('scroll', syncHeader, { passive: true });
-    header.addEventListener('scroll', syncBody, { passive: true });
-    return () => {
-      element.removeEventListener('scroll', syncHeader);
-      header.removeEventListener('scroll', syncBody);
-    };
-  }, [element]);
-
-  // The item can arrive a render after the request, once the filters that hid it are relaxed, and the list's
-  // handle after its first render; `element` changes with the handle, so either one runs this again.
-  // `scrollToRow` tracks dynamic row heights until the row settles or its one-second deadline expires.
-  // A wheel, touch, pointer or scroll key on the list also stops that tracking.
+  // The item can arrive a render after the request, once the filters that hid it are relaxed, and the scroller
+  // after the first render. `scrollToIndex` tracks dynamic row heights until the row settles or its one-second
+  // deadline expires. A wheel, touch, pointer or scroll key on the scroller also stops that tracking.
   const revealedRef = useRef<number | undefined>(undefined);
   useEffect(() => {
-    const list = listRef.current;
-    if (!reveal || revealedRef.current === reveal.generation || !list) {
+    if (!reveal || revealedRef.current === reveal.generation || !scroller || !body) {
       return;
     }
     const index = items.findIndex(item => item.id === reveal.id);
@@ -52,8 +48,8 @@ export function useGridList<T extends { id: string }>(
       return;
     }
     revealedRef.current = reveal.generation;
-    list.scrollToRow({ index, align: 'center', behavior: 'auto' });
-  }, [element, items, listRef, reveal]);
+    scrollToIndexRef.current({ index, align: 'center', behavior: 'auto' });
+  }, [body, items, reveal, scroller]);
 
   const selectedIndex = items.findIndex(item => item.id === selectedId);
 
@@ -64,7 +60,7 @@ export function useGridList<T extends { id: string }>(
       const next = items[index];
       if (next) {
         onSelect(next);
-        listRef.current?.scrollToRow({ index, align: 'smart', behavior: 'auto' });
+        scrollToIndexRef.current({ index, align: 'smart', behavior: 'auto' });
       }
     },
     [items, onSelect, selectedIndex]
@@ -87,5 +83,13 @@ export function useGridList<T extends { id: string }>(
     }
   };
 
-  return { listRef, setListRef, headerRef, onKeyDown };
+  return {
+    scroller,
+    setScroller,
+    setBody,
+    virtualItems: virtualizer.items,
+    measureElement: virtualizer.measureElement,
+    totalSize: virtualizer.totalSize,
+    onKeyDown
+  };
 }
