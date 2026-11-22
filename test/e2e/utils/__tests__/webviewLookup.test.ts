@@ -430,6 +430,34 @@ describe('shownWebview', () => {
       jest.useRealTimers();
     }
   });
+
+  test('called without a clock, polls once and rejects 250 ms later on the default clock', async () => {
+    jest.useFakeTimers({ now: 1_000_000 });
+    try {
+      const polls = jest.fn(async () => []);
+      const locator = jest.fn(() => ({ evaluateAll: polls }));
+      const lookup = shownWebview({ locator } as unknown as Page, '[data-testid="absent"]', 250);
+      let settled = false;
+      const handled = lookup.then(
+        () => 'resolved',
+        (error: Error) => {
+          settled = true;
+          return error.message;
+        }
+      );
+
+      await jest.advanceTimersByTimeAsync(249);
+      expect(settled).toBe(false);
+      expect(locator).toHaveBeenCalledWith('iframe.webview');
+      expect(polls).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(settled).toBe(true);
+      await expect(handled).resolves.toContain('within 250 ms');
+      expect(polls).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 describe('webviewWith', () => {
