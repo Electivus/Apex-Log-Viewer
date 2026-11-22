@@ -19,8 +19,8 @@ import { webviewWith } from '../utils/webviews';
 /**
  * The Custom Logs panel on a platform event source, against the real `alv-events` scratch org (docs/TESTING.md).
  * First use asks before it spends the daily allocation and says what it would spend; "Only new events" then shows
- * rows in publish order and a strip that reaches Live. Skips on a machine without the org, so the pool-only CI is
- * untouched. Spends the events it publishes, 5.
+ * rows in publish order and a strip that reaches Live. The dedicated Windows CI run requires the org, and
+ * other runs may skip when it is unavailable. Spends the events it publishes, 5.
  */
 
 const SETTING = 'electivus.apexLogViewer.customLogs.enabled';

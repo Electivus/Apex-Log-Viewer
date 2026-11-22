@@ -280,7 +280,15 @@ Every delivery counts against the org's daily allocation (25,000), shared by eve
 | `test/e2e/cli/specs/customLogEventsPoll.e2e.spec.ts` | A followed subscription outlives the 110 s long poll and receives the next event (2.3 min, one delivery)                                                                                                                                                                                                                                                              |
 | `test/e2e/specs/customLogEventsPanel.e2e.spec.ts`    | The panel on an event source: first use shows the allowance and the budget before anything subscribes, then "Only new events" shows five published events newest first and a strip that reaches Live with its tooltip                                                                                                                                                 |
 
-All three skip when `sf org display --target-org alv-events` fails, so pool-only CI and machines without the org are unaffected. Pass the spec path without `--`: pnpm 11 hands a literal `--` to the script, and Playwright then does not read the path as a filter (it ran the whole CLI suite, which creates a scratch org).
+Windows direct CI runs the panel spec in its own step. It leases an events scratch org through the Dev Hub JWT and prepares and verifies it before Playwright starts. The step fails if preparation fails or the report lacks two passes with zero skips. The JSON report and captures are in `events-panel/` inside the Windows Playwright artifact.
+
+That step uses the dedicated one-slot pool `alv-events-panel-1551`. Bootstrap that pool once with its JWT identity. The Windows job creates or renews the scratch under the lease.
+
+```bash
+pnpm run scratch-pool:bootstrap -- --pool-key alv-events-panel-1551 --target-size 1 --slot-alias-prefix ALV_EVENTS_PANEL_1551 --scratch-duration-days 1 --seed-version alv-events-panel-v1
+```
+
+The CLI specs and the panel spec outside this Windows step can skip when `sf org display --target-org alv-events` fails. Pass the spec path without `--` so Playwright reads it as a filter.
 
 ```bash
 pnpm run test:e2e:cli specs/customLogEvents.e2e.spec.ts

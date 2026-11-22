@@ -86,8 +86,28 @@ const layout: Array<[string, PropertyDescriptor]> = [
         return rowOf(this) ? laidOutHeight(this) - 1 : VIEWPORT;
       }
     }
+  ],
+  [
+    // A browser keeps the scroll offset within the content, so a list that shrinks under it moves it.
+    'scrollTop',
+    {
+      get: function (this: HTMLElement) {
+        return clampScroll(this, scrollTops.get(this) ?? 0);
+      },
+      set: function (this: HTMLElement, top: number) {
+        scrollTops.set(this, clampScroll(this, top));
+      }
+    }
   ]
 ];
+
+const scrollTops = new WeakMap<HTMLElement, number>();
+
+function clampScroll(element: HTMLElement, top: number) {
+  const clamped = Math.min(Math.max(0, element.scrollHeight - element.clientHeight), Math.max(0, top));
+  scrollTops.set(element, clamped);
+  return clamped;
+}
 
 /** A buffer of `count` lines numbered from `first`, as the Tail panel holds it after older lines left. */
 function buffer(first: number, count: number, tall: ReadonlySet<number> = new Set()) {
@@ -252,6 +272,22 @@ describe('TailList rows over the real virtual list', () => {
       expected.push([`${line} at ${top}`]);
     }
     expect(places).toEqual(expected);
+  });
+
+  it('keeps the rows in view in place at the end while Auto-scroll is off and the list shrinks', () => {
+    // The filter hides the new line, so the line that leaves the head makes the list one row shorter, and the
+    // browser has already pulled the scroll offset back to the new end when the list reads it.
+    const shown = (current: Buffer) => ({
+      ...current,
+      filteredIndexes: current.filteredIndexes.filter(i => current.firstLineSeq + i < 40)
+    });
+    const { update } = renderTail(shown(buffer(0, 40)));
+    scrollListTo(40 * SHORT);
+    const [line, top] = [...viewportTops()].find(([, rowTop]) => rowTop >= 0) ?? ['', 0];
+
+    update(shown(buffer(1, 40)));
+
+    expect(placeOf(line)).toBe(`${line} at ${top}`);
   });
 
   it('keeps the rows in view in place while Auto-scroll is off and many lines leave at once, shown or not', () => {

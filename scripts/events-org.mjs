@@ -8,6 +8,8 @@
 //       $SF_DEVHUB_ALIAS; the default org and the default Dev Hub are never changed), deploy
 //       test/e2e/fixtures/events-org/, assign ALV_Test_Events to the admin, create the restricted
 //       user without it (alias alv-events-restricted), then run `verify`.
+//   node scripts/events-org.mjs prepare
+//       Deploy and verify the event fixtures in an already authenticated events scratch org.
 //   node scripts/events-org.mjs publish --count N --transaction-id T [--level L|mixed] [--run-tag R] [--message-chars C] [--payload-entries N]
 //                                        [--object ALV_Test_Log__e|ALV_Test_Replay__e|ALV_Test_Backlog__e]
 //       Publish N synthetic events over REST in batches of 25. Transaction_Id__c is `<T>-<run tag>`, so
@@ -44,6 +46,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
+const crossSpawn = createRequire(import.meta.url)('cross-spawn');
 const REPO_ROOT = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
 const SF_BIN = process.env.ALV_SF_BIN_PATH || 'sf';
 
@@ -115,6 +118,7 @@ const COMMANDS = {
     required: [],
     defaults: { 'duration-days': 30, wait: 20 }
   },
+  prepare: { flags: { 'target-org': aliasText }, required: [], defaults: {} },
   publish: {
     flags: {
       'target-org': aliasText,
@@ -373,6 +377,15 @@ export function trimDescribe(describe) {
   };
 }
 
+export function matchesDescribeFixture(expected, actual) {
+  const schema = ({ name, queryable, fields }) => ({
+    name,
+    queryable,
+    fields: [...fields].sort((left, right) => left.name.localeCompare(right.name))
+  });
+  return JSON.stringify(schema(expected)) === JSON.stringify(schema(actual));
+}
+
 /** One field per line, as the other describe fixtures: a refreshed fixture reviews as a diff of fields. */
 export function formatDescribeFixture(describes) {
   const objects = Object.entries(describes).map(([name, describe]) => {
@@ -390,11 +403,12 @@ export function formatRecording(events) {
 
 async function sfJson(args, { cwd = REPO_ROOT, timeoutMs = 10 * 60 * 1000 } = {}) {
   try {
-    const { stdout } = await execFileAsync(SF_BIN, [...args, '--json'], {
+    const parsed = crossSpawn._parse(SF_BIN, [...args, '--json'], {
       cwd,
       timeout: timeoutMs,
       maxBuffer: 64 * 1024 * 1024
     });
+    const { stdout } = await execFileAsync(parsed.command, parsed.args, parsed.options);
     return JSON.parse(stdout).result;
   } catch (error) {
     let detail;
@@ -547,10 +561,13 @@ async function verify(alias, options) {
   const committed = await readCommittedDescribe();
   check(
     'the describe matches the committed fixture',
-    committed !== undefined && JSON.stringify(committed) === JSON.stringify(describe),
+    committed !== undefined && matchesDescribeFixture(committed, describe),
     committed === undefined
       ? 'fixture missing: run verify --capture-describe'
-      : 'fixture differs: run verify --capture-describe'
+      : {
+          expectedFields: committed.fields.map(({ name, type }) => ({ name, type })),
+          actualFields: describe.fields.map(({ name, type }) => ({ name, type }))
+        }
   );
 
   const triggers = (await connection.tooling.query('SELECT Name, TableEnumOrId FROM ApexTrigger')).records;
@@ -562,7 +579,7 @@ async function verify(alias, options) {
   for (const object of EVENT_OBJECTS) {
     const objectDescribe = object === EVENT_OBJECT ? describe : trimDescribe(await connection.describe(object));
     check(
-      `${object} is a platform event (not queryable, key prefix e0N)`,
+      `${object} is a non-queryable platform event with key prefix ${objectDescribe.keyPrefix}`,
       !objectDescribe.queryable && /^e\d\d$/.test(objectDescribe.keyPrefix),
       { queryable: objectDescribe.queryable, keyPrefix: objectDescribe.keyPrefix }
     );
@@ -593,11 +610,45 @@ async function verify(alias, options) {
     ).records.length > 0;
   check('the admin has the permission set', await assignedTo(connection.getUsername()));
 
-  const restricted = await displayOrg(RESTRICTED_USER_ALIAS);
-  check(`the restricted user ${RESTRICTED_USER_ALIAS} exists`, restricted !== undefined);
-  if (restricted) check('the restricted user lacks the permission set', !(await assignedTo(restricted.username)));
+  if (options.requireRestrictedUser !== false) {
+    const restricted = await displayOrg(RESTRICTED_USER_ALIAS);
+    check(`the restricted user ${RESTRICTED_USER_ALIAS} exists`, restricted !== undefined);
+    if (restricted) check('the restricted user lacks the permission set', !(await assignedTo(restricted.username)));
+  }
 
   if (results.some(result => !result.ok)) throw new Error('verify failed');
+}
+
+async function installEventFixtures(alias) {
+  const connection = await connect(alias);
+  // A pooled org keeps the fixtures an earlier runner deployed, and this runner's source tracking reads them as
+  // conflicts. The org only ever holds these fixtures, so the deploy overwrites whatever is there.
+  await sfJson(
+    [
+      'project',
+      'deploy',
+      'start',
+      '--source-dir',
+      'force-app',
+      '--target-org',
+      alias,
+      '--wait',
+      '20',
+      '--ignore-conflicts'
+    ],
+    { cwd: ORG_PROJECT_DIR, timeoutMs: 25 * 60 * 1000 }
+  );
+  const assigned = await connection.query(
+    `SELECT Id FROM PermissionSetAssignment WHERE PermissionSet.Name = '${PERMISSION_SET}' AND Assignee.Username = '${soql(connection.getUsername())}'`
+  );
+  if (assigned.records.length === 0) {
+    await sfJson(['org', 'assign', 'permset', '--name', PERMISSION_SET, '--target-org', alias]);
+  }
+}
+
+async function prepare(alias) {
+  await installEventFixtures(alias);
+  await verify(alias, { requireRestrictedUser: false });
 }
 
 async function ensure(alias, options) {
@@ -634,19 +685,7 @@ async function ensure(alias, options) {
     );
   }
 
-  await sfJson(['project', 'deploy', 'start', '--source-dir', 'force-app', '--target-org', alias, '--wait', '20'], {
-    cwd: ORG_PROJECT_DIR,
-    timeoutMs: 25 * 60 * 1000
-  });
-
-  const connection = await connect(alias);
-  const assigned = await connection.query(
-    `SELECT Id FROM PermissionSetAssignment WHERE PermissionSet.Name = '${PERMISSION_SET}' AND Assignee.Username = '${soql(connection.getUsername())}'`
-  );
-  if (assigned.records.length === 0) {
-    await sfJson(['org', 'assign', 'permset', '--name', PERMISSION_SET, '--target-org', alias]);
-  }
-
+  await installEventFixtures(alias);
   if ((await displayOrg(RESTRICTED_USER_ALIAS)) === undefined) {
     await sfJson([
       'org',
@@ -854,7 +893,7 @@ async function measure(alias, options) {
   );
 }
 
-const HANDLERS = { ensure, publish, limits, verify, record, measure };
+const HANDLERS = { ensure, prepare, publish, limits, verify, record, measure };
 
 export async function main(argv) {
   let parsed;

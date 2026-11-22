@@ -438,6 +438,28 @@ test('the committed recordings are synthetic, ordered and free of org data', asy
   assert.deepEqual(single[0].data, burst.at(-1).data, 'single is the last event of the burst');
 });
 
+test('the event describe compares field metadata across fresh scratch orgs', async () => {
+  const { matchesDescribeFixture } = await load();
+  const expected = {
+    name: 'ALV_Test_Log__e',
+    keyPrefix: 'e00',
+    queryable: false,
+    fields: [
+      { name: 'Message__c', type: 'textarea' },
+      { name: 'Sequence__c', type: 'double' }
+    ]
+  };
+  const freshOrg = { ...expected, keyPrefix: 'e01', fields: [...expected.fields].reverse() };
+  assert.equal(matchesDescribeFixture(expected, freshOrg), true);
+  assert.equal(
+    matchesDescribeFixture(expected, {
+      ...freshOrg,
+      fields: [{ name: 'Message__c', type: 'string' }, expected.fields[1]]
+    }),
+    false
+  );
+});
+
 test('the describe and recording formats stay one entry per line and round-trip', async () => {
   const { formatDescribeFixture, formatRecording, trimDescribe } = await load();
   const describe = trimDescribe({

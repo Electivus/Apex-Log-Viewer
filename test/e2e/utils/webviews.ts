@@ -45,7 +45,8 @@ function webviewBody(page: Page, name: string): Locator {
  * `webviewWith` fails, because Playwright rejects a frame lookup that matches in more than one frame, even a hidden
  * one. VS Code keeps the webview of a hidden panel or a background tab alive with its outer iframe at
  * `visibility: hidden`, so this picks among the outer iframes that are not, and returns a locator bound to that
- * webview's identity. Unlike a `Frame`, the locator survives VS Code replacing the content iframe.
+ * webview's identity. Unlike a `Frame`, the locator survives VS Code replacing the content iframe. It polls every
+ * 250 ms and fails once `timeoutMs` has passed, after the check in progress returns.
  */
 export async function shownWebview(page: Page, selector: string, timeoutMs = 120_000): Promise<Locator> {
   const deadline = Date.now() + timeoutMs;
@@ -71,7 +72,7 @@ export async function shownWebview(page: Page, selector: string, timeoutMs = 120
         return body;
       }
     }
-    await sleep(250);
+    await sleep(Math.min(250, Math.max(0, deadline - Date.now())));
   } while (Date.now() < deadline);
   throw new Error(`No webview on screen showed ${selector} within ${timeoutMs} ms.`);
 }
