@@ -26,10 +26,15 @@ function laidOutHeight(element: Element): number {
 /** Called with the layout a browser would paint, before each ResizeObserver report. */
 let beforeReport: (() => void) | undefined;
 
+/** Delivers a report the way the browser does, for a test that sends one late. */
+let report: ((entry: ResizeObserverEntry) => void) | undefined;
+
 class FakeResizeObserver {
   private readonly targets = new Set<Element>();
 
-  constructor(private readonly callback: ResizeObserverCallback) {}
+  constructor(private readonly callback: ResizeObserverCallback) {
+    report = entry => this.callback([entry], this as unknown as ResizeObserver);
+  }
 
   observe(target: Element) {
     this.targets.add(target);
@@ -96,15 +101,31 @@ const layout: Array<[string, PropertyDescriptor]> = [
       },
       set: function (this: HTMLElement, top: number) {
         scrollTops.set(this, clampScroll(this, top));
+        if (heldThumb !== undefined) {
+          const held = heldThumb;
+          setTimeout(() => {
+            scrollTops.set(this, held);
+            // A frame is painted at the restored offset before the List hears of it.
+            beforeReport?.();
+            this.dispatchEvent(new Event('scroll'));
+          }, 16);
+        }
       }
     }
   ]
 ];
 
 const scrollTops = new WeakMap<HTMLElement, number>();
+/** Under page zoom a browser keeps the offset in device pixels, so a written offset comes back rounded to this. */
+let scrollStep: number | undefined;
+/** While set, the user holds the scrollbar thumb: the browser puts the offset back here on the next frame. */
+let heldThumb: number | undefined;
 
 function clampScroll(element: HTMLElement, top: number) {
-  const clamped = Math.min(Math.max(0, element.scrollHeight - element.clientHeight), Math.max(0, top));
+  let clamped = Math.min(Math.max(0, element.scrollHeight - element.clientHeight), Math.max(0, top));
+  if (scrollStep !== undefined) {
+    clamped = Math.round(clamped / scrollStep) * scrollStep;
+  }
   scrollTops.set(element, clamped);
   return clamped;
 }
@@ -201,6 +222,8 @@ describe('TailList rows over the real virtual list', () => {
 
   afterEach(() => {
     beforeReport = undefined;
+    scrollStep = undefined;
+    heldThumb = undefined;
     jest.useRealTimers();
     globalThis.ResizeObserver = NoResizeObserver;
     for (const [name] of layout) {
@@ -281,7 +304,7 @@ describe('TailList rows over the real virtual list', () => {
     }
   );
 
-  it('keeps the rows in view in place at the end while Auto-scroll is off and the list shrinks', () => {
+  it('keeps the rows in view in place at the end while Auto-scroll is off and the list shrinks (guard: passes on main)', () => {
     // The filter hides the new line, so the line that leaves the head makes the list one row shorter, and the
     // browser has already pulled the scroll offset back to the new end when the list reads it.
     const shown = (current: Buffer) => ({
@@ -368,5 +391,73 @@ describe('TailList rows over the real virtual list', () => {
     layouts.add(placeOf(line));
 
     expect([...layouts]).toEqual([`${line} at ${top + SHORT}`]);
+  });
+
+  it('keeps the line in view within a pixel over many updates when the browser rounds the scroll offset', () => {
+    // At 110% zoom, a browser keeps the offset in device pixels, so every offset written comes back rounded.
+    scrollStep = 1 / 1.1;
+    const COUNT = 400;
+    const UPDATES = 120;
+    const tall = new Set(Array.from({ length: COUNT + UPDATES }, (_, seq) => seq).filter(seq => seq % 2 === 1));
+    const { update } = renderTail(buffer(0, COUNT, tall));
+    scrollListTo(250 * SHORT + 0.4);
+    const [line, top] = [...viewportTops()].find(([, rowTop]) => rowTop + SHORT > 0) ?? ['', 0];
+
+    const drifts = [];
+    for (let first = 1; first <= UPDATES; first++) {
+      update(buffer(first, COUNT, tall));
+      drifts.push(Math.abs((viewportTops().get(line) ?? Infinity) - top));
+    }
+
+    expect(Math.max(...drifts)).toBeLessThanOrEqual(1);
+  });
+
+  it('does not move the view for a late measurement of a line that already left the buffer (guard: passes on main)', () => {
+    const { update } = renderTail(buffer(0, 400));
+    scrollListTo(200 * SHORT);
+    update(buffer(40, 400));
+    const [line, top] = [...viewportTops()].find(([, rowTop]) => rowTop >= 0) ?? ['', 0];
+
+    // The browser reports a size for line 0's old row, placed where it sat, after the line left.
+    const gone = document.createElement('div');
+    gone.setAttribute('data-line-seq', '0');
+    gone.style.transform = 'translateY(0px)';
+    act(() => {
+      report?.({
+        target: gone,
+        contentRect: { height: 200, width: 800 },
+        borderBoxSize: [{ blockSize: 200, inlineSize: 800 }]
+      } as unknown as ResizeObserverEntry);
+    });
+    settle();
+
+    expect(placeOf(line)).toBe(`${line} at ${top}`);
+  });
+
+  it('never leaves the top of the view without a row while the user holds the scrollbar thumb (guard: passes on main)', () => {
+    const { update } = renderTail(buffer(0, 400));
+    scrollListTo(200 * SHORT);
+    // The user presses the thumb; the browser keeps the offset where the thumb is until release.
+    heldThumb = list().scrollTop;
+    act(() => {
+      list().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    });
+
+    const uncovered: string[] = [];
+    for (let first = 40; first <= 160; first += 40) {
+      beforeReport = () => {
+        const tops = [...viewportTops().values()];
+        if (!tops.some(rowTop => rowTop <= 0 && rowTop + SHORT > 0)) {
+          uncovered.push(`after line ${first} arrived`);
+        }
+      };
+      update(buffer(first, 400));
+    }
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointerup'));
+    });
+    heldThumb = undefined;
+
+    expect(uncovered).toEqual([]);
   });
 });
