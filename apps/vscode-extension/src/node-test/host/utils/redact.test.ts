@@ -75,6 +75,24 @@ suite('held token search', () => {
       assert.ok(!redact.redactSecrets(text).includes('[redacted]'), `${text.length} characters: nothing is held there`)
     );
   });
+
+  test('held tokens that end in the first half of a surrogate pair are looked for in moves that grow linearly', () => {
+    const letters = syntheticLetters(1040);
+    const redact = freshRedact();
+    for (let length = 12; length < 12 + 1024; length++) redact.holdSecret(`${letters.slice(0, length)}\uD83D`);
+
+    const texts = [128, 256, 512, 1024].map(count => {
+      const token = letters.slice(0, count);
+      return `${token}😀 ${percentEncoded(token)}\uD83D end`;
+    });
+    assertLinearMoves(redact, texts, 4, text =>
+      assert.equal(
+        redact.redactSecrets(text),
+        '[redacted] [redacted] end',
+        `${text.length} characters: each token is replaced, the first with all of its pair`
+      )
+    );
+  });
 });
 
 suite('a long text', () => {
