@@ -690,6 +690,20 @@ suite('sf CLI output that reaches errors and the trace channel', () => {
     }
   });
 
+  test('a session id that starts in the run after a JSON Web Token or refresh token is still replaced to its end', async () => {
+    const heldValue = 'force://FAKEheldvalue';
+    const session = `00D000000000001!${heldValue}@FAKEtrailing`;
+    for (const value of [FAKE_JWT, SHAPED_REFRESH]) {
+      for (const body of [`Request failed with ${value}%${session} end`, `Bearer ${value}%${session} end`]) {
+        const { shown, trace } = await shownAfterHolding([heldValue], body);
+
+        assert.ok(!shown.includes('FAKEtrailing'), `${value}: the error carries no part of the session id`);
+        assert.ok(!trace.includes('FAKEtrailing'), `${value}: the trace carries no part of the session id`);
+        assert.ok(shown.includes('[redacted] end'), `${value}: the error keeps the text after it`);
+      }
+    }
+  });
+
   test('a named secret that a token shape with a held session runs past is replaced to the end of the shape', async () => {
     const session = 'FAKEsession0123456789';
     const shaped = ['00D000000000001', session].join('!');
