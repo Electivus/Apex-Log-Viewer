@@ -240,8 +240,7 @@ describe('TailList rows over the real virtual list', () => {
     expect(line).toContain('TALL');
 
     // Each update adds a line at the end and drops a short, measured line from the head, until about as many tall
-    // lines as short ones are measured. In every layout, only the height of the lines that left may move the line
-    // that was first in view.
+    // lines as short ones are measured. In every layout, the line that was first in view stays where it was.
     const places = [];
     const expected = [];
     for (let first = 1; first <= DROPS; first++) {
@@ -250,8 +249,29 @@ describe('TailList rows over the real virtual list', () => {
       update(buffer(first, COUNT, tall));
       layouts.add(placeOf(line));
       places.push([...layouts]);
-      expected.push([`${line} at ${top - first * SHORT}`]);
+      expected.push([`${line} at ${top}`]);
     }
     expect(places).toEqual(expected);
+  });
+
+  it('keeps the rows in view in place while Auto-scroll is off and many lines leave at once, shown or not', () => {
+    // Lines 0-49 are tall and only the first ones get measured at the top. The filter hides every third line. Then the
+    // view jumps far below, and one update drops 40 lines: measured, counted at the estimate, and hidden ones.
+    const COUNT = 400;
+    const tall = new Set(Array.from({ length: 50 }, (_, seq) => seq));
+    const filtered = (current: Buffer) => ({
+      ...current,
+      filteredIndexes: current.filteredIndexes.filter(i => (current.firstLineSeq + i) % 3 !== 0)
+    });
+    const { update } = renderTail(filtered(buffer(0, COUNT, tall)));
+    scrollListTo(150 * SHORT);
+    const [line, top] = [...viewportTops()].find(([, rowTop]) => rowTop >= 0) ?? ['', 0];
+
+    const layouts = new Set<string>();
+    beforeReport = () => layouts.add(placeOf(line));
+    update(filtered(buffer(40, COUNT, tall)));
+    layouts.add(placeOf(line));
+
+    expect([...layouts]).toEqual([`${line} at ${top}`]);
   });
 });
