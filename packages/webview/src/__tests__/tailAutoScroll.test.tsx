@@ -358,7 +358,7 @@ describe('Tail Auto-scroll over the real virtual list', () => {
     expect(readsPerLine).toEqual(readsPerLine.map(() => BUFFER));
   });
 
-  it('reads each row height no more often than the most common height asks for when tall lines come in bursts', () => {
+  it('reads each row height no more often than the most common height asks for when tall lines come in bursts (guard: passes on main)', () => {
     // Six tall lines every 40. The newest lines follow no short pattern across a burst, so a new line counts the
     // buffer's common height, the short one: a short line costs one pass and a tall one two, never more.
     const BUFFER = 1000;
