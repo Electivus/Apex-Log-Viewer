@@ -24,7 +24,15 @@ function contentHtml(copy: string, version: string, content: Content): string {
     content.orgSelect ? '<div data-testid="debug-flags-org-select">default-org</div>' : '',
     content.userSearch ? '<input data-testid="debug-flags-user-search" type="search">' : ''
   ];
-  return `<body>${parts.join('')}</body>`;
+  return `<body data-pointerdown-count="0" data-click-count="0">${parts.join('')}
+<script>
+for (const type of ['pointerdown', 'click']) {
+  const key = type + 'Count';
+  addEventListener(type, () => {
+    document.body.dataset[key] = String(Number(document.body.dataset[key]) + 1);
+  }, { capture: true });
+}
+</script></body>`;
 }
 
 function webviewHostHtml(activePath: string, pendingPath?: string): string {
@@ -480,7 +488,13 @@ describe('webviewWith', () => {
     await expect(webviewWith(page, 'logs-open-debug-flags').locator(TOOLBAR).click({ timeout: 5_000 })).rejects.toThrow(
       'matched elements in multiple frames'
     );
-    expect(await clickedMessages(page)).toEqual([]);
+    for (const copy of ['panel', 'editor']) {
+      const counts = await host(page, copy)
+        .frameLocator('#active-frame')
+        .locator('body')
+        .evaluate(({ dataset }) => ({ pointerdown: dataset.pointerdownCount, click: dataset.clickCount }));
+      expect({ copy, ...counts }).toEqual({ copy, pointerdown: '0', click: '0' });
+    }
   });
 });
 
