@@ -47,8 +47,11 @@ function readInitialUiState(vscode: VsCodeWebviewApi<WebviewToExtensionMessage>)
 interface TailContent {
   buffer?: TailLineBatch;
   selection?: TailSelection;
+  snapshotFirstSeq: number;
   maxLines: number;
 }
+
+type TailLinesMessage = Extract<ExtensionToWebviewMessage, { type: 'tailData' | 'tailSnapshot' }>;
 
 const EMPTY_LINES: string[] = [];
 
@@ -60,11 +63,43 @@ function selectionIndex(buffer: TailLineBatch | undefined, selection: TailSelect
   return index >= 0 && index < buffer.lines.length ? index : undefined;
 }
 
-function updateBuffer(state: TailContent, batch: TailLineBatch): TailContent {
-  const drop = Math.max(0, batch.lines.length - state.maxLines);
-  const buffer = drop > 0 ? { ...batch, lines: batch.lines.slice(drop), firstSeq: batch.firstSeq + drop } : batch;
-  const selection = selectionIndex(buffer, state.selection) === undefined ? undefined : state.selection;
-  return { ...state, buffer, selection };
+function nextSeq(batch: TailLineBatch): number {
+  return batch.firstSeq + batch.lines.length;
+}
+
+function updateBuffer(state: TailContent, batch: TailLineBatch, source: 'snapshot' | 'partial'): TailContent {
+  const end = nextSeq(batch);
+  const snapshotFirstSeq = source === 'snapshot' ? batch.firstSeq : state.snapshotFirstSeq;
+  const retainedFrom = Math.max(snapshotFirstSeq, end - state.maxLines);
+  const drop = Math.max(0, retainedFrom - batch.firstSeq);
+  const buffer = drop > 0 ? { ...batch, lines: batch.lines.slice(drop), firstSeq: retainedFrom } : batch;
+  const selection = state.selection;
+  const canStillBeRetained =
+    selection &&
+    selection.streamId === batch.streamId &&
+    selection.seq >= retainedFrom &&
+    (source === 'partial' || selection.seq < end);
+  return { ...state, buffer, snapshotFirstSeq, selection: canStillBeRetained ? selection : undefined };
+}
+
+function receiveLines(state: TailContent, { type, streamId, firstSeq, lines }: TailLinesMessage): TailContent {
+  const current = state.buffer;
+  if (current && current.streamId !== streamId) {
+    return state;
+  }
+  const end = current ? nextSeq(current) : 0;
+  const batch = { streamId, firstSeq, lines };
+  if (type === 'tailSnapshot') {
+    if (firstSeq < state.snapshotFirstSeq || nextSeq(batch) < end) {
+      return state;
+    }
+    return updateBuffer(state, batch, 'snapshot');
+  }
+  if (lines.length === 0 || firstSeq < end) {
+    return state;
+  }
+  const suffix = current && firstSeq === end ? { ...current, lines: current.lines.concat(lines) } : batch;
+  return updateBuffer(state, suffix, 'partial');
 }
 
 export interface TailAppProps {
@@ -81,7 +116,11 @@ export function TailApp({
   const [orgs, setOrgs] = useState<OrgItem[]>([]);
   const [selectedOrg, setSelectedOrg] = useState<string | undefined>(undefined);
   const [running, setRunning] = useState(false);
-  const [tail, setTail] = useState<TailContent>({ maxLines: 10000, selection: initialUiState.selection });
+  const [tail, setTail] = useState<TailContent>({
+    maxLines: 10000,
+    snapshotFirstSeq: 0,
+    selection: initialUiState.selection
+  });
   const { buffer, selection } = tail;
   const lines = buffer?.lines ?? EMPTY_LINES;
   const selectedIndex = selectionIndex(buffer, selection);
@@ -119,7 +158,7 @@ export function TailApp({
             return prev;
           }
           const next = { ...prev, maxLines };
-          return prev.buffer ? updateBuffer(next, prev.buffer) : next;
+          return prev.buffer ? updateBuffer(next, prev.buffer, 'partial') : next;
         });
       }
       if (msg.type === 'loading') {
@@ -136,24 +175,8 @@ export function TailApp({
       if (msg.type === 'tailStatus') {
         setRunning(!!msg.running);
       }
-      if (msg.type === 'tailData') {
-        setTail(prev => {
-          const current = prev.buffer;
-          if (!current || current.streamId !== msg.streamId) {
-            return prev;
-          }
-          const overlap = current.firstSeq + current.lines.length - msg.firstSeq;
-          // Wait for the session replay to fill a gap; concatenating would give rows the wrong coordinates.
-          if (overlap < 0 || overlap >= msg.lines.length) {
-            return prev;
-          }
-          const incoming = overlap === 0 ? msg.lines : msg.lines.slice(overlap);
-          return updateBuffer(prev, { ...current, lines: current.lines.concat(incoming) });
-        });
-      }
-      if (msg.type === 'tailSnapshot') {
-        const { streamId, firstSeq, lines } = msg;
-        setTail(prev => updateBuffer(prev, { streamId, firstSeq, lines }));
+      if (msg.type === 'tailData' || msg.type === 'tailSnapshot') {
+        setTail(prev => receiveLines(prev, msg));
       }
       if (msg.type === 'error') {
         setError(msg.message);
