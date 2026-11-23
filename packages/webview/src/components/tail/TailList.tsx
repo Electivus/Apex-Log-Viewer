@@ -293,6 +293,10 @@ function useKeepLineInPlace(
   const pressedRef = useRef(false);
 
   useEffect(() => {
+    restRef.current = undefined;
+  }, [listElement]);
+
+  useEffect(() => {
     const element = listElement;
     if (!element || follow) return;
     const rest = () => {
@@ -313,7 +317,6 @@ function useKeepLineInPlace(
       pressedRef.current = false;
       rest();
     };
-    restRef.current = undefined;
     element.addEventListener('scroll', onScroll, { passive: true });
     element.addEventListener('keydown', onKey);
     element.addEventListener('pointerdown', onPress);
@@ -334,7 +337,11 @@ function useKeepLineInPlace(
   useLayoutEffect(() => {
     const previous = previousRef.current;
     previousRef.current = { rowHeight, filteredIndexes, firstLineSeq };
-    if (follow || !listElement) return;
+    if (follow) {
+      restRef.current = undefined;
+      return;
+    }
+    if (!listElement) return;
     restRef.current ??= { reported: listElement.scrollTop, exact: listElement.scrollTop };
     if (!previous || previous.firstLineSeq >= firstLineSeq) return;
     if (pressedRef.current || Date.now() - scrolledAtRef.current < SCROLL_SETTLE_MS) return;

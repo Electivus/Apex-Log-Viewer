@@ -1,5 +1,6 @@
 import React from 'react';
 import { act, render, screen } from '@testing-library/react';
+import type { ListImperativeAPI } from 'react-window';
 
 import { TailList } from '../components/tail/TailList';
 
@@ -144,8 +145,9 @@ function buffer(first: number, count: number, tall: ReadonlySet<number> = new Se
 
 type Buffer = ReturnType<typeof buffer>;
 
-function renderTail(initial: Buffer) {
-  const ui = (current: Buffer, selectedIndex?: number) => (
+function renderTail(initial: Buffer, initialFollow = false) {
+  const listRef = React.createRef<ListImperativeAPI>();
+  const ui = (current: Buffer, selectedIndex?: number, follow = false) => (
     <TailList
       lines={current.lines}
       filteredIndexes={current.filteredIndexes}
@@ -154,12 +156,12 @@ function renderTail(initial: Buffer) {
       onSelectIndex={() => {}}
       colorize={false}
       running
-      listRef={React.createRef()}
-      follow={false}
+      listRef={listRef}
+      follow={follow}
       t={t as any}
     />
   );
-  const view = render(ui(initial));
+  const view = render(ui(initial, undefined, initialFollow));
   settle();
   return {
     update: (next: Buffer, selectedIndex?: number) => {
@@ -321,6 +323,20 @@ describe('TailList rows over the real virtual list', () => {
     update(shown(buffer(1, 40)));
 
     expect(placeOf(line)).toBe(`${line} at ${top}`);
+  });
+
+  it('keeps the rows in view when the filtered list shrinks after Auto-scroll is switched off without scrolling', () => {
+    const initial = buffer(0, 1000);
+    const { update } = renderTail(initial, true);
+    update(initial);
+    expect(list().scrollTop).toBe(1000 * SHORT - VIEWPORT);
+    const line = 'Line 989';
+    expect(placeOf(line)).toBe(`${line} at 2`);
+
+    const next = buffer(40, 1000);
+    update({ ...next, filteredIndexes: next.filteredIndexes.slice(0, 960) });
+
+    expect(placeOf(line)).toBe(`${line} at 2`);
   });
 
   it('keeps the rows in view in place while Auto-scroll is off and many lines leave at once, shown or not', () => {
