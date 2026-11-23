@@ -408,6 +408,31 @@ describe('TailList rows over the real virtual list', () => {
     expect(list().scrollTop).toBe(before);
   });
 
+  it('anchors again after the list empties while a scroll is under way', () => {
+    // The last match leaves while the user scrolls; when matches come back, the new list must be anchored again.
+    const { update } = renderTail(buffer(0, 400));
+    scrollListTo(200 * SHORT);
+    act(() => {
+      list().scrollTop = 210 * SHORT;
+      list().dispatchEvent(new Event('scroll'));
+    });
+    update({ ...buffer(0, 400), filteredIndexes: [] });
+    update(buffer(0, 400));
+    // The new list's offset is set with no gesture of the user's, as when the view restores it.
+    act(() => {
+      list().scrollTop = 150 * SHORT;
+    });
+    update(buffer(0, 400));
+    settle();
+    const [line, top] = [...viewportTops()].find(([, rowTop]) => rowTop >= 0) ?? ['', 0];
+
+    for (let first = 1; first <= 5; first++) {
+      update(buffer(first, 400));
+    }
+
+    expect(placeOf(line)).toBe(`${line} at ${top}`);
+  });
+
   it('does not take its own correction for a scroll of the user', () => {
     // The scroll event of the offset this code sets must not stop the next correction.
     const { update } = renderTail(buffer(0, 400));
