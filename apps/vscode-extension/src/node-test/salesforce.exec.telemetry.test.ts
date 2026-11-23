@@ -27,7 +27,7 @@ suite('salesforce exec failure redaction', () => {
     }) as typeof import('../host/salesforce/exec');
     let finish: () => void = () => assert.fail('expected a child process');
     execModule.__setExecFileImplForTests((_file, _args, _options, callback) => {
-      finish = () => callback(Object.assign(new Error(message), { code: 2 }), stdout, stderr);
+      finish = () => callback(new Error(message), stdout, stderr);
       return new ChildProcess();
     });
 
