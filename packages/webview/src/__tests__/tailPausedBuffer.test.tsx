@@ -25,6 +25,11 @@ function send(bus: EventTarget, message: ExtensionToWebviewMessage) {
 }
 
 const numbered = (from: number, count: number) => Array.from({ length: count }, (_, i) => `line-${from + i}`);
+/** Numbered lines in logs of 100: every hundredth line is the header of the log the lines below it belong to. */
+const logged = (from: number, count: number, text = (seq: number) => `line-${seq}`) =>
+  Array.from({ length: count }, (_, i) =>
+    (from + i) % 100 ? text(from + i) : `=== ApexLog L${(from + i) / 100} | user`
+  );
 const rowOf = (text: string) => screen.queryByText(text)?.closest<HTMLElement>('[role="row"]') ?? null;
 const offsetOf = (row: HTMLElement) => Number(/translateY\((-?[\d.]+)px\)/.exec(row.style.transform)?.[1]);
 
@@ -41,6 +46,20 @@ function selectedRowText() {
       .find(row => (row.firstElementChild as HTMLElement | null)?.style.borderLeft.includes('focusBorder'))
       ?.textContent ?? undefined
   );
+}
+
+/** Selects `line` through the search, wherever it is in the list, then clears the search. */
+function pickLine(line: string) {
+  const search = screen.getByPlaceholderText('Search live logs…');
+  fireEvent.change(search, { target: { value: `${line} ` } });
+  fireEvent.click(screen.getByText(line));
+  fireEvent.change(search, { target: { value: '' } });
+}
+
+/** The selected line among those the search shows for `line`. */
+function selectedAmongLines(line: string) {
+  fireEvent.change(screen.getByPlaceholderText('Search live logs…'), { target: { value: `${line} ` } });
+  return selectedRowText();
 }
 
 /**
@@ -229,13 +248,13 @@ describe('Tail buffer while Auto-scroll is off', () => {
 
   it('selects the same line after the panel opens again while Auto-scroll is off (guard: passes on main)', async () => {
     const { vscode, bus, view } = await openPaused(1000);
-    send(bus, { type: 'tailData', lines: numbered(0, 1005) });
-    fireEvent.click(await screen.findByText('line-7'));
+    send(bus, { type: 'tailData', lines: logged(0, 1005) });
+    pickLine('line-107');
     view.unmount();
 
-    reopen(vscode, numbered(5, 1000));
+    reopen(vscode, logged(5, 1000));
 
-    await waitFor(() => expect(selectedRowText()).toBe('line-7'));
+    await waitFor(() => expect(selectedAmongLines('line-107')).toBe('line-107'));
   });
 
   /** Shows only `line`, by the search, to tell whether it is the selected line wherever the list is. */
@@ -249,14 +268,14 @@ describe('Tail buffer while Auto-scroll is off', () => {
 
     it(`keeps the same line selected when the extension sends its lines again to the open panel while paused${mode} (guard: passes on main)`, async () => {
       const { bus } = await openPaused(1000, strict);
-      send(bus, { type: 'tailData', lines: numbered(0, 1005) });
-      fireEvent.click(await screen.findByText('line-7'));
+      send(bus, { type: 'tailData', lines: logged(0, 1005) });
+      pickLine('line-107');
 
       // Replay into the panel kept while hidden: a reset, then the last `limit` lines the extension keeps.
       send(bus, { type: 'tailReset' });
-      send(bus, { type: 'tailData', lines: numbered(5, 1000) });
+      send(bus, { type: 'tailData', lines: logged(5, 1000) });
 
-      await waitFor(() => expect(selectedRowText()).toBe('line-7'));
+      await waitFor(() => expect(selectedAmongLines('line-107')).toBe('line-107'));
     });
 
     for (const [where, total] of [
@@ -280,14 +299,14 @@ describe('Tail buffer while Auto-scroll is off', () => {
 
     it(`keeps the selected line when the limit rises with older lines kept and the lines come again${mode} (guard: passes on main)`, async () => {
       const { bus } = await openPaused(1000, strict);
-      send(bus, { type: 'tailData', lines: numbered(0, 1500) });
+      send(bus, { type: 'tailData', lines: logged(0, 1500) });
       selectedAmong('line-507');
       fireEvent.click(await screen.findByText('line-507'));
 
       // The extension kept only lines 500 to 1499 under the old limit, and sends those again.
       send(bus, { type: 'tailConfig', tailBufferSize: 2000 });
       send(bus, { type: 'tailReset' });
-      send(bus, { type: 'tailData', lines: numbered(500, 1000) });
+      send(bus, { type: 'tailData', lines: logged(500, 1000) });
 
       await waitFor(() => expect(selectedAmong('line-507')).toBe('line-507'));
     });
@@ -295,13 +314,13 @@ describe('Tail buffer while Auto-scroll is off', () => {
 
   it('keeps the selected line when the limit rises with older lines kept and the panel opens again (guard: passes on main)', async () => {
     const { vscode, bus, view } = await openPaused(1000);
-    send(bus, { type: 'tailData', lines: numbered(0, 1500) });
+    send(bus, { type: 'tailData', lines: logged(0, 1500) });
     selectedAmong('line-507');
     fireEvent.click(await screen.findByText('line-507'));
     send(bus, { type: 'tailConfig', tailBufferSize: 2000 });
     view.unmount();
 
-    reopen(vscode, numbered(500, 1000), 2000);
+    reopen(vscode, logged(500, 1000), 2000);
 
     await waitFor(() => expect(selectedAmong('line-507')).toBe('line-507'));
   });
@@ -312,28 +331,49 @@ describe('Tail buffer while Auto-scroll is off', () => {
       ['line-1507', undefined]
     ] as const) {
       const { bus, view } = await openPaused(2000);
-      send(bus, { type: 'tailData', lines: numbered(0, 3000) });
+      send(bus, { type: 'tailData', lines: logged(0, 3000) });
       selectedAmong(line);
       fireEvent.click(await screen.findByText(line));
       selectedAmong('');
 
       send(bus, { type: 'tailConfig', tailBufferSize: 1000 });
       send(bus, { type: 'tailReset' });
-      send(bus, { type: 'tailData', lines: numbered(2000, 1000) });
+      send(bus, { type: 'tailData', lines: logged(2000, 1000) });
 
-      await waitFor(() => expect(screen.queryByText('line-2000')).not.toBeNull());
+      await waitFor(() => expect(screen.queryByText('line-2001')).not.toBeNull());
       expect(selectedAmong(line)).toBe(expected);
       view.unmount();
     }
   });
 
+  it('keeps the selected line in its own log when lines sent again end later, even where another log repeats its text (guard: passes on main)', async () => {
+    const posted: WebviewToExtensionMessage[] = [];
+    const { vscode } = createVsCodeMock({ autoScroll: false });
+    const app = { ...vscode, postMessage: (message: WebviewToExtensionMessage) => posted.push(message) };
+    const bus = new EventTarget();
+    render(<TailApp vscode={app} messageBus={bus} />);
+    send(bus, { type: 'init', locale: 'en' });
+    send(bus, { type: 'tailConfig', tailBufferSize: 2000 });
+    // Every log holds the same lines, as Apex logs of one transaction type do.
+    const body = (seq: number) => `body-${seq % 100}`;
+    send(bus, { type: 'tailData', lines: logged(0, 1000, body) });
+    fireEvent.click((await screen.findAllByText('body-7'))[0]!);
+
+    // A delivery was lost; the session recovers with the extension's lines, which go one log further.
+    send(bus, { type: 'tailReset' });
+    send(bus, { type: 'tailData', lines: logged(0, 1100, body) });
+    fireEvent.click(screen.getByRole('button', { name: 'Open Log' }));
+
+    expect(posted.filter(message => message.type === 'openLog')).toEqual([{ type: 'openLog', logId: 'L0' }]);
+  });
+
   it('selects nothing after the panel opens again when the selected line is older than the extension keeps', async () => {
     const { vscode, bus, view } = await openPaused(1000);
-    send(bus, { type: 'tailData', lines: numbered(0, 1005) });
+    send(bus, { type: 'tailData', lines: logged(0, 1005) });
     fireEvent.click(await screen.findByText('line-2'));
     view.unmount();
 
-    reopen(vscode, numbered(5, 1000));
+    reopen(vscode, logged(5, 1000));
 
     await screen.findByText('line-5');
     expect(selectedRowText()).toBeUndefined();
