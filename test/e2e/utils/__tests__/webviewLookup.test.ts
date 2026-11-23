@@ -121,6 +121,14 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * The messages the workbench has received from webview buttons, in order. A button posts from an out-of-process
+ * iframe, so its message can reach the workbench after `click()` resolves: wait for it with `expect.poll`.
+ */
+function clickedMessages(page: Page): Promise<string[]> {
+  return page.evaluate(() => (window as unknown as { clicked: string[] }).clicked);
+}
+
 beforeAll(async () => {
   server = http.createServer(serve);
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -158,7 +166,7 @@ describe('the Logs lookup that opens Debug Flags', () => {
     const logs = await waitForLogsDebugFlagsButton(page, 5_000);
     await logs.locator(TOOLBAR).first().click({ timeout: 5_000 });
 
-    expect(await page.evaluate(() => (window as unknown as { clicked: string[] }).clicked)).toEqual(['editor-v1']);
+    await playwrightExpect.poll(() => clickedMessages(page)).toEqual(['editor-v1']);
   });
 
   test('clicks the new content when VS Code replaces the content iframe after the lookup', async () => {
@@ -175,7 +183,7 @@ describe('the Logs lookup that opens Debug Flags', () => {
     await editorHost.evaluate(() => (window as unknown as { promote: () => void }).promote());
     await logs.locator(TOOLBAR).first().click({ timeout: 5_000 });
 
-    expect(await page.evaluate(() => (window as unknown as { clicked: string[] }).clicked)).toEqual(['editor-v2']);
+    await playwrightExpect.poll(() => clickedMessages(page)).toEqual(['editor-v2']);
   });
 
   test('one call waits while the content is pending and returns it once VS Code promotes it', async () => {
@@ -202,7 +210,7 @@ describe('the Logs lookup that opens Debug Flags', () => {
     await editorHost.evaluate(() => (window as unknown as { promote: () => void }).promote());
     const logs = await lookup;
     await logs.locator(TOOLBAR).first().click({ timeout: 5_000 });
-    expect(await page.evaluate(() => (window as unknown as { clicked: string[] }).clicked)).toEqual(['editor-v2']);
+    await playwrightExpect.poll(() => clickedMessages(page)).toEqual(['editor-v2']);
   });
 });
 
@@ -472,7 +480,7 @@ describe('webviewWith', () => {
     await expect(webviewWith(page, 'logs-open-debug-flags').locator(TOOLBAR).click({ timeout: 5_000 })).rejects.toThrow(
       'matched elements in multiple frames'
     );
-    expect(await page.evaluate(() => (window as unknown as { clicked: string[] }).clicked)).toEqual([]);
+    expect(await clickedMessages(page)).toEqual([]);
   });
 });
 
