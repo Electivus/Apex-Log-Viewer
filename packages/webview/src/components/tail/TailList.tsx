@@ -401,6 +401,9 @@ function useLineRowHeights(
     return () => {
       if (frame) cancelAnimationFrame(frame);
       busyRef.current = undefined;
+      // A scroll of this element ends with it: the next list starts with nothing under way and takes a new anchor.
+      scrollingRef.current = false;
+      anchorRef.current = undefined;
       element.removeEventListener('scroll', onScroll);
       element.removeEventListener('wheel', begin);
       element.removeEventListener('keydown', begin);
