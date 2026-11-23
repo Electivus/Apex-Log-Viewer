@@ -24,6 +24,11 @@ async function waitForQuickInput(page: Page, timeout: number): Promise<void> {
 }
 
 async function openCommandPalette(page: Page): Promise<void> {
+  // The previous palette's input is still visible during its closing animation (#1578).
+  await page.locator('div.quick-input-widget.quick-input-widget-closing').waitFor({
+    state: 'hidden',
+    timeout: COMMAND_PALETTE_SHORTCUT_TIMEOUT_MS
+  });
   const shortcut = getPaletteShortcut();
   await page.keyboard.press(shortcut);
 
