@@ -22,12 +22,13 @@ interface TailUiState {
   autoScroll: boolean;
   colorize: boolean;
   debugLevelByOrg: Record<string, string>;
-  /** The selected line by its distance from the last line and a hash of its text, to find it in lines sent again. */
+  /** The selected line by hashes of its log's header line and its text and how far below the header it is. */
   selected?: SelectedLine;
 }
 
 interface SelectedLine {
-  fromEnd: number;
+  header: number;
+  offset: number;
   hash: number;
 }
 
@@ -48,7 +49,7 @@ function readInitialUiState(vscode: VsCodeWebviewApi<WebviewToExtensionMessage>)
     colorize: raw.colorize === true,
     debugLevelByOrg: typeof raw.debugLevelByOrg === 'object' && raw.debugLevelByOrg !== null ? raw.debugLevelByOrg : {},
     selected:
-      Number.isInteger(raw.selected?.fromEnd) && raw.selected!.fromEnd >= 0 && Number.isInteger(raw.selected?.hash)
+      [raw.selected?.header, raw.selected?.offset, raw.selected?.hash].every(Number.isInteger)
         ? raw.selected
         : undefined
   };
@@ -63,10 +64,7 @@ interface TailBuffer {
   firstSeq: number;
 }
 
-/**
- * How many lines the panel keeps while Auto-scroll is off. Older lines then stay, so the lines in view do not move as
- * new ones arrive; twice the limit, and at least 20,000 more, bounds the memory that costs.
- */
+/** Lines kept while Auto-scroll is off, so older lines stay and the lines in view do not move; bounds the memory. */
 const pausedBufferLines = (limit: number) => Math.min(400_000, Math.max(2 * limit, limit + 20_000));
 
 /** Drops lines from the head until at most `max` remain. */
@@ -113,11 +111,12 @@ export function TailApp({
     selectedSeq !== undefined && selectedSeq >= buffer.firstSeq && selectedSeq < buffer.firstSeq + lines.length
       ? selectedSeq - buffer.firstSeq
       : undefined;
+  let header = selectedIndex ?? -1;
+  while (header >= 0 && !lines[header]!.startsWith('=== ApexLog ')) header--;
   const selectedLine: SelectedLine | undefined =
-    selectedIndex === undefined
+    header < 0
       ? undefined
-      : { fromEnd: lines.length - 1 - selectedIndex, hash: hashLine(lines[selectedIndex]!) };
-  // What a reset leaves to find in the lines the extension sends after it.
+      : { header: hashLine(lines[header]!), offset: selectedIndex! - header, hash: hashLine(lines[selectedIndex!]!) };
   const replayRef = useRef(initialUiStateRef.current.selected);
   const selectedLineRef = useRef(selectedLine);
   selectedLineRef.current = selectedLine;
@@ -163,9 +162,10 @@ export function TailApp({
         const replay = replayRef.current;
         replayRef.current = undefined;
         if (replay && bufferRef.current.lines.length === 0) {
-          // The lines sent after a reset end where the panel's did; anything else leaves no line selected.
-          const index = incoming.length - 1 - replay.fromEnd;
-          const found = index >= 0 && hashLine(incoming[index] ?? '') === replay.hash;
+          // After a reset, the same line of the same log or none: a line outside a log or whose log is gone is not.
+          const head = incoming.findIndex(l => l.startsWith('=== ApexLog ') && hashLine(l) === replay.header);
+          const index = head + replay.offset;
+          const found = head >= 0 && hashLine(incoming[index] ?? '') === replay.hash;
           setSelectedSeq(found ? bufferRef.current.firstSeq + index : undefined);
         }
         setBuffer(prev => {
@@ -198,7 +198,7 @@ export function TailApp({
       debugLevelByOrg,
       selected: selectedLine
     } satisfies TailUiState);
-  }, [autoScroll, colorize, debugLevelByOrg, onlyUserDebug, query, selectedLine?.fromEnd, selectedLine?.hash, vscode]);
+  }, [autoScroll, colorize, debugLevelByOrg, onlyUserDebug, query, selectedLine?.offset, selectedLine?.hash, vscode]);
 
   // Back to the limit when it changes, or at once when Auto-scroll turns on again.
   useLayoutEffect(() => {
