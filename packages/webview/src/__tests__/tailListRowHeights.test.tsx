@@ -368,29 +368,45 @@ describe('TailList rows over the real virtual list', () => {
     expect([...layouts]).toEqual([`${line} at ${top}`]);
   });
 
-  it('keeps the rows in view in place while Auto-scroll is off and the user scrolls up over taller rows', () => {
-    // Lines 260-301 are tall and were never rendered. The user scrolls up by one row, so a row that comes
-    // in above the view is measured taller than the List placed it, and the row the user reads moves by the scroll only.
-    const COUNT = 400;
-    const tall = new Set(Array.from({ length: 42 }, (_, i) => 260 + i));
-    renderTail(buffer(0, COUNT, tall));
-    scrollListTo(330 * SHORT);
-    act(() => {
-      jest.advanceTimersByTime(2000);
-    });
-    scrollListTo(310 * SHORT);
-    act(() => {
-      jest.advanceTimersByTime(2000);
-    });
+  it('leaves the offset to a scroll under way while lines arrive, then keeps the line where it stopped', () => {
+    // A smooth scroll, a key or a wheel moves the offset over several frames. Lines that arrive meanwhile must not
+    // make this code write the offset, or the scroll stops short.
+    const { update } = renderTail(buffer(0, 400));
+    scrollListTo(100 * SHORT);
+    const steps = [130, 160, 190, 220].map(row => row * SHORT);
+    let first = 0;
+    for (const step of steps) {
+      act(() => {
+        list().scrollTop = step;
+        list().dispatchEvent(new Event('scroll'));
+      });
+      first += 10;
+      update(buffer(first, 400));
+      expect(list().scrollTop).toBe(step);
+    }
+    settle();
     const [line, top] = [...viewportTops()].find(([, rowTop]) => rowTop >= 0) ?? ['', 0];
 
-    // The user moves up by one short row: the line moves down by exactly that much, whatever gets measured above it.
-    const layouts = new Set<string>();
-    beforeReport = () => layouts.add(placeOf(line));
-    scrollListTo(list().scrollTop - SHORT);
-    layouts.add(placeOf(line));
+    for (let more = 1; more <= 5; more++) {
+      update(buffer(first + more * 10, 400));
+      expect(placeOf(line)).toBe(`${line} at ${top}`);
+    }
+  });
 
-    expect([...layouts]).toEqual([`${line} at ${top + SHORT}`]);
+  it('does not take its own correction for a scroll of the user', () => {
+    // The scroll event of the offset this code sets must not stop the next correction.
+    const { update } = renderTail(buffer(0, 400));
+    scrollListTo(200 * SHORT);
+    const [line, top] = [...viewportTops()].find(([, rowTop]) => rowTop >= 0) ?? ['', 0];
+
+    for (let first = 1; first <= 6; first++) {
+      update(buffer(first, 400));
+      act(() => {
+        list().dispatchEvent(new Event('scroll'));
+      });
+    }
+
+    expect(placeOf(line)).toBe(`${line} at ${top}`);
   });
 
   it('keeps the line in view within a pixel over many updates when the browser rounds the scroll offset', () => {
