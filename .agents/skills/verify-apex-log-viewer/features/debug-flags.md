@@ -17,8 +17,8 @@ The Apex Debug Flags editor tab manages trace flags and debug levels in the sele
 
 ## How to get to it (user POV)
 
-- Click the `Debug Flags` button in the Logs panel toolbar.
-- Click the `Debug Flags` button in the Tail panel toolbar.
+- Click `Debug Flags` in the Logs or Tail toolbar in the bottom panel.
+- In an editor tab opened with `Open Logs in Editor Area` or `Open Tail in Editor Area`, click the same toolbar button.
 
 ## Driving it with verify steps
 
@@ -29,6 +29,7 @@ Preconditions:
 
 - **Apply and remove from Logs.** Run `node .agents/skills/verify-apex-log-viewer/scripts/verify.mjs run debug-flags-apply-remove`. It applies the level the panel preselects (the current user's active `DEVELOPER_LOG` level) with a 45-minute TTL (`'{"ttlMinutes":N}'`), and returns `ok: true`, `appliedTraceFlag` (id, `debugLevelName`, start and expiration as read from Tooling), `removed: true` and two shots. The step waits for a notice and reads back the flag through Tooling. To check the editor's status display as well, assert `Active`, the level and expiry before Remove.
 - **Open from Tail.** `const flags = await h.openDebugFlagsFromTail()`. The editor is a singleton, so the helper first closes an open Apex Debug Flags tab (it activates that tab and runs `View: Close Editor`, after un-maximizing the panel if it hides the editor area) and waits until no Debug Flags frame is left; the frame it returns is the one its own click opened. It requires Tail to show the session org, clicks with retries, and fails unless `debug-flags-org-select` shows `session.org.alias`. `h.openDebugFlagsFromLogs()` closes the tab the same way. The `debug-flags-from-tail-control` step proves an intercepted click fails the helper.
+- **Reopen from an editor tab.** Leave Apex Debug Flags open. Run `Open Logs in Editor Area` or `Open Tail in Editor Area` and hide the bottom panel with `View: Hide Panel` if it is visible. Check the editor toolbar's org, then click its `Debug Flags` button. Require the existing Apex Debug Flags tab to become active, with no second tab and with `debug-flags-org-select` showing that org. Do not use `openDebugFlagsFromLogs()` or `openDebugFlagsFromTail()` to check reuse: both close the tab first.
 - **User search and cleanup confirmation.** Select the E2E user, then search for a string that matches no user. Require Apply and Remove to become disabled. Reselect the user, open `Clear logs` > `Delete all org logs`, check that the modal names the session org, then cancel.
 - **Log type and notes.** On the E2E user: select `User debug (USER_DEBUG)` (click `debug-flags-log-type`, then `getByRole('option', { name: 'User debug (USER_DEBUG)' })`), apply, then switch back to `DEVELOPER_LOG`: the info note and its switch appear. Click the switch, which selects `USER_DEBUG`. Select `DEVELOPER_LOG`, apply, then switch to `USER_DEBUG`: the warning note appears. Remove both types at the end.
 - **Special target.** Click `[data-testid="debug-flags-special-target-automated-process"]`. `debug-flags-selected-target-label` contains `Automated Process`. On a harness scratch both special targets resolve, so Apply stays enabled. Otherwise `debug-flags-target-unavailable` names the target. For the full apply and remove assertion, see `test/e2e/specs/debugFlagsPanel.shared.ts` → `assertSpecialTargetBehavior`.
@@ -37,7 +38,7 @@ Preconditions:
 
 ## Gotchas
 
-- Use `h.openDebugFlagsFrom*()` rather than a raw click. A forced click on either toolbar button can do nothing.
+- To open a fresh editor from the bottom panel, use `h.openDebugFlagsFromLogs()` or `h.openDebugFlagsFromTail()`. A forced click on either toolbar button can do nothing.
 - The notice confirms only the UI request. Always read the TraceFlag back, because the status pill can lag.
 - `h.tooling` reads and seeds `DEVELOPER_LOG` flags only (`getUserDebugTraceFlag` included, despite its name). Read a `USER_DEBUG` flag with `sf -- trace-flag status --log-type USER_DEBUG` or a Tooling query.
 - The authenticated user carries a seed `DEVELOPER_LOG` flag at `ALV_E2E` for 60 minutes, renewed by `h.seedLog()` at most once every 5 minutes. `debug-flags-apply-remove` refuses that user while any `DEVELOPER_LOG` flag exists. Deleting and recreating a flag does not preserve its identity or dates. Ad-hoc steps must preserve pre-existing flags rather than claim that recreation restores them.
