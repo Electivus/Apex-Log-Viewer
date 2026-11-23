@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { getEffectiveApiVersion } from '../salesforce/http';
 import { ensureUserTraceFlag } from '../salesforce/traceflags';
 import type { OrgAuth } from '../salesforce/types';
-import type { ExtensionToWebviewMessage } from '../../shared/messages';
+import type { ExtensionToWebviewMessage, TailLineBatch } from '../../shared/messages';
 import { runtimeClient } from '../../runtime/runtimeClient';
 import { logInfo, logWarn, logError, showOutput } from './logger';
 import { localize } from './localize';
@@ -48,6 +49,8 @@ export class TailService {
   private streamingClient: StreamingClient | undefined;
   private connection: Connection | undefined;
   private bufferLimit = DEFAULT_TAIL_BUFFER_LINES;
+  private readonly streamId = randomUUID();
+  private firstSeq = 0;
   private bufferedLines: string[] = [];
   private bufferedLinesOffset = 0;
 
@@ -73,8 +76,16 @@ export class TailService {
     return this.run?.subscribed === true;
   }
 
-  getBufferedLines(): string[] {
-    return this.bufferedLinesOffset > 0 ? this.bufferedLines.slice(this.bufferedLinesOffset) : [...this.bufferedLines];
+  get bufferedLineCount(): number {
+    return this.bufferedLines.length - this.bufferedLinesOffset;
+  }
+
+  getBufferedSnapshot(): TailLineBatch {
+    return {
+      streamId: this.streamId,
+      firstSeq: this.firstSeq,
+      lines: this.bufferedLines.slice(this.bufferedLinesOffset)
+    };
   }
 
   promptPoll(): void {
@@ -281,6 +292,7 @@ export class TailService {
   }
 
   clearBufferedLines(): void {
+    this.firstSeq += this.bufferedLineCount;
     this.bufferedLines = [];
     this.bufferedLinesOffset = 0;
   }
@@ -339,8 +351,9 @@ export class TailService {
         lines.push(l);
       }
     }
+    const firstSeq = this.firstSeq + this.bufferedLineCount;
     this.appendBufferedLines(lines);
-    this.post({ type: 'tailData', lines });
+    this.post({ type: 'tailData', streamId: this.streamId, firstSeq, lines });
   }
 
   private appendBufferedLines(lines: string[]): void {
@@ -353,9 +366,9 @@ export class TailService {
   }
 
   private trimBufferedLines(): void {
-    const logicalLength = this.bufferedLines.length - this.bufferedLinesOffset;
-    const drop = Math.max(0, logicalLength - this.bufferLimit);
+    const drop = Math.max(0, this.bufferedLineCount - this.bufferLimit);
     if (drop > 0) {
+      this.firstSeq += drop;
       this.bufferedLinesOffset += drop;
       this.compactBufferedLinesIfNeeded();
     }
