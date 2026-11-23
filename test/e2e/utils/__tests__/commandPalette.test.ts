@@ -78,6 +78,7 @@ function createFakePage(
     quickAccessClickError?: Error;
     typedTextIsLost?: boolean;
     closesAfterFill?: boolean;
+    animatesClose?: boolean;
     /** A webview takes the keyboard focus once the query is in the input, as an activated webview does a moment later. */
     webviewTakesFocusAfterFill?: boolean;
     /** Arrow keys do not move the row focus even with the input focused. */
@@ -92,6 +93,8 @@ function createFakePage(
   const executed: string[] = [];
   const webviewKeys: string[] = [];
   let webviewHasFocus = false;
+  let paletteClosing = false;
+  let shortcutHitClosingPalette = false;
   const labelsFor = options?.labelsFor ?? ((query: string) => [query.replace(/^>\s*/, '')]);
   const currentRows = () =>
     labelsFor(lastQuery).map(row => (typeof row === 'string' ? { label: row, alias: '' } : row));
@@ -108,9 +111,15 @@ function createFakePage(
       focusedIndex = Math.max(focusedIndex - 1, 0);
     } else if (key === 'Enter') {
       executed.push(currentLabels()[focusedIndex] ?? '');
+      paletteClosing = options?.animatesClose ?? false;
+    } else if (key.endsWith('+Shift+P')) {
+      shortcutHitClosingPalette = paletteClosing;
     }
   });
   const recordFill = (value: string) => {
+    if (shortcutHitClosingPalette) {
+      throw new Error('The closing palette disappeared before its input could be filled');
+    }
     if (options?.typedTextIsLost) {
       return;
     }
@@ -261,6 +270,15 @@ function createFakePage(
     if (selector === 'div.quick-input-widget') {
       return widgetLocator;
     }
+    if (selector === 'div.quick-input-widget.quick-input-widget-closing') {
+      return {
+        waitFor: async ({ state }: { state: 'hidden' }) => {
+          if (state === 'hidden') {
+            paletteClosing = false;
+          }
+        }
+      };
+    }
     throw new Error(`Unexpected selector: ${selector}`);
   });
 
@@ -304,6 +322,18 @@ afterEach(() => {
 });
 
 describe('runCommandWhenAvailable', () => {
+  test('runs consecutive commands when the previous palette is still closing', async () => {
+    const fake = createFakePage([], { animatesClose: true });
+
+    await runCommandWhenAvailable(fake.page, 'Custom Logs: Focus on Custom Logs View');
+    await runCommandWhenAvailable(fake.page, 'Electivus Apex Logs: Refresh Custom Logs');
+
+    expect(fake.executed).toEqual([
+      'Custom Logs: Focus on Custom Logs View',
+      'Electivus Apex Logs: Refresh Custom Logs'
+    ]);
+  });
+
   test('retries until the command appears and executes from the successful command-palette session', async () => {
     const fake = createFakePage([true, true, false]);
 
