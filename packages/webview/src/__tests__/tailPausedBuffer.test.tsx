@@ -367,6 +367,34 @@ describe('Tail buffer while Auto-scroll is off', () => {
     expect(posted.filter(message => message.type === 'openLog')).toEqual([{ type: 'openLog', logId: 'L0' }]);
   });
 
+  it('saves a new selection of the same line in another log (guard: passes on main)', async () => {
+    const posted: WebviewToExtensionMessage[] = [];
+    const { vscode } = createVsCodeMock({ autoScroll: false });
+    const bus = new EventTarget();
+    const view = render(<TailApp vscode={vscode} messageBus={bus} />);
+    send(bus, { type: 'init', locale: 'en' });
+    send(bus, { type: 'tailConfig', tailBufferSize: 2000 });
+    const body = (seq: number) => `body-${seq % 100}.`;
+    send(bus, { type: 'tailData', lines: logged(0, 1000, body) });
+    const search = screen.getByPlaceholderText('Search live logs…');
+    fireEvent.change(search, { target: { value: 'body-7.' } });
+    fireEvent.click((await screen.findAllByText('body-7.'))[0]!);
+    // Only the log changes: the same text, as far below its header.
+    fireEvent.click(screen.getAllByText('body-7.')[1]!);
+    view.unmount();
+
+    const app = { ...vscode, postMessage: (message: WebviewToExtensionMessage) => posted.push(message) };
+    const nextBus = new EventTarget();
+    render(<TailApp vscode={app} messageBus={nextBus} />);
+    send(nextBus, { type: 'init', locale: 'en' });
+    send(nextBus, { type: 'tailConfig', tailBufferSize: 2000 });
+    send(nextBus, { type: 'tailReset' });
+    send(nextBus, { type: 'tailData', lines: logged(0, 1000, body) });
+    fireEvent.click(screen.getByRole('button', { name: 'Open Log' }));
+
+    expect(posted.filter(message => message.type === 'openLog')).toEqual([{ type: 'openLog', logId: 'L1' }]);
+  });
+
   it('selects nothing after the panel opens again when the selected line is older than the extension keeps', async () => {
     const { vscode, bus, view } = await openPaused(1000);
     send(bus, { type: 'tailData', lines: logged(0, 1005) });
