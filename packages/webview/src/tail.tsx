@@ -22,17 +22,17 @@ interface TailUiState {
   autoScroll: boolean;
   colorize: boolean;
   debugLevelByOrg: Record<string, string>;
-  /** The selected line by hashes of its log's header line and its text and how far below the header it is. */
+  /** The selected line by its log's header line, which names the log, how far below it it is, and its text. */
   selected?: SelectedLine;
 }
 
 interface SelectedLine {
-  header: number;
+  header: string;
   offset: number;
-  hash: number;
+  text: string;
 }
 
-const hashLine = (text: string) => [...text].reduce((h, c) => (Math.imul(h, 31) + c.charCodeAt(0)) | 0, 7);
+const isHeader = (line: string) => line.startsWith('=== ApexLog ');
 
 function buildReadyMessage(): WebviewToExtensionMessage {
   const content = document.querySelector('meta[name="alv-mount-sequence"]')?.getAttribute('content');
@@ -49,7 +49,8 @@ function readInitialUiState(vscode: VsCodeWebviewApi<WebviewToExtensionMessage>)
     colorize: raw.colorize === true,
     debugLevelByOrg: typeof raw.debugLevelByOrg === 'object' && raw.debugLevelByOrg !== null ? raw.debugLevelByOrg : {},
     selected:
-      [raw.selected?.header, raw.selected?.offset, raw.selected?.hash].every(Number.isInteger)
+      typeof raw.selected?.header === 'string' && typeof raw.selected.text === 'string' &&
+      Number.isInteger(raw.selected.offset) && raw.selected.offset >= 0
         ? raw.selected
         : undefined
   };
@@ -90,7 +91,7 @@ export function TailApp({
   const [running, setRunning] = useState(false);
   const [buffer, setBuffer] = useState<TailBuffer>({ lines: [], firstSeq: 0 });
   const lines = buffer.lines;
-  const bufferRef = useRef(buffer); // also set by a reset, for a message handled before the next render
+  const bufferRef = useRef(buffer); // also set by messages, for one handled before the next render
   bufferRef.current = buffer;
   const [tailMaxLines, setTailMaxLines] = useState(10000);
   const tailMaxLinesRef = useRef(10000);
@@ -112,11 +113,9 @@ export function TailApp({
       ? selectedSeq - buffer.firstSeq
       : undefined;
   let header = selectedIndex ?? -1;
-  while (header >= 0 && !lines[header]!.startsWith('=== ApexLog ')) header--;
+  while (header >= 0 && !isHeader(lines[header]!)) header--;
   const selectedLine: SelectedLine | undefined =
-    header < 0
-      ? undefined
-      : { header: hashLine(lines[header]!), offset: selectedIndex! - header, hash: hashLine(lines[selectedIndex!]!) };
+    header < 0 ? undefined : { header: lines[header]!, offset: selectedIndex! - header, text: lines[selectedIndex!]! };
   const replayRef = useRef(initialUiStateRef.current.selected);
   const selectedLineRef = useRef(selectedLine);
   selectedLineRef.current = selectedLine;
@@ -162,17 +161,15 @@ export function TailApp({
         const replay = replayRef.current;
         replayRef.current = undefined;
         if (replay && bufferRef.current.lines.length === 0) {
-          // After a reset, the same line of the same log or none: a line outside a log or whose log is gone is not.
-          const head = incoming.findIndex(l => l.startsWith('=== ApexLog ') && hashLine(l) === replay.header);
+          // The same line of the same log, with no other log between them, or none.
+          const head = incoming.indexOf(replay.header);
           const index = head + replay.offset;
-          const found = head >= 0 && hashLine(incoming[index] ?? '') === replay.hash;
-          setSelectedSeq(found ? bufferRef.current.firstSeq + index : undefined);
+          const inLog = head >= 0 && !incoming.slice(head + 1, index + 1).some(isHeader);
+          setSelectedSeq(inLog && incoming[index] === replay.text ? bufferRef.current.firstSeq + index : undefined);
         }
-        setBuffer(prev => {
-          const merged = { lines: prev.lines.concat(incoming), firstSeq: prev.firstSeq };
-          const max = tailMaxLinesRef.current;
-          return trimBuffer(merged, autoScrollRef.current ? max : pausedBufferLines(max));
-        });
+        const max = autoScrollRef.current ? tailMaxLinesRef.current : pausedBufferLines(tailMaxLinesRef.current);
+        bufferRef.current = trimBuffer({ ...bufferRef.current, lines: bufferRef.current.lines.concat(incoming) }, max);
+        setBuffer(bufferRef.current);
       }
       if (msg.type === 'tailReset') {
         replayRef.current = selectedLineRef.current ?? replayRef.current;
@@ -189,6 +186,7 @@ export function TailApp({
     return () => messageBus.removeEventListener('message', handler as EventListener);
   }, [messageBus, vscode]);
 
+  const savedSelection = selectedLine ?? replayRef.current; // one still to find after a reset stays saved
   useEffect(() => {
     vscode.setState({
       query,
@@ -196,13 +194,14 @@ export function TailApp({
       autoScroll,
       colorize,
       debugLevelByOrg,
-      selected: selectedLine
+      selected: savedSelection
     } satisfies TailUiState);
-  }, [autoScroll, colorize, debugLevelByOrg, onlyUserDebug, query, selectedSeq, selectedIndex === undefined, vscode]);
+  }, [autoScroll, colorize, debugLevelByOrg, onlyUserDebug, query, JSON.stringify(savedSelection), vscode]);
 
   // Back to the limit when it changes, or at once when Auto-scroll turns on again.
   useLayoutEffect(() => {
     tailMaxLinesRef.current = tailMaxLines;
+    if (autoScroll) replayRef.current = undefined;
     setBuffer(prev => trimBuffer(prev, autoScroll ? tailMaxLines : pausedBufferLines(tailMaxLines)));
   }, [tailMaxLines, autoScroll]);
 
@@ -251,7 +250,7 @@ export function TailApp({
       return;
     }
     scrollToIndex(selectedIndex, 'auto');
-  }, [selectedSeq, query]);
+  }, [selectedSeq, query, onlyUserDebug]);
 
   const orgKey = selectedOrg ?? '';
   const rememberedDebugLevel = debugLevelByOrg[orgKey];
@@ -271,7 +270,10 @@ export function TailApp({
     vscode.postMessage({ type: 'tailStart', debugLevel });
   };
   const stop = () => vscode.postMessage({ type: 'tailStop' });
-  const clear = () => vscode.postMessage({ type: 'tailClear' });
+  const clear = () => {
+    setSelectedSeq(undefined);
+    vscode.postMessage({ type: 'tailClear' });
+  };
 
   // Infer selected logId by scanning up to nearest header line
   const selectedLogId: string | undefined = useMemo(() => {
