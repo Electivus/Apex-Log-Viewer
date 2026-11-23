@@ -446,6 +446,36 @@ describe('TailList rows over the real virtual list', () => {
     expect(scrollWrites).toBe(0);
   });
 
+  it('sets no offset when lines leave between a key that scrolls down and its first scroll event (guard: passes on main)', () => {
+    // End starts an animation toward the end before its first scroll event. A write for lines that leave in between
+    // would move the animation's target and stop it short of the end.
+    const { update } = renderTail(buffer(0, 400));
+    scrollListTo(200 * SHORT);
+    scrollWrites = 0;
+
+    act(() => {
+      list().dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    });
+    update(buffer(40, 400));
+
+    expect(scrollWrites).toBe(0);
+  });
+
+  it('keeps the line in place when lines leave after a key that does not scroll down', () => {
+    const { update } = renderTail(buffer(0, 400));
+    scrollListTo(200 * SHORT);
+    const [line, top] = [...viewportTops()].find(([, rowTop]) => rowTop >= 0) ?? ['', 0];
+
+    for (const init of [{ key: 'ArrowRight' }, { key: 'c', metaKey: true }, { key: 'Home' }]) {
+      act(() => {
+        list().dispatchEvent(new KeyboardEvent('keydown', { ...init, bubbles: true }));
+      });
+    }
+    update(buffer(40, 400));
+
+    expect(placeOf(line)).toBe(`${line} at ${top}`);
+  });
+
   it('does not take its own correction for a scroll of the user', () => {
     // The scroll event of the offset this code sets must not stop the next correction.
     const { update } = renderTail(buffer(0, 400));
