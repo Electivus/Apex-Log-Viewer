@@ -1,13 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ListImperativeAPI } from 'react-window';
 import { createRoot } from 'react-dom/client';
 import { getMessages } from './i18n';
 import { decodeLogLine } from '@alv/protocol/logText';
 import type { OrgItem } from '@alv/protocol/types';
-import type {
-  ExtensionToWebviewMessage,
-  WebviewToExtensionMessage
-} from '@alv/protocol/messages';
+import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '@alv/protocol/messages';
 import { TailToolbar } from './components/tail/TailToolbar';
 import { TailList } from './components/tail/TailList';
 import { LoadingOverlay } from './components/LoadingOverlay';
@@ -55,6 +52,12 @@ interface TailBuffer {
   firstSeq: number;
 }
 
+/**
+ * How many lines the panel keeps while Auto-scroll is off. Older lines then stay, so the lines in view do not move as
+ * new ones arrive; twice the limit, and at least 20,000 more, bounds the memory that costs.
+ */
+const pausedBufferLines = (limit: number) => Math.min(400_000, Math.max(2 * limit, limit + 20_000));
+
 /** Drops lines from the head until at most `max` remain. */
 function trimBuffer(buffer: TailBuffer, max: number): TailBuffer {
   const drop = Math.max(0, buffer.lines.length - max);
@@ -84,6 +87,8 @@ export function TailApp({
   const [onlyUserDebug, setOnlyUserDebug] = useState(initialUiStateRef.current.onlyUserDebug);
   const [autoScroll, setAutoScroll] = useState(initialUiStateRef.current.autoScroll);
   const autoScrollPausedByScrollRef = useRef(false);
+  const autoScrollRef = useRef(autoScroll);
+  autoScrollRef.current = autoScroll;
   const [colorize, setColorize] = useState(initialUiStateRef.current.colorize);
   const [debugLevels, setDebugLevels] = useState<string[]>([]);
   const [activeDebugLevel, setActiveDebugLevel] = useState<string | undefined>(undefined);
@@ -131,7 +136,8 @@ export function TailApp({
         const incoming = Array.isArray(msg.lines) ? msg.lines : [];
         setBuffer(prev => {
           const merged = { lines: prev.lines.concat(incoming), firstSeq: prev.firstSeq };
-          const next = trimBuffer(merged, tailMaxLinesRef.current);
+          const limit = tailMaxLinesRef.current;
+          const next = trimBuffer(merged, autoScrollRef.current ? limit : pausedBufferLines(limit));
           const drop = next.firstSeq - prev.firstSeq;
           if (drop > 0) {
             // Adjust selection to account for trimmed prefix
@@ -152,6 +158,12 @@ export function TailApp({
     return () => messageBus.removeEventListener('message', handler as EventListener);
   }, [messageBus, vscode]);
 
+  // The extension keeps only the last `tailMaxLines` lines and sends those when the panel opens again, so the selection
+  // is saved as a position among them.
+  const extraLines = Math.max(0, lines.length - tailMaxLines);
+  const savedSelection =
+    selectedIndex === undefined || selectedIndex < extraLines ? undefined : selectedIndex - extraLines;
+
   useEffect(() => {
     vscode.setState({
       query,
@@ -159,21 +171,22 @@ export function TailApp({
       autoScroll,
       colorize,
       debugLevelByOrg,
-      selectedIndex
+      selectedIndex: savedSelection
     } satisfies TailUiState);
-  }, [autoScroll, colorize, debugLevelByOrg, onlyUserDebug, query, selectedIndex, vscode]);
+  }, [autoScroll, colorize, debugLevelByOrg, onlyUserDebug, query, savedSelection, vscode]);
 
-  useEffect(() => {
+  // Back to the limit when it changes, or at once when Auto-scroll turns on again.
+  useLayoutEffect(() => {
     tailMaxLinesRef.current = tailMaxLines;
     setBuffer(prev => {
-      const next = trimBuffer(prev, tailMaxLines);
+      const next = trimBuffer(prev, autoScroll ? tailMaxLines : pausedBufferLines(tailMaxLines));
       const drop = next.firstSeq - prev.firstSeq;
       if (drop > 0) {
         setSelectedIndex(idx => (idx === undefined ? undefined : idx - drop >= 0 ? idx - drop : undefined));
       }
       return next;
     });
-  }, [tailMaxLines]);
+  }, [tailMaxLines, autoScroll]);
 
   const filteredIndexes = useMemo(() => {
     const q = query.trim().toLowerCase();
