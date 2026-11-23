@@ -4,7 +4,10 @@ import { createRoot } from 'react-dom/client';
 import { getMessages } from './i18n';
 import { decodeLogLine } from '@alv/protocol/logText';
 import type { OrgItem } from '@alv/protocol/types';
-import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '@alv/protocol/messages';
+import type {
+  ExtensionToWebviewMessage,
+  WebviewToExtensionMessage
+} from '@alv/protocol/messages';
 import { TailToolbar } from './components/tail/TailToolbar';
 import { TailList } from './components/tail/TailList';
 import { LoadingOverlay } from './components/LoadingOverlay';
@@ -19,8 +22,16 @@ interface TailUiState {
   autoScroll: boolean;
   colorize: boolean;
   debugLevelByOrg: Record<string, string>;
-  selectedIndex?: number;
+  /** The selected line by its distance from the last line and a hash of its text, to find it in lines sent again. */
+  selected?: SelectedLine;
 }
+
+interface SelectedLine {
+  fromEnd: number;
+  hash: number;
+}
+
+const hashLine = (text: string) => [...text].reduce((h, c) => (Math.imul(h, 31) + c.charCodeAt(0)) | 0, 7);
 
 function buildReadyMessage(): WebviewToExtensionMessage {
   const content = document.querySelector('meta[name="alv-mount-sequence"]')?.getAttribute('content');
@@ -36,9 +47,9 @@ function readInitialUiState(vscode: VsCodeWebviewApi<WebviewToExtensionMessage>)
     autoScroll: raw.autoScroll !== false,
     colorize: raw.colorize === true,
     debugLevelByOrg: typeof raw.debugLevelByOrg === 'object' && raw.debugLevelByOrg !== null ? raw.debugLevelByOrg : {},
-    selectedIndex:
-      typeof raw.selectedIndex === 'number' && Number.isInteger(raw.selectedIndex) && raw.selectedIndex >= 0
-        ? raw.selectedIndex
+    selected:
+      Number.isInteger(raw.selected?.fromEnd) && raw.selected!.fromEnd >= 0 && Number.isInteger(raw.selected?.hash)
+        ? raw.selected
         : undefined
   };
 }
@@ -81,6 +92,8 @@ export function TailApp({
   const [running, setRunning] = useState(false);
   const [buffer, setBuffer] = useState<TailBuffer>({ lines: [], firstSeq: 0 });
   const lines = buffer.lines;
+  const bufferRef = useRef(buffer); // also set by a reset, for a message handled before the next render
+  bufferRef.current = buffer;
   const [tailMaxLines, setTailMaxLines] = useState(10000);
   const tailMaxLinesRef = useRef(10000);
   const [query, setQuery] = useState(initialUiStateRef.current.query);
@@ -94,7 +107,20 @@ export function TailApp({
   const [activeDebugLevel, setActiveDebugLevel] = useState<string | undefined>(undefined);
   const [debugLevelByOrg, setDebugLevelByOrg] = useState(initialUiStateRef.current.debugLevelByOrg);
   const [error, setError] = useState<string | undefined>(undefined);
-  const [selectedIndex, setSelectedIndex] = useState<number | undefined>(initialUiStateRef.current.selectedIndex);
+  // The selected line by its sequence number, so that it stays the same line while lines leave or arrive.
+  const [selectedSeq, setSelectedSeq] = useState<number | undefined>(undefined);
+  const selectedIndex =
+    selectedSeq !== undefined && selectedSeq >= buffer.firstSeq && selectedSeq < buffer.firstSeq + lines.length
+      ? selectedSeq - buffer.firstSeq
+      : undefined;
+  const selectedLine: SelectedLine | undefined =
+    selectedIndex === undefined
+      ? undefined
+      : { fromEnd: lines.length - 1 - selectedIndex, hash: hashLine(lines[selectedIndex]!) };
+  // What a reset leaves to find in the lines the extension sends after it.
+  const replayRef = useRef(initialUiStateRef.current.selected);
+  const selectedLineRef = useRef(selectedLine);
+  selectedLineRef.current = selectedLine;
   const [loading, setLoading] = useState(false);
   const t = getMessages(locale) as any;
   const listRef = useRef<ListImperativeAPI | null>(null);
@@ -134,27 +160,25 @@ export function TailApp({
       }
       if (msg.type === 'tailData') {
         const incoming = Array.isArray(msg.lines) ? msg.lines : [];
+        const replay = replayRef.current;
+        replayRef.current = undefined;
+        if (replay && bufferRef.current.lines.length === 0) {
+          // The lines sent after a reset end where the panel's did; anything else leaves no line selected.
+          const index = incoming.length - 1 - replay.fromEnd;
+          const found = index >= 0 && hashLine(incoming[index] ?? '') === replay.hash;
+          setSelectedSeq(found ? bufferRef.current.firstSeq + index : undefined);
+        }
         setBuffer(prev => {
           const merged = { lines: prev.lines.concat(incoming), firstSeq: prev.firstSeq };
-          const limit = tailMaxLinesRef.current;
-          const next = trimBuffer(merged, autoScrollRef.current ? limit : pausedBufferLines(limit));
-          const drop = next.firstSeq - prev.firstSeq;
-          if (drop > 0) {
-            // Adjust selection to account for trimmed prefix
-            setSelectedIndex(idx => (idx === undefined ? undefined : idx - drop >= 0 ? idx - drop : undefined));
-          }
-          return next;
+          const max = tailMaxLinesRef.current;
+          return trimBuffer(merged, autoScrollRef.current ? max : pausedBufferLines(max));
         });
       }
       if (msg.type === 'tailReset') {
-        setBuffer(prev => {
-          // The extension sends again only the last `limit` lines it keeps, so the selection moves to their positions.
-          const extra = Math.max(0, prev.lines.length - tailMaxLinesRef.current);
-          if (extra > 0) {
-            setSelectedIndex(idx => (idx === undefined ? undefined : idx - extra >= 0 ? idx - extra : undefined));
-          }
-          return { lines: [], firstSeq: prev.firstSeq + prev.lines.length };
-        });
+        replayRef.current = selectedLineRef.current ?? replayRef.current;
+        const reset = { lines: [], firstSeq: bufferRef.current.firstSeq + bufferRef.current.lines.length };
+        bufferRef.current = reset;
+        setBuffer(reset);
       }
       if (msg.type === 'error') {
         setError(msg.message);
@@ -165,12 +189,6 @@ export function TailApp({
     return () => messageBus.removeEventListener('message', handler as EventListener);
   }, [messageBus, vscode]);
 
-  // The extension keeps only the last `tailMaxLines` lines and sends those when the panel opens again, so the selection
-  // is saved as a position among them.
-  const extraLines = Math.max(0, lines.length - tailMaxLines);
-  const savedSelection =
-    selectedIndex === undefined || selectedIndex < extraLines ? undefined : selectedIndex - extraLines;
-
   useEffect(() => {
     vscode.setState({
       query,
@@ -178,21 +196,14 @@ export function TailApp({
       autoScroll,
       colorize,
       debugLevelByOrg,
-      selectedIndex: savedSelection
+      selected: selectedLine
     } satisfies TailUiState);
-  }, [autoScroll, colorize, debugLevelByOrg, onlyUserDebug, query, savedSelection, vscode]);
+  }, [autoScroll, colorize, debugLevelByOrg, onlyUserDebug, query, selectedLine?.fromEnd, selectedLine?.hash, vscode]);
 
   // Back to the limit when it changes, or at once when Auto-scroll turns on again.
   useLayoutEffect(() => {
     tailMaxLinesRef.current = tailMaxLines;
-    setBuffer(prev => {
-      const next = trimBuffer(prev, autoScroll ? tailMaxLines : pausedBufferLines(tailMaxLines));
-      const drop = next.firstSeq - prev.firstSeq;
-      if (drop > 0) {
-        setSelectedIndex(idx => (idx === undefined ? undefined : idx - drop >= 0 ? idx - drop : undefined));
-      }
-      return next;
-    });
+    setBuffer(prev => trimBuffer(prev, autoScroll ? tailMaxLines : pausedBufferLines(tailMaxLines)));
   }, [tailMaxLines, autoScroll]);
 
   const filteredIndexes = useMemo(() => {
@@ -234,12 +245,13 @@ export function TailApp({
     [filteredIndexMap]
   );
 
+  // To the selected line when it or the search changes, never because lines arrived.
   useEffect(() => {
     if (selectedIndex === undefined) {
       return;
     }
     scrollToIndex(selectedIndex, 'auto');
-  }, [selectedIndex, query, lines.length, scrollToIndex]);
+  }, [selectedSeq, query]);
 
   const orgKey = selectedOrg ?? '';
   const rememberedDebugLevel = debugLevelByOrg[orgKey];
@@ -322,7 +334,7 @@ export function TailApp({
           autoScrollPausedByScrollRef.current = false; // user action overrides pause reason
           if (v) {
             // Clear selection so the list can follow; TailList jumps to the end when `follow` turns on
-            setSelectedIndex(undefined);
+            setSelectedSeq(undefined);
           }
         }}
         error={error}
@@ -334,7 +346,7 @@ export function TailApp({
         firstLineSeq={buffer.firstSeq}
         selectedIndex={selectedIndex}
         onSelectIndex={idx => {
-          setSelectedIndex(idx);
+          setSelectedSeq(buffer.firstSeq + idx);
           setAutoScroll(false);
           autoScrollPausedByScrollRef.current = false; // selection is explicit user pause
           scrollToIndex(idx, 'smooth');
