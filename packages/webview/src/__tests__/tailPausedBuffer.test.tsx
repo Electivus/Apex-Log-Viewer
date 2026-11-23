@@ -434,7 +434,7 @@ describe('Tail buffer while Auto-scroll is off', () => {
     });
 
     it(`does not select again after a reset once Auto-scroll is turned on${mode} (guard: passes on main)`, async () => {
-      const { bus, posted } = await openPaused(1000, strict);
+      const { bus, posted, getSavedState } = await openPaused(1000, strict);
       send(bus, { type: 'tailData', lines: logged(0, 900) });
       pickLine('line-895');
 
@@ -443,6 +443,7 @@ describe('Tail buffer while Auto-scroll is off', () => {
       send(bus, { type: 'tailData', lines: logged(0, 900) });
 
       expect(openLogIds(posted)).toEqual([]);
+      expect(getSavedState().selected).toBeUndefined();
     });
 
     it(`does not select again after Clear${mode}`, async () => {
