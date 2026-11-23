@@ -186,7 +186,7 @@ export function TailApp({
     return () => messageBus.removeEventListener('message', handler as EventListener);
   }, [messageBus, vscode]);
 
-  const savedSelection = selectedLine ?? replayRef.current; // one still to find after a reset stays saved
+  const savedSelection = selectedLine ?? (autoScroll ? undefined : replayRef.current); // one still to find stays saved
   useEffect(() => {
     vscode.setState({
       query,
