@@ -243,9 +243,9 @@ const SETTLED_FRAMES = 3;
  *
  * While a scroll that this code did not make is under way, the code sets no offset and the view moves as it does
  * without the anchor: a press on the list or its scrollbar until release, a wheel, a key, a smooth scroll, a reveal.
- * It is under way from the press, wheel, key or first scroll event that this code did not cause until `scrollend`,
- * or until SETTLED_FRAMES frames pass with none of them and no press held. The anchor is then taken where the view
- * stopped.
+ * It is under way from the press, wheel, key or first scroll event that this code did not cause until SETTLED_FRAMES
+ * frames pass with none of them and no press held. The anchor is then taken where the view stopped. `scrollend` is
+ * not used: the browser also sends it for an offset this code sets, and for an animation such a write retargets.
  */
 function useLineRowHeights(
   filteredIndexes: readonly number[],
@@ -384,9 +384,6 @@ function useLineRowHeights(
     const onScroll = () => {
       if (element.scrollTop !== expectedTopRef.current) begin();
     };
-    const onScrollEnd = () => {
-      if (scrollingRef.current && !pressed) quiet = SETTLED_FRAMES;
-    };
     const onPress = () => {
       pressed = true;
       begin();
@@ -395,7 +392,6 @@ function useLineRowHeights(
       pressed = false;
     };
     element.addEventListener('scroll', onScroll, { passive: true });
-    element.addEventListener('scrollend', onScrollEnd);
     element.addEventListener('wheel', begin, { passive: true });
     element.addEventListener('keydown', begin);
     element.addEventListener('pointerdown', onPress);
@@ -406,7 +402,6 @@ function useLineRowHeights(
       if (frame) cancelAnimationFrame(frame);
       busyRef.current = undefined;
       element.removeEventListener('scroll', onScroll);
-      element.removeEventListener('scrollend', onScrollEnd);
       element.removeEventListener('wheel', begin);
       element.removeEventListener('keydown', begin);
       element.removeEventListener('pointerdown', onPress);
