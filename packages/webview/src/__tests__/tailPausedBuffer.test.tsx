@@ -1,0 +1,243 @@
+import React from 'react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '@alv/protocol';
+import { TailApp } from '../tail';
+import type { VsCodeWebviewApi } from '../vscodeApi';
+
+// While Auto-scroll is off, the panel keeps older lines instead of dropping them, so the lines in view do not move.
+
+function createVsCodeMock(initialState?: unknown) {
+  let savedState = initialState;
+  const vscode: VsCodeWebviewApi<WebviewToExtensionMessage> = {
+    postMessage: () => {},
+    getState: () => savedState as any,
+    setState: state => {
+      savedState = state;
+    }
+  };
+  return { vscode, getSavedState: () => savedState as any };
+}
+
+function send(bus: EventTarget, message: ExtensionToWebviewMessage) {
+  act(() => {
+    bus.dispatchEvent(new MessageEvent('message', { data: message }));
+  });
+}
+
+const numbered = (from: number, count: number) => Array.from({ length: count }, (_, i) => `line-${from + i}`);
+const rowOf = (text: string) => screen.queryByText(text)?.closest<HTMLElement>('[role="row"]') ?? null;
+const offsetOf = (row: HTMLElement) => Number(/translateY\((-?[\d.]+)px\)/.exec(row.style.transform)?.[1]);
+
+/** The text of the row the List places first, which is the first line of the buffer while the view is at the top. */
+function firstRowText() {
+  const rows = screen.queryAllByRole('row').sort((a, b) => offsetOf(a) - offsetOf(b));
+  return rows[0]?.textContent ?? '';
+}
+
+function selectedRowText() {
+  return (
+    screen
+      .queryAllByRole('row')
+      .find(row => (row.firstElementChild as HTMLElement | null)?.style.borderLeft.includes('focusBorder'))
+      ?.textContent ?? undefined
+  );
+}
+
+/** Counts every write of the list's scroll offset, by anyone, and keeps the offset readable. */
+function spyOnScrollWrites(list: HTMLElement) {
+  let top = list.scrollTop;
+  let writes = 0;
+  Object.defineProperty(list, 'scrollTop', {
+    configurable: true,
+    get: () => top,
+    set: (value: number) => {
+      writes++;
+      top = value;
+    }
+  });
+  return () => writes;
+}
+
+function scrollTo(list: HTMLElement, top: number) {
+  act(() => {
+    list.scrollTop = top;
+    fireEvent.scroll(list);
+  });
+}
+
+async function openPaused(limit = 1000) {
+  const { vscode, getSavedState } = createVsCodeMock({ autoScroll: false });
+  const bus = new EventTarget();
+  const view = render(<TailApp vscode={vscode} messageBus={bus} />);
+  send(bus, { type: 'init', locale: 'en' });
+  send(bus, { type: 'tailConfig', tailBufferSize: limit });
+  return { vscode, getSavedState, bus, view };
+}
+
+const autoScrollSwitch = () => screen.getByRole('switch', { name: 'Auto-scroll' });
+
+describe('Tail buffer while Auto-scroll is off', () => {
+  it('keeps the lines in view in place as lines arrive in a full buffer, without writing the scroll offset', async () => {
+    const { bus } = await openPaused();
+    send(bus, { type: 'tailData', lines: numbered(0, 1000) });
+    const row = (await screen.findByText('line-5')).closest<HTMLElement>('[role="row"]')!;
+    const offset = offsetOf(row);
+    const writes = spyOnScrollWrites(screen.getByRole('list'));
+
+    for (let next = 1000; next < 1060; next++) {
+      send(bus, { type: 'tailData', lines: [`line-${next}`] });
+    }
+
+    expect(rowOf('line-5')).toBe(row);
+    expect(offsetOf(row)).toBe(offset);
+    expect(firstRowText()).toBe('line-0');
+    expect(writes()).toBe(0);
+  });
+
+  it('writes no scroll offset while lines arrive during keys, the wheel, a smooth scroll and a held thumb', async () => {
+    const { bus } = await openPaused();
+    send(bus, { type: 'tailData', lines: numbered(0, 1000) });
+    const row = (await screen.findByText('line-5')).closest<HTMLElement>('[role="row"]')!;
+    const offset = offsetOf(row);
+    const list = screen.getByRole('list');
+    const writes = spyOnScrollWrites(list);
+    const gestures = [
+      () => fireEvent.keyDown(list, { key: 'End' }),
+      () => fireEvent.keyDown(list, { key: 'PageUp' }),
+      () => fireEvent.wheel(list, { deltaY: -40 }),
+      () => fireEvent.scroll(list),
+      () => fireEvent.pointerDown(list),
+      () => fireEvent.pointerUp(window)
+    ];
+
+    let next = 1000;
+    for (const gesture of gestures) {
+      act(() => {
+        gesture();
+      });
+      send(bus, { type: 'tailData', lines: numbered(next, 10) });
+      next += 10;
+    }
+
+    expect(offsetOf(rowOf('line-5')!)).toBe(offset);
+    expect(writes()).toBe(0);
+  });
+
+  it('keeps at most twice the limit and at least 20,000 more, then drops lines from the head as before', async () => {
+    const { bus } = await openPaused(1000);
+    send(bus, { type: 'tailData', lines: numbered(0, 21000) });
+    await screen.findByText('line-0');
+
+    send(bus, { type: 'tailData', lines: numbered(21000, 10) });
+
+    await waitFor(() => expect(firstRowText()).toBe('line-10'));
+  });
+
+  it('goes back to the limit at once when Auto-scroll is turned on, and clears the selection as before', async () => {
+    const { bus } = await openPaused(1000);
+    send(bus, { type: 'tailData', lines: numbered(0, 1500) });
+    fireEvent.click(await screen.findByText('line-3'));
+    expect(selectedRowText()).toBe('line-3');
+
+    fireEvent.click(autoScrollSwitch());
+    await waitFor(() => expect(autoScrollSwitch()).toHaveAttribute('aria-checked', 'true'));
+    fireEvent.click(autoScrollSwitch());
+    await waitFor(() => expect(autoScrollSwitch()).toHaveAttribute('aria-checked', 'false'));
+    scrollTo(screen.getByRole('list'), 0);
+
+    // The switch clears the selection, as on main; line-3 left with the 500 oldest lines.
+    await waitFor(() => expect(firstRowText()).toBe('line-500'));
+    expect(selectedRowText()).toBeUndefined();
+  });
+
+  it('goes back to the limit when Auto-scroll turns on again at the end of the list (guard: passes on main)', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<TailApp vscode={vscode} messageBus={bus} />);
+    send(bus, { type: 'init', locale: 'en' });
+    send(bus, { type: 'tailConfig', tailBufferSize: 1000 });
+    send(bus, { type: 'tailData', lines: numbered(0, 1000) });
+    await screen.findAllByRole('row');
+    const list = screen.getByRole('list');
+    Object.defineProperty(list, 'clientHeight', { configurable: true, value: 200 });
+    Object.defineProperty(list, 'scrollHeight', { configurable: true, value: 1000 });
+
+    scrollTo(list, 300);
+    await waitFor(() => expect(autoScrollSwitch()).toHaveAttribute('aria-checked', 'false'));
+    send(bus, { type: 'tailData', lines: numbered(1000, 500) });
+    scrollTo(list, 800);
+    await waitFor(() => expect(autoScrollSwitch()).toHaveAttribute('aria-checked', 'true'));
+
+    fireEvent.click(autoScrollSwitch());
+    scrollTo(list, 0);
+    await waitFor(() => expect(firstRowText()).toBe('line-500'));
+  });
+
+  it('keeps up to the new cap when the limit changes while Auto-scroll is off', async () => {
+    const { bus } = await openPaused(1000);
+    send(bus, { type: 'tailData', lines: numbered(0, 25000) });
+    await waitFor(() => expect(firstRowText()).toBe('line-4000'));
+
+    send(bus, { type: 'tailConfig', tailBufferSize: 2000 });
+    send(bus, { type: 'tailData', lines: numbered(25000, 2000) });
+    await waitFor(() => expect(firstRowText()).toBe('line-5000'));
+
+    send(bus, { type: 'tailConfig', tailBufferSize: 1000 });
+    await waitFor(() => expect(firstRowText()).toBe('line-6000'));
+  });
+
+  it('empties on a reset while Auto-scroll is off and keeps what comes after it', async () => {
+    const { bus } = await openPaused(1000);
+    send(bus, { type: 'tailData', lines: numbered(0, 1500) });
+    await screen.findByText('line-0');
+
+    send(bus, { type: 'tailReset' });
+    expect(screen.queryAllByRole('row')).toHaveLength(0);
+    send(bus, { type: 'tailData', lines: numbered(1500, 1200) });
+
+    await waitFor(() => expect(firstRowText()).toBe('line-1500'));
+  });
+
+  it('finds an older line beyond the limit with the search while Auto-scroll is off', async () => {
+    const { bus } = await openPaused(1000);
+    send(bus, { type: 'tailData', lines: numbered(0, 1500) });
+    await screen.findByText('line-0');
+
+    fireEvent.change(screen.getByPlaceholderText('Search live logs…'), { target: { value: 'line-12' } });
+
+    await waitFor(() => expect(firstRowText()).toBe('line-12'));
+  });
+
+  /** Opens the panel again with the saved state, as the extension does: it sends the last `limit` lines it keeps. */
+  function reopen(vscode: VsCodeWebviewApi<WebviewToExtensionMessage>, lines: string[]) {
+    const bus = new EventTarget();
+    render(<TailApp vscode={vscode} messageBus={bus} />);
+    send(bus, { type: 'init', locale: 'en' });
+    send(bus, { type: 'tailConfig', tailBufferSize: 1000 });
+    send(bus, { type: 'tailReset' });
+    send(bus, { type: 'tailData', lines });
+  }
+
+  it('selects the same line after the panel opens again while Auto-scroll is off (guard: passes on main)', async () => {
+    const { vscode, bus, view } = await openPaused(1000);
+    send(bus, { type: 'tailData', lines: numbered(0, 1005) });
+    fireEvent.click(await screen.findByText('line-7'));
+    view.unmount();
+
+    reopen(vscode, numbered(5, 1000));
+
+    await waitFor(() => expect(selectedRowText()).toBe('line-7'));
+  });
+
+  it('selects nothing after the panel opens again when the selected line is older than the extension keeps', async () => {
+    const { vscode, bus, view } = await openPaused(1000);
+    send(bus, { type: 'tailData', lines: numbered(0, 1005) });
+    fireEvent.click(await screen.findByText('line-2'));
+    view.unmount();
+
+    reopen(vscode, numbered(5, 1000));
+
+    await screen.findByText('line-5');
+    expect(selectedRowText()).toBeUndefined();
+  });
+});

@@ -187,18 +187,19 @@ describe('Tail webview App', () => {
   });
 
   it('keeps the row of a line when older lines leave the full buffer', async () => {
-    // With Auto-scroll off the view stays at the head of the buffer, where the lines leave.
+    // With Auto-scroll off the view stays at the head of the buffer, where the lines leave once the buffer holds as
+    // many lines as it keeps while Auto-scroll is off: 21,000 for the smallest limit.
     const { vscode } = createVsCodeMock({ autoScroll: false });
     const bus = new EventTarget();
     render(<TailApp vscode={vscode} messageBus={bus} />);
     send(bus, { type: 'init', locale: 'en' });
     // The smallest buffer the panel accepts.
     send(bus, { type: 'tailConfig', tailBufferSize: 1000 });
-    send(bus, { type: 'tailData', lines: Array.from({ length: 1000 }, (_, index) => `line-${index}`) });
+    send(bus, { type: 'tailData', lines: Array.from({ length: 21000 }, (_, index) => `line-${index}`) });
     const rowOf = (text: string) => screen.getByText(text).closest('[role="row"]');
     const row = (await screen.findByText('line-5')).closest('[role="row"]');
 
-    send(bus, { type: 'tailData', lines: ['line-1000', 'line-1001', 'line-1002'] });
+    send(bus, { type: 'tailData', lines: ['line-21000', 'line-21001', 'line-21002'] });
 
     expect(screen.queryByText('line-0')).toBeNull();
     expect(rowOf('line-5')).toBe(row);
