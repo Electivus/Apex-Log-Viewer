@@ -198,7 +198,7 @@ export function TailApp({
       debugLevelByOrg,
       selected: selectedLine
     } satisfies TailUiState);
-  }, [autoScroll, colorize, debugLevelByOrg, onlyUserDebug, query, selectedLine?.offset, selectedLine?.hash, vscode]);
+  }, [autoScroll, colorize, debugLevelByOrg, onlyUserDebug, query, selectedSeq, selectedIndex === undefined, vscode]);
 
   // Back to the limit when it changes, or at once when Auto-scroll turns on again.
   useLayoutEffect(() => {
