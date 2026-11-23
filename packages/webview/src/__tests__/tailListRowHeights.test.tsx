@@ -393,6 +393,21 @@ describe('TailList rows over the real virtual list', () => {
     }
   });
 
+  it('sets no offset between a key that scrolls and its first scroll event (guard: passes on main)', () => {
+    // Home starts an animation whose first scroll event comes a frame later. A line arriving in between must not
+    // make this code write the offset, or the animation stops short of the top.
+    const { update } = renderTail(buffer(0, 400));
+    scrollListTo(200 * SHORT);
+    const before = list().scrollTop;
+
+    act(() => {
+      list().dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+    });
+    update(buffer(10, 400));
+
+    expect(list().scrollTop).toBe(before);
+  });
+
   it('does not take its own correction for a scroll of the user', () => {
     // The scroll event of the offset this code sets must not stop the next correction.
     const { update } = renderTail(buffer(0, 400));
