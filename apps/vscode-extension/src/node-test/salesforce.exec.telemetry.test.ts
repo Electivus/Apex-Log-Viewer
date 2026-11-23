@@ -1,8 +1,52 @@
 import assert from 'assert/strict';
+import { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import proxyquire from 'proxyquire';
+import * as redact from '../host/utils/redact';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
+
+suite('salesforce exec failure redaction', () => {
+  test('rejects without exposing command output when the redactor throws', async () => {
+    const stdout = 'sample stdout';
+    const stderr = 'sample stderr';
+    const message = 'sample command failure';
+    const logs: unknown[][] = [];
+    const recordLog = (...args: unknown[]) => logs.push(args);
+    const execModule = proxyquireStrict('../host/salesforce/exec', {
+      '../utils/redact': {
+        ...redact,
+        redactSecrets: (text: string) => {
+          if (text === stderr) throw new Error(`sample redactor failure: ${text}`);
+          return text;
+        }
+      },
+      '../utils/logger': { logTrace: recordLog, logWarn: recordLog },
+      '../utils/localize': { localize: (_key: string, fallback: string) => fallback },
+      '../../shared/telemetry': { safeSendEvent: () => undefined, safeSendException: () => undefined }
+    }) as typeof import('../host/salesforce/exec');
+    let finish: () => void = () => assert.fail('expected a child process');
+    execModule.__setExecFileImplForTests((_file, _args, _options, callback) => {
+      finish = () => callback(Object.assign(new Error(message), { code: 2 }), stdout, stderr);
+      return new ChildProcess();
+    });
+
+    const result = execModule.execCommand('sf', ['org', 'list']);
+    assert.doesNotThrow(finish);
+    await assert.rejects(result, error => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, 'Command failed and its output could not be redacted.');
+      for (const property of ['stdout', 'stderr', 'cause']) {
+        assert.equal(property in error, false);
+      }
+      return true;
+    });
+    const logged = logs.flat().join(' ');
+    for (const text of [stdout, stderr, message, 'sample redactor failure']) {
+      assert.equal(logged.includes(text), false);
+    }
+  });
+});
 
 suite('salesforce exec telemetry', () => {
   test('emits cli.command telemetry when a CLI command succeeds', async () => {
