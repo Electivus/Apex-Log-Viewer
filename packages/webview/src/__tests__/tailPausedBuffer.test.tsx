@@ -229,6 +229,18 @@ describe('Tail buffer while Auto-scroll is off', () => {
     await waitFor(() => expect(selectedRowText()).toBe('line-7'));
   });
 
+  it('keeps the same line selected when the extension sends its lines again to the open panel while paused', async () => {
+    const { bus } = await openPaused(1000);
+    send(bus, { type: 'tailData', lines: numbered(0, 1005) });
+    fireEvent.click(await screen.findByText('line-7'));
+
+    // Replay into the panel kept while hidden: a reset, then the last `limit` lines the extension keeps.
+    send(bus, { type: 'tailReset' });
+    send(bus, { type: 'tailData', lines: numbered(5, 1000) });
+
+    await waitFor(() => expect(selectedRowText()).toBe('line-7'));
+  });
+
   it('selects nothing after the panel opens again when the selected line is older than the extension keeps', async () => {
     const { vscode, bus, view } = await openPaused(1000);
     send(bus, { type: 'tailData', lines: numbered(0, 1005) });
