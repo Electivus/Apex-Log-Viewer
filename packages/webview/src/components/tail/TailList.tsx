@@ -250,13 +250,25 @@ function lowerBound(sorted: readonly number[], value: number) {
 const SCROLL_SETTLE_MS = 50;
 
 /**
+ * Whether a key's default action scrolls the list down. Its animation can start before its first scroll event, and a
+ * write in between moves the animation's target, so a key that would have reached the end stops short of it. Keys
+ * that scroll up are left out: their target at the top is where a write for lines that left goes anyway.
+ */
+const scrollsDown = (event: KeyboardEvent) =>
+  !event.ctrlKey &&
+  !event.altKey &&
+  (event.metaKey
+    ? event.key === 'ArrowDown'
+    : ['ArrowDown', 'PageDown', 'End'].includes(event.key) || (event.key === ' ' && !event.shiftKey));
+
+/**
  * While the view does not follow the end and is at rest, keeps the line in view in place when lines leave the head
  * of the buffer: the offset goes down by the height the List gave the rows that left. That is the only time this
  * sets the offset. A row measured late, a filter, the end of the list clamping the offset and a scroll of the user's
  * all move the view as they do without it.
  *
- * The view is at rest unless a scroll event this code did not cause came in the last SCROLL_SETTLE_MS, or a press on
- * the list or its scrollbar is held: lines that leave during a scroll, a key's animation or a held thumb are not
+ * The view is at rest unless a scroll event this code did not cause, or a key that scrolls the list down, came in the
+ * last SCROLL_SETTLE_MS, or a press on the list or its scrollbar is held: lines that leave during a scroll, a key's animation or a held thumb are not
  * compensated, so the scroll ends where the user sent it. Between this code's own writes the offset is kept unrounded,
  * so a browser that rounds every write under page zoom does not add the rounding up.
  */
@@ -290,6 +302,9 @@ function useKeepLineInPlace(
     const onScroll = () => {
       if (element.scrollTop !== restRef.current?.reported) rest();
     };
+    const onKey = (event: KeyboardEvent) => {
+      if (scrollsDown(event)) scrolledAtRef.current = Date.now();
+    };
     const onPress = () => {
       pressedRef.current = true;
     };
@@ -300,6 +315,7 @@ function useKeepLineInPlace(
     };
     restRef.current = undefined;
     element.addEventListener('scroll', onScroll, { passive: true });
+    element.addEventListener('keydown', onKey);
     element.addEventListener('pointerdown', onPress);
     window.addEventListener('pointerup', onRelease);
     window.addEventListener('pointercancel', onRelease);
@@ -307,6 +323,7 @@ function useKeepLineInPlace(
     return () => {
       pressedRef.current = false;
       element.removeEventListener('scroll', onScroll);
+      element.removeEventListener('keydown', onKey);
       element.removeEventListener('pointerdown', onPress);
       window.removeEventListener('pointerup', onRelease);
       window.removeEventListener('pointercancel', onRelease);
