@@ -122,8 +122,8 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * The messages the workbench has received from webview buttons, in order. A button posts from an out-of-process
- * iframe, so its message can reach the workbench after `click()` resolves: wait for it with `expect.poll`.
+ * The messages the workbench has received from webview buttons, in order. A button's message is delivered
+ * asynchronously and can reach the workbench after `click()` resolves: wait for it with `expect.poll`.
  */
 function clickedMessages(page: Page): Promise<string[]> {
   return page.evaluate(() => (window as unknown as { clicked: string[] }).clicked);
