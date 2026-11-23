@@ -100,6 +100,7 @@ const layout: Array<[string, PropertyDescriptor]> = [
         return clampScroll(this, scrollTops.get(this) ?? 0);
       },
       set: function (this: HTMLElement, top: number) {
+        scrollWrites++;
         scrollTops.set(this, clampScroll(this, top));
         if (heldThumb !== undefined) {
           const held = heldThumb;
@@ -120,6 +121,8 @@ const scrollTops = new WeakMap<HTMLElement, number>();
 let scrollStep: number | undefined;
 /** While set, the user holds the scrollbar thumb: the browser puts the offset back here on the next frame. */
 let heldThumb: number | undefined;
+/** Every write of a scroll offset, by anyone. */
+let scrollWrites = 0;
 
 function clampScroll(element: HTMLElement, top: number) {
   let clamped = Math.min(Math.max(0, element.scrollHeight - element.clientHeight), Math.max(0, top));
@@ -341,11 +344,10 @@ describe('TailList rows over the real virtual list', () => {
     expect([...layouts]).toEqual([`${line} at ${top}`]);
   });
 
-  it('keeps the rows in view in place while Auto-scroll is off and rows above them get measured late', () => {
+  it('keeps the rows in view in place while Auto-scroll is off and lines leave over rows above never measured', () => {
     // Lines 270-291 are tall and were never rendered, so the List places them at the estimate. The view sits a few
     // rows below them, then one update drops 40 lines from the head. Making up for those lines is not a scroll by the
-    // user: it must not render more rows above the view, and a tall row that does get measured there must not move
-    // the rows in view.
+    // user: it must not widen the overscan, which would render and measure the tall rows above the view and move it.
     const COUNT = 400;
     const tall = new Set(Array.from({ length: 22 }, (_, i) => 270 + i));
     const { update } = renderTail(buffer(0, COUNT, tall));
@@ -393,22 +395,7 @@ describe('TailList rows over the real virtual list', () => {
     }
   });
 
-  it('sets no offset between a key that scrolls and its first scroll event (guard: passes on main)', () => {
-    // Home starts an animation whose first scroll event comes a frame later. A line arriving in between must not
-    // make this code write the offset, or the animation stops short of the top.
-    const { update } = renderTail(buffer(0, 400));
-    scrollListTo(200 * SHORT);
-    const before = list().scrollTop;
-
-    act(() => {
-      list().dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
-    });
-    update(buffer(10, 400));
-
-    expect(list().scrollTop).toBe(before);
-  });
-
-  it('anchors again after the list empties while a scroll is under way', () => {
+  it('keeps the line in place again after the list empties while a scroll is under way', () => {
     // The last match leaves while the user scrolls; when matches come back, the new list must be anchored again.
     const { update } = renderTail(buffer(0, 400));
     scrollListTo(200 * SHORT);
@@ -433,6 +420,32 @@ describe('TailList rows over the real virtual list', () => {
     expect(placeOf(line)).toBe(`${line} at ${top}`);
   });
 
+  it('sets no offset when no line leaves: a row measured late, a filter, a key (guard: passes on main)', () => {
+    // Only lines that leave the head move the offset. Everything else moves the view as it does on main.
+    const { update } = renderTail(buffer(0, 400));
+    scrollListTo(200 * SHORT);
+    scrollWrites = 0;
+
+    const above = document.createElement('div');
+    above.setAttribute('data-line-seq', '195');
+    act(() => {
+      report?.({
+        target: above,
+        contentRect: { height: 3 * SHORT, width: 800 },
+        borderBoxSize: [{ blockSize: 3 * SHORT, inlineSize: 800 }]
+      } as unknown as ResizeObserverEntry);
+    });
+    settle();
+    update({ ...buffer(0, 400), filteredIndexes: buffer(0, 400).filteredIndexes.filter(i => i % 5 !== 0) });
+    act(() => {
+      list().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    });
+    update(buffer(0, 400));
+    settle();
+
+    expect(scrollWrites).toBe(0);
+  });
+
   it('does not take its own correction for a scroll of the user', () => {
     // The scroll event of the offset this code sets must not stop the next correction.
     const { update } = renderTail(buffer(0, 400));
@@ -454,14 +467,14 @@ describe('TailList rows over the real virtual list', () => {
     scrollStep = 1 / 1.1;
     const COUNT = 400;
     const UPDATES = 120;
-    const tall = new Set(Array.from({ length: COUNT + UPDATES }, (_, seq) => seq).filter(seq => seq % 2 === 1));
-    const { update } = renderTail(buffer(0, COUNT, tall));
+    // One height for every line, so that only the rounding can move the line.
+    const { update } = renderTail(buffer(0, COUNT));
     scrollListTo(250 * SHORT + 0.4);
     const [line, top] = [...viewportTops()].find(([, rowTop]) => rowTop + SHORT > 0) ?? ['', 0];
 
     const drifts = [];
     for (let first = 1; first <= UPDATES; first++) {
-      update(buffer(first, COUNT, tall));
+      update(buffer(first, COUNT));
       drifts.push(Math.abs((viewportTops().get(line) ?? Infinity) - top));
     }
 
