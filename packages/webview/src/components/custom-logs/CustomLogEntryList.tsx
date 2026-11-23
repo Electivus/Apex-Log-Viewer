@@ -118,6 +118,7 @@ function EntryRowView({
       <div
         role="row"
         aria-selected={selected}
+        aria-rowindex={index + 2}
         data-entry-id={entry.id}
         style={{ display: 'grid', gridTemplateColumns: gridTemplate }}
         className={cn(
@@ -235,7 +236,7 @@ export function CustomLogEntryList({
     <div
       role="grid"
       aria-label={t.viewer.title}
-      aria-rowcount={entries.length}
+      aria-rowcount={entries.length + 1}
       tabIndex={0}
       className="flex min-h-0 min-w-0 flex-1 flex-col focus-visible:outline-none"
       onKeyDown={onKeyDown}

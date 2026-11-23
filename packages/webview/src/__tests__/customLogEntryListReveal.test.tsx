@@ -1,8 +1,9 @@
 import React from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
-import type { CustomLogEntry } from '@alv/protocol/customLogsTypes';
+import type { CustomLogEntry, CustomLogRow } from '@alv/protocol/customLogsTypes';
 import { CustomLogEntryList } from '../components/custom-logs/CustomLogEntryList';
+import { CustomLogsTable } from '../components/custom-logs/CustomLogsTable';
 import type { RevealRequest } from '../components/custom-logs/useGridList';
 import { getMessages } from '../i18n';
 import { buildEntryColumns } from '../utils/customLogs/entries';
@@ -222,7 +223,7 @@ function placementOf(entry: CustomLogEntry): string {
     : `at ${top}-${bottom}, visible ${scrollTop + HEADER}-${scrollTop + VIEWPORT}`;
 }
 
-describe('revealing an entry in the entry list', () => {
+describe('Custom Logs virtual grids', () => {
   const NoResizeObserver = globalThis.ResizeObserver;
 
   let paddingRule: HTMLStyleElement;
@@ -247,6 +248,66 @@ describe('revealing an entry in the entry list', () => {
     for (const [name] of layout) {
       delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
     }
+  });
+
+  it('exposes logical row positions in the entry grid after a reveal', () => {
+    const view = render(renderList());
+    frames(5);
+    const grid = screen.getByRole('grid');
+    const first = within(grid).getByRole('row', { name: /Order 0 synced/ });
+    expect(within(grid).queryByRole('row', { name: /Order 200 synced/ })).not.toBeInTheDocument();
+
+    view.rerender(renderList({ id: target.id, generation: 1 }));
+    frames(30);
+
+    const last = within(grid).getByRole('row', { name: /Order 200 synced/ });
+    expect({
+      count: grid.getAttribute('aria-rowcount'),
+      header: within(grid).getAllByRole('row')[0]?.getAttribute('aria-rowindex'),
+      first: first.getAttribute('aria-rowindex'),
+      revealed: last.getAttribute('aria-rowindex')
+    }).toEqual({ count: '301', header: '1', first: '2', revealed: '202' });
+  });
+
+  it('exposes logical row positions in the Custom Logs table after scrolling', () => {
+    const rows: CustomLogRow[] = entries.map(({ id, sequence, time }) => ({
+      id,
+      time,
+      title: `Transaction ${sequence}`,
+      extra: {}
+    }));
+    render(
+      <CustomLogsTable
+        t={t}
+        rows={rows}
+        columns={[{ kind: 'std', id: 'title', field: 'title', label: 'Title', width: 280 }]}
+        sort={undefined}
+        selectedId={undefined}
+        discovered={[]}
+        activeColumns={NONE}
+        lockedColumns={NONE}
+        onSort={() => {}}
+        onSelect={() => {}}
+        onOpen={() => {}}
+        onToggleColumn={() => {}}
+        onRemoveColumn={() => {}}
+      />
+    );
+    frames(5);
+    const grid = screen.getByRole('grid');
+    const first = within(grid).getByRole('row', { name: 'Transaction 1' });
+    expect(within(grid).queryByRole('row', { name: 'Transaction 201' })).not.toBeInTheDocument();
+
+    fireEvent.scroll(list(), { target: { scrollTop: 4800 } });
+    frames(5);
+
+    const later = within(grid).getByRole('row', { name: 'Transaction 201' });
+    expect({
+      count: grid.getAttribute('aria-rowcount'),
+      header: within(grid).getAllByRole('row')[0]?.getAttribute('aria-rowindex'),
+      first: first.getAttribute('aria-rowindex'),
+      scrolled: later.getAttribute('aria-rowindex')
+    }).toEqual({ count: '301', header: '1', first: '2', scrolled: '202' });
   });
 
   it('follows the entry into view while the rows above it measure taller than the estimate', () => {

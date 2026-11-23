@@ -58,7 +58,7 @@ export function CustomLogsColumnsHeader({
   onRemoveColumn
 }: CustomLogsColumnsHeaderProps) {
   return (
-    <div role="row" className="sticky top-0 z-10 border-b border-border bg-card">
+    <div role="row" aria-rowindex={1} className="sticky top-0 z-10 border-b border-border bg-card">
       <div
         style={{ display: 'grid', gridTemplateColumns: gridTemplate, minWidth: totalWidth }}
         className="h-6 items-stretch"

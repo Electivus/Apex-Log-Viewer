@@ -129,7 +129,7 @@ function CustomLogRowView({
     <div
       role="row"
       aria-selected={selected}
-      aria-rowindex={index + 1}
+      aria-rowindex={index + 2}
       data-row-id={row.id}
       style={{ ...style, display: 'grid', gridTemplateColumns: gridTemplate }}
       className={cn(
@@ -180,7 +180,7 @@ export function CustomLogsTable({
     <div
       role="grid"
       aria-label={t.table.aria}
-      aria-rowcount={rows.length}
+      aria-rowcount={rows.length + 1}
       tabIndex={0}
       className="flex min-h-0 min-w-0 flex-1 flex-col focus-visible:outline-none"
       onKeyDown={onKeyDown}
