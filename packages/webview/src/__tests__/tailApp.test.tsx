@@ -51,8 +51,9 @@ describe('Tail webview App', () => {
   const streamId = 'test-stream';
   const sendSnapshot = (bus: EventTarget, lines: string[], firstSeq = 0, id = streamId) =>
     send(bus, { type: 'tailSnapshot', streamId: id, firstSeq, lines });
-  const sendLines = (bus: EventTarget, firstSeq: number, lines: string[]) =>
-    send(bus, { type: 'tailData', streamId, firstSeq, lines });
+  const sendLines = (bus: EventTarget, firstSeq: number, lines: string[], id = streamId) =>
+    send(bus, { type: 'tailData', streamId: id, firstSeq, lines });
+  const visibleLines = () => screen.queryAllByRole('row').map(row => [Number(row.dataset.lineSeq), row.textContent]);
   const selectedTexts = () =>
     [...document.querySelectorAll('[role="row"] > div[style*="--vscode-focusBorder"]')].map(row => row.textContent);
 
@@ -215,9 +216,6 @@ describe('Tail webview App', () => {
     const row = line.closest('[role="row"]');
     expect(selectedTexts()).toEqual([text]);
 
-    // A live delivery can arrive before the replay if earlier messages were lost.
-    sendLines(bus, 1002, lines.slice(1002));
-    expect(selectedTexts()).toEqual([text]);
     sendSnapshot(bus, lines.slice(3), 3);
 
     expect(selectedTexts()).toEqual(index === 5 ? [text] : []);
@@ -228,6 +226,62 @@ describe('Tail webview App', () => {
     }
     expect(screen.getByRole('button', { name: 'Open Log' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Replay Debugger' })).toBeDisabled();
+  });
+
+  it('displays the new contiguous suffix across a gap without selecting a matching line', () => {
+    const { vscode, posted } = createVsCodeMock({ autoScroll: false });
+    const bus = new EventTarget();
+    render(<TailApp vscode={vscode} messageBus={bus} />);
+    const original = ['=== ApexLog 07L000001 | original', 'same body'];
+    const suffix = ['=== ApexLog 07L000002 | newer', 'same body'];
+    sendSnapshot(bus, original, 10);
+    fireEvent.click(screen.getByText('same body'));
+
+    sendLines(bus, 14, suffix);
+    sendLines(bus, 16, ['latest']);
+
+    expect(visibleLines()).toEqual([
+      [14, suffix[0]],
+      [15, 'same body'],
+      [16, 'latest']
+    ]);
+    expect(selectedTexts()).toEqual([]);
+    expect(screen.getByRole('button', { name: 'Open Log' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Replay Debugger' })).toBeDisabled();
+
+    sendSnapshot(bus, [...original, 'missed 1', 'missed 2', ...suffix, 'latest'], 10);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Log' }));
+    expect(posted).toContainEqual({ type: 'openLog', logId: '07L000001' });
+  });
+
+  it('ignores stale, duplicate, and overlapping live batches and older snapshots', () => {
+    const { vscode } = createVsCodeMock({ autoScroll: false });
+    const bus = new EventTarget();
+    render(<TailApp vscode={vscode} messageBus={bus} />);
+    sendSnapshot(bus, ['before'], 10);
+    sendLines(bus, 13, ['fresh', 'next']);
+
+    sendLines(bus, 11, ['late']);
+    sendLines(bus, 13, ['fresh', 'next']);
+    sendLines(bus, 14, ['overlap', 'untrusted suffix']);
+    sendSnapshot(bus, ['fresh'], 13);
+    sendSnapshot(bus, ['different stream'], 50, 'another-stream');
+    sendLines(bus, 50, ['different stream'], 'another-stream');
+    sendLines(bus, 15, ['contiguous']);
+
+    expect(visibleLines()).toEqual([
+      [13, 'fresh'],
+      [14, 'next'],
+      [15, 'contiguous']
+    ]);
+
+    sendSnapshot(bus, [], 16);
+    sendSnapshot(bus, ['fresh', 'next', 'contiguous'], 13);
+    sendLines(bus, 15, ['late across Clear', 'overlap across Clear']);
+    expect(visibleLines()).toEqual([]);
+    sendLines(bus, 16, ['after Clear']);
+    expect(visibleLines()).toEqual([[16, 'after Clear']]);
   });
 
   it('does not select a surviving copy of an evicted line with identical text', () => {
@@ -255,8 +309,18 @@ describe('Tail webview App', () => {
     view.unmount();
     const remountedBus = new EventTarget();
     render(<TailApp vscode={vscode} messageBus={remountedBus} />);
-    sendSnapshot(remountedBus, lines, 11);
-    sendSnapshot(remountedBus, lines, 11); // Repeating the authoritative replay is harmless.
+    sendLines(remountedBus, 15, ['live before replay']);
+    sendLines(remountedBus, 16, ['more live before replay']);
+    expect(visibleLines()).toEqual([
+      [15, 'live before replay'],
+      [16, 'more live before replay']
+    ]);
+    expect(selectedTexts()).toEqual([]);
+    expect(screen.getByRole('button', { name: 'Open Log' })).toBeDisabled();
+
+    const replay = [...lines, 'live before replay', 'more live before replay'];
+    sendSnapshot(remountedBus, replay, 11);
+    sendSnapshot(remountedBus, replay, 11); // Repeating the authoritative replay is harmless.
 
     expect(selectedTexts()).toEqual(['same body']);
     fireEvent.click(screen.getByRole('button', { name: 'Open Log' }));
