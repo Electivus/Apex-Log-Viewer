@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { decodeLogLine } from '@alv/protocol/logText';
 import type { Messages } from '../../i18n';
 import { List, type DynamicRowHeight, type ListImperativeAPI, type RowComponentProps } from 'react-window';
@@ -506,8 +507,24 @@ export function TailList({
   React.useEffect(() => {
     const el = listElement;
     if (!el) return;
-    const onScroll = () => {
+    const onScroll = (event: Event) => {
       const top = el.scrollTop;
+      if (event.isTrusted && !followRef.current && top !== lastTopRef.current) {
+        const rows = el.querySelectorAll('[data-line-seq]');
+        const first = rows[0];
+        const last = rows[rows.length - 1];
+        const viewport = el.getBoundingClientRect();
+        if (
+          first &&
+          last &&
+          (last.getBoundingClientRect().bottom <= viewport.top || first.getBoundingClientRect().top >= viewport.bottom)
+        ) {
+          // A native jump (such as End) has left the rendered window. Let react-window read the new offset
+          // synchronously, without taking over the gesture or increasing the number of mounted rows.
+          flushSync(() => el.dispatchEvent(new Event('scroll')));
+          return;
+        }
+      }
       const atBottom = el.scrollHeight - (top + el.clientHeight) <= AT_BOTTOM_THRESHOLD;
       stuckRef.current = atBottom;
       lastTopRef.current = top;
