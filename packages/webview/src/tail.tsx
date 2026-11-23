@@ -147,7 +147,14 @@ export function TailApp({
         });
       }
       if (msg.type === 'tailReset') {
-        setBuffer(prev => ({ lines: [], firstSeq: prev.firstSeq + prev.lines.length }));
+        setBuffer(prev => {
+          // The extension sends again only the last `limit` lines it keeps, so the selection moves to their positions.
+          const extra = Math.max(0, prev.lines.length - tailMaxLinesRef.current);
+          if (extra > 0) {
+            setSelectedIndex(idx => (idx === undefined ? undefined : idx - extra >= 0 ? idx - extra : undefined));
+          }
+          return { lines: [], firstSeq: prev.firstSeq + prev.lines.length };
+        });
       }
       if (msg.type === 'error') {
         setError(msg.message);
