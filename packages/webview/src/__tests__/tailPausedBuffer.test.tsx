@@ -8,14 +8,15 @@ import type { VsCodeWebviewApi } from '../vscodeApi';
 
 function createVsCodeMock(initialState?: unknown) {
   let savedState = initialState;
+  const posted: WebviewToExtensionMessage[] = [];
   const vscode: VsCodeWebviewApi<WebviewToExtensionMessage> = {
-    postMessage: () => {},
+    postMessage: message => posted.push(message),
     getState: () => savedState as any,
     setState: state => {
       savedState = state;
     }
   };
-  return { vscode, getSavedState: () => savedState as any };
+  return { vscode, getSavedState: () => savedState as any, posted };
 }
 
 function send(bus: EventTarget, message: ExtensionToWebviewMessage) {
@@ -93,13 +94,22 @@ function scrollTo(list: HTMLElement, top: number) {
 }
 
 async function openPaused(limit = 1000, strict = false) {
-  const { vscode, getSavedState } = createVsCodeMock({ autoScroll: false });
+  const { vscode, getSavedState, posted } = createVsCodeMock({ autoScroll: false });
   const bus = new EventTarget();
   const app = <TailApp vscode={vscode} messageBus={bus} />;
   const view = render(strict ? <React.StrictMode>{app}</React.StrictMode> : app);
   send(bus, { type: 'init', locale: 'en' });
   send(bus, { type: 'tailConfig', tailBufferSize: limit });
-  return { vscode, getSavedState, bus, view };
+  return { vscode, getSavedState, posted, bus, view };
+}
+
+/** The logs Open Log asks the extension for, or none when it is disabled because no line is selected. */
+function openLogIds(posted: WebviewToExtensionMessage[]) {
+  const button = screen.getByRole('button', { name: 'Open Log' });
+  if (!button.hasAttribute('disabled')) {
+    fireEvent.click(button);
+  }
+  return posted.flatMap(message => (message.type === 'openLog' ? [message.logId] : []));
 }
 
 const autoScrollSwitch = () => screen.getByRole('switch', { name: 'Auto-scroll' });
@@ -393,6 +403,123 @@ describe('Tail buffer while Auto-scroll is off', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open Log' }));
 
     expect(posted.filter(message => message.type === 'openLog')).toEqual([{ type: 'openLog', logId: 'L1' }]);
+  });
+
+  for (const strict of [false, true]) {
+    const mode = strict ? ' under StrictMode' : '';
+
+    it(`keeps the selected log when another log's header has the same hash${mode} (guard: passes on main)`, async () => {
+      // These two log ids give the same 32-bit string hash once the rest of the header is the same.
+      const lines = ['07L0000009uh896EAA', '07L0000009uftw6EAA'].flatMap(id => [`=== ApexLog ${id} | x`, 'body']);
+      const { bus, posted } = await openPaused(1000, strict);
+      send(bus, { type: 'tailData', lines });
+      fireEvent.click(screen.getAllByText('body')[1]!);
+
+      send(bus, { type: 'tailReset' });
+      send(bus, { type: 'tailData', lines });
+
+      expect(openLogIds(posted)).toEqual(['07L0000009uftw6EAA']);
+    });
+
+    it(`selects nothing when the selected log comes back shorter and the next log is where the line was${mode}`, async () => {
+      const log = (id: number, count: number) => [`=== ApexLog L${id} | x`, ...Array<string>(count).fill('same')];
+      const { bus, posted } = await openPaused(1000, strict);
+      send(bus, { type: 'tailData', lines: [...log(0, 6), ...log(1, 5)] });
+      fireEvent.click(screen.getAllByText('same')[4]!);
+
+      send(bus, { type: 'tailReset' });
+      send(bus, { type: 'tailData', lines: [...log(0, 2), ...log(1, 6)] });
+
+      expect(openLogIds(posted)).toEqual([]);
+    });
+
+    it(`does not select again after a reset once Auto-scroll is turned on${mode} (guard: passes on main)`, async () => {
+      const { bus, posted } = await openPaused(1000, strict);
+      send(bus, { type: 'tailData', lines: logged(0, 900) });
+      pickLine('line-895');
+
+      send(bus, { type: 'tailReset' });
+      fireEvent.click(autoScrollSwitch());
+      send(bus, { type: 'tailData', lines: logged(0, 900) });
+
+      expect(openLogIds(posted)).toEqual([]);
+    });
+
+    it(`does not select again after Clear${mode}`, async () => {
+      const { bus, posted } = await openPaused(1000, strict);
+      send(bus, { type: 'tailData', lines: logged(0, 900) });
+      pickLine('line-107');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+      send(bus, { type: 'tailReset' });
+      send(bus, { type: 'tailData', lines: logged(0, 900) });
+
+      expect(openLogIds(posted)).toEqual([]);
+    });
+  }
+
+  it('keeps the saved selection when the panel opens twice before the lines come (guard: passes on main)', async () => {
+    const { vscode, bus, view } = await openPaused(1000);
+    send(bus, { type: 'tailData', lines: logged(0, 1000) });
+    pickLine('line-107');
+    view.unmount();
+
+    // The panel opens and closes again before the extension sends anything.
+    const idle = render(<TailApp vscode={vscode} messageBus={new EventTarget()} />);
+    idle.unmount();
+    reopen(vscode, logged(0, 1000));
+
+    await waitFor(() => expect(selectedAmongLines('line-107')).toBe('line-107'));
+  });
+
+  it('saves no selection once the header of the selected line has left the buffer', async () => {
+    const { bus, getSavedState } = await openPaused(1000);
+    send(bus, { type: 'tailData', lines: logged(0, 21000) });
+    pickLine('line-5');
+    expect(getSavedState().selected).toBeDefined();
+
+    send(bus, { type: 'tailData', lines: logged(21000, 1) });
+
+    // Before the search below, which saves the state again on its own.
+    expect(getSavedState().selected).toBeUndefined();
+    expect(selectedAmongLines('line-5')).toBe('line-5');
+  });
+
+  it('scrolls to the selected line when Debug Only is turned off (guard: passes on main)', async () => {
+    const { bus } = await openPaused(1000);
+    // Every other line is a USER_DEBUG line, so the list keeps rows while Debug Only hides line-500.
+    send(bus, { type: 'tailData', lines: numbered(0, 1000).map((line, i) => (i % 2 ? `${line} |USER_DEBUG|` : line)) });
+    await screen.findByText('line-0');
+    pickLine('line-500');
+    let scrolls = 0;
+    const scrollTo = Element.prototype.scrollTo;
+    Element.prototype.scrollTo = () => {
+      scrolls++;
+    };
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Debug Only' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'Debug Only' }));
+
+    Element.prototype.scrollTo = scrollTo;
+    expect(scrolls).toBeGreaterThan(0);
+  });
+
+  it('numbers the lines after a reset that follows lines in the same task from all lines received (guard: passes on main)', async () => {
+    const { bus } = await openPaused(1000);
+    send(bus, { type: 'tailData', lines: numbered(0, 900) });
+    await screen.findByText('line-0');
+
+    act(() => {
+      for (const data of [
+        { type: 'tailData', lines: ['line-900'] },
+        { type: 'tailReset' },
+        { type: 'tailData', lines: ['line-901'] }
+      ] as ExtensionToWebviewMessage[]) {
+        bus.dispatchEvent(new MessageEvent('message', { data }));
+      }
+    });
+
+    expect((await screen.findByText('line-901')).closest('[data-line-seq]')?.getAttribute('data-line-seq')).toBe('901');
   });
 
   it('selects nothing after the panel opens again when the selected line is older than the extension keeps', async () => {
