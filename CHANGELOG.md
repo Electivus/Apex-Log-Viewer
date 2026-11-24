@@ -8,6 +8,7 @@
 
 ### Fixes
 
+- Tail: pressing **End** in a paused list no longer leaves the viewport blank while the browser scrolls to the last rows (#1580).
 - Custom Logs: the list and transaction viewer include the header in the accessible grid row count. Each visible row reports its position in the filtered results, even after scrolling (#1574).
 - Logs: the Logs webview exposes its sticky header and virtualized rows as one named table, with a header for the actions column and logical positions for the displayed result set. Since #1566 the column headers and rows had no table, grid or list around them. **Tab** order, the sticky header and opening a log by click or keyboard are unchanged (#1573).
 - Logs and Custom Logs: the column header and the rows now sit in one scroller, so the header cannot drift from the columns at any horizontal scroll position or scrollbar width, and the vertical scrollbar now spans the header row too. Keyboard selection and **Tab** focus, and the Custom Log Viewer's reveal of an opened entry, stop below the header instead of under it (#1408).
