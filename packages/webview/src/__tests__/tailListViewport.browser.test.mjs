@@ -1,5 +1,3 @@
-// Build with `pnpm run build:webview`, then run this file with `node --test`.
-// CHROME_PATH selects a Chromium executable; otherwise use Playwright Chromium.
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -9,7 +7,7 @@ const media = process.env.TAIL_MEDIA_DIR ?? path.resolve('apps/vscode-extension/
 
 test('native End keeps rows in view while the paused Tail moves to the end', { timeout: 15_000 }, async () => {
   const browser = await chromium.launch(
-    process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chromium' }
+    process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }
   );
   try {
     const page = await browser.newPage({ viewport: { width: 700, height: 600 } });
@@ -32,6 +30,8 @@ test('native End keeps rows in view while the paused Tail moves to the end', { t
       send({ type: 'tailConfig', tailBufferSize: 1000 });
       send({
         type: 'tailData',
+        streamId: 'viewport-test',
+        firstSeq: 0,
         lines: Array.from({ length: 1000 }, (_, i) =>
           i >= 430 && i <= 454 ? `Line ${i} ${'wrapped words go here '.repeat(22)}` : `Line ${i} short`
         )
