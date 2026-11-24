@@ -133,8 +133,9 @@ suite('Tail opened before Logs', () => {
           isRunning() {
             return false;
           }
-          getBufferedLines() {
-            return [];
+          readonly bufferedLineCount = 0;
+          getBufferedSnapshot() {
+            return { streamId: 'test-tail', firstSeq: 0, lines: [] };
           }
           stop() {}
         }

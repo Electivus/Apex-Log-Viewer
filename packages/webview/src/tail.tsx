@@ -4,17 +4,14 @@ import { createRoot } from 'react-dom/client';
 import { getMessages } from './i18n';
 import { decodeLogLine } from '@alv/protocol/logText';
 import type { OrgItem } from '@alv/protocol/types';
-import type {
-  ExtensionToWebviewMessage,
-  WebviewToExtensionMessage
-} from '@alv/protocol/messages';
+import type { ExtensionToWebviewMessage, TailLineBatch, WebviewToExtensionMessage } from '@alv/protocol/messages';
 import { TailToolbar } from './components/tail/TailToolbar';
 import { TailList } from './components/tail/TailList';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
 
-type TailMessage = ExtensionToWebviewMessage;
+type TailSelection = { streamId: string; seq: number };
 
 interface TailUiState {
   query: string;
@@ -22,7 +19,7 @@ interface TailUiState {
   autoScroll: boolean;
   colorize: boolean;
   debugLevelByOrg: Record<string, string>;
-  selectedIndex?: number;
+  selection?: TailSelection;
 }
 
 function buildReadyMessage(): WebviewToExtensionMessage {
@@ -33,32 +30,76 @@ function buildReadyMessage(): WebviewToExtensionMessage {
 
 function readInitialUiState(vscode: VsCodeWebviewApi<WebviewToExtensionMessage>): TailUiState {
   const raw = vscode.getState<Partial<TailUiState>>() ?? {};
+  const selection = raw.selection;
   return {
     query: typeof raw.query === 'string' ? raw.query : '',
     onlyUserDebug: raw.onlyUserDebug === true,
     autoScroll: raw.autoScroll !== false,
     colorize: raw.colorize === true,
     debugLevelByOrg: typeof raw.debugLevelByOrg === 'object' && raw.debugLevelByOrg !== null ? raw.debugLevelByOrg : {},
-    selectedIndex:
-      typeof raw.selectedIndex === 'number' && Number.isInteger(raw.selectedIndex) && raw.selectedIndex >= 0
-        ? raw.selectedIndex
+    selection:
+      typeof selection?.streamId === 'string' && Number.isSafeInteger(selection.seq) && selection.seq >= 0
+        ? { streamId: selection.streamId, seq: selection.seq }
         : undefined
   };
 }
 
-/**
- * The lines the panel holds and the sequence number of the first one. Sequence numbers count every line received
- * since the panel opened, so a line keeps its number while older lines leave the buffer and after a clear.
- */
-interface TailBuffer {
-  lines: string[];
-  firstSeq: number;
+interface TailContent {
+  buffer?: TailLineBatch;
+  selection?: TailSelection;
+  snapshotFirstSeq: number;
+  maxLines: number;
 }
 
-/** Drops lines from the head until at most `max` remain. */
-function trimBuffer(buffer: TailBuffer, max: number): TailBuffer {
-  const drop = Math.max(0, buffer.lines.length - max);
-  return drop > 0 ? { lines: buffer.lines.slice(drop), firstSeq: buffer.firstSeq + drop } : buffer;
+type TailLinesMessage = Extract<ExtensionToWebviewMessage, { type: 'tailData' | 'tailSnapshot' }>;
+
+const EMPTY_LINES: string[] = [];
+
+function selectionIndex(buffer: TailLineBatch | undefined, selection: TailSelection | undefined): number | undefined {
+  if (!buffer || !selection || buffer.streamId !== selection.streamId) {
+    return undefined;
+  }
+  const index = selection.seq - buffer.firstSeq;
+  return index >= 0 && index < buffer.lines.length ? index : undefined;
+}
+
+function nextSeq(batch: TailLineBatch): number {
+  return batch.firstSeq + batch.lines.length;
+}
+
+function updateBuffer(state: TailContent, batch: TailLineBatch, source: 'snapshot' | 'partial'): TailContent {
+  const end = nextSeq(batch);
+  const snapshotFirstSeq = source === 'snapshot' ? batch.firstSeq : state.snapshotFirstSeq;
+  const retainedFrom = Math.max(snapshotFirstSeq, end - state.maxLines);
+  const drop = Math.max(0, retainedFrom - batch.firstSeq);
+  const buffer = drop > 0 ? { ...batch, lines: batch.lines.slice(drop), firstSeq: retainedFrom } : batch;
+  const selection = state.selection;
+  const canStillBeRetained =
+    selection &&
+    selection.streamId === batch.streamId &&
+    selection.seq >= retainedFrom &&
+    (source === 'partial' || selection.seq < end);
+  return { ...state, buffer, snapshotFirstSeq, selection: canStillBeRetained ? selection : undefined };
+}
+
+function receiveLines(state: TailContent, { type, streamId, firstSeq, lines }: TailLinesMessage): TailContent {
+  const current = state.buffer;
+  if (current && current.streamId !== streamId) {
+    return state;
+  }
+  const end = current ? nextSeq(current) : 0;
+  const batch = { streamId, firstSeq, lines };
+  if (type === 'tailSnapshot') {
+    if (firstSeq < state.snapshotFirstSeq || nextSeq(batch) < end) {
+      return state;
+    }
+    return updateBuffer(state, batch, 'snapshot');
+  }
+  if (lines.length === 0 || firstSeq < end) {
+    return state;
+  }
+  const suffix = current && firstSeq === end ? { ...current, lines: current.lines.concat(lines) } : batch;
+  return updateBuffer(state, suffix, 'partial');
 }
 
 export interface TailAppProps {
@@ -70,26 +111,28 @@ export function TailApp({
   vscode = getDefaultVsCodeApi<WebviewToExtensionMessage>(),
   messageBus = getDefaultMessageBus()
 }: TailAppProps = {}) {
-  const [initialUiState] = useState<TailUiState>(() => readInitialUiState(vscode));
-  const initialUiStateRef = useRef<TailUiState>(initialUiState);
+  const [initialUiState] = useState(() => readInitialUiState(vscode));
   const [locale, setLocale] = useState('en');
   const [orgs, setOrgs] = useState<OrgItem[]>([]);
   const [selectedOrg, setSelectedOrg] = useState<string | undefined>(undefined);
   const [running, setRunning] = useState(false);
-  const [buffer, setBuffer] = useState<TailBuffer>({ lines: [], firstSeq: 0 });
-  const lines = buffer.lines;
-  const [tailMaxLines, setTailMaxLines] = useState(10000);
-  const tailMaxLinesRef = useRef(10000);
-  const [query, setQuery] = useState(initialUiStateRef.current.query);
-  const [onlyUserDebug, setOnlyUserDebug] = useState(initialUiStateRef.current.onlyUserDebug);
-  const [autoScroll, setAutoScroll] = useState(initialUiStateRef.current.autoScroll);
+  const [tail, setTail] = useState<TailContent>({
+    maxLines: 10000,
+    snapshotFirstSeq: 0,
+    selection: initialUiState.selection
+  });
+  const { buffer, selection } = tail;
+  const lines = buffer?.lines ?? EMPTY_LINES;
+  const selectedIndex = selectionIndex(buffer, selection);
+  const [query, setQuery] = useState(initialUiState.query);
+  const [onlyUserDebug, setOnlyUserDebug] = useState(initialUiState.onlyUserDebug);
+  const [autoScroll, setAutoScroll] = useState(initialUiState.autoScroll);
   const autoScrollPausedByScrollRef = useRef(false);
-  const [colorize, setColorize] = useState(initialUiStateRef.current.colorize);
+  const [colorize, setColorize] = useState(initialUiState.colorize);
   const [debugLevels, setDebugLevels] = useState<string[]>([]);
   const [activeDebugLevel, setActiveDebugLevel] = useState<string | undefined>(undefined);
-  const [debugLevelByOrg, setDebugLevelByOrg] = useState(initialUiStateRef.current.debugLevelByOrg);
+  const [debugLevelByOrg, setDebugLevelByOrg] = useState(initialUiState.debugLevelByOrg);
   const [error, setError] = useState<string | undefined>(undefined);
-  const [selectedIndex, setSelectedIndex] = useState<number | undefined>(initialUiStateRef.current.selectedIndex);
   const [loading, setLoading] = useState(false);
   const t = getMessages(locale) as any;
   const listRef = useRef<ListImperativeAPI | null>(null);
@@ -100,7 +143,7 @@ export function TailApp({
       return;
     }
     const handler = (event: MessageEvent) => {
-      const msg = event.data as TailMessage;
+      const msg = event.data as ExtensionToWebviewMessage;
       if (!msg || typeof msg !== 'object') {
         return;
       }
@@ -108,10 +151,15 @@ export function TailApp({
         setLocale(msg.locale);
       }
       if (msg.type === 'tailConfig') {
-        const n = typeof (msg as any).tailBufferSize === 'number' ? Math.floor((msg as any).tailBufferSize) : 10000;
-        const clamped = Math.max(1000, Math.min(200000, n));
-        tailMaxLinesRef.current = clamped;
-        setTailMaxLines(clamped);
+        const n = Number.isFinite(msg.tailBufferSize) ? Math.floor(msg.tailBufferSize) : 10000;
+        const maxLines = Math.max(1000, Math.min(200000, n));
+        setTail(prev => {
+          if (prev.maxLines === maxLines) {
+            return prev;
+          }
+          const next = { ...prev, maxLines };
+          return prev.buffer ? updateBuffer(next, prev.buffer, 'partial') : next;
+        });
       }
       if (msg.type === 'loading') {
         setLoading(!!msg.value);
@@ -127,21 +175,8 @@ export function TailApp({
       if (msg.type === 'tailStatus') {
         setRunning(!!msg.running);
       }
-      if (msg.type === 'tailData') {
-        const incoming = Array.isArray(msg.lines) ? msg.lines : [];
-        setBuffer(prev => {
-          const merged = { lines: prev.lines.concat(incoming), firstSeq: prev.firstSeq };
-          const next = trimBuffer(merged, tailMaxLinesRef.current);
-          const drop = next.firstSeq - prev.firstSeq;
-          if (drop > 0) {
-            // Adjust selection to account for trimmed prefix
-            setSelectedIndex(idx => (idx === undefined ? undefined : idx - drop >= 0 ? idx - drop : undefined));
-          }
-          return next;
-        });
-      }
-      if (msg.type === 'tailReset') {
-        setBuffer(prev => ({ lines: [], firstSeq: prev.firstSeq + prev.lines.length }));
+      if (msg.type === 'tailData' || msg.type === 'tailSnapshot') {
+        setTail(prev => receiveLines(prev, msg));
       }
       if (msg.type === 'error') {
         setError(msg.message);
@@ -159,21 +194,9 @@ export function TailApp({
       autoScroll,
       colorize,
       debugLevelByOrg,
-      selectedIndex
+      selection
     } satisfies TailUiState);
-  }, [autoScroll, colorize, debugLevelByOrg, onlyUserDebug, query, selectedIndex, vscode]);
-
-  useEffect(() => {
-    tailMaxLinesRef.current = tailMaxLines;
-    setBuffer(prev => {
-      const next = trimBuffer(prev, tailMaxLines);
-      const drop = next.firstSeq - prev.firstSeq;
-      if (drop > 0) {
-        setSelectedIndex(idx => (idx === undefined ? undefined : idx - drop >= 0 ? idx - drop : undefined));
-      }
-      return next;
-    });
-  }, [tailMaxLines]);
+  }, [autoScroll, colorize, debugLevelByOrg, onlyUserDebug, query, selection, vscode]);
 
   const filteredIndexes = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -302,19 +325,23 @@ export function TailApp({
           autoScrollPausedByScrollRef.current = false; // user action overrides pause reason
           if (v) {
             // Clear selection so the list can follow; TailList jumps to the end when `follow` turns on
-            setSelectedIndex(undefined);
+            setTail(prev => ({ ...prev, selection: undefined }));
           }
         }}
         error={error}
         t={t}
       />
       <TailList
+        key={buffer?.streamId}
         lines={lines}
         filteredIndexes={filteredIndexes}
-        firstLineSeq={buffer.firstSeq}
+        firstLineSeq={buffer?.firstSeq ?? 0}
         selectedIndex={selectedIndex}
         onSelectIndex={idx => {
-          setSelectedIndex(idx);
+          if (!buffer) {
+            return;
+          }
+          setTail(prev => ({ ...prev, selection: { streamId: buffer.streamId, seq: buffer.firstSeq + idx } }));
           setAutoScroll(false);
           autoScrollPausedByScrollRef.current = false; // selection is explicit user pause
           scrollToIndex(idx, 'smooth');

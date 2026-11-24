@@ -11,6 +11,7 @@ import {
 } from '../host/salesforce/apiVersion';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 import { WEBVIEW_SESSION_MOUNT_DELAY_MS } from '../provider/webviewSession';
+import type { ExtensionToWebviewMessage } from '../shared/messages';
 import { TestClock } from './testClock';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
@@ -62,7 +63,12 @@ function loadTailService(stubs?: {
   }) as typeof import('../host/utils/tailService');
 }
 
-function loadTailProvider(stubs?: { org?: Record<string, unknown>; traceflags?: Record<string, unknown> }) {
+function loadTailProvider(stubs?: {
+  org?: Record<string, unknown>;
+  traceflags?: Record<string, unknown>;
+  tailService?: typeof import('../host/utils/tailService');
+  tailBufferSize?: number;
+}) {
   class TailServiceStub {
     setOrg(_username?: string): void {}
     setWindowActive(_active: boolean): void {}
@@ -70,8 +76,9 @@ function loadTailProvider(stubs?: { org?: Record<string, unknown>; traceflags?: 
     isRunning(): boolean {
       return false;
     }
-    getBufferedLines(): string[] {
-      return [];
+    readonly bufferedLineCount = 0;
+    getBufferedSnapshot() {
+      return { streamId: 'test-tail', firstSeq: 0, lines: [] };
     }
     promptPoll(): void {}
     stop(): void {}
@@ -98,7 +105,10 @@ function loadTailProvider(stubs?: { org?: Record<string, unknown>; traceflags?: 
       ensureReplayDebuggerAvailable: async () => true
     },
     '../host/salesforce/traceflags': stubs?.traceflags ?? {},
-    '../host/utils/tailService': { TailService: TailServiceStub }
+    '../host/utils/tailService': stubs?.tailService ?? { TailService: TailServiceStub },
+    ...(stubs?.tailBufferSize !== undefined
+      ? { '../host/utils/config': { getNumberConfig: () => stubs.tailBufferSize, affectsConfiguration: () => false } }
+      : {})
   }) as typeof import('../provider/SfLogTailViewProvider');
 }
 
@@ -229,8 +239,12 @@ async function remountTailSidebar(
   return webview;
 }
 
-function postTailUpdate(provider: SfLogTailViewProvider, message: unknown): void {
+function postTailUpdate(provider: SfLogTailViewProvider, message: ExtensionToWebviewMessage): void {
   (provider as any).post(message, 'replayable');
+}
+
+function postTailData(provider: SfLogTailViewProvider, line: string): void {
+  postTailUpdate(provider, { type: 'tailData', streamId: 'test-tail', firstSeq: 0, lines: [line] });
 }
 
 suite('TailService', () => {
@@ -460,7 +474,10 @@ suite('TailService', () => {
     const SAME_SECOND_ROW = row('07L000000000WIN', '2026-11-05T12:00:30.000+0000');
     const AFTER_PRIME_ROW = row('07L000000000NEW', '2026-11-05T12:00:32.000+0000');
 
-    function harness(options: { lists: Array<Array<{ Id: string; StartTime: string }> | Error> }) {
+    function harness(options: {
+      lists: Array<Array<{ Id: string; StartTime: string }> | Error>;
+      bodyForLog?: (id: string) => string;
+    }) {
       const posted: any[] = [];
       const read: string[] = [];
       let listCalls = 0;
@@ -481,7 +498,7 @@ suite('TailService', () => {
           refuse?.(new Error('disconnected'));
         }
       };
-      const { TailService } = loadTailService({
+      const tailService = loadTailService({
         traceflags: { ensureUserTraceFlag: async () => false },
         http: { getEffectiveApiVersion: () => '64.0' },
         streaming: {
@@ -516,7 +533,7 @@ suite('TailService', () => {
                 source: 'remote',
                 persistence: 'failed',
                 persistenceError: new Error('not stored'),
-                body: `body of ${logId}`,
+                body: options.bodyForLog?.(logId) ?? `body of ${logId}`,
                 sizeBytes: 1,
                 truncated: false
               };
@@ -524,13 +541,15 @@ suite('TailService', () => {
           }
         }
       });
-      const service = new TailService(m => posted.push(m));
+      const service = new tailService.TailService(m => posted.push(m));
       return {
+        tailService,
         service,
         posted,
         read,
         disconnects: () => disconnects,
         listCalls: () => listCalls,
+        awaitingAck: () => acknowledge !== undefined,
         acknowledge: () => acknowledge(),
         refuse: (error: Error) => refuse(error),
         streamLog: (id: string) => processor({ sobject: { Id: id } }),
@@ -559,6 +578,111 @@ suite('TailService', () => {
     });
     teardown(() => {
       Date.now = originalNow;
+    });
+
+    test('tail replays the shifted host range after hidden delivery loss and keeps its stream through remount and clear', async () => {
+      const h = harness({
+        lists: [[]],
+        bodyForLog: id =>
+          id === OLD_ROW.Id ? Array.from({ length: 999 }, (_, i) => `line-${i + 1}`).join('\n') : 'before\nafter'
+      });
+      const { SfLogTailViewProvider } = loadTailProvider({
+        tailService: h.tailService,
+        tailBufferSize: 1000,
+        traceflags: {
+          listDebugLevels: async () => ['DEBUG'],
+          getActiveUserDebugLevel: async () => 'DEBUG'
+        }
+      });
+      const context = { extensionUri: vscode.Uri.file(path.resolve('.')) } as vscode.ExtensionContext;
+      const clock = new TestClock();
+      const provider = new SfLogTailViewProvider(context);
+      const freshProvider = new SfLogTailViewProvider(context);
+      const posted: ExtensionToWebviewMessage[] = [];
+      const dropped: typeof posted = [];
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const tailMessages = (messages: typeof posted) =>
+        messages.filter(message => message.type === 'tailData' || message.type === 'tailSnapshot');
+      webview.postMessage = (message: (typeof posted)[number]) => {
+        (view.visible ? posted : dropped).push(message);
+        return Promise.resolve(view.visible);
+      };
+
+      try {
+        await provider.resolveWebviewView(view);
+        await clock.advanceBy(WEBVIEW_SESSION_MOUNT_DELAY_MS);
+        await webview.emit({ type: 'ready', mountSequence: provider.getWebviewDiagnosticState().mountSequence });
+        const [empty] = tailMessages(posted);
+        assert.ok(empty?.type === 'tailSnapshot', 'ready must publish an authoritative empty snapshot');
+        const { streamId } = empty;
+        assert.ok(streamId);
+        assert.deepEqual(tailMessages(posted), [{ type: 'tailSnapshot', streamId, firstSeq: 0, lines: [] }]);
+
+        const started = webview.emit({ type: 'tailStart', debugLevel: 'DEBUG' });
+        await until(h.awaitingAck, 'subscription awaits acknowledgment');
+        h.acknowledge();
+        await started;
+
+        posted.length = 0;
+        h.streamLog(OLD_ROW.Id);
+        await until(() => tailMessages(posted).length > 0, 'visible append');
+        const [initial] = tailMessages(posted);
+        assert.equal(initial?.type, 'tailData');
+        assert.equal(initial.streamId, streamId);
+        assert.equal(initial.firstSeq, 0);
+        assert.equal(initial.lines.length, 1000);
+
+        posted.length = 0;
+        view.fireVisible(false);
+        h.streamLog(AFTER_PRIME_ROW.Id);
+        await until(() => tailMessages(dropped).length > 0, 'hidden append was dropped');
+        const [hidden] = tailMessages(dropped);
+        assert.equal(hidden?.type, 'tailData');
+        assert.equal(hidden.streamId, streamId);
+        assert.equal(hidden.firstSeq, 1000);
+        assert.equal(hidden.lines.length, 3);
+        assert.deepEqual(tailMessages(posted), []);
+
+        view.fireVisible(true);
+        await until(() => tailMessages(posted).length > 0, 'authoritative visible replay');
+        const replay = {
+          type: 'tailSnapshot',
+          streamId,
+          firstSeq: 3,
+          lines: [...initial.lines.slice(3), ...hidden.lines]
+        };
+        assert.deepEqual(tailMessages(posted), [replay]);
+
+        posted.length = 0;
+        const remounted = await remountTailSidebar(provider, clock, posted);
+        assert.deepEqual(tailMessages(posted), [replay]);
+
+        posted.length = 0;
+        await remounted.emit({ type: 'tailClear' });
+        assert.deepEqual(tailMessages(posted), [{ type: 'tailSnapshot', streamId, firstSeq: 1003, lines: [] }]);
+
+        posted.length = 0;
+        h.streamLog(SAME_SECOND_ROW.Id);
+        await until(() => tailMessages(posted).length > 0, 'append after clear');
+        const [next] = tailMessages(posted);
+        assert.equal(next?.type, 'tailData');
+        assert.equal(next.streamId, streamId);
+        assert.equal(next.firstSeq, 1003);
+
+        posted.length = 0;
+        await remountTailSidebar(freshProvider, clock, posted);
+        const [fresh] = tailMessages(posted);
+        assert.equal(fresh?.type, 'tailSnapshot');
+        assert.ok(fresh.streamId);
+        assert.notEqual(fresh.streamId, streamId);
+        assert.equal(fresh.firstSeq, 0);
+        assert.deepEqual(fresh.lines, []);
+      } finally {
+        provider.dispose();
+        freshProvider.dispose();
+        clock.dispose();
+      }
     });
 
     test('reports running only after Salesforce acknowledges the subscription', async () => {
@@ -768,7 +892,7 @@ suite('TailService', () => {
 
     service.setBufferLimit(Number.MAX_SAFE_INTEGER);
 
-    assert.equal(service.getBufferedLines().length, MAX_TAIL_BUFFER_LINES);
+    assert.equal(service.getBufferedSnapshot().lines.length, MAX_TAIL_BUFFER_LINES);
   });
 
   test('buffer trimming preserves the newest logical tail window without shifting the whole array each append', () => {
@@ -778,8 +902,10 @@ suite('TailService', () => {
     (service as any).appendBufferedLines(Array.from({ length: 1000 }, (_, index) => `line-${index}`));
     (service as any).appendBufferedLines(['line-1000']);
 
-    assert.deepEqual(service.getBufferedLines().slice(0, 3), ['line-1', 'line-2', 'line-3']);
-    assert.deepEqual(service.getBufferedLines().slice(-3), ['line-998', 'line-999', 'line-1000']);
+    const { firstSeq, lines } = service.getBufferedSnapshot();
+    assert.equal(firstSeq, 1);
+    assert.deepEqual(lines.slice(0, 3), ['line-1', 'line-2', 'line-3']);
+    assert.deepEqual(lines.slice(-3), ['line-998', 'line-999', 'line-1000']);
     assert.equal((service as any).bufferedLinesOffset > 0, true, 'trim should advance the logical head');
   });
 
@@ -812,10 +938,9 @@ suite('TailService', () => {
     await webview.emit({ type: 'selectOrg', target: 'newOrg' });
     assert.equal((service as any).seenLogIds.size, 0);
     assert.equal((service as any).logIdToPath.size, 0);
-    assert.deepEqual(service.getBufferedLines(), []);
     assert.equal(service.isRunning(), false);
     assert.equal(
-      posted.some(message => message?.type === 'tailReset'),
+      posted.some(message => message?.type === 'tailSnapshot' && message.firstSeq === 1 && !message.lines.length),
       true,
       'switching orgs should clear the visible tail buffer'
     );
@@ -1164,7 +1289,7 @@ suite('TailService', () => {
       posted.length = 0;
 
       view.fireVisible(false);
-      postTailUpdate(provider, { type: 'tailData', lines: ['USER_DEBUG|recovered while hidden'] });
+      postTailData(provider, 'USER_DEBUG|recovered while hidden');
       await clock.flushMicrotasks();
 
       assert.equal(posted.length, 0, 'hidden recovery messages are not delivered in this test harness');
@@ -1226,7 +1351,7 @@ suite('TailService', () => {
         true
       );
 
-      postTailUpdate(provider, { type: 'tailData', lines: ['USER_DEBUG|hello'] });
+      postTailData(provider, 'USER_DEBUG|hello');
       posted.length = 0;
 
       await remountTailSidebar(provider, clock, posted);
@@ -1278,7 +1403,7 @@ suite('TailService', () => {
       }
 
       posted.length = 0;
-      postTailUpdate(provider, { type: 'tailData', lines: ['USER_DEBUG|recovered'] });
+      postTailData(provider, 'USER_DEBUG|recovered');
 
       assert.equal(
         posted.some(message => message?.type === 'error' && message?.message === undefined),
@@ -1323,7 +1448,7 @@ suite('TailService', () => {
 
       postTailUpdate(provider, { type: 'error', message: 'tail failed again' });
       posted.length = 0;
-      postTailUpdate(provider, { type: 'tailData', lines: ['USER_DEBUG|hello'] });
+      postTailData(provider, 'USER_DEBUG|hello');
 
       assert.equal(
         posted.some(message => message?.type === 'error' && message?.message === undefined),
@@ -1398,7 +1523,7 @@ suite('TailService', () => {
     }
   });
 
-  test('tail replay preserves selected org, configuration, running state, reset ordering, buffer, and error', async () => {
+  test('tail replay preserves selected org, configuration, running state, buffer, and error', async () => {
     const clock = new TestClock();
     try {
       const context = {
@@ -1443,10 +1568,8 @@ suite('TailService', () => {
       );
       assert.ok(posted.some(message => message?.type === 'tailConfig' && message?.tailBufferSize === 321));
       assert.ok(posted.some(message => message?.type === 'tailStatus' && message?.running === true));
-      const resetIndex = posted.findIndex(message => message?.type === 'tailReset');
-      const dataIndex = posted.findIndex(message => message?.type === 'tailData');
-      assert.ok(resetIndex >= 0 && dataIndex === resetIndex + 1, 'buffer replay should reset immediately before data');
-      assert.deepEqual(posted[dataIndex]?.lines, ['USER_DEBUG|first', 'USER_DEBUG|second']);
+      const snapshot = posted.find(message => message?.type === 'tailSnapshot');
+      assert.deepEqual(snapshot?.lines, ['USER_DEBUG|first', 'USER_DEBUG|second']);
       assert.ok(posted.some(message => message?.type === 'error' && message?.message === 'tail failed'));
     } finally {
       clock.dispose();
@@ -1596,10 +1719,9 @@ suite('TailService', () => {
     await provider.syncSelectedOrg('tail-second@example.com');
 
     assert.equal(provider.getSelectedOrg(), 'tail-second@example.com');
-    assert.deepEqual((provider as any).tailService.getBufferedLines(), []);
     assert.equal((provider as any).tailService.isRunning(), false, 'should stop the previous tail session');
     assert.equal(
-      posted.some(message => message?.type === 'tailReset'),
+      posted.some(message => message?.type === 'tailSnapshot' && message.firstSeq === 1 && !message.lines.length),
       true,
       'syncSelectedOrg should clear buffered lines before refreshing the next org'
     );

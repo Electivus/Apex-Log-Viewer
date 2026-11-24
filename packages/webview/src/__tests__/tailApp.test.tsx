@@ -1,10 +1,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-import type {
-  ExtensionToWebviewMessage,
-  WebviewToExtensionMessage
-} from '@alv/protocol/messages';
+import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '@alv/protocol/messages';
 import type { OrgItem } from '@alv/protocol/types';
 import type { VsCodeWebviewApi } from '../vscodeApi';
 import { TailApp } from '../tail';
@@ -51,6 +48,15 @@ describe('Tail webview App', () => {
     });
   }
 
+  const streamId = 'test-stream';
+  const sendSnapshot = (bus: EventTarget, lines: string[], firstSeq = 0, id = streamId) =>
+    send(bus, { type: 'tailSnapshot', streamId: id, firstSeq, lines });
+  const sendLines = (bus: EventTarget, firstSeq: number, lines: string[], id = streamId) =>
+    send(bus, { type: 'tailData', streamId: id, firstSeq, lines });
+  const visibleLines = () => screen.queryAllByRole('row').map(row => [Number(row.dataset.lineSeq), row.textContent]);
+  const selectedTexts = () =>
+    [...document.querySelectorAll('[role="row"] > div[style*="--vscode-focusBorder"]')].map(row => row.textContent);
+
   it('tails logs, trims buffer, and exposes tail actions', async () => {
     const { vscode, posted } = createVsCodeMock();
     const bus = new EventTarget();
@@ -68,21 +74,11 @@ describe('Tail webview App', () => {
     });
 
     const headerOne = '=== ApexLog 07L000001 | 2025-09-21T18:50:00.000Z | user@example.com';
-    send(bus, {
-      type: 'tailData',
-      lines: [headerOne, '13:00:01.000|INFO|line-1', '13:00:02.000|DEBUG|line-2']
-    });
+    sendSnapshot(bus, [headerOne, '13:00:01.000|INFO|line-1', '13:00:02.000|DEBUG|line-2']);
 
     const headerTwo = '=== ApexLog 07L000002 | 2025-09-21T18:55:00.000Z | user@example.com';
-    send(bus, {
-      type: 'tailData',
-      lines: [headerTwo, '13:00:03.000|USER_DEBUG|line-3', '13:00:04.000|METHOD_ENTRY|line-4']
-    });
-
-    send(bus, {
-      type: 'tailData',
-      lines: ['13:00:05.000|USER_DEBUG|line-5', '13:00:06.000|INFO|line-6']
-    });
+    sendLines(bus, 3, [headerTwo, '13:00:03.000|USER_DEBUG|line-3', '13:00:04.000|METHOD_ENTRY|line-4']);
+    sendLines(bus, 6, ['13:00:05.000|USER_DEBUG|line-5', '13:00:06.000|INFO|line-6']);
 
     await screen.findByText('13:00:05.000|USER_DEBUG|line-5');
 
@@ -114,7 +110,7 @@ describe('Tail webview App', () => {
     send(bus, { type: 'error', message: 'Erro de tail' });
     await screen.findByText('Erro de tail');
 
-    send(bus, { type: 'tailReset' });
+    sendSnapshot(bus, [], 8);
     await screen.findByText('Pressione Iniciar para acompanhar os logs.');
 
     await waitFor(() => {
@@ -177,7 +173,7 @@ describe('Tail webview App', () => {
     ];
 
     send(bus, { type: 'tailConfig', tailBufferSize: replayLines.length });
-    send(bus, { type: 'tailData', lines: replayLines });
+    sendSnapshot(bus, replayLines);
 
     fireEvent.change(screen.getByPlaceholderText('Search live logs…'), {
       target: { value: 'keep-this-line' }
@@ -194,14 +190,173 @@ describe('Tail webview App', () => {
     send(bus, { type: 'init', locale: 'en' });
     // The smallest buffer the panel accepts.
     send(bus, { type: 'tailConfig', tailBufferSize: 1000 });
-    send(bus, { type: 'tailData', lines: Array.from({ length: 1000 }, (_, index) => `line-${index}`) });
+    sendSnapshot(
+      bus,
+      Array.from({ length: 1000 }, (_, index) => `line-${index}`)
+    );
     const rowOf = (text: string) => screen.getByText(text).closest('[role="row"]');
     const row = (await screen.findByText('line-5')).closest('[role="row"]');
 
-    send(bus, { type: 'tailData', lines: ['line-1000', 'line-1001', 'line-1002'] });
+    sendLines(bus, 1000, ['line-1000', 'line-1001', 'line-1002']);
 
     expect(screen.queryByText('line-0')).toBeNull();
     expect(rowOf('line-5')).toBe(row);
+  });
+
+  it.each([5, 1])('reconciles selection of line-%i when a hidden replay skips three lines', index => {
+    const { vscode } = createVsCodeMock({ autoScroll: false });
+    const bus = new EventTarget();
+    render(<TailApp vscode={vscode} messageBus={bus} />);
+    send(bus, { type: 'tailConfig', tailBufferSize: 1000 });
+    const lines = Array.from({ length: 1003 }, (_, i) => `line-${i}`);
+    const text = `line-${index}`;
+    sendSnapshot(bus, lines.slice(0, 1000)); // The log's header was already evicted.
+    const line = screen.getByText(text);
+    fireEvent.click(line);
+    const row = line.closest('[role="row"]');
+    expect(selectedTexts()).toEqual([text]);
+
+    sendSnapshot(bus, lines.slice(3), 3);
+
+    expect(selectedTexts()).toEqual(index === 5 ? [text] : []);
+    if (index === 5) {
+      expect(screen.getByText(text).closest('[role="row"]')).toBe(row);
+    } else {
+      expect(screen.queryByText(text)).toBeNull();
+    }
+    expect(screen.getByRole('button', { name: 'Open Log' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Replay Debugger' })).toBeDisabled();
+  });
+
+  it('displays the new contiguous suffix across a gap without selecting a matching line', () => {
+    const { vscode, posted } = createVsCodeMock({ autoScroll: false });
+    const bus = new EventTarget();
+    render(<TailApp vscode={vscode} messageBus={bus} />);
+    const original = ['=== ApexLog 07L000001 | original', 'same body'];
+    const suffix = ['=== ApexLog 07L000002 | newer', 'same body'];
+    sendSnapshot(bus, original, 10);
+    fireEvent.click(screen.getByText('same body'));
+
+    sendLines(bus, 14, suffix);
+    sendLines(bus, 16, ['latest']);
+
+    expect(visibleLines()).toEqual([
+      [14, suffix[0]],
+      [15, 'same body'],
+      [16, 'latest']
+    ]);
+    expect(selectedTexts()).toEqual([]);
+    expect(screen.getByRole('button', { name: 'Open Log' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Replay Debugger' })).toBeDisabled();
+
+    sendSnapshot(bus, [...original, 'missed 1', 'missed 2', ...suffix, 'latest'], 10);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Log' }));
+    expect(posted).toContainEqual({ type: 'openLog', logId: '07L000001' });
+  });
+
+  it('ignores stale, duplicate, and overlapping live batches and older snapshots', () => {
+    const { vscode } = createVsCodeMock({ autoScroll: false });
+    const bus = new EventTarget();
+    render(<TailApp vscode={vscode} messageBus={bus} />);
+    sendSnapshot(bus, ['before'], 10);
+    sendLines(bus, 13, ['fresh', 'next']);
+
+    sendLines(bus, 11, ['late']);
+    sendLines(bus, 13, ['fresh', 'next']);
+    sendLines(bus, 14, ['overlap', 'untrusted suffix']);
+    sendSnapshot(bus, ['fresh'], 13);
+    sendSnapshot(bus, ['different stream'], 50, 'another-stream');
+    sendLines(bus, 50, ['different stream'], 'another-stream');
+    sendLines(bus, 15, ['contiguous']);
+
+    expect(visibleLines()).toEqual([
+      [13, 'fresh'],
+      [14, 'next'],
+      [15, 'contiguous']
+    ]);
+
+    sendSnapshot(bus, [], 16);
+    sendSnapshot(bus, ['fresh', 'next', 'contiguous'], 13);
+    sendLines(bus, 15, ['late across Clear', 'overlap across Clear']);
+    expect(visibleLines()).toEqual([]);
+    sendLines(bus, 16, ['after Clear']);
+    expect(visibleLines()).toEqual([[16, 'after Clear']]);
+  });
+
+  it('does not select a surviving copy of an evicted line with identical text', () => {
+    const { vscode } = createVsCodeMock({ autoScroll: false });
+    const bus = new EventTarget();
+    render(<TailApp vscode={vscode} messageBus={bus} />);
+    sendSnapshot(bus, ['same body', 'same body'], 10);
+    fireEvent.click(screen.getAllByText('same body')[0]!);
+
+    sendSnapshot(bus, ['same body'], 11);
+
+    expect(screen.getByText('same body')).toBeInTheDocument();
+    expect(selectedTexts()).toEqual([]);
+  });
+
+  it('restores the right duplicate after remount and opens or replays only its log', () => {
+    const { vscode, getSavedState, posted } = createVsCodeMock({ autoScroll: false });
+    const bus = new EventTarget();
+    const view = render(<TailApp vscode={vscode} messageBus={bus} />);
+    const lines = ['=== ApexLog 07L000001 | first', 'same body', '=== ApexLog 07L000002 | second', 'same body'];
+    sendSnapshot(bus, ['older', ...lines], 10);
+    fireEvent.click(screen.getAllByText('same body')[1]!);
+
+    expect(JSON.stringify(getSavedState())).not.toMatch(/same body|ApexLog|07L000002/);
+    view.unmount();
+    const remountedBus = new EventTarget();
+    render(<TailApp vscode={vscode} messageBus={remountedBus} />);
+    sendLines(remountedBus, 15, ['live before replay']);
+    sendLines(remountedBus, 16, ['more live before replay']);
+    expect(visibleLines()).toEqual([
+      [15, 'live before replay'],
+      [16, 'more live before replay']
+    ]);
+    expect(selectedTexts()).toEqual([]);
+    expect(screen.getByRole('button', { name: 'Open Log' })).toBeDisabled();
+
+    const replay = [...lines, 'live before replay', 'more live before replay'];
+    sendSnapshot(remountedBus, replay, 11);
+    sendSnapshot(remountedBus, replay, 11); // Repeating the authoritative replay is harmless.
+
+    expect(selectedTexts()).toEqual(['same body']);
+    fireEvent.click(screen.getByRole('button', { name: 'Open Log' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Replay Debugger' }));
+    expect(posted.filter(message => message.type === 'openLog' || message.type === 'replay')).toEqual([
+      { type: 'openLog', logId: '07L000002' },
+      { type: 'replay', logId: '07L000002' }
+    ]);
+  });
+
+  it.each(['clear', 'new host', 'legacy state'])('does not restore a stale selection after %s', boundary => {
+    const lines = ['=== ApexLog 07L000001 | original', 'same line'];
+    const { vscode } = createVsCodeMock({ autoScroll: false, selectedIndex: 1 });
+    const bus = new EventTarget();
+    const view = render(<TailApp vscode={vscode} messageBus={bus} />);
+    if (boundary !== 'legacy state') {
+      sendSnapshot(bus, lines);
+      fireEvent.click(screen.getByText('same line'));
+      expect(selectedTexts()).toEqual(['same line']);
+    }
+    if (boundary === 'clear') {
+      fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+      sendSnapshot(bus, [], 2);
+      sendLines(bus, 2, lines);
+    } else if (boundary === 'new host') {
+      view.unmount();
+      const newBus = new EventTarget();
+      render(<TailApp vscode={vscode} messageBus={newBus} />);
+      sendSnapshot(newBus, lines, 0, 'another-stream');
+    } else {
+      sendSnapshot(bus, lines);
+    }
+
+    expect(screen.getByText('same line')).toBeInTheDocument();
+    expect(selectedTexts()).toEqual([]);
+    expect(screen.getByRole('button', { name: 'Open Log' })).toBeDisabled();
   });
 
   describe('escaped pipes', () => {
@@ -218,7 +373,7 @@ describe('Tail webview App', () => {
       const bus = new EventTarget();
       render(<TailApp vscode={vscode} messageBus={bus} />);
       send(bus, { type: 'init', locale: 'en' });
-      send(bus, { type: 'tailData', lines });
+      sendSnapshot(bus, lines);
       await screen.findAllByRole('row');
     }
 
@@ -267,10 +422,10 @@ describe('Tail webview App', () => {
     render(<TailApp vscode={vscode} messageBus={bus} />);
 
     send(bus, { type: 'init', locale: 'en' });
-    send(bus, {
-      type: 'tailData',
-      lines: Array.from({ length: 40 }, (_, i) => `13:00:${String(i).padStart(2, '0')}.000|INFO|line-${i}`)
-    });
+    sendSnapshot(
+      bus,
+      Array.from({ length: 40 }, (_, i) => `13:00:${String(i).padStart(2, '0')}.000|INFO|line-${i}`)
+    );
     await screen.findAllByRole('row');
 
     const autoScroll = screen.getByRole('switch', { name: 'Auto-scroll' });
@@ -305,10 +460,7 @@ describe('Tail webview App', () => {
       '=== ApexLog 07L000000000001AAA | 2026-11-07T18:26:46.000+0000 | /services/data/v60.0/tooling/executeAnonymous | Success | 1415';
     // The log does not escape the source that Execute Anonymous echoes, so `&#124;` is what the developer wrote.
     const sourceEcho = "Execute Anonymous: System.debug('order=42|status=FAILED&#124;X');";
-    send(bus, {
-      type: 'tailData',
-      lines: [header, sourceEcho, '18:26:46.120 (177599203)|USER_DEBUG|[1]|DEBUG|ok']
-    });
+    sendSnapshot(bus, [header, sourceEcho, '18:26:46.120 (177599203)|USER_DEBUG|[1]|DEBUG|ok']);
 
     await screen.findAllByRole('row');
     expect(screen.getAllByRole('row').map(row => row.textContent)).toEqual([

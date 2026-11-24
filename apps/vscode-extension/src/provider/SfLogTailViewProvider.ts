@@ -53,7 +53,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
   });
   private disposed = false;
   private selectedOrg: string | undefined;
-  private tailService = new TailService(m => this.post(m, 'replayable'));
+  private readonly tailService = new TailService(m => this.post(m, 'replayable'));
   private loadingState = false;
   private orgsSnapshot: OrgItem[] = [];
   private hasOrgsSnapshot = false;
@@ -64,7 +64,6 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
   private debugLevelsBootstrapNeedsRefresh = false;
   private tailRunningSnapshot = false;
   private tailBufferSizeSnapshot = DEFAULT_TAIL_BUFFER_LINES;
-  private tailResetNeedsReplay = false;
   private errorMessage: string | undefined;
   private errorClearNeedsReplay = false;
 
@@ -84,7 +83,6 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       onMessage: message => this.handleMessage(message),
       onReady: () => this.bootstrapWebview(),
       onReplaySucceeded: () => {
-        this.tailResetNeedsReplay = false;
         if (this.errorMessage === undefined) {
           this.errorClearNeedsReplay = false;
         }
@@ -143,7 +141,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       this.tailService.setOrg(next);
       if (prev !== next) {
         this.tailService.stop();
-        this.clearTailReplayState();
+        this.clearTailBuffer();
       }
       logInfo('Tail: selected org set to', next || '(none)');
       this.post({ type: 'loading', value: true }, 'replayable');
@@ -197,8 +195,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     }
     if (message.type === 'tailClear') {
       this.tailService.clearLogPaths();
-      this.tailService.clearBufferedLines();
-      this.post({ type: 'tailReset' }, 'replayable');
+      this.clearTailBuffer();
       return;
     }
   }
@@ -224,8 +221,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         debugLevelCount: this.debugLevelsSnapshot.length,
         tailRunning: this.tailRunningSnapshot,
         tailBufferSize: this.tailBufferSizeSnapshot,
-        bufferedLineCount: this.tailService.getBufferedLines().length,
-        tailResetNeedsReplay: this.tailResetNeedsReplay,
+        bufferedLineCount: this.tailService.bufferedLineCount,
         hasError: this.errorMessage !== undefined,
         errorClearNeedsReplay: this.errorClearNeedsReplay
       }
@@ -286,14 +282,9 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     }
     snapshot.push(
       { type: 'tailConfig', tailBufferSize: this.tailBufferSizeSnapshot },
-      { type: 'tailStatus', running: this.tailRunningSnapshot }
+      { type: 'tailStatus', running: this.tailRunningSnapshot },
+      { type: 'tailSnapshot', ...this.tailService.getBufferedSnapshot() }
     );
-    const bufferedLines = this.tailService.getBufferedLines();
-    if (bufferedLines.length > 0) {
-      snapshot.push({ type: 'tailReset' }, { type: 'tailData', lines: bufferedLines });
-    } else if (this.tailResetNeedsReplay) {
-      snapshot.push({ type: 'tailReset' });
-    }
     if (this.errorMessage !== undefined) {
       snapshot.push({ type: 'error', message: this.errorMessage });
     } else if (this.errorClearNeedsReplay) {
@@ -302,9 +293,9 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     return snapshot;
   }
 
-  private clearTailReplayState(): void {
+  private clearTailBuffer(): void {
     this.tailService.clearBufferedLines();
-    this.post({ type: 'tailReset' }, 'replayable');
+    this.post({ type: 'tailSnapshot', ...this.tailService.getBufferedSnapshot() }, 'replayable');
   }
 
   private post(msg: ExtensionToWebviewMessage, classification: WebviewDeliveryClassification): void {
@@ -342,22 +333,13 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
           shouldClearWebviewError = true;
         }
         break;
-      case 'tailReset':
-        this.tailResetNeedsReplay = true;
-        break;
       case 'tailConfig':
         this.tailBufferSizeSnapshot = msg.tailBufferSize;
         break;
     }
     const visibleAtDelivery = this.session.visible === true;
     const delivery = this.session.deliver(msg, classification);
-    if (msg.type === 'tailReset') {
-      void delivery.then(accepted => {
-        if (accepted && visibleAtDelivery) {
-          this.tailResetNeedsReplay = false;
-        }
-      });
-    } else if (msg.type === 'error' && msg.message === undefined) {
+    if (msg.type === 'error' && msg.message === undefined) {
       void delivery.then(accepted => {
         if (accepted && visibleAtDelivery && this.errorMessage === undefined) {
           this.errorClearNeedsReplay = false;
@@ -440,7 +422,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     this.tailService.setOrg(next);
     if (previous !== next) {
       this.tailService.stop();
-      this.clearTailReplayState();
+      this.clearTailBuffer();
     }
 
     if (!this.view || this.disposed) {

@@ -36,6 +36,8 @@ export type WebviewToExtensionMessage =
   | { type: 'tailStop' }
   | { type: 'tailClear' };
 
+export type TailLineBatch = { streamId: string; firstSeq: number; lines: string[] };
+
 // Messages sent from Extension -> Webview
 export type ExtensionToWebviewMessage =
   | { type: 'loading'; value: boolean }
@@ -70,8 +72,8 @@ export type ExtensionToWebviewMessage =
   | { type: 'debugLevels'; data: string[]; active?: string }
   // Tail view messages
   | { type: 'tailStatus'; running: boolean }
-  | { type: 'tailData'; lines: string[] }
-  | { type: 'tailReset' }
+  | ({ type: 'tailData' } & TailLineBatch)
+  | ({ type: 'tailSnapshot' } & TailLineBatch)
   | { type: 'tailConfig'; tailBufferSize: number };
 
 const MAX_ORG_IDENTIFIER_LENGTH = 320;

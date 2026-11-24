@@ -187,10 +187,11 @@ function openTail({ autoScroll: follow, bufferSize }: { autoScroll: boolean; buf
       bus.dispatchEvent(new MessageEvent('message', { data: { type: 'tailConfig', tailBufferSize: bufferSize } }));
     });
   }
-  const receive = (first: number, count: number) =>
+  const receive = (firstSeq: number, count: number) =>
     act(() => {
-      const lines = Array.from({ length: count }, (_, i) => `Line ${first + i}`);
-      bus.dispatchEvent(new MessageEvent('message', { data: { type: 'tailData', lines } }));
+      const lines = Array.from({ length: count }, (_, i) => `Line ${firstSeq + i}`);
+      const data = { type: firstSeq === 0 ? 'tailSnapshot' : 'tailData', streamId: 'test-stream', firstSeq, lines };
+      bus.dispatchEvent(new MessageEvent('message', { data }));
     });
   receive(0, bufferSize ?? 40);
   frames(18);
