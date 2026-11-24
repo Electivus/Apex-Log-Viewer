@@ -231,6 +231,135 @@ function useLineRowHeights(
   return rowHeight;
 }
 
+/** The first position in `sorted` whose value is at least `value`. */
+function lowerBound(sorted: readonly number[], value: number) {
+  let low = 0;
+  let high = sorted.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if ((sorted[middle] ?? Infinity) < value) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return low;
+}
+
+/** How long after a scroll event this code did not cause a scroll counts as still under way: three frames. */
+const SCROLL_SETTLE_MS = 50;
+
+/**
+ * Whether a key's default action scrolls the list down. Its animation can start before its first scroll event, and a
+ * write in between moves the animation's target, so a key that would have reached the end stops short of it. Keys
+ * that scroll up are left out: their target at the top is where a write for lines that left goes anyway.
+ */
+const scrollsDown = (event: KeyboardEvent) =>
+  !event.ctrlKey &&
+  !event.altKey &&
+  (event.metaKey
+    ? event.key === 'ArrowDown'
+    : ['ArrowDown', 'PageDown', 'End'].includes(event.key) || (event.key === ' ' && !event.shiftKey));
+
+/**
+ * While the view does not follow the end and is at rest, keeps the line in view in place when lines leave the head
+ * of the buffer: the offset goes down by the height the List gave the rows that left. That is the only time this
+ * sets the offset. A row measured late, a filter, the end of the list clamping the offset and a scroll of the user's
+ * all move the view as they do without it.
+ *
+ * The view is at rest unless a scroll event this code did not cause, or a key that scrolls the list down, came in the
+ * last SCROLL_SETTLE_MS, or a press on the list or its scrollbar is held: lines that leave during a scroll, a key's animation or a held thumb are not
+ * compensated, so the scroll ends where the user sent it. Between this code's own writes the offset is kept unrounded,
+ * so a browser that rounds every write under page zoom does not add the rounding up.
+ */
+function useKeepLineInPlace(
+  rowHeight: DynamicRowHeight,
+  filteredIndexes: readonly number[],
+  firstLineSeq: number,
+  follow: boolean,
+  listElement: HTMLElement | null,
+  onScrollMoved: (element: HTMLElement) => void
+) {
+  const previousRef = useRef<
+    { rowHeight: DynamicRowHeight; filteredIndexes: readonly number[]; firstLineSeq: number } | undefined
+  >(undefined);
+  /**
+   * The offset at rest: the one this code last set, unrounded, or the one a scroll of someone else's left, together
+   * with the value the element reported for it. The end of the list can pull the offset back before this code reads
+   * it, so lines that leave are taken off this value rather than off the one read then.
+   */
+  const restRef = useRef<{ reported: number; exact: number } | undefined>(undefined);
+  const scrolledAtRef = useRef(Number.NEGATIVE_INFINITY);
+  const pressedRef = useRef(false);
+
+  useEffect(() => {
+    restRef.current = undefined;
+  }, [listElement]);
+
+  useEffect(() => {
+    const element = listElement;
+    if (!element || follow) return;
+    const rest = () => {
+      restRef.current = { reported: element.scrollTop, exact: element.scrollTop };
+      scrolledAtRef.current = Date.now();
+    };
+    const onScroll = () => {
+      if (element.scrollTop !== restRef.current?.reported) rest();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (scrollsDown(event)) scrolledAtRef.current = Date.now();
+    };
+    const onPress = () => {
+      pressedRef.current = true;
+    };
+    const onRelease = () => {
+      if (!pressedRef.current) return;
+      pressedRef.current = false;
+      rest();
+    };
+    element.addEventListener('scroll', onScroll, { passive: true });
+    element.addEventListener('keydown', onKey);
+    element.addEventListener('pointerdown', onPress);
+    window.addEventListener('pointerup', onRelease);
+    window.addEventListener('pointercancel', onRelease);
+    window.addEventListener('blur', onRelease);
+    return () => {
+      pressedRef.current = false;
+      element.removeEventListener('scroll', onScroll);
+      element.removeEventListener('keydown', onKey);
+      element.removeEventListener('pointerdown', onPress);
+      window.removeEventListener('pointerup', onRelease);
+      window.removeEventListener('pointercancel', onRelease);
+      window.removeEventListener('blur', onRelease);
+    };
+  }, [listElement, follow]);
+
+  useLayoutEffect(() => {
+    const previous = previousRef.current;
+    previousRef.current = { rowHeight, filteredIndexes, firstLineSeq };
+    if (follow) {
+      restRef.current = undefined;
+      return;
+    }
+    if (!listElement) return;
+    restRef.current ??= { reported: listElement.scrollTop, exact: listElement.scrollTop };
+    if (!previous || previous.firstLineSeq >= firstLineSeq) return;
+    if (pressedRef.current || Date.now() - scrolledAtRef.current < SCROLL_SETTLE_MS) return;
+    // The rows the List showed for lines that left, at the heights it gave them; the store still holds them here.
+    const left = lowerBound(previous.filteredIndexes, firstLineSeq - previous.firstLineSeq);
+    let height = 0;
+    for (let index = 0; index < left; index++) {
+      height += previous.rowHeight.getRowHeight(index) ?? previous.rowHeight.getAverageRowHeight();
+    }
+    if (height === 0) return;
+    const exact = Math.max(0, restRef.current.exact - height);
+    listElement.scrollTop = exact;
+    const reported = listElement.scrollTop;
+    restRef.current = { reported, exact: Math.abs(reported - exact) <= 1 ? exact : reported };
+    onScrollMoved(listElement);
+  }, [rowHeight, filteredIndexes, firstLineSeq, follow, listElement, onScrollMoved]);
+}
+
 function TailRow({ index, style, ...rowProps }: RowComponentProps<TailRowProps>) {
   const { lines, filteredIndexes, selectedIndex, onSelectIndex, colorize, t } = rowProps;
   const fullIdx = filteredIndexes[index];
@@ -301,6 +430,14 @@ export function TailList({
     [lines, filteredIndexes, firstLineSeq, selectedIndex, onSelectIndex, colorize, t]
   );
   const rowHeight = useLineRowHeights(filteredIndexes, firstLineSeq, follow);
+  // The scroll listeners below see the offset set for lines that left as their last one, so it does not read as a
+  // fast scroll that widens the overscan, and the List picks its rows for it in this frame instead of the next.
+  const onScrollMoved = useCallback((element: HTMLElement) => {
+    overscanLastTopRef.current = element.scrollTop;
+    lastTopRef.current = element.scrollTop;
+    element.dispatchEvent(new Event('scroll'));
+  }, []);
+  useKeepLineInPlace(rowHeight, filteredIndexes, firstLineSeq, follow, listElement, onScrollMoved);
 
   // The list takes the height the panel leaves under the toolbar. When a short, narrow panel cannot fit a wrapped
   // toolbar, the root scrolls instead and the list keeps its minimum height, so no control or row is clipped.

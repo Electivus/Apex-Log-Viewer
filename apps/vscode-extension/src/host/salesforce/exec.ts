@@ -253,9 +253,17 @@ export function execCommand(
         // A token the output itself carries is held before any text is built from that output.
         holdSecretsInOutput(out);
         holdSecretsInOutput(errOut);
-        const printed = redactSecrets(out);
-        const printedErr = redactSecrets(errOut);
-        const detail = printedErr || redactSecrets(message);
+        let printed: string;
+        let printedErr: string;
+        let detail: string;
+        try {
+          printed = redactSecrets(out);
+          printedErr = redactSecrets(errOut);
+          detail = printedErr || redactSecrets(message);
+        } catch {
+          reject(new Error('Command failed and its output could not be redacted.'));
+          return;
+        }
         try {
           logTrace('execCommand error for', program, '->', detail.split('\n')[0]);
         } catch {}
